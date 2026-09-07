@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Simulate{% endblock %}
+{% block page_title %}<span data-ar="محاكاة رسالة" data-en="Simulate">محاكاة رسالة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="محاكاة رسالة عميل" data-en="Simulate a client message">محاكاة رسالة عميل</h1>
+  <span class="page-head__sub"
+        data-ar="تجرب بيها الفلو كله من غير ما تربط واتساب أو جيميل."
+        data-en="Exercise the whole flow before WhatsApp or Gmail are connected.">
+    تجرب بيها الفلو كله من غير ما تربط واتساب أو جيميل.
+  </span>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="form-grid">
+        <div class="field"><label data-ar="القناة" data-en="Channel">القناة</label>{{ form.channel }}</div>
+        <div class="field"><label data-ar="رقم / إيميل العميل" data-en="Client phone / email">رقم / إيميل العميل</label>{{ form.sender_identity }}</div>
+      </div>
+      <div class="field"><label data-ar="الموضوع" data-en="Subject">الموضوع</label>{{ form.subject }}</div>
+      <div class="field"><label data-ar="نص الرسالة" data-en="Message body">نص الرسالة</label>{{ form.body }}</div>
+      <div class="field"><label data-ar="مرفقات" data-en="Attachments">مرفقات</label>{{ form.files }}</div>
+      <button class="btn btn--primary" type="submit">
+        {% icon "send" "ic--sm" %}<span data-ar="ابعت" data-en="Send">ابعت</span>
+      </button>
+    </form>
+
+    <div class="note note--warn mt">
+      {% icon "shield" %}
+      <div data-ar="لو النص فيه كلمة rate أو ريت، الرسالة هتتحجب عن الأوبريشن وتظهر للأدمن بس."
+           data-en="If the text contains rate/ريت the message is hidden from Operation and shown to the admin only.">
+        لو النص فيه كلمة rate أو ريت، الرسالة هتتحجب عن الأوبريشن.
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">{% icon "inbox" %}<h3 data-ar="آخر الرسايل" data-en="Latest messages">آخر الرسايل</h3></div>
+      <ul class="timeline">
+        {% for message in recent %}
+          <li>
+            <span class="mono">{{ message.client_code }}</span>
+            <span class="grow">{{ message.body|truncatechars:30 }}</span>
+            {% if message.is_rate_blocked %}
+              <span class="badge badge--dead" data-ar="محجوبة" data-en="Hidden">محجوبة</span>
+            {% endif %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="مفيش." data-en="None.">مفيش.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

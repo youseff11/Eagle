@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}My work{% endblock %}
+{% block page_title %}<span data-ar="شغلي" data-en="My work">شغلي</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="شغلي" data-en="My work">شغلي</h1>
+  <div class="grow"></div>
+  {% stars_html user.rating %}
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "pen" %}
+      <h2 data-ar="التاسكات الحالية" data-en="Current tasks">التاسكات الحالية</h2>
+    </div>
+
+    {% for task in open_tasks %}
+      <div class="msg-item">
+        <div class="avatar avatar--brand">{% icon "file" "ic--sm" %}</div>
+        <div class="msg-item__body">
+          <div class="row row--between">
+            <div class="row row--tight">
+              <strong class="mono">{{ task.code }}</strong>
+              {% status_badge task.status %}
+              {% priority_badge task.priority %}
+            </div>
+            <span class="row row--tight mono deadline--{{ task.deadline_state }}">
+              {% icon "clock" "ic--sm" %}
+              {% if task.deadline %}{{ task.deadline|date:"Y-m-d H:i" }}
+              {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
+            </span>
+          </div>
+          <div>{{ task.title }}</div>
+          <small class="muted mono">
+            {{ task.client|label_for:user }} · {{ task.source_lang }} → {{ task.target_lang }}
+          </small>
+          <div class="row" style="margin-top:11px">
+            <a class="btn btn--sm btn--primary" href="{% url 'dashboard:task_detail' task.code %}">
+              {% icon "arrow-right" "ic--sm" %}
+              <span data-ar="افتح التاسك والشات" data-en="Open task & chat">افتح التاسك والشات</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty">
+        {% icon "check-circle" "ic--xl" %}
+        <span data-ar="مفيش شغل عليك دلوقتي." data-en="Nothing on your desk right now.">مفيش شغل عليك دلوقتي.</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">{% icon "star" %}<h3 data-ar="سجل التقييم" data-en="Rating history">سجل التقييم</h3></div>
+      <ul class="timeline">
+        {% for event in rating_events %}
+          <li>
+            <span class="badge badge--dead mono">{{ event.delta }}</span>
+            <span>{{ event.reason_ar }}</span>
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="تقييمك كامل ومفيش خصومات."
+              data-en="Full rating, no penalties.">تقييمك كامل ومفيش خصومات.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card__head">{% icon "history" %}<h3 data-ar="اتقفلت مؤخرًا" data-en="Recently closed">اتقفلت مؤخرًا</h3></div>
+      <ul class="timeline">
+        {% for task in done_tasks %}
+          <li>
+            <a class="mono grow" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            {% status_badge task.status %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

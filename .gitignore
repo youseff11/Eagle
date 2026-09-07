@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+db.sqlite3
+db.sqlite3-wal
+db.sqlite3-shm
+media/
+staticfiles/
+shots/
+.DS_Store
+Claude outputs

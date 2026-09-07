@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Staff{% endblock %}
+{% block page_title %}<span data-ar="الموظفين" data-en="Staff">الموظفين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الموظفين والشيفتات" data-en="Staff & shifts">الموظفين والشيفتات</h1>
+  <div class="grow"></div>
+  <a class="btn btn--primary" href="{% url 'dashboard:admin_user_new' %}">
+    {% icon "plus" "ic--sm" %}<span data-ar="موظف جديد" data-en="New staff member">موظف جديد</span>
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Person">الموظف</th>
+          <th data-ar="الدور" data-en="Role">الدور</th>
+          <th data-ar="التيم ليدر" data-en="Team leader">التيم ليدر</th>
+          <th data-ar="الحالة" data-en="Presence">الحالة</th>
+          <th data-ar="الشيفتات" data-en="Shifts">الشيفتات</th>
+          <th data-ar="التقييم" data-en="Rating">التقييم</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for person in users %}
+        <tr>
+          <td>
+            <div class="row row--tight">
+              <div class="avatar avatar--sm">{{ person.initials }}</div>
+              <div>
+                <div>{{ person.short_name }}</div>
+                <small class="muted mono">{{ person.username }}</small>
+              </div>
+            </div>
+          </td>
+          <td>{% role_badge person.role %}</td>
+          <td>{{ person.team_lead.short_name|default:"—" }}</td>
+          <td>
+            {% if not person.is_active %}
+              <span class="badge badge--dead" data-ar="موقوف" data-en="Disabled">موقوف</span>
+            {% elif person.is_online %}
+              <span class="row row--tight"><span class="dot dot--on"></span>
+                <small data-ar="نشط" data-en="Online">نشط</small></span>
+            {% else %}
+              <span class="row row--tight"><span class="dot dot--off"></span>
+                <small data-ar="أوفلاين" data-en="Offline">أوفلاين</small></span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ person.shifts.count }}</td>
+          <td>{% stars_html person.rating %}</td>
+          <td>
+            <a class="btn btn--sm" href="{% url 'dashboard:admin_user_edit' person.pk %}"
+               data-ar="تعديل" data-en="Edit">تعديل</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

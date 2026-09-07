@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}{{ task.code }}{% endblock %}
+{% block page_title %}<span class="mono">{{ task.code }}</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 class="mono">{{ task.code }}</h1>
+  {% status_badge task.status %}
+  {% priority_badge task.priority %}
+  <div class="grow"></div>
+  <span class="row row--tight mono deadline--{{ task.deadline_state }}">
+    {% icon "clock" "ic--sm" %}
+    {% if task.deadline %}{{ task.deadline|date:"Y-m-d H:i" }}
+    {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
+  </span>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="row row--between">
+    <div>
+      <h2 style="margin:0">{{ task.title }}</h2>
+      <div class="muted mono" style="font-size:.82rem">
+        {{ task.client|label_for:user }} · {{ task.source_lang|default:"—" }} → {{ task.target_lang|default:"—" }}
+      </div>
+    </div>
+    <div class="row" style="gap:22px">
+      <div>
+        <div class="label" data-ar="الأوبريشن" data-en="Operation">الأوبريشن</div>
+        <div>{{ task.created_by.short_name|default:"—" }}</div>
+      </div>
+      <div>
+        <div class="label" data-ar="التيم ليدر" data-en="Team leader">التيم ليدر</div>
+        <div>{{ task.team_lead.short_name|default:"—" }}</div>
+      </div>
+      <div>
+        <div class="label" data-ar="المترجم" data-en="Translator">المترجم</div>
+        <div>{{ task.translator.short_name|default:"—" }}</div>
+      </div>
+    </div>
+  </div>
+  {% if task.description %}<div class="msg-item__text mt">{{ task.description }}</div>{% endif %}
+</div>
+
+{% if pending %}
+  <div class="note note--warn" style="margin-bottom:14px">
+    {% icon "timer" %}
+    <div class="row row--tight">
+      <strong>{{ pending.assignee.short_name }}</strong>
+      <span data-ar="لسه ماأكدش الاستلام — العداد شغال."
+            data-en="has not confirmed yet — the timer is running.">لسه ماأكدش الاستلام — العداد شغال.</span>
+      <span class="badge badge--wait mono">{{ pending.seconds_left }}s</span>
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+
+  <!-- ============================== left column ============================== -->
+  <div>
+
+    {% if rooms %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "message" %}
+          <h3 data-ar="شات التاسك والملفات" data-en="Task chat & files">شات التاسك والملفات</h3>
+        </div>
+
+        <div class="chat">
+          <div class="chat__tabs">
+            {% for room in rooms %}
+              <a class="chat__tab {% if room.id == active_room.id %}is-active{% endif %}"
+                 href="?room={{ room.id }}">
+                {% if room.kind == 'ops_lead' %}
+                  <span data-ar="أوبريشن + تيم ليدر" data-en="Operation + Team leader">أوبريشن + تيم ليدر</span>
+                {% else %}
+                  <span data-ar="جروب التاسك" data-en="Task group">جروب التاسك</span>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+
+          <div class="chat__body" id="chatBody"
+               data-room="{{ active_room.id }}" data-last="{{ last_message_id }}">
+            {% for message in chat_messages %}
+              {% if message.is_system %}
+                <div class="bubble bubble--system">
+                  <div class="bubble__box">{{ message.body }}</div>
+                </div>
+              {% else %}
+                <div class="bubble {% if message.sender_id == user.id %}bubble--mine{% endif %}">
+                  <div class="bubble__meta">{{ message.sender.short_name }} · {{ message.created_at|date:"H:i" }}</div>
+                  <div class="bubble__box">{{ message.body }}
+                    {% if message.attachments.all %}
+                      <div class="files">
+                        {% for attachment in message.attachments.all %}
+                          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+                            <span class="muted">{{ attachment.pretty_size }}</span></a>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          <form class="chat__form" id="chatForm" onsubmit="return false">
+            <textarea class="input" id="chatInput" rows="1"
+                      data-ar-ph="اكتب رسالة… (Enter للإرسال)"
+                      data-en-ph="Write a message… (Enter to send)"
+                      placeholder="اكتب رسالة…"></textarea>
+            <label class="attach-btn" data-ar-title="إرفاق ملفات" data-en-title="Attach files">
+              {% icon "paperclip" %}<input type="file" id="chatFiles" multiple hidden>
+            </label>
+            <button class="btn btn--primary" type="submit" style="height:38px">
+              {% icon "send" "ic--sm" %}<span data-ar="إرسال" data-en="Send">إرسال</span>
+            </button>
+          </form>
+          <div class="chat__files" id="chatFileList"></div>
+        </div>
+      </div>
+    {% else %}
+      <div class="card empty">
+        {% icon "message" "ic--xl" %}
+        <span data-ar="الشات بيتفتح أول ما التيم ليدر يأكد الاستلام."
+              data-en="The chat opens once the team leader accepts.">الشات بيتفتح أول ما التيم ليدر يأكد الاستلام.</span>
+      </div>
+    {% endif %}
+
+    <!-- ------------------------------- AI check ------------------------------ -->
+    {% if user.is_translator or user.is_admin_role %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "sparkles" %}
+          <h3 data-ar="مراجعة الترجمة بالـ AI" data-en="AI translation check">مراجعة الترجمة بالـ AI</h3>
+          <div class="grow"></div>
+          {% if conf.ai_check_enabled %}
+            <span class="badge badge--ok"><i class="badge__dot"></i><span
+              data-ar="مفعّلة" data-en="Enabled">مفعّلة</span></span>
+          {% else %}
+            <span class="badge badge--dead"><i class="badge__dot"></i><span
+              data-ar="متوقفة من الأدمن" data-en="Disabled by admin">متوقفة من الأدمن</span></span>
+          {% endif %}
+        </div>
+
+        {% if conf.ai_check_enabled %}
+          <p class="muted" style="font-size:.84rem"
+             data-ar="الـ AI بيقولك الأخطاء ومكانها بس — مش بيعدّل الترجمة. سيب الخانات فاضية عشان يقرا آخر ملفات بعتها في الشات."
+             data-en="The AI only points out issues and where they are — it never edits your translation. Leave the boxes empty to read the last files you sent in the chat.">
+            الـ AI بيقولك الأخطاء ومكانها بس — مش بيعدّل الترجمة.
+          </p>
+          <div class="form-grid">
+            <div class="field">
+              <label data-ar="النص الأصلي (اختياري)" data-en="Source text (optional)">النص الأصلي (اختياري)</label>
+              <textarea class="input" id="aiSource" rows="5"></textarea>
+            </div>
+            <div class="field">
+              <label data-ar="الترجمة" data-en="Translation">الترجمة</label>
+              <textarea class="input" id="aiTranslated" rows="5"></textarea>
+            </div>
+          </div>
+          <button class="btn btn--accent" id="aiCheckBtn" type="button"
+                  data-url="{% url 'dashboard:api_ai_check' task.code %}">
+            {% icon "sparkles" "ic--sm" %}<span data-ar="تشيك" data-en="Check">تشيك</span>
+          </button>
+          <div id="aiResult" class="mt"></div>
+        {% endif %}
+
+        {% for check in ai_checks %}
+          <div class="note {% if check.status == 'issues' %}note--warn{% else %}note--ok{% endif %} mt">
+            {% if check.status == 'issues' %}{% icon "alert" %}{% else %}{% icon "check-circle" %}{% endif %}
+            <div>
+              <div class="note__where mono">{{ check.created_at|date:"m-d H:i" }} ·
+                {{ check.get_status_display }} · {{ check.issue_count }}</div>
+              <div>{{ check.summary|default:check.error_message }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- ============================== right column ============================= -->
+  <div class="sticky-side">
+
+    <!-- ------------------------------ actions ------------------------------- -->
+    <div class="card">
+      <div class="card__head">{% icon "list-checks" %}<h3 data-ar="الإجراءات" data-en="Actions">الإجراءات</h3></div>
+
+      {% if user.is_operation or user.is_admin_role %}
+        {% if task.status == 'new' %}
+          <div class="field">
+            <label data-ar="اعمل assign لتيم ليدر" data-en="Assign a team leader">اعمل assign لتيم ليدر</label>
+            <select class="input" id="leadSelect">
+              {% for lead in leads %}
+                <option value="{{ lead.pk }}">
+                  {{ lead.short_name }} — {% if lead.is_online %}online{% else %}offline{% endif %} · {{ lead.active_task_count }} tasks
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn--primary btn--block" type="button"
+                  data-action="{% url 'dashboard:api_assign_lead' task.code %}"
+                  data-field="leadSelect">
+            {% icon "send" "ic--sm" %}<span data-ar="ابعتها للتيم ليدر" data-en="Send to team leader">ابعتها للتيم ليدر</span>
+          </button>
+        {% endif %}
+
+        {% if task.status == 'reviewed' %}
+          <button class="btn btn--ok btn--block" type="button"
+                  data-action="{% url 'dashboard:api_task_action' task.code 'delivered' %}"
+                  data-confirm-ar="تأكيد تسليم الملفات للعميل؟"
+                  data-confirm-en="Confirm delivery to the client?">
+            {% icon "upload" "ic--sm" %}<span data-ar="تم التسليم للعميل" data-en="Delivered to client">تم التسليم للعميل</span>
+          </button>
+        {% endif %}
+
+        <form class="mt" method="post" action="{% url 'dashboard:api_set_deadline' task.code %}"
+              onsubmit="event.preventDefault();Eagle.post(this.action,{deadline:this.deadline.value}).then(function(){location.reload();});">
+          {% csrf_token %}
+          <label class="label" data-ar="الديدلاين (من العميل)" data-en="Deadline (from the client)">الديدلاين</label>
+          <div class="row row--tight">
+            <input class="input grow" type="datetime-local" name="deadline"
+                   value="{{ task.deadline|date:'Y-m-d\TH:i' }}">
+            <button class="btn" type="submit" data-ar="حفظ" data-en="Save">حفظ</button>
+          </div>
+        </form>
+
+        {% if not task.is_done %}
+          <button class="btn btn--danger btn--block mt" type="button"
+                  data-action="{% url 'dashboard:api_task_action' task.code 'cancel' %}"
+                  data-confirm-ar="إلغاء التاسك؟" data-confirm-en="Cancel this task?">
+            {% icon "x" "ic--sm" %}<span data-ar="إلغاء التاسك" data-en="Cancel task">إلغاء التاسك</span>
+          </button>
+        {% endif %}
+      {% endif %}
+
+      {% if user.is_team_lead or user.is_admin_role %}
+        {% if task.status == 'lead_accepted' or task.status == 'awaiting_translator' %}
+          <div class="field mt">
+            <label data-ar="اعمل assign لمترجم من فريقك" data-en="Assign a translator from your team">
+              اعمل assign لمترجم من فريقك</label>
+            <select class="input" id="translatorSelect">
+              {% for person in translators %}
+                <option value="{{ person.pk }}">
+                  {{ person.short_name }} — {% if not person.is_online %}offline{% elif person.is_busy %}busy{% else %}free{% endif %}
+                  · {{ person.rating|floatformat:2 }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn--primary btn--block" type="button"
+                  data-action="{% url 'dashboard:api_assign_translator' task.code %}"
+                  data-field="translatorSelect">
+            {% icon "send" "ic--sm" %}<span data-ar="ابعتها للمترجم" data-en="Send to translator">ابعتها للمترجم</span>
+          </button>
+        {% endif %}
+
+        {% if task.status == 'under_review' %}
+          <button class="btn btn--ok btn--block mt" type="button"
+                  data-action="{% url 'dashboard:api_task_action' task.code 'reviewed' %}"
+                  data-confirm-ar="تأكيد إن المراجعة خلصت؟" data-confirm-en="Confirm the review is done?">
+            {% icon "check-circle" "ic--sm" %}<span data-ar="تمت المراجعة" data-en="Review completed">تمت المراجعة</span>
+          </button>
+        {% endif %}
+      {% endif %}
+
+      {% if user.is_translator %}
+        {% if task.status == 'in_progress' %}
+          <button class="btn btn--primary btn--block" type="button"
+                  data-action="{% url 'dashboard:api_task_action' task.code 'translated' %}"
+                  data-confirm-ar="متأكد إنك بعت الملفات في الشات وخلصت؟"
+                  data-confirm-en="Did you already send the files in the chat?">
+            {% icon "check" "ic--sm" %}
+            <span data-ar="خلصت الترجمة — ابعتها للمراجعة"
+                  data-en="Finished — send for review">خلصت الترجمة</span>
+          </button>
+        {% elif task.status == 'under_review' %}
+          <div class="note note--info">
+            {% icon "info" %}
+            <div data-ar="التيم ليدر بيراجع دلوقتي." data-en="The team leader is reviewing.">
+              التيم ليدر بيراجع دلوقتي.</div>
+          </div>
+        {% endif %}
+      {% endif %}
+
+      {% if my_pending %}
+        <div class="note note--high mt">
+          {% icon "timer" %}
+          <div data-ar="لسه ماأكدتش الاستلام — أكد من النافذة اللي ظاهرة."
+               data-en="You have not confirmed yet — use the popup.">لسه ماأكدتش الاستلام.</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- --------------------------- requirements ----------------------------- -->
+    <div class="card">
+      <div class="card__head">
+        {% icon "list-checks" %}
+        <h3 data-ar="متطلبات العميل" data-en="Client requirements">متطلبات العميل</h3>
+        <div class="grow"></div>
+        <a class="chip mono" href="{% url 'dashboard:client_detail' task.client.code %}">{{ task.client.code }}</a>
+      </div>
+
+      {% for requirement in requirements %}
+        <div class="note {% if requirement.kind == 'dislike' %}note--high{% endif %}">
+          {% if requirement.kind == 'like' %}{% icon "thumbs-up" %}
+          {% elif requirement.kind == 'dislike' %}{% icon "thumbs-down" %}
+          {% else %}{% icon "pin" %}{% endif %}
+          <div>
+            <div class="note__where">{{ requirement.kind|kind_ar }} · {{ requirement.author.short_name|default:"—" }}</div>
+            <div>{{ requirement.text }}</div>
+          </div>
+        </div>
+      {% empty %}
+        <div class="muted" data-ar="مفيش متطلبات مسجلة لحد دلوقتي."
+             data-en="No requirements recorded yet.">مفيش متطلبات مسجلة لحد دلوقتي.</div>
+      {% endfor %}
+
+      {% if not user.is_translator %}
+        <form method="post" action="{% url 'dashboard:task_requirement' task.code %}" class="mt">
+          {% csrf_token %}
+          <div class="field">{{ requirement_form.kind }}</div>
+          <div class="field">{{ requirement_form.text }}</div>
+          <button class="btn btn--sm btn--block" type="submit">
+            {% icon "plus" "ic--sm" %}<span data-ar="ضيف متطلب" data-en="Add requirement">ضيف متطلب</span>
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    <!-- --------------------------- source messages -------------------------- -->
+    {% if source_messages %}
+      <div class="card">
+        <div class="card__head">{% icon "inbox" %}<h3 data-ar="رسايل العميل" data-en="Client messages">رسايل العميل</h3></div>
+        {% for message in source_messages %}
+          <div class="note">
+            {% if message.channel == 'whatsapp' %}{% icon "phone" %}{% else %}{% icon "mail" %}{% endif %}
+            <div>
+              <div class="note__where mono">{{ message.get_channel_display }} · {{ message.received_at|date:"m-d H:i" }}</div>
+              <div>{{ message.body|truncatechars:220 }}</div>
+              {% if message.attachments.all %}
+                <div class="files">
+                  {% for attachment in message.attachments.all %}
+                    <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                      {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <!-- ------------------------------ history ------------------------------- -->
+    <div class="card">
+      <div class="card__head">{% icon "history" %}<h3 data-ar="سجل التوزيع" data-en="Assignment history">سجل التوزيع</h3></div>
+      <ul class="timeline">
+        {% for assignment in history %}
+          <li>
+            <span class="avatar avatar--sm">{{ assignment.assignee.initials }}</span>
+            <div class="grow">
+              <div>{{ assignment.assignee.short_name }}
+                <span class="chip">{{ assignment.get_target_role_display }}</span></div>
+              <small class="muted mono">{{ assignment.assigned_at|date:"m-d H:i" }}</small>
+            </div>
+            {% if assignment.status == 'accepted' %}
+              <span class="badge badge--ok" data-ar="استلم" data-en="Accepted">استلم</span>
+            {% elif assignment.status == 'expired' %}
+              <span class="badge badge--dead" data-ar="مردش" data-en="Expired">مردش</span>
+            {% elif assignment.status == 'declined' %}
+              <span class="badge badge--dead" data-ar="رفض" data-en="Declined">رفض</span>
+            {% elif assignment.status == 'pending' %}
+              <span class="badge badge--wait" data-ar="مستني" data-en="Pending">مستني</span>
+            {% else %}
+              <span class="badge" data-ar="ملغي" data-en="Cancelled">ملغي</span>
+            {% endif %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="لسه مفيش توزيع." data-en="Not assigned yet.">لسه مفيش توزيع.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

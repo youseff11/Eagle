@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Tasks{% endblock %}
+{% block page_title %}<span data-ar="التاسكات" data-en="Tasks">التاسكات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="التاسكات" data-en="Tasks">التاسكات</h1>
+  <div class="grow"></div>
+  <a class="btn btn--primary" href="{% url 'dashboard:ops_task_new' %}">
+    {% icon "plus" "ic--sm" %}<span data-ar="تاسك جديدة" data-en="New task">تاسك جديدة</span>
+  </a>
+</div>
+
+<div class="grid grid--4" style="margin-bottom:18px">
+  <div class="kpi"><div class="kpi__value">{{ counters.new }}</div>
+    <div class="kpi__label" data-ar="جديدة — محتاجة توزيع" data-en="New — need assigning">جديدة — محتاجة توزيع</div></div>
+  <div class="kpi kpi--warn"><div class="kpi__value">{{ counters.open }}</div>
+    <div class="kpi__label" data-ar="شغالة دلوقتي" data-en="Currently open">شغالة دلوقتي</div></div>
+  <div class="kpi"><div class="kpi__value">{{ counters.review }}</div>
+    <div class="kpi__label" data-ar="تحت المراجعة" data-en="Under review">تحت المراجعة</div></div>
+  <div class="kpi kpi--ok"><div class="kpi__value">{{ counters.ready }}</div>
+    <div class="kpi__label" data-ar="جاهزة للتسليم" data-en="Ready to deliver">جاهزة للتسليم</div></div>
+</div>
+
+<div class="tabs">
+  <a class="tab {% if not status %}is-active{% endif %}" href="{% url 'dashboard:ops_tasks' %}"
+     data-ar="الكل" data-en="All">الكل</a>
+  <a class="tab {% if status == 'open' %}is-active{% endif %}" href="?status=open"
+     data-ar="المفتوحة" data-en="Open">المفتوحة</a>
+  {% for value, label in statuses %}
+    <a class="tab {% if status == value %}is-active{% endif %}" href="?status={{ value }}">{% status_badge value %}</a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="الكود" data-en="Code">الكود</th>
+          <th data-ar="العنوان" data-en="Title">العنوان</th>
+          <th data-ar="العميل" data-en="Client">العميل</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="التيم ليدر" data-en="Team leader">التيم ليدر</th>
+          <th data-ar="المترجم" data-en="Translator">المترجم</th>
+          <th data-ar="الديدلاين" data-en="Deadline">الديدلاين</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for task in tasks %}
+        <tr>
+          <td class="mono">{{ task.code }}</td>
+          <td>{{ task.title }} {% priority_badge task.priority %}</td>
+          <td class="mono">{{ task.client|label_for:user }}</td>
+          <td>{% status_badge task.status %}</td>
+          <td>{{ task.team_lead.short_name|default:"—" }}</td>
+          <td>{{ task.translator.short_name|default:"—" }}</td>
+          <td class="mono deadline--{{ task.deadline_state }}">
+            {% if task.deadline %}{{ task.deadline|date:"m-d H:i" }}{% else %}—{% endif %}
+          </td>
+          <td>
+            <a class="btn btn--sm" href="{% url 'dashboard:task_detail' task.code %}"
+               data-ar="افتح" data-en="Open">افتح</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="empty">
+          {% icon "layers" "ic--xl" %}
+          <span data-ar="مفيش تاسكات." data-en="No tasks.">مفيش تاسكات.</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

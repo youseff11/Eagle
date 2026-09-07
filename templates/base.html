@@ -1,0 +1,72 @@
+{% load static eagle_tags %}<!DOCTYPE html>
+<html lang="{{ eagle_lang }}" dir="{{ eagle_dir }}" data-theme="{{ eagle_theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Eagle{% endblock %} · Eagle</title>
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+{% include "partials/icons.html" %}
+
+<div class="shell">
+
+  {% include "partials/sidebar.html" %}
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-toggle" type="button" aria-label="menu">{% icon "menu" %}</button>
+      <div class="topbar__title">{% block page_title %}{% endblock %}</div>
+      <div class="topbar__spacer"></div>
+      {% include "partials/topbar.html" %}
+    </header>
+
+    <div class="content">
+      {% if messages %}
+        <div class="messages-flash">
+          {% for message in messages %}
+            <div class="note note--ok">
+              {% icon "check-circle" %}
+              <div>
+                <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span>
+                <span class="mono muted">{{ message }}</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+{% include "partials/assign_modal.html" %}
+
+<script>
+  window.EAGLE_CFG = {
+    lang: "{{ eagle_lang }}",
+    theme: "{{ eagle_theme }}",
+    pollMs: {{ eagle_poll_ms }},
+    lastNotification: {{ last_notification_id|default:0 }},
+    prefsUrl: "{% url 'dashboard:api_prefs' %}",
+    heartbeatUrl: "{% url 'dashboard:api_heartbeat' %}",
+    acceptUrl: "{% url 'dashboard:api_accept' 0 %}",
+    declineUrl: "{% url 'dashboard:api_decline' 0 %}",
+    chatFetchUrl: "{% url 'dashboard:api_chat_fetch' 0 %}",
+    chatSendUrl: "{% url 'dashboard:api_chat_send' 0 %}"
+  };
+</script>
+<script src="{% static 'js/app.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

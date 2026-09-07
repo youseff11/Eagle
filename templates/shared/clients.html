@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Clients{% endblock %}
+{% block page_title %}<span data-ar="العملاء" data-en="Clients">العملاء</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="العملاء" data-en="Clients">العملاء</h1>
+  <span class="page-head__sub"
+        data-ar="بيانات العميل الحقيقية بتظهر للأدمن بس — الباقي بيشوف الكود."
+        data-en="Real client details are visible to the admin only — everyone else sees the code.">
+    بيانات العميل الحقيقية بتظهر للأدمن بس.
+  </span>
+</div>
+
+<div class="card">
+  <form method="get" class="row" style="margin-bottom:14px">
+    <div class="field-icon grow" style="margin:0">
+      {% icon "search" "ic--lead" %}
+      <input class="input" name="q" value="{{ query }}"
+             data-ar-ph="ابحث بالكود…" data-en-ph="Search by code…" placeholder="ابحث بالكود…">
+    </div>
+    <button class="btn" type="submit" data-ar="بحث" data-en="Search">بحث</button>
+  </form>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="الكود" data-en="Code">الكود</th>
+          {% if user.is_admin_role %}
+            <th data-ar="الاسم" data-en="Name">الاسم</th>
+            <th data-ar="التليفون" data-en="Phone">التليفون</th>
+          {% endif %}
+          <th data-ar="عدد التاسكات" data-en="Tasks">عدد التاسكات</th>
+          <th data-ar="المتطلبات" data-en="Requirements">المتطلبات</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for client in clients %}
+        <tr>
+          <td class="mono"><strong>{{ client.code }}</strong></td>
+          {% if user.is_admin_role %}
+            <td>{{ client.name|default:"—" }} <small class="muted">{{ client.company }}</small></td>
+            <td class="mono">{{ client.phone|default:"—" }}</td>
+          {% endif %}
+          <td>{{ client.tasks.count }}</td>
+          <td>{{ client.requirements.count }}</td>
+          <td>
+            <a class="btn btn--sm" href="{% url 'dashboard:client_detail' client.code %}"
+               data-ar="افتح" data-en="Open">افتح</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty">
+          {% icon "tag" "ic--xl" %}
+          <span data-ar="مفيش عملاء." data-en="No clients.">مفيش عملاء.</span></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

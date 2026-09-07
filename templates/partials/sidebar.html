@@ -1,0 +1,97 @@
+{% load eagle_tags %}{% with url_name=request.resolver_match.url_name %}
+<aside class="sidebar">
+  <a href="{% url 'dashboard:home' %}" class="brand">
+    <span class="brand__mark">{% icon "eagle" %}</span>
+    <span>
+      <span class="brand__name">EAGLE</span>
+      <span class="brand__sub">translation ops</span>
+    </span>
+  </a>
+
+  <nav class="nav">
+
+    {% if user.is_operation or user.is_admin_role %}
+      <div class="nav__label" data-ar="الأوبريشن" data-en="Operation">الأوبريشن</div>
+
+      <a class="nav__item {% if url_name == 'ops_inbox' %}is-active{% endif %}" href="{% url 'dashboard:ops_inbox' %}">
+        {% icon "inbox" %}
+        <span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>
+        <span class="nav__count hidden" data-counter="inbox">0</span>
+      </a>
+      <a class="nav__item {% if url_name == 'ops_tasks' or url_name == 'ops_task_new' %}is-active{% endif %}" href="{% url 'dashboard:ops_tasks' %}">
+        {% icon "layers" %}
+        <span data-ar="التاسكات" data-en="Tasks">التاسكات</span>
+        <span class="nav__count hidden" data-counter="new_tasks">0</span>
+      </a>
+      <a class="nav__item {% if url_name == 'ops_team' %}is-active{% endif %}" href="{% url 'dashboard:ops_team' %}">
+        {% icon "users" %}
+        <span data-ar="حالة الفرق" data-en="Team status">حالة الفرق</span>
+      </a>
+    {% endif %}
+
+    {% if user.is_team_lead %}
+      <div class="nav__label" data-ar="التيم ليدر" data-en="Team leader">التيم ليدر</div>
+      <a class="nav__item {% if url_name == 'lead_home' %}is-active{% endif %}" href="{% url 'dashboard:lead_home' %}">
+        {% icon "target" %}
+        <span data-ar="تاسكاتي" data-en="My tasks">تاسكاتي</span>
+        <span class="nav__count hidden" data-counter="open">0</span>
+      </a>
+    {% endif %}
+
+    {% if user.is_translator %}
+      <div class="nav__label" data-ar="المترجم" data-en="Translator">المترجم</div>
+      <a class="nav__item {% if url_name == 'translator_home' %}is-active{% endif %}" href="{% url 'dashboard:translator_home' %}">
+        {% icon "pen" %}
+        <span data-ar="شغلي" data-en="My work">شغلي</span>
+        <span class="nav__count hidden" data-counter="open">0</span>
+      </a>
+    {% endif %}
+
+    {% if not user.is_translator %}
+      <div class="nav__label" data-ar="العملاء" data-en="Clients">العملاء</div>
+      <a class="nav__item {% if url_name == 'client_list' or url_name == 'client_detail' %}is-active{% endif %}" href="{% url 'dashboard:client_list' %}">
+        {% icon "tag" %}
+        <span data-ar="أكواد العملاء" data-en="Client codes">أكواد العملاء</span>
+      </a>
+    {% endif %}
+
+    {% if user.is_admin_role %}
+      <div class="nav__label" data-ar="الأدمن" data-en="Admin">الأدمن</div>
+      <a class="nav__item {% if url_name == 'admin_overview' %}is-active{% endif %}" href="{% url 'dashboard:admin_overview' %}">
+        {% icon "chart" %}<span data-ar="نظرة عامة" data-en="Overview">نظرة عامة</span>
+      </a>
+      <a class="nav__item {% if url_name == 'admin_users' or url_name == 'admin_user_edit' or url_name == 'admin_user_new' %}is-active{% endif %}" href="{% url 'dashboard:admin_users' %}">
+        {% icon "contact" %}<span data-ar="الموظفين والشيفتات" data-en="Staff & shifts">الموظفين والشيفتات</span>
+      </a>
+      <a class="nav__item {% if url_name == 'admin_clients' %}is-active{% endif %}" href="{% url 'dashboard:admin_clients' %}">
+        {% icon "archive" %}<span data-ar="بيانات العملاء" data-en="Client records">بيانات العملاء</span>
+      </a>
+      <a class="nav__item {% if url_name == 'admin_settings' %}is-active{% endif %}" href="{% url 'dashboard:admin_settings' %}">
+        {% icon "sliders" %}<span data-ar="الإعدادات و AI" data-en="Settings & AI">الإعدادات و AI</span>
+      </a>
+      <a class="nav__item {% if url_name == 'admin_simulate' %}is-active{% endif %}" href="{% url 'dashboard:admin_simulate' %}">
+        {% icon "beaker" %}<span data-ar="محاكاة رسالة" data-en="Simulate message">محاكاة رسالة</span>
+      </a>
+      <a class="nav__item {% if url_name == 'admin_audit' %}is-active{% endif %}" href="{% url 'dashboard:admin_audit' %}">
+        {% icon "history" %}<span data-ar="سجل النشاط" data-en="Audit log">سجل النشاط</span>
+      </a>
+    {% endif %}
+
+    <div class="nav__label" data-ar="حسابي" data-en="Account">حسابي</div>
+    <a class="nav__item {% if url_name == 'notifications' %}is-active{% endif %}" href="{% url 'dashboard:notifications' %}">
+      {% icon "bell" %}<span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>
+    </a>
+  </nav>
+
+  <div class="side-user">
+    <div class="avatar avatar--brand">{{ user.initials }}</div>
+    <div class="side-user__meta">
+      <div class="side-user__name">{{ user.short_name }}</div>
+      <div class="row row--tight">
+        {% role_badge user.role %}
+        {% if user.is_translator or user.is_team_lead %}{% stars_html user.rating %}{% endif %}
+      </div>
+    </div>
+  </div>
+</aside>
+{% endwith %}

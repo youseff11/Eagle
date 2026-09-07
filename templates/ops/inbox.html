@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Inbox{% endblock %}
+{% block page_title %}<span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الرسايل الواردة من العملاء" data-en="Client inbox">الرسايل الواردة من العملاء</h1>
+  <span class="badge badge--new mono">{{ unclaimed_count }}</span>
+  <div class="grow"></div>
+  <a class="btn btn--primary" href="{% url 'dashboard:ops_task_new' %}">
+    {% icon "plus" "ic--sm" %}<span data-ar="تاسك جديدة" data-en="New task">تاسك جديدة</span>
+  </a>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <form method="get" class="row">
+    <div class="field-icon grow" style="margin:0">
+      {% icon "search" "ic--lead" %}
+      <input class="input" name="q" value="{{ query }}"
+             data-ar-ph="ابحث في نص الرسالة أو كود العميل…"
+             data-en-ph="Search the message text or client code…"
+             placeholder="ابحث في نص الرسالة أو كود العميل…">
+    </div>
+    <select class="input" name="state" style="max-width:210px" onchange="this.form.submit()">
+      <option value="" {% if not state %}selected{% endif %}
+              data-ar="كل الرسايل" data-en="All messages">كل الرسايل</option>
+      <option value="unclaimed" {% if state == 'unclaimed' %}selected{% endif %}
+              data-ar="محدش استلمها" data-en="Unclaimed">محدش استلمها</option>
+      <option value="mine" {% if state == 'mine' %}selected{% endif %}
+              data-ar="اللي أنا استلمتها" data-en="Claimed by me">اللي أنا استلمتها</option>
+      <option value="notask" {% if state == 'notask' %}selected{% endif %}
+              data-ar="من غير تاسك" data-en="Without a task">من غير تاسك</option>
+    </select>
+    <button class="btn" type="submit" data-ar="بحث" data-en="Search">بحث</button>
+  </form>
+
+  {% if user.is_admin_role and blocked_count %}
+    <div class="note note--warn mt">
+      {% icon "shield" %}
+      <div>
+        <span data-ar="رسايل محجوبة عن الأوبريشن (فيها كلمة سعر / rate):"
+              data-en="Messages hidden from Operation (rate keyword):">رسايل محجوبة عن الأوبريشن:</span>
+        <strong class="mono">{{ blocked_count }}</strong>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% if not messages_list %}
+  <div class="card empty">
+    {% icon "inbox" "ic--xl" %}
+    <span data-ar="مفيش رسايل هنا دلوقتي." data-en="No messages here yet.">مفيش رسايل هنا دلوقتي.</span>
+  </div>
+{% endif %}
+
+{% for item in messages_list %}
+  <div class="msg-item {% if item.is_rate_blocked %}is-blocked{% endif %}">
+    <div class="avatar avatar--brand">
+      {% if item.channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}{% else %}{% icon "mail" "ic--sm" %}{% endif %}
+    </div>
+
+    <div class="msg-item__body">
+      <div class="row row--between">
+        <div class="row row--tight">
+          <strong class="mono">{{ item.client_code }}</strong>
+          <span class="chip">{{ item.get_channel_display }}</span>
+          {% if item.is_rate_blocked %}
+            <span class="badge badge--dead"><i class="badge__dot"></i><span
+              data-ar="محجوبة — سعر" data-en="Hidden — rate">محجوبة — سعر</span></span>
+          {% endif %}
+          {% if item.task_id %}
+            <a class="badge badge--ok mono" href="{% url 'dashboard:task_detail' item.task.code %}">{{ item.task.code }}</a>
+          {% endif %}
+        </div>
+        <small class="mono">{{ item.received_at|date:"Y-m-d H:i" }}</small>
+      </div>
+
+      {% if item.subject %}<div style="font-weight:600">{{ item.subject }}</div>{% endif %}
+      <div class="msg-item__text">{{ item.body }}</div>
+
+      {% if item.attachments.all %}
+        <div class="files">
+          {% for attachment in item.attachments.all %}
+            <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+              {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if user.is_admin_role and item.sender_identity %}
+        <div class="muted mono" style="font-size:.75rem;margin-top:7px">
+          {{ item.sender_identity }} {{ item.sender_display }}
+        </div>
+      {% endif %}
+
+      <div class="row row--tight" style="margin-top:11px">
+        {% if item.claimed_by_id %}
+          <span class="badge badge--ok">
+            {% icon "user-check" "ic--sm" %}
+            <span data-ar="استلمها" data-en="Claimed by">استلمها</span> {{ item.claimed_by.short_name }}
+          </span>
+        {% else %}
+          <button class="btn btn--sm btn--accent" type="button"
+                  data-action="{% url 'dashboard:api_claim_message' item.pk %}">
+            {% icon "user-check" "ic--sm" %}<span data-ar="استلمت الرسالة" data-en="Claim">استلمت الرسالة</span>
+          </button>
+        {% endif %}
+
+        {% if not item.task_id %}
+          <a class="btn btn--sm btn--primary" href="{% url 'dashboard:ops_task_new' %}?message={{ item.pk }}">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="حوّلها لتاسك" data-en="Convert to task">حوّلها لتاسك</span>
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

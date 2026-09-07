@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}New task{% endblock %}
+{% block page_title %}<span data-ar="تاسك جديدة" data-en="New task">تاسك جديدة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="تاسك جديدة" data-en="New task">تاسك جديدة</h1>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <form method="post">
+      {% csrf_token %}
+      {% if source_message %}<input type="hidden" name="message" value="{{ source_message.pk }}">{% endif %}
+
+      <div class="field">
+        <label data-ar="كود العميل" data-en="Client code">كود العميل</label>
+        {{ form.client }}
+        {{ form.client.errors }}
+      </div>
+
+      <div class="field">
+        <label data-ar="عنوان التاسك" data-en="Task title">عنوان التاسك</label>
+        {{ form.title }}
+        {{ form.title.errors }}
+      </div>
+
+      <div class="field">
+        <label data-ar="التفاصيل" data-en="Details">التفاصيل</label>
+        {{ form.description }}
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label data-ar="من لغة" data-en="Source language">من لغة</label>
+          {{ form.source_lang }}
+        </div>
+        <div class="field">
+          <label data-ar="للغة" data-en="Target language">للغة</label>
+          {{ form.target_lang }}
+        </div>
+        <div class="field">
+          <label data-ar="الأولوية" data-en="Priority">الأولوية</label>
+          {{ form.priority }}
+        </div>
+        <div class="field">
+          <label data-ar="الديدلاين (بتاخده من العميل)" data-en="Deadline (agreed with the client)">الديدلاين</label>
+          {{ form.deadline }}
+          {{ form.deadline.errors }}
+        </div>
+      </div>
+
+      <button class="btn btn--primary" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="اعمل التاسك" data-en="Create task">اعمل التاسك</span>
+      </button>
+    </form>
+  </div>
+
+  <div class="sticky-side">
+    {% if source_message %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "message" %}
+          <h3 data-ar="الرسالة الأصلية" data-en="Source message">الرسالة الأصلية</h3>
+        </div>
+        <div class="row row--tight" style="margin-bottom:8px">
+          <strong class="mono">{{ source_message.client_code }}</strong>
+          <span class="chip">{{ source_message.get_channel_display }}</span>
+        </div>
+        <div class="msg-item__text">{{ source_message.body }}</div>
+        {% if source_message.attachments.all %}
+          <div class="files">
+            {% for attachment in source_message.attachments.all %}
+              <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      {% if source_message.client %}
+        <div class="card">
+          <div class="card__head">
+            {% icon "list-checks" %}
+            <h3 data-ar="متطلبات العميل" data-en="Client requirements">متطلبات العميل</h3>
+          </div>
+          {% for requirement in source_message.client.requirements.all %}
+            <div class="note">
+              {% if requirement.kind == 'like' %}{% icon "thumbs-up" %}
+              {% elif requirement.kind == 'dislike' %}{% icon "thumbs-down" %}
+              {% else %}{% icon "pin" %}{% endif %}
+              <div>
+                <div class="note__where">{{ requirement.kind|kind_ar }} / {{ requirement.kind|kind_en }}</div>
+                <div>{{ requirement.text }}</div>
+              </div>
+            </div>
+          {% empty %}
+            <div class="muted" data-ar="مفيش متطلبات مسجلة." data-en="No requirements recorded.">مفيش متطلبات مسجلة.</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="note note--info">
+        {% icon "info" %}
+        <div data-ar="تقدر تعمل التاسك من رسالة في الإنبوكس عشان تتربط بيها تلقائي."
+             data-en="You can also create a task straight from an inbox message so they stay linked.">
+          تقدر تعمل التاسك من رسالة في الإنبوكس عشان تتربط بيها تلقائي.
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

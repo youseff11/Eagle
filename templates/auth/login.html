@@ -1,0 +1,114 @@
+{% load static eagle_tags %}<!DOCTYPE html>
+<html lang="{{ eagle_lang }}" dir="{{ eagle_dir }}" data-theme="{{ eagle_theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eagle · Sign in</title>
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+
+{% include "partials/icons.html" %}
+
+<div class="auth__utils">
+  <div class="seg">
+    <button type="button" data-lang-btn="ar">عربي</button>
+    <button type="button" data-lang-btn="en">EN</button>
+  </div>
+  <button class="icon-btn" id="themeToggle" type="button"
+          data-ar-title="تبديل الوضع الليلي" data-en-title="Toggle dark mode">
+    <span id="themeIcon">{% icon "moon" %}</span>
+  </button>
+</div>
+
+<main class="auth">
+  <div class="auth__wrap">
+
+    <div class="auth__logo">
+      <span class="brand__mark">{% icon "eagle" %}</span>
+      <span>
+        <span class="brand__name">EAGLE</span>
+        <span class="brand__sub">translation ops</span>
+      </span>
+    </div>
+
+    <div class="auth__card">
+      <h1 class="auth__title" data-ar="تسجيل الدخول" data-en="Sign in">تسجيل الدخول</h1>
+      <p class="auth__sub" data-ar="ادخل ببيانات حسابك عشان تكمّل شغلك."
+         data-en="Enter your account details to continue.">ادخل ببيانات حسابك عشان تكمّل شغلك.</p>
+
+      {% if form.errors %}
+        <div class="auth__alert">
+          {% icon "alert" "ic--sm" %}
+          <span data-ar="اسم المستخدم أو كلمة السر غلط. جرّب تاني."
+                data-en="Wrong username or password. Please try again.">
+            اسم المستخدم أو كلمة السر غلط. جرّب تاني.
+          </span>
+        </div>
+      {% endif %}
+
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+        <div class="field">
+          <label data-ar="اسم المستخدم" data-en="Username">اسم المستخدم</label>
+          <div class="field-icon">
+            {% icon "user" "ic--lead" %}
+            {{ form.username }}
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-ar="كلمة السر" data-en="Password">كلمة السر</label>
+          <div class="field-icon">
+            {% icon "lock" "ic--lead" %}
+            {{ form.password }}
+            <button class="peek" type="button" id="peek"
+                    data-ar-title="إظهار كلمة السر" data-en-title="Show password">
+              {% icon "eye" "ic--sm" %}
+            </button>
+          </div>
+        </div>
+
+        <button class="btn btn--primary btn--block" type="submit"
+                data-ar="دخول" data-en="Sign in">دخول</button>
+      </form>
+    </div>
+
+    <div class="auth__foot" data-ar="لو نسيت بياناتك كلّم الأدمن عشان يعملك reset."
+         data-en="Lost your credentials? Ask the admin to reset them.">
+      لو نسيت بياناتك كلّم الأدمن عشان يعملك reset.
+    </div>
+  </div>
+</main>
+
+<script>
+  window.EAGLE_CFG = {
+    lang: "{{ eagle_lang }}",
+    theme: "{{ eagle_theme }}",
+    prefsUrl: "{% url 'dashboard:api_prefs' %}"
+  };
+</script>
+<script src="{% static 'js/app.js' %}"></script>
+<script>
+  (function () {
+    var peek = document.getElementById("peek");
+    var pwd = document.getElementById("id_password");
+    if (!peek || !pwd) { return; }
+    peek.addEventListener("click", function () {
+      var shown = pwd.type === "text";
+      pwd.type = shown ? "password" : "text";
+      var use = peek.querySelector("use");
+      if (use) { use.setAttribute("href", shown ? "#i-eye" : "#i-eye-off"); }
+      pwd.focus();
+    });
+  })();
+</script>
+</body>
+</html>

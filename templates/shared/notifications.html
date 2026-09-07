@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Notifications{% endblock %}
+{% block page_title %}<span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="التنبيهات" data-en="Notifications">التنبيهات</h1>
+</div>
+
+<div class="card">
+  {% for item in items %}
+    <div class="note {% if item.level == 'danger' %}note--high{% elif item.level == 'warning' %}note--warn{% elif item.level == 'success' %}note--ok{% else %}note--info{% endif %}">
+      {% if item.level == 'danger' or item.level == 'warning' %}{% icon "alert" %}
+      {% elif item.level == 'success' %}{% icon "check-circle" %}
+      {% else %}{% icon "info" %}{% endif %}
+      <div class="grow">
+        <div class="note__where mono">{{ item.created_at|date:"Y-m-d H:i" }}</div>
+        <strong data-ar="{{ item.title_ar }}" data-en="{{ item.title_en }}">{{ item.title_ar }}</strong>
+        {% if item.body_ar %}
+          <div class="muted" data-ar="{{ item.body_ar }}" data-en="{{ item.body_en }}">{{ item.body_ar }}</div>
+        {% endif %}
+      </div>
+      {% if item.url %}
+        <a class="btn btn--sm" href="{{ item.url }}" data-ar="افتح" data-en="Open">افتح</a>
+      {% endif %}
+    </div>
+  {% empty %}
+    <div class="empty">
+      {% icon "bell" "ic--xl" %}
+      <span data-ar="مفيش تنبيهات." data-en="No notifications.">مفيش تنبيهات.</span>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

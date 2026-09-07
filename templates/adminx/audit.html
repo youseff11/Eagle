@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Audit{% endblock %}
+{% block page_title %}<span data-ar="سجل النشاط" data-en="Audit log">سجل النشاط</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="سجل النشاط" data-en="Audit log">سجل النشاط</h1>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="الوقت" data-en="Time">الوقت</th>
+          <th data-ar="الشخص" data-en="Actor">الشخص</th>
+          <th data-ar="الحدث" data-en="Action">الحدث</th>
+          <th data-ar="الهدف" data-en="Target">الهدف</th>
+          <th data-ar="تفاصيل" data-en="Detail">تفاصيل</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for entry in logs %}
+        <tr>
+          <td class="mono nowrap">{{ entry.created_at|date:"m-d H:i:s" }}</td>
+          <td>{{ entry.actor.short_name|default:"system" }}</td>
+          <td class="mono">{{ entry.action }}</td>
+          <td class="mono">{{ entry.target }}</td>
+          <td class="muted">{{ entry.detail|truncatechars:60 }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty">
+          {% icon "history" "ic--xl" %}
+          <span data-ar="السجل فاضي." data-en="Log is empty.">السجل فاضي.</span></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

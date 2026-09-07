@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Client{% endblock %}
+{% block page_title %}<span data-ar="عميل" data-en="Client">عميل</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>
+    {% if client %}<span class="mono">{{ client.code }}</span>
+    {% else %}<span data-ar="عميل جديد" data-en="New client">عميل جديد</span>{% endif %}
+  </h1>
+</div>
+
+<div class="card" style="max-width:680px">
+  <form method="post">
+    {% csrf_token %}
+    <div class="form-grid">
+      {% for field in form %}
+        <div class="field">
+          <label>{{ field.label }}</label>
+          {{ field }}
+          {{ field.errors }}
+          {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    <button class="btn btn--primary" type="submit">
+      {% icon "check" "ic--sm" %}<span data-ar="حفظ" data-en="Save">حفظ</span>
+    </button>
+  </form>
+</div>
+{% endblock %}

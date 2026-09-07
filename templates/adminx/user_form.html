@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Staff{% endblock %}
+{% block page_title %}<span data-ar="الموظفين" data-en="Staff">الموظفين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>
+    {% if obj %}{{ obj.short_name }}
+    {% else %}<span data-ar="موظف جديد" data-en="New staff member">موظف جديد</span>{% endif %}
+  </h1>
+  {% if obj %}{% role_badge obj.role %}{% endif %}
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <div class="field">
+            <label>{{ field.label }}</label>
+            {{ field }}
+            {{ field.errors }}
+            {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <button class="btn btn--primary" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="حفظ" data-en="Save">حفظ</span>
+      </button>
+    </form>
+  </div>
+
+  {% if obj %}
+    <div class="sticky-side">
+      <div class="card">
+        <div class="card__head">{% icon "calendar" %}<h3 data-ar="الشيفتات" data-en="Shifts">الشيفتات</h3></div>
+        <p class="muted" style="font-size:.8rem"
+           data-ar="الحالة (نشط / أوفلاين) بتتحسب من الشيفتات دي."
+           data-en="Presence (online / offline) is computed from these shifts.">
+          الحالة بتتحسب من الشيفتات دي.
+        </p>
+
+        <ul class="timeline">
+          {% for shift in shifts %}
+            <li>
+              <span class="grow">{{ shift.get_weekday_display }}</span>
+              <span class="mono">{{ shift.start_time|time:"H:i" }} → {{ shift.end_time|time:"H:i" }}</span>
+              <form method="post" action="{% url 'dashboard:admin_shift_delete' obj.pk shift.pk %}">
+                {% csrf_token %}
+                <button class="icon-btn" type="submit" style="width:28px;height:28px">
+                  {% icon "trash" "ic--sm" %}
+                </button>
+              </form>
+            </li>
+          {% empty %}
+            <li class="muted" data-ar="مفيش شيفتات — الحالة هتعتمد على وجوده على الموقع."
+                data-en="No shifts — presence falls back to the heartbeat.">مفيش شيفتات.</li>
+          {% endfor %}
+        </ul>
+
+        <form method="post" action="{% url 'dashboard:admin_shift_add' obj.pk %}" class="mt">
+          {% csrf_token %}
+          <div class="form-grid">
+            <div class="field"><label data-ar="اليوم" data-en="Day">اليوم</label>{{ shift_form.weekday }}</div>
+            <div class="field"><label data-ar="من" data-en="From">من</label>{{ shift_form.start_time }}</div>
+            <div class="field"><label data-ar="إلى" data-en="To">إلى</label>{{ shift_form.end_time }}</div>
+          </div>
+          <button class="btn btn--sm btn--block" type="submit">
+            {% icon "plus" "ic--sm" %}<span data-ar="ضيف شيفت" data-en="Add shift">ضيف شيفت</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card__head">{% icon "star" %}<h3 data-ar="خصومات التقييم" data-en="Rating penalties">خصومات التقييم</h3></div>
+        <ul class="timeline">
+          {% for event in events %}
+            <li>
+              <span class="badge badge--dead mono">{{ event.delta }}</span>
+              <span class="grow">{{ event.reason_ar }}</span>
+              <small class="muted mono">{{ event.created_at|date:"m-d" }}</small>
+            </li>
+          {% empty %}
+            <li class="muted" data-ar="مفيش خصومات." data-en="No penalties.">مفيش خصومات.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

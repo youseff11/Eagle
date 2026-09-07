@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Client records{% endblock %}
+{% block page_title %}<span data-ar="بيانات العملاء" data-en="Client records">بيانات العملاء</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="بيانات العملاء" data-en="Client records">بيانات العملاء</h1>
+  <span class="page-head__sub"
+        data-ar="الصفحة دي للأدمن بس — فيها الأسماء والأرقام."
+        data-en="Admin only — real names and numbers.">الصفحة دي للأدمن بس.</span>
+  <div class="grow"></div>
+  <a class="btn btn--primary" href="{% url 'dashboard:admin_client_new' %}">
+    {% icon "plus" "ic--sm" %}<span data-ar="عميل جديد" data-en="New client">عميل جديد</span>
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="الكود" data-en="Code">الكود</th>
+          <th data-ar="الاسم" data-en="Name">الاسم</th>
+          <th data-ar="الشركة" data-en="Company">الشركة</th>
+          <th data-ar="التليفون" data-en="Phone">التليفون</th>
+          <th data-ar="الإيميل" data-en="Email">الإيميل</th>
+          <th data-ar="نشط" data-en="Active">نشط</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for client in clients %}
+        <tr>
+          <td class="mono"><strong>{{ client.code }}</strong></td>
+          <td>{{ client.name|default:"—" }}</td>
+          <td>{{ client.company|default:"—" }}</td>
+          <td class="mono">{{ client.phone|default:"—" }}</td>
+          <td class="mono">{{ client.email|default:"—" }}</td>
+          <td>
+            {% if client.is_active %}<span class="dot dot--on"></span>
+            {% else %}<span class="dot dot--off"></span>{% endif %}
+          </td>
+          <td>
+            <div class="row row--tight">
+              <a class="btn btn--sm" href="{% url 'dashboard:client_detail' client.code %}"
+                 data-ar="ملف" data-en="Profile">ملف</a>
+              <a class="btn btn--sm" href="{% url 'dashboard:admin_client_edit' client.code %}"
+                 data-ar="تعديل" data-en="Edit">تعديل</a>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="empty">
+          {% icon "archive" "ic--xl" %}
+          <span data-ar="مفيش عملاء." data-en="No clients.">مفيش عملاء.</span></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

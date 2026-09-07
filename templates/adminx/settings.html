@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}<span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الإعدادات" data-en="Settings">الإعدادات</h1>
+</div>
+
+<form method="post" style="max-width:920px">
+  {% csrf_token %}
+
+  <div class="card">
+    <div class="card__head">
+      {% icon "sparkles" %}
+      <h3 data-ar="مراجعة الترجمة بالـ AI" data-en="AI translation check">مراجعة الترجمة بالـ AI</h3>
+    </div>
+    <p class="muted" style="font-size:.84rem"
+       data-ar="لما تكون مفعّلة، المترجم بيشوف زرار «تشيك» بيراجع الترجمة ويقوله الأخطاء ومكانها من غير ما يعدّل حاجة."
+       data-en="When enabled, translators get a Check button that reports issues and their location without editing anything.">
+      لما تكون مفعّلة، المترجم بيشوف زرار «تشيك».
+    </p>
+    <label class="switch">{{ form.ai_check_enabled }}
+      <span data-ar="فعّل مراجعة الـ AI" data-en="Enable the AI check">فعّل مراجعة الـ AI</span></label>
+    <div class="form-grid mt">
+      <div class="field"><label data-ar="مفتاح Claude API" data-en="Claude API key">مفتاح Claude API</label>{{ form.claude_api_key }}</div>
+      <div class="field"><label data-ar="الموديل" data-en="Model">الموديل</label>{{ form.claude_model }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">
+      {% icon "list-checks" %}
+      <h3 data-ar="قواعد الشغل" data-en="Workflow rules">قواعد الشغل</h3>
+    </div>
+    <div class="form-grid">
+      <div class="field"><label data-ar="مهلة تأكيد الاستلام (ثانية)" data-en="Confirmation window (seconds)">مهلة تأكيد الاستلام (ثانية)</label>{{ form.response_window_seconds }}</div>
+      <div class="field"><label data-ar="تحذير قبل الديدلاين (دقيقة)" data-en="Deadline warning (minutes)">تحذير قبل الديدلاين (دقيقة)</label>{{ form.deadline_warning_minutes }}</div>
+      <div class="field"><label data-ar="الخصم عند عدم الرد (نجمة)" data-en="Penalty per miss (stars)">الخصم عند عدم الرد</label>{{ form.penalty_value }}</div>
+      <div class="field"><label data-ar="أقصى تقييم" data-en="Max rating">أقصى تقييم</label>{{ form.max_rating }}</div>
+      <div class="field"><label data-ar="سرعة التحديث (ملي ثانية)" data-en="Polling interval (ms)">سرعة التحديث</label>{{ form.poll_ms }}</div>
+    </div>
+    <div class="field">
+      <label data-ar="الكلمات اللي بتخفي الرسالة عن الأوبريشن"
+             data-en="Keywords that hide a message from Operation">الكلمات اللي بتخفي الرسالة عن الأوبريشن</label>
+      {{ form.rate_keywords }}
+      <span class="helptext" data-ar="افصل بينهم بفاصلة." data-en="Comma separated.">افصل بينهم بفاصلة.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">{% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3></div>
+    <p class="muted mono" style="font-size:.76rem">POST {{ request.scheme }}://{{ request.get_host }}{% url 'dashboard:wh_whatsapp' %}</p>
+    <div class="form-grid">
+      <div class="field"><label>Verify token</label>{{ form.whatsapp_verify_token }}</div>
+      <div class="field"><label>Phone number ID</label>{{ form.whatsapp_phone_number_id }}</div>
+      <div class="field"><label>Access token</label>{{ form.whatsapp_access_token }}</div>
+      <div class="field"><label data-ar="سر الويب هوك" data-en="Webhook shared secret">سر الويب هوك</label>{{ form.webhook_shared_secret }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head">{% icon "mail" %}<h3 data-ar="الإيميل (IMAP)" data-en="Email (IMAP)">الإيميل (IMAP)</h3></div>
+    <p class="muted mono" style="font-size:.76rem">python manage.py fetch_emails</p>
+    <div class="form-grid">
+      <div class="field"><label>Host</label>{{ form.imap_host }}</div>
+      <div class="field"><label>Port</label>{{ form.imap_port }}</div>
+      <div class="field"><label>User</label>{{ form.imap_user }}</div>
+      <div class="field"><label>Password</label>{{ form.imap_password }}</div>
+      <div class="field"><label>Folder</label>{{ form.imap_folder }}</div>
+    </div>
+    <label class="switch">{{ form.simulation_enabled }}
+      <span data-ar="اسمح بمحاكاة الرسايل" data-en="Allow message simulation">اسمح بمحاكاة الرسايل</span></label>
+  </div>
+
+  <button class="btn btn--primary" type="submit">
+    {% icon "check" "ic--sm" %}<span data-ar="حفظ الإعدادات" data-en="Save settings">حفظ الإعدادات</span>
+  </button>
+</form>
+{% endblock %}

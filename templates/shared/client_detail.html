@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}{{ client.code }}{% endblock %}
+{% block page_title %}<span class="mono">{{ client.code }}</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 class="mono">{{ client.code }}</h1>
+  {% if user.is_admin_role %}
+    <span class="badge badge--new">{{ client.name }} {{ client.company }}</span>
+  {% else %}
+    <span class="badge">{% icon "shield" "ic--sm" %}<span
+      data-ar="بيانات العميل مخفية" data-en="Client identity hidden">بيانات العميل مخفية</span></span>
+  {% endif %}
+  <div class="grow"></div>
+  {% if user.is_admin_role %}
+    <a class="btn btn--sm" href="{% url 'dashboard:admin_client_edit' client.code %}"
+       data-ar="تعديل البيانات" data-en="Edit details">تعديل البيانات</a>
+  {% endif %}
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "list-checks" %}
+      <h3 data-ar="المتطلبات والملاحظات" data-en="Requirements & notes">المتطلبات والملاحظات</h3>
+    </div>
+
+    {% for requirement in requirements %}
+      <div class="note {% if requirement.kind == 'dislike' %}note--high{% endif %}">
+        {% if requirement.kind == 'like' %}{% icon "thumbs-up" %}
+        {% elif requirement.kind == 'dislike' %}{% icon "thumbs-down" %}
+        {% else %}{% icon "pin" %}{% endif %}
+        <div>
+          <div class="note__where">
+            {{ requirement.kind|kind_ar }} / {{ requirement.kind|kind_en }} ·
+            {{ requirement.author.short_name|default:"—" }} · {{ requirement.created_at|date:"Y-m-d" }}
+          </div>
+          <div>{{ requirement.text }}</div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="muted" data-ar="مفيش متطلبات لسه." data-en="No requirements yet.">مفيش متطلبات لسه.</div>
+    {% endfor %}
+
+    {% if not user.is_translator %}
+      <form method="post" class="mt">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="النوع" data-en="Kind">النوع</label>
+            {{ form.kind }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="النص" data-en="Text">النص</label>
+          {{ form.text }}
+        </div>
+        <button class="btn btn--primary" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف" data-en="Add">ضيف</span>
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="sticky-side">
+    {% if user.is_admin_role %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "building" %}
+          <h3 data-ar="بيانات العميل (أدمن فقط)" data-en="Client identity (admin only)">بيانات العميل</h3>
+        </div>
+        <div class="kv"><span data-ar="الاسم" data-en="Name">الاسم</span>
+          <strong>{{ client.name|default:"—" }}</strong></div>
+        <div class="kv"><span data-ar="الشركة" data-en="Company">الشركة</span>
+          <strong>{{ client.company|default:"—" }}</strong></div>
+        <div class="kv"><span data-ar="التليفون" data-en="Phone">التليفون</span>
+          <strong class="mono">{{ client.phone|default:"—" }}</strong></div>
+        <div class="kv"><span data-ar="الإيميل" data-en="Email">الإيميل</span>
+          <strong class="mono">{{ client.email|default:"—" }}</strong></div>
+        {% if client.admin_notes %}<div class="mt muted">{{ client.admin_notes }}</div>{% endif %}
+      </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card__head">{% icon "layers" %}<h3 data-ar="تاسكات العميل" data-en="Client tasks">تاسكات العميل</h3></div>
+      <ul class="timeline">
+        {% for task in tasks %}
+          <li>
+            <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            <span class="grow">{{ task.title|truncatechars:26 }}</span>
+            {% status_badge task.status %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="مفيش تاسكات." data-en="No tasks.">مفيش تاسكات.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

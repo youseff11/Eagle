@@ -1,0 +1,25 @@
+{% load eagle_tags %}{# Right-hand controls of the top bar. Included from base.html. #}
+<div class="seg">
+  <button type="button" data-lang-btn="ar">عربي</button>
+  <button type="button" data-lang-btn="en">EN</button>
+</div>
+
+<button class="icon-btn" id="themeToggle" type="button"
+        data-ar-title="تبديل الوضع الليلي" data-en-title="Toggle dark mode">
+  <span id="themeIcon">{% icon "moon" %}</span>
+</button>
+
+<a class="icon-btn" href="{% url 'dashboard:notifications' %}"
+   data-ar-title="التنبيهات" data-en-title="Notifications">
+  {% icon "bell" %}
+  <span class="icon-btn__dot {% if not eagle_unread %}hidden{% endif %}" id="bellCount">{{ eagle_unread }}</span>
+</a>
+
+<div class="topbar__divider"></div>
+
+<form method="post" action="{% url 'dashboard:logout' %}">
+  {% csrf_token %}
+  <button class="icon-btn" type="submit" data-ar-title="خروج" data-en-title="Log out">
+    {% icon "logout" %}
+  </button>
+</form>

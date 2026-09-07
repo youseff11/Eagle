@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Team leader{% endblock %}
+{% block page_title %}<span data-ar="لوحة التيم ليدر" data-en="Team leader">لوحة التيم ليدر</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="لوحة التيم ليدر" data-en="Team leader board">لوحة التيم ليدر</h1>
+</div>
+
+<div class="grid grid--4" style="margin-bottom:18px">
+  <div class="kpi"><div class="kpi__value">{{ open_tasks|length }}</div>
+    <div class="kpi__label" data-ar="تاسكات مفتوحة" data-en="Open tasks">تاسكات مفتوحة</div></div>
+  <div class="kpi kpi--ok"><div class="kpi__value">{{ free_count }}</div>
+    <div class="kpi__label" data-ar="مترجمين فاضيين" data-en="Free translators">مترجمين فاضيين</div></div>
+  <div class="kpi kpi--warn"><div class="kpi__value">{{ busy_count }}</div>
+    <div class="kpi__label" data-ar="مشغولين" data-en="Busy">مشغولين</div></div>
+  <div class="kpi"><div class="kpi__value">{{ offline_count }}</div>
+    <div class="kpi__label" data-ar="أوفلاين" data-en="Offline">أوفلاين</div></div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "target" %}
+      <h2 data-ar="التاسكات اللي عندي" data-en="My tasks">التاسكات اللي عندي</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th data-ar="الكود" data-en="Code">الكود</th>
+            <th data-ar="العميل" data-en="Client">العميل</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="المترجم" data-en="Translator">المترجم</th>
+            <th data-ar="الديدلاين" data-en="Deadline">الديدلاين</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for task in open_tasks %}
+          <tr>
+            <td class="mono">{{ task.code }}</td>
+            <td class="mono">{{ task.client|label_for:user }}</td>
+            <td>{% status_badge task.status %}</td>
+            <td>{{ task.translator.short_name|default:"—" }}</td>
+            <td class="mono deadline--{{ task.deadline_state }}">
+              {% if task.deadline %}{{ task.deadline|date:"m-d H:i" }}{% else %}—{% endif %}
+            </td>
+            <td>
+              <a class="btn btn--sm {% if task.status == 'lead_accepted' or task.status == 'under_review' %}btn--primary{% endif %}"
+                 href="{% url 'dashboard:task_detail' task.code %}">
+                {% if task.status == 'lead_accepted' %}
+                  <span data-ar="وزّع على مترجم" data-en="Assign a translator">وزّع على مترجم</span>
+                {% elif task.status == 'under_review' %}
+                  <span data-ar="راجع الترجمة" data-en="Review">راجع الترجمة</span>
+                {% else %}
+                  <span data-ar="افتح" data-en="Open">افتح</span>
+                {% endif %}
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty">
+            {% icon "target" "ic--xl" %}
+            <span data-ar="مفيش تاسكات مفتوحة." data-en="No open tasks.">مفيش تاسكات مفتوحة.</span>
+          </td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">{% icon "users" %}<h3 data-ar="فريقي" data-en="My team">فريقي</h3></div>
+      <ul class="timeline">
+        {% for member in team %}
+          <li>
+            <div class="avatar avatar--sm">{{ member.initials }}</div>
+            <div class="grow">
+              <div>{{ member.short_name }}</div>
+              <small class="muted mono">{{ member.languages }}</small>
+            </div>
+            {% stars_html member.rating %}
+            {% if not member.is_online %}<span class="dot dot--off"></span>
+            {% elif member.is_busy %}<span class="dot dot--busy"></span>
+            {% else %}<span class="dot dot--on"></span>{% endif %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="مفيش مترجمين تحتك." data-en="No translators assigned to you.">مفيش مترجمين تحتك.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card__head">{% icon "history" %}<h3 data-ar="اتقفلت مؤخرًا" data-en="Recently closed">اتقفلت مؤخرًا</h3></div>
+      <ul class="timeline">
+        {% for task in done_tasks %}
+          <li>
+            <a class="mono grow" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            {% status_badge task.status %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

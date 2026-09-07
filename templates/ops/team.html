@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Team status{% endblock %}
+{% block page_title %}<span data-ar="حالة الفرق" data-en="Team status">حالة الفرق</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="حالة التيم ليدرز والفرق" data-en="Team leaders & their teams">حالة التيم ليدرز والفرق</h1>
+  <span class="page-head__sub"
+        data-ar="الحالة محسوبة من الشيفتات المسجلة في بروفايل كل واحد."
+        data-en="Presence is computed from each person's configured shifts.">
+    الحالة محسوبة من الشيفتات المسجلة في بروفايل كل واحد.
+  </span>
+</div>
+
+<div class="grid grid--2">
+  {% for row in rows %}
+    <div class="card">
+      <div class="card__head">
+        <div class="avatar avatar--brand">{{ row.lead.initials }}</div>
+        <div>
+          <h3 style="margin:0">{{ row.lead.short_name }}</h3>
+          <div class="row row--tight">
+            <span class="dot {% if row.online %}dot--on{% else %}dot--off{% endif %}"></span>
+            {% if row.online %}
+              <small data-ar="نشط دلوقتي" data-en="Online now">نشط دلوقتي</small>
+            {% else %}
+              <small data-ar="أوفلاين" data-en="Offline">أوفلاين</small>
+            {% endif %}
+            {% stars_html row.lead.rating %}
+          </div>
+        </div>
+        <div class="grow"></div>
+        <span class="chip">
+          <span data-ar="تاسكاته" data-en="Tasks">تاسكاته</span> {{ row.lead_tasks }}
+        </span>
+      </div>
+
+      <div class="grid grid--3" style="margin-bottom:14px">
+        <div class="kpi kpi--ok" style="padding:11px 13px">
+          <div class="kpi__value">{{ row.free|length }}</div>
+          <div class="kpi__label" data-ar="فاضيين" data-en="Free">فاضيين</div>
+        </div>
+        <div class="kpi kpi--warn" style="padding:11px 13px">
+          <div class="kpi__value">{{ row.busy|length }}</div>
+          <div class="kpi__label" data-ar="مشغولين" data-en="Busy">مشغولين</div>
+        </div>
+        <div class="kpi" style="padding:11px 13px">
+          <div class="kpi__value">{{ row.offline|length }}</div>
+          <div class="kpi__label" data-ar="أوفلاين" data-en="Offline">أوفلاين</div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="المترجم" data-en="Translator">المترجم</th>
+              <th data-ar="الحالة" data-en="State">الحالة</th>
+              <th data-ar="التاسك الحالية" data-en="Current task">التاسك الحالية</th>
+              <th data-ar="التقييم" data-en="Rating">التقييم</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for member in row.members %}
+            <tr>
+              <td>
+                <div class="row row--tight">
+                  <div class="avatar avatar--sm">{{ member.initials }}</div>
+                  <div>
+                    <div>{{ member.short_name }}</div>
+                    <small class="muted mono">{{ member.languages }}</small>
+                  </div>
+                </div>
+              </td>
+              <td>
+                {% if not member.is_online %}
+                  <span class="row row--tight"><span class="dot dot--off"></span>
+                    <small data-ar="أوفلاين" data-en="Offline">أوفلاين</small></span>
+                {% elif member.is_busy %}
+                  <span class="row row--tight"><span class="dot dot--busy"></span>
+                    <small data-ar="مشغول" data-en="Busy">مشغول</small></span>
+                {% else %}
+                  <span class="row row--tight"><span class="dot dot--on"></span>
+                    <small data-ar="فاضي" data-en="Free">فاضي</small></span>
+                {% endif %}
+              </td>
+              <td>
+                {% for task in member.active_tasks|slice:":2" %}
+                  <a class="badge badge--work mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+                {% empty %}<span class="muted">—</span>{% endfor %}
+              </td>
+              <td>{% stars_html member.rating %}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="muted"
+                    data-ar="مفيش مترجمين تحت التيم ليدر ده."
+                    data-en="No translators under this team leader.">مفيش مترجمين تحت التيم ليدر ده.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% empty %}
+    <div class="card empty">
+      {% icon "users" "ic--xl" %}
+      <span data-ar="مفيش تيم ليدرز مسجلين." data-en="No team leaders yet.">مفيش تيم ليدرز مسجلين.</span>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

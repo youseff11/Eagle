@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Admin{% endblock %}
+{% block page_title %}<span data-ar="نظرة عامة" data-en="Overview">نظرة عامة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="نظرة عامة" data-en="Overview">نظرة عامة</h1>
+</div>
+
+<div class="grid grid--4" style="margin-bottom:18px">
+  <div class="kpi"><div class="kpi__value">{{ counters.new }}</div>
+    <div class="kpi__label" data-ar="تاسكات جديدة" data-en="New tasks">تاسكات جديدة</div></div>
+  <div class="kpi kpi--warn"><div class="kpi__value">{{ counters.open }}</div>
+    <div class="kpi__label" data-ar="شغالة" data-en="Open">شغالة</div></div>
+  <div class="kpi kpi--ok"><div class="kpi__value">{{ counters.delivered }}</div>
+    <div class="kpi__label" data-ar="اتسلمت" data-en="Delivered">اتسلمت</div></div>
+  <div class="kpi"><div class="kpi__value">{{ clients }}</div>
+    <div class="kpi__label" data-ar="عملاء" data-en="Clients">عملاء</div></div>
+</div>
+
+<div class="grid grid--2">
+  <div class="card">
+    <div class="card__head">
+      {% icon "shield" %}
+      <h3 data-ar="رسايل محجوبة عن الأوبريشن" data-en="Hidden from Operation">رسايل محجوبة عن الأوبريشن</h3>
+    </div>
+    {% for message in blocked %}
+      <div class="msg-item is-blocked">
+        <div class="msg-item__body">
+          <div class="row row--between">
+            <strong class="mono">{{ message.client_code }}</strong>
+            <small class="mono">{{ message.received_at|date:"m-d H:i" }}</small>
+          </div>
+          <div class="msg-item__text">{{ message.body|truncatechars:200 }}</div>
+          <small class="muted mono">{{ message.sender_identity }} · {{ message.blocked_keyword }}</small>
+        </div>
+      </div>
+    {% empty %}
+      <div class="muted" data-ar="مفيش رسايل محجوبة." data-en="Nothing hidden.">مفيش رسايل محجوبة.</div>
+    {% endfor %}
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card__head">{% icon "timer" %}<h3 data-ar="تأكيدات مستنية" data-en="Pending confirmations">تأكيدات مستنية</h3></div>
+      <ul class="timeline">
+        {% for assignment in pending %}
+          <li>
+            <a class="mono" href="{% url 'dashboard:task_detail' assignment.task.code %}">{{ assignment.task.code }}</a>
+            <span class="grow">{{ assignment.assignee.short_name }}</span>
+            <span class="badge badge--wait mono">{{ assignment.seconds_left }}s</span>
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="مفيش." data-en="None.">مفيش.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card__head">{% icon "alert" %}<h3 data-ar="تاسكات عدّت الديدلاين" data-en="Late tasks">تاسكات عدّت الديدلاين</h3></div>
+      <ul class="timeline">
+        {% for task in late_tasks %}
+          <li>
+            <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            <span class="grow">{{ task.translator.short_name|default:"—" }}</span>
+            <span class="badge badge--dead mono">{{ task.deadline|date:"m-d H:i" }}</span>
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="كله في ميعاده." data-en="All on time.">كله في ميعاده.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card__head">{% icon "layers" %}<h3 data-ar="آخر التاسكات" data-en="Latest tasks">آخر التاسكات</h3></div>
+      <ul class="timeline">
+        {% for task in recent_tasks %}
+          <li>
+            <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            <span class="grow">{{ task.title|truncatechars:24 }}</span>
+            {% status_badge task.status %}
+          </li>
+        {% empty %}
+          <li class="muted" data-ar="مفيش." data-en="None.">مفيش.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
