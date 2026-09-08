@@ -12,12 +12,12 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.management.base import BaseCommand
 from django.db import connection
-
-from dashboard.models import AppSettings
+from django.db.migrations.executor import MigrationExecutor
 
 OK = "  OK   "
 BAD = " FAIL  "
 SKIP = " SKIP  "
+WARN = " TODO  "
 
 
 class Command(BaseCommand):
@@ -35,20 +35,39 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"[{style(status)}] {label}" + (f" — {detail}" if detail else ""))
 
+    def safely(self, label, func, *args):
+        """Never let one broken check hide the rest of the report."""
+        try:
+            return func(*args)
+        except Exception as exc:  # noqa: BLE001
+            self.line(BAD, label, f"{type(exc).__name__}: {exc}".replace("\n", " ")[:200])
+            return None
+
     def handle(self, *args, **options):
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING("Eagle deployment check"))
         self.stdout.write("")
 
+        env_file = getattr(settings, "ENV_FILE", None)
+        env_keys = getattr(settings, "ENV_FILE_KEYS", None)
+        if env_file is not None:
+            found = f"{env_keys} keys" if env_keys else "NOT FOUND — using defaults"
+            self.stdout.write(f"  .env            : {env_file}  ({found})")
         self.stdout.write(f"  DEBUG           : {settings.DEBUG}")
         self.stdout.write(f"  ALLOWED_HOSTS   : {settings.ALLOWED_HOSTS or '(empty)'}")
         self.stdout.write(f"  CSRF origins    : {settings.CSRF_TRUSTED_ORIGINS or '(empty)'}")
         self.stdout.write("")
 
-        self._check_database()
-        self._check_storage(options["write"])
-        self._check_whatsapp()
-        self._check_email()
+        db_ok = self.safely("Database", self._check_database)
+        migrated = self.safely("Migrations", self._check_migrations) if db_ok else None
+        self.safely("File storage", self._check_storage, options["write"])
+
+        if migrated:
+            self.safely("WhatsApp", self._check_whatsapp)
+            self.safely("E-mail (SMTP)", self._check_email)
+        else:
+            self.line(SKIP, "WhatsApp", "needs the database tables first")
+            self.line(SKIP, "E-mail (SMTP)", "needs the database tables first")
         self.stdout.write("")
 
     # ------------------------------------------------------------------
@@ -60,8 +79,25 @@ class Command(BaseCommand):
                 cursor.execute("SELECT 1")
                 cursor.fetchone()
             self.line(OK, f"Database ({engine})", host)
+            return True
         except Exception as exc:  # noqa: BLE001
             self.line(BAD, f"Database ({engine})", str(exc)[:180])
+            return False
+
+    def _check_migrations(self):
+        """A fresh Postgres database has no tables until `migrate` is run."""
+        executor = MigrationExecutor(connection)
+        pending = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        if not pending:
+            self.line(OK, "Migrations", "database schema is up to date")
+            return True
+        names = ", ".join(f"{m.app_label}.{m.name}" for m, _ in pending[:4])
+        more = f" (+{len(pending) - 4} more)" if len(pending) > 4 else ""
+        self.line(
+            WARN, f"Migrations — {len(pending)} not applied",
+            f"run:  python manage.py migrate   [{names}{more}]",
+        )
+        return False
 
     def _check_storage(self, do_write):
         backend = settings.STORAGES["default"]["BACKEND"].rsplit(".", 1)[-1]
@@ -83,6 +119,7 @@ class Command(BaseCommand):
 
     def _check_whatsapp(self):
         from dashboard import whatsapp
+        from dashboard.models import AppSettings
 
         conf = AppSettings.load()
         if not (conf.whatsapp_access_token and conf.whatsapp_phone_number_id):
@@ -96,6 +133,7 @@ class Command(BaseCommand):
 
     def _check_email(self):
         from dashboard import mailer
+        from dashboard.models import AppSettings
 
         conf = AppSettings.load()
         if not mailer.is_configured(conf):
