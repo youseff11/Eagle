@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
+from . import net
 from .models import AICheckResult, AppSettings
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -98,7 +99,7 @@ def _call_claude(conf, prompt):
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with net.urlopen(request, timeout=120) as response:
         body = json.loads(response.read().decode("utf-8"))
     parts = [block.get("text", "") for block in body.get("content", []) if block.get("type") == "text"]
     return "".join(parts).strip()

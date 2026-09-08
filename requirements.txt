@@ -15,13 +15,15 @@
 
 Django==5.2.5
 
+# PostgreSQL driver — needed only when DATABASE_URL is set (Neon on the server).
+# Harmless locally: with no DATABASE_URL the project falls back to SQLite and
+# never imports it.
+psycopg[binary]==3.2.3
+
 
 # -----------------------------------------------------------------------------
 # Optional — uncomment only when you need them
 # -----------------------------------------------------------------------------
-
-# PostgreSQL instead of SQLite
-# psycopg[binary]==3.2.3
 
 # Production serving (WSGI server + static file handling)
 # gunicorn==23.0.0

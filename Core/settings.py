@@ -1,20 +1,29 @@
-"""
-Django settings for Core project (Eagle Dashboard).
+"""Django settings for Core (Eagle Dashboard).
 
-Phase 1 - Translation workflow dashboard.
+One file, two environments:
+
+* **Local**  — nothing configured, so SQLite + the local ``media/`` folder.
+* **Server** — set ``DATABASE_URL`` and the ``BUNNY_*`` variables and the same
+  code switches to Neon PostgreSQL and Bunny.net storage. No separate settings
+  module, no code change.
+
+Every value is read from the environment (or a ``.env`` file next to
+manage.py). Both the ``EAGLE_``-prefixed names and the plain ones are accepted.
 """
 
 import os
+import urllib.parse
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def _load_env(path):
-    """Minimal .env reader so the project stays dependency-free.
+# ---------------------------------------------------------------------------
+# Environment helpers (no third-party packages)
+# ---------------------------------------------------------------------------
 
-    Real environment variables always win over the file.
-    """
+def _load_env(path):
+    """Minimal .env reader. Real environment variables always win."""
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -28,22 +37,61 @@ def _load_env(path):
 _load_env(BASE_DIR / ".env")
 
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "EAGLE_SECRET_KEY",
-    "django-insecure-%3+irrxs4*-kz$q8*o6y90=274x0-^2a-ojpyf+i*nps#%=pun",
+def env(*names, default=""):
+    """First non-empty value among ``names``."""
+    for name in names:
+        value = os.environ.get(name)
+        if value not in (None, ""):
+            return value.strip()
+    return default
+
+
+def env_bool(*names, default=False):
+    value = env(*names, default="").lower()
+    if not value:
+        return default
+    return value in ("1", "true", "yes", "on")
+
+
+def env_list(*names, default=""):
+    return [item.strip() for item in env(*names, default=default).split(",") if item.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
+
+SECRET_KEY = env(
+    "EAGLE_SECRET_KEY", "SECRET_KEY",
+    default="django-insecure-%3+irrxs4*-kz$q8*o6y90=274x0-^2a-ojpyf+i*nps#%=pun",
 )
 
-DEBUG = os.environ.get("EAGLE_DEBUG", "1") == "1"
+DEBUG = env_bool("EAGLE_DEBUG", "DEBUG", default=True)
 
-ALLOWED_HOSTS = ["*"] if DEBUG else os.environ.get("EAGLE_HOSTS", "").split(",")
+ALLOWED_HOSTS = env_list("EAGLE_HOSTS", "ALLOWED_HOSTS")
+if DEBUG and not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ["*"]
 
-CSRF_TRUSTED_ORIGINS = [
-    o for o in os.environ.get("EAGLE_CSRF_ORIGINS", "").split(",") if o
-]
+# Django needs the scheme-qualified origin for POSTs over HTTPS. Derive it from
+# ALLOWED_HOSTS so a deploy does not silently break every form.
+CSRF_TRUSTED_ORIGINS = env_list("EAGLE_CSRF_ORIGINS", "CSRF_TRUSTED_ORIGINS")
+if not CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS = [
+        f"https://{host}" for host in ALLOWED_HOSTS
+        if host not in ("*", "localhost", "127.0.0.1", "0.0.0.0")
+    ]
+
+if not DEBUG:
+    # PythonAnywhere (and most PaaS) terminate TLS in front of the app.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    X_FRAME_OPTIONS = "DENY"
 
 
-# Application definition
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -87,17 +135,58 @@ WSGI_APPLICATION = "Core.wsgi.application"
 ASGI_APPLICATION = "Core.asgi.application"
 
 
-# Database
+# ---------------------------------------------------------------------------
+# Database — DATABASE_URL (Neon/Postgres) when present, otherwise SQLite
+# ---------------------------------------------------------------------------
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+#: libpq parameters we forward from the URL's query string.
+_PG_OPTION_KEYS = (
+    "sslmode", "channel_binding", "sslrootcert", "sslcert", "sslkey",
+    "application_name", "connect_timeout", "options", "target_session_attrs",
+)
+
+
+def database_from_url(url):
+    """Parse a ``postgres://user:pass@host:port/name?sslmode=require`` URL."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("postgres", "postgresql", "psql"):
+        raise ValueError(f"Unsupported DATABASE_URL scheme: {parsed.scheme!r}")
+
+    query = dict(urllib.parse.parse_qsl(parsed.query))
+    options = {key: query[key] for key in _PG_OPTION_KEYS if key in query}
+    options.setdefault("sslmode", "require")  # Neon always needs TLS
+
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": urllib.parse.unquote(parsed.path.lstrip("/")),
+        "USER": urllib.parse.unquote(parsed.username or ""),
+        "PASSWORD": urllib.parse.unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
+        "OPTIONS": options,
+        # Neon's pooler is happy with reused connections; health checks keep a
+        # dropped one from surfacing as a 500.
+        "CONN_MAX_AGE": int(env("EAGLE_CONN_MAX_AGE", default="60")),
+        "CONN_HEALTH_CHECKS": True,
     }
-}
 
 
+DATABASE_URL = env("DATABASE_URL", "EAGLE_DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {"default": database_from_url(DATABASE_URL)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
 # Authentication
+# ---------------------------------------------------------------------------
 
 AUTH_USER_MODEL = "dashboard.User"
 
@@ -113,16 +202,19 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# Internationalization
-# UI translation is handled inside the HTML (data-ar / data-en attributes).
+# ---------------------------------------------------------------------------
+# Internationalization — UI translation lives in the HTML (data-ar / data-en)
+# ---------------------------------------------------------------------------
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Africa/Cairo"
+TIME_ZONE = env("EAGLE_TIME_ZONE", "TIME_ZONE", default="Africa/Cairo")
 USE_I18N = True
 USE_TZ = True
 
 
-# Static & media files
+# ---------------------------------------------------------------------------
+# Static & media — Bunny.net for uploads when configured, local disk otherwise
+# ---------------------------------------------------------------------------
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
@@ -131,17 +223,39 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+BUNNY = {
+    "STORAGE_ZONE": env("BUNNY_STORAGE_ZONE_NAME", "BUNNY_STORAGE_ZONE"),
+    "API_KEY": env("BUNNY_API_KEY", "BUNNY_STORAGE_PASSWORD"),
+    "REGION": env("BUNNY_REGION"),
+    "CDN_URL": env("BUNNY_CDN_URL"),
+}
+USE_BUNNY = all(BUNNY[key] for key in ("STORAGE_ZONE", "API_KEY", "CDN_URL"))
+
+STORAGES = {
+    "default": (
+        {"BACKEND": "dashboard.storages.BunnyStorage"}
+        if USE_BUNNY else
+        {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+    ),
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024 * 1024
 
 
-# Email
+# ---------------------------------------------------------------------------
+# Logging — keep integration failures visible in the server log
+# ---------------------------------------------------------------------------
 
-MAILERS = {
-    "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {
+        "dashboard": {"handlers": ["console"], "level": env("EAGLE_LOG_LEVEL", default="INFO")},
     },
 }
 

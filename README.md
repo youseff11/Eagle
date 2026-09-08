@@ -202,11 +202,111 @@ curl -X POST http://127.0.0.1:8000/webhooks/whatsapp/ \
 ## المهمات الدورية
 
 الـ browser بيعمل heartbeat كل 3 ثواني وبينفّذ القواعد لوحده.
-عشان القواعد تشتغل حتى لو محدش فاتح الموقع:
+عشان القواعد تشتغل حتى لو محدش فاتح الموقع، فيه اختيارين:
 
+**الأفضل — عفريت واحد بيعمل كل حاجة:**
 ```bash
-python manage.py sweep      # حطها في cron / Task Scheduler كل دقيقة
+python manage.py run_worker
 ```
+بيشتغل للأبد: بيصفّي التأكيدات اللي فات وقتها، بيبعت تحذيرات الديدلاين، وبيسحب الإيميل.
+على PythonAnywhere حطه في **Always-on task** (حسابات مدفوعة).
+
+**أو أوامر منفصلة** لو بتستخدم cron / Task Scheduler:
+```bash
+python manage.py sweep          # كل دقيقة
+python manage.py fetch_emails   # كل 5 دقايق
+```
+
+> **مهم على PythonAnywhere:** الـ Scheduled tasks أقل تكرار فيها **كل ساعة** —
+> وده بطيء جدًا على مهلة الـ 60 ثانية. استخدم **Always-on task** مع `run_worker`.
+
+## بيئتين بنفس الكود
+
+المشروع بيقرا الإعدادات من متغيرات البيئة (أو ملف `.env` جنب `manage.py`).
+**مفيش ملف settings تاني ولا كود بيتغير:**
+
+| | محلي (فاضي) | سيرفر |
+|---|---|---|
+| الداتابيز | SQLite | PostgreSQL لو `DATABASE_URL` متحطة |
+| الملفات | مجلد `media/` | Bunny.net لو الـ `BUNNY_*` متحطة |
+
+يعني تسيب `.env` فاضي على جهازك وكل حاجة تفضل زي ما هي.
+
+**Neon (PostgreSQL):**
+```
+DATABASE_URL=postgresql://user:pass@host.neon.tech/dbname?sslmode=require
+```
+الـ parser بيمرّر `sslmode` و `channel_binding` وأي باراميتر تاني من الرابط،
+وبيشغّل `CONN_MAX_AGE=60` مع health checks عشان اتصال مقطوع ميطلعش 500.
+محتاج `psycopg` (موجود في `requirements.txt`).
+
+**Bunny.net (ملفات العملاء):**
+```
+BUNNY_STORAGE_ZONE_NAME=eagle-storage
+BUNNY_API_KEY=<باسورد الـ Storage Zone مش مفتاح الحساب>
+BUNNY_REGION=de
+BUNNY_CDN_URL=https://yourzone.b-cdn.net
+```
+لازم **الثلاثة** (zone + key + cdn url) يتحطوا مع بعض، وإلا بيرجع للمجلد المحلي.
+كل ملف بياخد لاحقة عشوائية عشان ملفين بنفس الاسم في نفس الشهر ميدهسوش بعض.
+
+> **تنبيه خصوصية:** أي حد معاه لينك الـ CDN يقدر يفتح الملف — ودي مستندات عملاء.
+> فعّل **Token Authentication** على الـ Pull Zone من لوحة Bunny، أو سيب الملفات محلية.
+
+**فحص كل حاجة مرة واحدة:**
+```bash
+python manage.py check_setup           # داتابيز + تخزين + واتساب + إيميل
+python manage.py check_setup --write   # وكمان يرفع ويمسح ملف تجربة على Bunny
+```
+
+## النشر على PythonAnywhere
+
+بعد رفع الكود وتشغيل `migrate`:
+
+**1. متغيرات البيئة** (تبويب Web → Environment variables، أو ملف `.env`):
+```
+EAGLE_DEBUG        = 0
+EAGLE_HOSTS        = yourname.pythonanywhere.com
+EAGLE_CSRF_ORIGINS = https://yourname.pythonanywhere.com
+EAGLE_SECRET_KEY   = <مفتاح جديد>
+```
+لو الحساب **مجاني** ضيف كمان:
+```
+EAGLE_HTTPS_PROXY  = http://proxy.server:3128
+```
+
+**2. الملفات الثابتة** — مع `EAGLE_DEBUG=0` جانغو بيبطل يقدّمها:
+```bash
+python manage.py collectstatic
+```
+وفي تبويب Web → Static files:
+
+| URL | Directory |
+|---|---|
+| `/static/` | `/home/<user>/<project>/staticfiles` |
+| `/media/` | `/home/<user>/<project>/media` |
+
+من غير الخطوة دي الموقع هيبقى من غير تنسيق والملفات مش هتتفتح.
+
+**3. Always-on task:** `python /home/<user>/<project>/manage.py run_worker`
+
+**4. اعمل Reload** بعد أي تغيير.
+
+### حساب مجاني ولا مدفوع؟
+
+الحسابات المجانية بتطلع على النت من خلال بروكسي بقايمة مواقع مسموحة بس:
+
+| | مجاني | مدفوع |
+|---|---|---|
+| استقبال رسايل الواتساب | ✅ | ✅ |
+| إرسال للعميل | ✅ (بالبروكسي) | ✅ |
+| تنزيل مرفقات العميل | ❌ `lookaside.fbsbx.com` مش مسموح | ✅ |
+| جيميل IMAP/SMTP | ❌ مش HTTP أصلاً | ✅ |
+| مراجعة الـ AI | ❌ `api.anthropic.com` مش مسموح | ✅ |
+| Always-on task | ❌ | ✅ |
+
+بعد ما تشترك، ادخل `/panel/settings/` ودوس **«اختبار الاتصال»** لواتساب وللإيميل —
+هيقولك في ثواني إذا كان كل حاجة شغالة.
 
 ## الاختبارات
 

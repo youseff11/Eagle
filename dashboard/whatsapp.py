@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+from . import net
 from .models import AppSettings
 
 GRAPH_HOST = "https://graph.facebook.com"
@@ -91,7 +92,7 @@ def _call(url, *, token, data=None, headers=None, method="GET", raw_response=Fal
     for key, value in (headers or {}).items():
         request.add_header(key, value)
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with net.urlopen(request, timeout=TIMEOUT) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
         _raise_from_body(exc.code, exc.read().decode("utf-8", errors="ignore"))
