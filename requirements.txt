@@ -1,0 +1,31 @@
+# =============================================================================
+# Eagle Dashboard — dependencies
+#
+# Django is the ONLY third-party package. Everything else runs on the Python
+# standard library on purpose:
+#   WhatsApp Cloud API  -> urllib          (dashboard/whatsapp.py)
+#   Claude API          -> urllib          (dashboard/ai.py)
+#   Incoming e-mail     -> imaplib, email  (management/commands/fetch_emails.py)
+#   Outgoing e-mail     -> django.core.mail over SMTP (dashboard/mailer.py)
+#   .docx text extract  -> zipfile         (dashboard/ai.py)
+#   Webhook signatures  -> hmac, hashlib   (dashboard/whatsapp.py)
+#
+# Install:  pip install -r requirements.txt
+# =============================================================================
+
+Django==5.2.5
+
+
+# -----------------------------------------------------------------------------
+# Optional — uncomment only when you need them
+# -----------------------------------------------------------------------------
+
+# PostgreSQL instead of SQLite
+# psycopg[binary]==3.2.3
+
+# Production serving (WSGI server + static file handling)
+# gunicorn==23.0.0
+# whitenoise==6.8.2
+
+# Windows production serving
+# waitress==3.0.2

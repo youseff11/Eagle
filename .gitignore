@@ -1,14 +1,60 @@
+# =============================================================================
+# Eagle Dashboard
+# =============================================================================
+
+# --- SECRETS -----------------------------------------------------------------
+# db.sqlite3 holds AppSettings, which stores the WhatsApp access token, the
+# Gmail app password and the Claude API key. It must NEVER reach GitHub.
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+
+.env
+.env.*
+!.env.example
+local_settings.py
+secrets.json
+*.pem
+*.key
+
+# --- Client files ------------------------------------------------------------
+# Uploaded documents and chat attachments belong to clients, not to the repo.
+/media/*
+!/media/.gitkeep
+
+# --- Generated ---------------------------------------------------------------
+/staticfiles/
+*.log
+
+# --- Python ------------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# --- Virtual environments ----------------------------------------------------
 .venv/
 venv/
-.env
-db.sqlite3
-db.sqlite3-wal
-db.sqlite3-shm
-media/
-staticfiles/
-shots/
+env/
+ENV/
+
+# --- Tooling -----------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editors / OS ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
 .DS_Store
-Claude outputs
+Thumbs.db
+desktop.ini
 repomix-output.xml
+Claude outputs
+.env.example

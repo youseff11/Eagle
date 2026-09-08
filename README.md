@@ -5,6 +5,47 @@
 
 ---
 
+## المتطلبات
+
+**Django بس.** كل الباقي مكتبات بايثون الأساسية — مفيش `requests` ولا `celery` ولا `redis`.
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # ويندوز
+pip install -r requirements.txt
+```
+
+## الرفع على GitHub
+
+فيه `.gitignore` جاهز، وأهم حاجة فيه:
+
+> **`db.sqlite3` متجاهل عن قصد.** الداتابيز فيها الـ Access token بتاع واتساب،
+> و App Password بتاع الجيميل، ومفتاح Claude API. **متشيلهوش من الـ .gitignore أبدًا.**
+
+كمان متجاهل: `media/` (ملفات العملاء)، `.env`، `__pycache__/`، `.venv/`، `staticfiles/`.
+
+```bash
+git init
+git add .
+git status                       # اتأكد إن db.sqlite3 و media مش ظاهرين
+git commit -m "Eagle dashboard — phase 1"
+git branch -M main
+git remote add origin https://github.com/<username>/<repo>.git
+git push -u origin main
+```
+
+**لو الريبو هيبقى Public:** انسخ `.env.example` لـ `.env` وحط فيه `EAGLE_SECRET_KEY` جديد،
+لأن المفتاح الافتراضي في `settings.py` هيبقى مكشوف للكل:
+
+```bash
+python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
+```
+
+الملف `.env` بيتقرا أوتوماتيك من `settings.py` من غير أي مكتبة زيادة.
+
+**لو رفعت الداتابيز بالغلط:** اعتبر كل المفاتيح اللي فيها مسرّبة —
+اعمل Revoke للتوكن من Meta، واحذف الـ App Password من جوجل، واعمل مفتاح Claude جديد.
+
 ## التشغيل
 
 ```bash
