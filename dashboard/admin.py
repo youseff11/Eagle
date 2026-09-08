@@ -8,6 +8,7 @@ from .models import (
     AppSettings,
     Assignment,
     AuditLog,
+    OutboundMessage,
     ChatAttachment,
     ChatMessage,
     ChatRoom,
@@ -99,6 +100,12 @@ class AppSettingsAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(OutboundMessage)
+class OutboundMessageAdmin(admin.ModelAdmin):
+    list_display = ("task", "client", "channel", "status", "file_count", "created_at")
+    list_filter = ("channel", "status")
 
 
 admin.site.register([

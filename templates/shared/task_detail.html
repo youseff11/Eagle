@@ -209,12 +209,63 @@
         {% endif %}
 
         {% if task.status == 'reviewed' %}
-          <button class="btn btn--ok btn--block" type="button"
-                  data-action="{% url 'dashboard:api_task_action' task.code 'delivered' %}"
-                  data-confirm-ar="تأكيد تسليم الملفات للعميل؟"
-                  data-confirm-en="Confirm delivery to the client?">
-            {% icon "upload" "ic--sm" %}<span data-ar="تم التسليم للعميل" data-en="Delivered to client">تم التسليم للعميل</span>
-          </button>
+          <div class="deliver" id="deliverBox" data-url="{% url 'dashboard:api_deliver' task.code %}">
+            <div class="label" data-ar="الملفات اللي هتتبعت للعميل"
+                 data-en="Files to send to the client">الملفات اللي هتتبعت للعميل</div>
+
+            {% if deliverables %}
+              <div class="picker">
+                {% for file in deliverables %}
+                  <label class="picker__row">
+                    <input type="checkbox" name="attachments" value="{{ file.id }}"
+                           {% if file.final %}checked{% endif %}>
+                    <span class="grow">{{ file.name }}</span>
+                    <small class="muted nowrap">{{ file.sender }} · {{ file.size }}</small>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="muted" style="font-size:.8rem"
+                   data-ar="مفيش ملفات في الشات — هيتبعت النص بس."
+                   data-en="No files in the chat — only the message will be sent.">
+                مفيش ملفات في الشات.
+              </div>
+            {% endif %}
+
+            <textarea class="input mt" id="deliverNote" rows="2"
+                      data-ar-ph="رسالة للعميل (اختياري)" data-en-ph="Message to the client (optional)"
+                      placeholder="رسالة للعميل (اختياري)"></textarea>
+
+            <div class="row row--tight mt" style="font-size:.78rem">
+              {% if client_reachable %}
+                <span class="badge badge--ok">
+                  {% icon "send" "ic--sm" %}
+                  {% if client_channel == 'whatsapp' %}WhatsApp{% else %}Email{% endif %}
+                </span>
+                <span class="muted" data-ar="هيتبعت على القناة اللي العميل كلمنا منها"
+                      data-en="Sent over the channel the client used">هيتبعت على قناة العميل</span>
+              {% else %}
+                <span class="badge badge--dead">
+                  {% icon "alert" "ic--sm" %}
+                  <span data-ar="مفيش رقم ولا إيميل للعميل"
+                        data-en="No phone or e-mail on file">مفيش رقم ولا إيميل للعميل</span>
+                </span>
+              {% endif %}
+            </div>
+
+            <button class="btn btn--ok btn--block mt" id="deliverBtn" type="button"
+                    {% if not client_reachable %}disabled{% endif %}>
+              {% icon "upload" "ic--sm" %}
+              <span data-ar="ابعت للعميل وسلّم" data-en="Send to client & close">ابعت للعميل وسلّم</span>
+            </button>
+
+            <button class="btn btn--ghost btn--block btn--sm mt" id="deliverSkipBtn" type="button"
+                    data-ar="قفل التاسك من غير إرسال" data-en="Close without sending">
+              قفل التاسك من غير إرسال
+            </button>
+
+            <div id="deliverResult"></div>
+          </div>
         {% endif %}
 
         <form class="mt" method="post" action="{% url 'dashboard:api_set_deadline' task.code %}"
@@ -330,6 +381,31 @@
         </form>
       {% endif %}
     </div>
+
+    <!-- ---------------------------- deliveries ------------------------------ -->
+    {% if deliveries %}
+      <div class="card">
+        <div class="card__head">{% icon "upload" %}<h3 data-ar="سجل التسليم" data-en="Delivery log">سجل التسليم</h3></div>
+        {% for delivery in deliveries %}
+          <div class="note {% if delivery.status == 'failed' %}note--high{% elif delivery.status == 'sent' %}note--ok{% else %}note--warn{% endif %}">
+            {% if delivery.status == 'sent' %}{% icon "check-circle" %}
+            {% elif delivery.status == 'failed' %}{% icon "alert" %}
+            {% else %}{% icon "info" %}{% endif %}
+            <div>
+              <div class="note__where mono">
+                {{ delivery.created_at|date:"m-d H:i" }} · {{ delivery.get_channel_display }} ·
+                {{ delivery.file_count }} · {{ delivery.created_by.short_name|default:"—" }}
+              </div>
+              {% if delivery.error_message %}
+                <div>{{ delivery.error_message }}</div>
+              {% else %}
+                <div>{{ delivery.get_status_display }}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
 
     <!-- --------------------------- source messages -------------------------- -->
     {% if source_messages %}

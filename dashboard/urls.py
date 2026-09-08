@@ -65,6 +65,9 @@ urlpatterns = [
     ),
     path("api/tasks/<str:code>/deadline/", api.set_deadline, name="api_set_deadline"),
     path("api/tasks/<str:code>/ai-check/", api.ai_check, name="api_ai_check"),
+    path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
+    path("api/integrations/whatsapp/test/", api.whatsapp_test, name="api_whatsapp_test"),
+    path("api/integrations/email/test/", api.email_test, name="api_email_test"),
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),
     path("api/messages/<int:pk>/claim/", api.claim_message, name="api_claim_message"),
     path("api/rooms/<int:room_id>/messages/", api.chat_fetch, name="api_chat_fetch"),
@@ -72,6 +75,6 @@ urlpatterns = [
     path("api/clients/<str:client_code>/requirement/", api.add_requirement, name="api_requirement"),
 
     # -- webhooks -----------------------------------------------------------
-    path("webhooks/whatsapp/", webhooks.whatsapp, name="wh_whatsapp"),
+    path("webhooks/whatsapp/", webhooks.whatsapp_hook, name="wh_whatsapp"),
     path("webhooks/email/", webhooks.email_hook, name="wh_email"),
 ]

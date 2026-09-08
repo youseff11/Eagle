@@ -11,3 +11,4 @@ staticfiles/
 shots/
 .DS_Store
 Claude outputs
+repomix-output.xml

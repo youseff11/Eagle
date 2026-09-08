@@ -51,26 +51,101 @@
 
   <div class="card">
     <div class="card__head">{% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3></div>
-    <p class="muted mono" style="font-size:.76rem">POST {{ request.scheme }}://{{ request.get_host }}{% url 'dashboard:wh_whatsapp' %}</p>
-    <div class="form-grid">
-      <div class="field"><label>Verify token</label>{{ form.whatsapp_verify_token }}</div>
+
+    <div class="label" data-ar="حط الرابط ده في Meta ← Configuration ← Callback URL"
+         data-en="Put this in Meta → Configuration → Callback URL">Callback URL</div>
+    <div class="copy-row">
+      <code class="mono grow" id="whUrl">{{ webhook_url }}</code>
+      <button class="btn btn--sm" type="button" data-copy="whUrl"
+              data-ar="نسخ" data-en="Copy">نسخ</button>
+    </div>
+
+    {% if is_local %}
+      <div class="note note--high mt">
+        {% icon "alert" %}
+        <div data-ar="الرابط ده محلي — سيرفرات Meta مش هتعرف توصله. شغّل نفق زي ngrok (الأمر: ngrok http 8000) وحط الرابط بتاعه المنتهي بـ /webhooks/whatsapp/ في Meta."
+             data-en="This address is local — Meta cannot reach it. Run a tunnel (ngrok http 8000) and register that public URL ending in /webhooks/whatsapp/ instead.">
+          الرابط ده محلي — سيرفرات Meta مش هتعرف توصله. شغّل ngrok وحط الرابط العام.
+        </div>
+      </div>
+    {% elif not is_https %}
+      <div class="note note--warn mt">
+        {% icon "alert" %}
+        <div data-ar="Meta بتقبل HTTPS بس." data-en="Meta only accepts HTTPS callback URLs.">
+          Meta بتقبل HTTPS بس.
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="form-grid mt">
+      <div class="field"><label>Verify token</label>{{ form.whatsapp_verify_token }}
+        <span class="helptext" data-ar="أي كلمة من اختيارك — بس لازم تكتب نفسها في Meta."
+              data-en="Any string you pick — must match what you type in Meta.">أي كلمة من اختيارك.</span></div>
       <div class="field"><label>Phone number ID</label>{{ form.whatsapp_phone_number_id }}</div>
       <div class="field"><label>Access token</label>{{ form.whatsapp_access_token }}</div>
-      <div class="field"><label data-ar="سر الويب هوك" data-en="Webhook shared secret">سر الويب هوك</label>{{ form.webhook_shared_secret }}</div>
+      <div class="field"><label>App secret</label>{{ form.whatsapp_app_secret }}
+        <span class="helptext" data-ar="اختياري — بيتأكد إن الرسايل جاية من Meta فعلًا."
+              data-en="Optional — verifies that requests really come from Meta.">اختياري.</span></div>
+      <div class="field"><label>API version</label>{{ form.whatsapp_api_version }}</div>
+      <div class="field"><label data-ar="سر الويب هوك (للمحاكاة)" data-en="Webhook secret (simulation)">سر الويب هوك</label>{{ form.webhook_shared_secret }}</div>
     </div>
+
+    <div class="row row--tight mt">
+      <input class="input" id="waTestTo" style="max-width:240px" dir="ltr"
+             data-ar-ph="رقم للتجربة (اختياري) 2010…" data-en-ph="Test number (optional) 2010…"
+             placeholder="2010…">
+      <button class="btn btn--accent" type="button" id="waTestBtn"
+              data-url="{% url 'dashboard:api_whatsapp_test' %}">
+        {% icon "refresh" "ic--sm" %}<span data-ar="اختبار الاتصال" data-en="Test connection">اختبار الاتصال</span>
+      </button>
+      <span class="muted" style="font-size:.78rem"
+            data-ar="احفظ الإعدادات الأول." data-en="Save the settings first.">احفظ الإعدادات الأول.</span>
+    </div>
+    <div id="waTestResult" class="mt"></div>
   </div>
 
   <div class="card">
-    <div class="card__head">{% icon "mail" %}<h3 data-ar="الإيميل (IMAP)" data-en="Email (IMAP)">الإيميل (IMAP)</h3></div>
+    <div class="card__head">{% icon "mail" %}<h3 data-ar="الإيميل" data-en="Email">الإيميل</h3></div>
+
+    <div class="label" data-ar="استقبال (IMAP)" data-en="Receiving (IMAP)">استقبال (IMAP)</div>
     <p class="muted mono" style="font-size:.76rem">python manage.py fetch_emails</p>
     <div class="form-grid">
-      <div class="field"><label>Host</label>{{ form.imap_host }}</div>
+      <div class="field"><label>Host</label>{{ form.imap_host }}
+        <span class="helptext mono">imap.gmail.com</span></div>
       <div class="field"><label>Port</label>{{ form.imap_port }}</div>
       <div class="field"><label>User</label>{{ form.imap_user }}</div>
-      <div class="field"><label>Password</label>{{ form.imap_password }}</div>
+      <div class="field"><label>Password</label>{{ form.imap_password }}
+        <span class="helptext" data-ar="جيميل: App Password مش الباسورد العادي."
+              data-en="Gmail: use an App Password, not your normal password.">جيميل: App Password.</span></div>
       <div class="field"><label>Folder</label>{{ form.imap_folder }}</div>
     </div>
-    <label class="switch">{{ form.simulation_enabled }}
+
+    <div class="label mt" data-ar="إرسال (SMTP)" data-en="Sending (SMTP)">إرسال (SMTP)</div>
+    <p class="muted" style="font-size:.78rem"
+       data-ar="سيبها فاضية عشان تستخدم نفس بيانات الـ IMAP."
+       data-en="Leave blank to reuse the IMAP credentials.">سيبها فاضية عشان تستخدم بيانات الـ IMAP.</p>
+    <div class="form-grid">
+      <div class="field"><label>Host</label>{{ form.smtp_host }}
+        <span class="helptext mono">smtp.gmail.com</span></div>
+      <div class="field"><label>Port</label>{{ form.smtp_port }}</div>
+      <div class="field"><label>User</label>{{ form.smtp_user }}</div>
+      <div class="field"><label>Password</label>{{ form.smtp_password }}</div>
+      <div class="field"><label data-ar="المرسل" data-en="From">المرسل</label>{{ form.smtp_from }}</div>
+    </div>
+    <label class="switch">{{ form.smtp_use_tls }}<span>TLS</span></label>
+
+    <div class="row row--tight mt">
+      <input class="input" id="mailTestTo" style="max-width:240px" dir="ltr"
+             data-ar-ph="إيميل للتجربة (اختياري)" data-en-ph="Test address (optional)"
+             placeholder="test@example.com">
+      <button class="btn btn--accent" type="button" id="mailTestBtn"
+              data-url="{% url 'dashboard:api_email_test' %}">
+        {% icon "refresh" "ic--sm" %}<span data-ar="اختبار الاتصال" data-en="Test connection">اختبار الاتصال</span>
+      </button>
+    </div>
+    <div id="mailTestResult" class="mt"></div>
+
+    <label class="switch mt">{{ form.simulation_enabled }}
       <span data-ar="اسمح بمحاكاة الرسايل" data-en="Allow message simulation">اسمح بمحاكاة الرسايل</span></label>
   </div>
 

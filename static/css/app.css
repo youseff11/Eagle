@@ -546,6 +546,27 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .note--high .ic { color: var(--danger); }
 .note--info .ic { color: var(--info); }
 
+.picker {
+  border: 1px solid var(--border); border-radius: var(--r);
+  max-height: 190px; overflow-y: auto; background: var(--surface-2);
+}
+.picker__row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 11px; font-size: .82rem; cursor: pointer;
+  border-bottom: 1px solid var(--border-soft);
+}
+.picker__row:last-child { border-bottom: 0; }
+.picker__row:hover { background: var(--surface-3); }
+.picker__row input { accent-color: var(--brand); width: 15px; height: 15px; flex: none; }
+.picker__row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.copy-row {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--surface-2); padding-block: 6px; padding-inline: 11px 6px;
+}
+.copy-row code { overflow-x: auto; white-space: nowrap; font-size: .78rem; }
+
 .tabs { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 16px; }
 .tab {
   padding: 6px 12px; border-radius: 7px; font-size: .8rem; font-weight: 570;

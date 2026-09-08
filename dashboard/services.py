@@ -15,6 +15,7 @@ from .models import (
     Assignment,
     AssignmentStatus,
     AuditLog,
+    Channel,
     ChatMessage,
     ChatRoom,
     Client,
@@ -503,18 +504,130 @@ def mark_reviewed(task, user):
     return True
 
 
-def mark_delivered(task, user):
+def client_channel(client):
+    """How we last heard from this client — that's how we answer back."""
+    last = client.messages.order_by("-received_at").first()
+    if last and last.channel in (Channel.WHATSAPP, Channel.EMAIL):
+        return last.channel
+    if client.phone:
+        return Channel.WHATSAPP
+    if client.email:
+        return Channel.EMAIL
+    return ""
+
+
+def _read_attachment(attachment):
+    """Return ``(filename, bytes, mime)`` for a stored chat attachment."""
+    from . import whatsapp as wa
+
+    name = attachment.original_name or attachment.file.name.rsplit("/", 1)[-1]
+    attachment.file.open("rb")
+    try:
+        content = attachment.file.read()
+    finally:
+        attachment.file.close()
+    return name, content, wa.guess_mime(name)
+
+
+def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
+    """Send the finished files to the client, then close the task.
+
+    Returns ``(ok, delivery, error)``. On a send failure the task stays at
+    ``reviewed`` so the operation can fix things and try again.
+    """
+    from . import mailer, whatsapp as wa
+    from .models import ChatAttachment, OutboundMessage
+
+    conf = AppSettings.load()
+    client = task.client
+    channel = client_channel(client)
+    target = client.phone if channel == Channel.WHATSAPP else client.email
+
+    attachments = list(
+        ChatAttachment.objects.filter(
+            id__in=list(attachment_ids or []), message__room__task=task
+        ).order_by("id")
+    )
+
+    delivery = OutboundMessage(
+        task=task, client=client, created_by=user, channel=channel,
+        to_identity=target or "", body=note,
+        files=[{"name": a.original_name or a.file.name, "status": "pending"} for a in attachments],
+    )
+
+    if not send:
+        delivery.status = OutboundMessage.Status.SKIPPED
+        delivery.save()
+        mark_delivered(task, user, delivery=delivery)
+        return True, delivery, ""
+
+    if not channel or not target:
+        delivery.status = OutboundMessage.Status.FAILED
+        delivery.error_message = (
+            "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
+        )
+        delivery.save()
+        return False, delivery, delivery.error_message
+
+    payload = [_read_attachment(a) for a in attachments]
+    caption = note or f"{task.title} — {task.code}"
+
+    try:
+        if channel == Channel.WHATSAPP:
+            if note:
+                delivery.provider_id = wa.send_text(target, note)
+            for index, (name, content, mime) in enumerate(payload):
+                wa.send_file(target, content, name, mime, caption="" if note else caption)
+                delivery.files[index]["status"] = "sent"
+            if not payload and not note:
+                delivery.provider_id = wa.send_text(target, caption)
+        else:
+            mailer.send_delivery(
+                conf, target,
+                subject=f"{task.title} — {task.code}",
+                body=note or "مرفق الملفات المترجمة. شكرًا لتعاملكم معنا.",
+                attachments=payload,
+            )
+            for entry in delivery.files:
+                entry["status"] = "sent"
+    except (wa.WhatsAppError, mailer.MailError) as exc:
+        delivery.status = OutboundMessage.Status.FAILED
+        delivery.error_message = exc.message_ar
+        delivery.save()
+        log(user, "task.deliver_failed", task.code, exc.message_en[:200])
+        notify(
+            user,
+            title_ar="التسليم فشل",
+            title_en="Delivery failed",
+            body_ar=exc.message_ar[:380],
+            body_en=exc.message_en[:380],
+            level="danger", url=f"/tasks/{task.code}/", task=task,
+        )
+        return False, delivery, exc.message_ar
+
+    delivery.status = OutboundMessage.Status.SENT
+    delivery.save()
+    mark_delivered(task, user, delivery=delivery)
+    return True, delivery, ""
+
+
+def mark_delivered(task, user, delivery=None):
     if not (user.is_operation or user.is_admin_role):
         return False
     task.status = TaskStatus.DELIVERED
     task.delivered_at = timezone.now()
     task.save(update_fields=["status", "delivered_at", "updated_at"])
+
+    if delivery is not None and delivery.status == delivery.Status.SENT:
+        channel = delivery.get_channel_display()
+        detail_ar = f"اتبعت {delivery.file_count} ملف للعميل على {channel}."
+        detail_en = f"{delivery.file_count} file(s) sent to the client over {channel}."
+    else:
+        detail_ar = "التاسك اتقفلت من غير إرسال من السيستم."
+        detail_en = "Task closed without sending from the system."
+
     for room in task.rooms.all():
-        system_message(
-            room, key="delivered",
-            body_ar="تم تسليم الملفات للعميل. التاسك اتقفلت.",
-            body_en="Files delivered to the client. Task closed.",
-        )
+        system_message(room, key="delivered", body_ar=detail_ar, body_en=detail_en)
     for person in task.participants():
         notify(
             person,

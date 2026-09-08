@@ -161,8 +161,11 @@ class SettingsForm(forms.ModelForm):
             "response_window_seconds", "deadline_warning_minutes",
             "penalty_value", "max_rating", "rate_keywords",
             "whatsapp_verify_token", "whatsapp_access_token",
-            "whatsapp_phone_number_id", "webhook_shared_secret",
+            "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_api_version",
+            "webhook_shared_secret",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
+            "smtp_host", "smtp_port", "smtp_user", "smtp_password",
+            "smtp_from", "smtp_use_tls",
             "simulation_enabled", "poll_ms",
         )
         widgets = {
@@ -170,6 +173,15 @@ class SettingsForm(forms.ModelForm):
                 attrs={"class": "input", "dir": "ltr"}, render_value=True
             ),
             "imap_password": forms.PasswordInput(
+                attrs={"class": "input", "dir": "ltr"}, render_value=True
+            ),
+            "smtp_password": forms.PasswordInput(
+                attrs={"class": "input", "dir": "ltr"}, render_value=True
+            ),
+            "whatsapp_access_token": forms.PasswordInput(
+                attrs={"class": "input", "dir": "ltr"}, render_value=True
+            ),
+            "whatsapp_app_secret": forms.PasswordInput(
                 attrs={"class": "input", "dir": "ltr"}, render_value=True
             ),
             "rate_keywords": forms.Textarea(attrs={"class": "input", "rows": 2}),

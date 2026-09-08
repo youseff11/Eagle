@@ -90,6 +90,97 @@ class WorkflowTests(TestCase):
         self.assertEqual(task.status, TaskStatus.NEW)
         self.assertIsNone(task.team_lead_id)
 
+    def test_delivery_sends_files_over_whatsapp(self):
+        from unittest import mock
+
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, ChatMessage, OutboundMessage, RoomKind
+
+        task = self.make_task()
+        task.team_lead, task.translator = self.lead, self.tr
+        task.status = TaskStatus.REVIEWED
+        task.save()
+        room = services.ensure_room(task, RoomKind.GROUP)
+        message = ChatMessage.objects.create(room=room, sender=self.tr, body="done")
+        attachment = ChatAttachment.objects.create(
+            message=message, file=ContentFile(b"translated", name="out.txt"),
+            original_name="out.txt", size=10,
+        )
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.0"), \
+                mock.patch("dashboard.whatsapp.send_file", return_value="wamid.1") as sender:
+            ok, delivery, error = services.deliver_to_client(
+                task, self.ops, attachment_ids=[attachment.id], note="اتفضل الملفات"
+            )
+
+        self.assertTrue(ok, error)
+        self.assertEqual(delivery.status, OutboundMessage.Status.SENT)
+        self.assertEqual(sender.call_count, 1)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.DELIVERED)
+
+    def test_failed_delivery_keeps_the_task_open(self):
+        from unittest import mock
+
+        from .models import OutboundMessage
+
+        task = self.make_task()
+        task.status = TaskStatus.REVIEWED
+        task.save()
+
+        from . import whatsapp as wa
+
+        with mock.patch("dashboard.whatsapp.send_text",
+                        side_effect=wa.WhatsAppError("فات 24 ساعة", "24h window closed")):
+            ok, delivery, error = services.deliver_to_client(
+                task, self.ops, attachment_ids=[], note="اتفضل"
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(delivery.status, OutboundMessage.Status.FAILED)
+        self.assertIn("24", error)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.REVIEWED)
+
+    def test_delivery_without_contact_details_fails_cleanly(self):
+        from .models import OutboundMessage
+
+        blank = Client.objects.create(name="No contact")
+        task = services.create_task(client=blank, title="x", created_by=self.ops)
+        task.status = TaskStatus.REVIEWED
+        task.save()
+
+        ok, delivery, error = services.deliver_to_client(task, self.ops, [], "hi")
+        self.assertFalse(ok)
+        self.assertEqual(delivery.status, OutboundMessage.Status.FAILED)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.REVIEWED)
+
+    def test_close_without_sending_still_delivers(self):
+        from .models import OutboundMessage
+
+        task = self.make_task()
+        task.status = TaskStatus.REVIEWED
+        task.save()
+        ok, delivery, _ = services.deliver_to_client(task, self.ops, [], "", send=False)
+        self.assertTrue(ok)
+        self.assertEqual(delivery.status, OutboundMessage.Status.SKIPPED)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.DELIVERED)
+
+    def test_webhook_signature(self):
+        from . import whatsapp as wa
+
+        body = b'{"entry":[]}'
+        secret = "s3cret"
+        import hashlib
+        import hmac
+        good = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        self.assertTrue(wa.verify_signature(secret, body, good))
+        self.assertFalse(wa.verify_signature(secret, body, "sha256=deadbeef"))
+        self.assertTrue(wa.verify_signature("", body, ""))  # not configured
+
     def test_deadline_warning_fires_once(self):
         conf = AppSettings.load()
         task = self.make_task()

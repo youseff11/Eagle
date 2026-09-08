@@ -7,6 +7,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -27,6 +28,7 @@ from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
     AssignmentStatus,
+    ChatAttachment,
     Client,
     InboundMessage,
     Notification,
@@ -262,6 +264,27 @@ def task_detail(request, code):
         active_room.messages.select_related("sender").prefetch_related("attachments")
     ) if active_room else []
 
+    # Files the operation can forward to the client (translator's output first).
+    deliverables = []
+    if user.is_operation or user.is_admin_role:
+        rows = (
+            ChatAttachment.objects
+            .filter(message__room__task=task)
+            .select_related("message", "message__sender")
+            .order_by("-id")[:40]
+        )
+        for attachment in rows:
+            sender = attachment.message.sender
+            deliverables.append({
+                "id": attachment.id,
+                "name": attachment.original_name or attachment.file.name.rsplit("/", 1)[-1],
+                "size": attachment.pretty_size,
+                "url": attachment.file.url,
+                "sender": sender.short_name if sender else "—",
+                # Default-check whatever the translator sent.
+                "final": bool(task.translator_id and sender and sender.id == task.translator_id),
+            })
+
     context = {
         "task": task,
         "rooms": rooms,
@@ -277,6 +300,10 @@ def task_detail(request, code):
         "ai_form": AICheckForm(),
         "ai_checks": task.ai_checks.all()[:5],
         "history": task.assignments.select_related("assignee", "assigned_by")[:20],
+        "deliverables": deliverables,
+        "deliveries": task.deliveries.select_related("created_by")[:5],
+        "client_channel": services.client_channel(task.client),
+        "client_reachable": bool(task.client.phone or task.client.email),
         "source_messages": (
             task.source_messages.prefetch_related("attachments")
             if (user.is_operation or user.is_admin_role) else []
@@ -400,7 +427,17 @@ def admin_settings(request):
         services.log(request.user, "settings.update")
         flash.success(request, "saved")
         return redirect("dashboard:admin_settings")
-    return render(request, "adminx/settings.html", {"form": form, "conf": conf})
+
+    host = request.get_host()
+    return render(request, "adminx/settings.html", {
+        "form": form,
+        "conf": conf,
+        "webhook_url": request.build_absolute_uri(reverse("dashboard:wh_whatsapp")),
+        # Meta can only reach a public HTTPS address.
+        "is_local": host.split(":")[0] in ("127.0.0.1", "localhost", "0.0.0.0")
+        or host.startswith("192.168.") or host.startswith("10."),
+        "is_https": request.is_secure(),
+    })
 
 
 @admin_only

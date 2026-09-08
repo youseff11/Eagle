@@ -677,6 +677,11 @@ class AppSettings(models.Model):
     whatsapp_verify_token = models.CharField(max_length=120, blank=True)
     whatsapp_access_token = models.CharField(max_length=400, blank=True)
     whatsapp_phone_number_id = models.CharField(max_length=60, blank=True)
+    whatsapp_app_secret = models.CharField(
+        max_length=200, blank=True,
+        help_text="Meta App Secret — used to verify the X-Hub-Signature-256 header.",
+    )
+    whatsapp_api_version = models.CharField(max_length=10, default="v21.0")
     webhook_shared_secret = models.CharField(max_length=120, blank=True)
 
     imap_host = models.CharField(max_length=120, blank=True)
@@ -684,6 +689,18 @@ class AppSettings(models.Model):
     imap_user = models.CharField(max_length=190, blank=True)
     imap_password = models.CharField(max_length=250, blank=True)
     imap_folder = models.CharField(max_length=60, default="INBOX")
+
+    smtp_host = models.CharField(
+        max_length=120, blank=True,
+        help_text="Leave blank to derive it from the IMAP host (imap. -> smtp.).",
+    )
+    smtp_port = models.PositiveIntegerField(default=587)
+    smtp_user = models.CharField(max_length=190, blank=True,
+                                 help_text="Blank = reuse the IMAP user.")
+    smtp_password = models.CharField(max_length=250, blank=True,
+                                     help_text="Blank = reuse the IMAP password.")
+    smtp_from = models.CharField(max_length=190, blank=True)
+    smtp_use_tls = models.BooleanField(default=True)
 
     simulation_enabled = models.BooleanField(default=True)
     poll_ms = models.PositiveIntegerField(default=3000)
@@ -723,6 +740,39 @@ class AppSettings(models.Model):
     @property
     def keyword_list(self):
         return [k.strip().lower() for k in (self.rate_keywords or "").split(",") if k.strip()]
+
+
+class OutboundMessage(models.Model):
+    """A delivery sent back to the client (files and/or a note)."""
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Closed without sending"
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="deliveries")
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="deliveries")
+    channel = models.CharField(max_length=12, choices=Channel.choices, blank=True)
+    #: The client's phone/e-mail. Only the admin ever sees it.
+    to_identity = models.CharField(max_length=190, blank=True)
+    body = models.TextField(blank=True)
+    #: [{"name": "...", "status": "sent", "error": ""}]
+    files = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SENT)
+    error_message = models.TextField(blank=True)
+    provider_id = models.CharField(max_length=190, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.task.code} → {self.client.code} ({self.status})"
+
+    @property
+    def file_count(self):
+        return len(self.files or [])
 
 
 class AuditLog(models.Model):

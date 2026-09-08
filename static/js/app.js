@@ -462,6 +462,114 @@ window.Eagle = (function () {
     });
   }
 
+  /* ------------------------------------------------- deliver to the client */
+
+  function initDeliver() {
+    var box = $("#deliverBox");
+    if (!box) { return; }
+    var url = box.getAttribute("data-url");
+    var out = $("#deliverResult");
+    var sendBtn = $("#deliverBtn");
+    var skipBtn = $("#deliverSkipBtn");
+
+    function run(send, button) {
+      var data = new FormData();
+      $$('input[name="attachments"]:checked', box).forEach(function (el) {
+        data.append("attachments", el.value);
+      });
+      data.append("note", ($("#deliverNote") || {}).value || "");
+      data.append("send", send ? "1" : "0");
+
+      button.disabled = true;
+      out.innerHTML = '<div class="muted mt" style="font-size:.8rem">' +
+        escapeHtml(t("بيتبعت…", "Sending…")) + "</div>";
+
+      post(url, data).then(function (res) {
+        button.disabled = false;
+        if (res.ok) {
+          out.innerHTML = '<div class="note note--ok mt">' + svgIcon("check-circle") +
+            "<div>" + escapeHtml(t("اتبعت وتم إقفال التاسك.", "Sent and the task is closed.")) +
+            "</div></div>";
+          toast({ level: "success", title: t("تم التسليم", "Delivered") });
+          setTimeout(function () { window.location.reload(); }, 1200);
+        } else {
+          out.innerHTML = '<div class="note note--high mt">' + svgIcon("alert") +
+            "<div>" + escapeHtml(res.error || t("التسليم فشل.", "Delivery failed.")) +
+            "</div></div>";
+        }
+      });
+    }
+
+    sendBtn.addEventListener("click", function () { run(true, sendBtn); });
+    skipBtn.addEventListener("click", function () {
+      if (window.confirm(t("تقفل التاسك من غير ما تبعت للعميل؟",
+        "Close the task without sending anything to the client?"))) {
+        run(false, skipBtn);
+      }
+    });
+  }
+
+  /* --------------------------------------------- integration test buttons */
+
+  function renderReport(target, res, okLabel) {
+    if (res.ok) {
+      var detail = [];
+      if (res.number) { detail.push(res.number); }
+      if (res.name) { detail.push(res.name); }
+      if (res.quality) { detail.push("quality: " + res.quality); }
+      if (res.host) { detail.push(res.host); }
+      if (res.user) { detail.push(res.user); }
+      if (res.sent) { detail.push(t("واتبعت رسالة اختبار", "test message sent")); }
+      target.innerHTML = '<div class="note note--ok">' + svgIcon("check-circle") +
+        "<div><strong>" + escapeHtml(okLabel) + "</strong>" +
+        (detail.length ? '<div class="muted mono">' + escapeHtml(detail.join(" · ")) + "</div>" : "") +
+        "</div></div>";
+    } else {
+      target.innerHTML = '<div class="note note--high">' + svgIcon("alert") + "<div>" +
+        escapeHtml(state.lang === "ar" ? (res.error_ar || res.error_en) : (res.error_en || res.error_ar)) +
+        "</div></div>";
+    }
+  }
+
+  function bindTest(buttonId, inputId, resultId, okLabelAr, okLabelEn) {
+    var button = $("#" + buttonId);
+    if (!button) { return; }
+    var out = $("#" + resultId);
+    button.addEventListener("click", function () {
+      button.disabled = true;
+      out.innerHTML = '<div class="muted" style="font-size:.8rem">' +
+        escapeHtml(t("بيجرب…", "Testing…")) + "</div>";
+      post(button.getAttribute("data-url"), { to: ($("#" + inputId) || {}).value || "" })
+        .then(function (res) {
+          button.disabled = false;
+          renderReport(out, res, t(okLabelAr, okLabelEn));
+        });
+    });
+  }
+
+  /* --------------------------------------------------------- copy to clipboard */
+
+  function initCopy() {
+    $$("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var source = document.getElementById(button.getAttribute("data-copy"));
+        if (!source) { return; }
+        var text = source.textContent.trim();
+        var done = function () { toast({ level: "success", title: t("اتنسخ", "Copied") }); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () {});
+        } else {
+          var helper = document.createElement("textarea");
+          helper.value = text;
+          document.body.appendChild(helper);
+          helper.select();
+          try { document.execCommand("copy"); done(); } catch (err) { /* ignore */ }
+          helper.remove();
+        }
+      });
+    });
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function init() {
@@ -494,6 +602,12 @@ window.Eagle = (function () {
     initActions();
     initChat();
     initAiCheck();
+    initDeliver();
+    initCopy();
+    bindTest("waTestBtn", "waTestTo", "waTestResult",
+      "الاتصال بواتساب شغال", "WhatsApp connection is working");
+    bindTest("mailTestBtn", "mailTestTo", "mailTestResult",
+      "الاتصال بالإيميل شغال", "E-mail connection is working");
     startHeartbeat();
   }
 

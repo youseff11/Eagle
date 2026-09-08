@@ -242,6 +242,50 @@ def task_action(request, code, action):
 
 @api_role_required(Role.OPERATION)
 @require_POST
+def deliver(request, code):
+    """Send the finished files to the client and close the task."""
+    task = get_object_or_404(Task.objects.select_related("client"), code=code)
+    user = request.user
+
+    if task.status not in (TaskStatus.REVIEWED, TaskStatus.DELIVERED) and not user.is_admin_role:
+        return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
+
+    ids = [_int(v) for v in request.POST.getlist("attachments") if _int(v)]
+    note = (request.POST.get("note") or "").strip()
+    send = request.POST.get("send", "1") == "1"
+
+    ok, delivery, error = services.deliver_to_client(
+        task, user, attachment_ids=ids, note=note, send=send
+    )
+    return JsonResponse({
+        "ok": ok,
+        "error": error,
+        "status": delivery.status,
+        "channel": delivery.get_channel_display(),
+        "files": delivery.file_count,
+    }, status=200 if ok else 400)
+
+
+@api_role_required(Role.ADMIN)
+@require_POST
+def whatsapp_test(request):
+    from . import whatsapp as wa
+
+    report = wa.check_connection(request.POST.get("to", "").strip())
+    return JsonResponse(report)
+
+
+@api_role_required(Role.ADMIN)
+@require_POST
+def email_test(request):
+    from . import mailer
+
+    report = mailer.check_connection(AppSettings.load(), request.POST.get("to", "").strip())
+    return JsonResponse(report)
+
+
+@api_role_required(Role.OPERATION)
+@require_POST
 def set_deadline(request, code):
     from django.utils.dateparse import parse_datetime
 
