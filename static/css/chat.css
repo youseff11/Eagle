@@ -1,0 +1,234 @@
+/* ==========================================================================
+   Client chat — the WhatsApp-style conversation with a client.
+   Loaded only on /ops/chats/. Uses the variables defined in app.css so it
+   follows the dark/light theme and RTL flip automatically.
+   ========================================================================== */
+
+.cchat {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 14px;
+  height: calc(100vh - 150px);
+  min-height: 480px;
+}
+
+/* -- conversation list ---------------------------------------------------- */
+
+.cchat__list {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, 14px);
+  overflow: hidden;
+}
+
+.cchat__search {
+  padding: 10px;
+  border-block-end: 1px solid var(--border);
+}
+
+.cchat__threads {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.cthread {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-block-end: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  transition: background .12s ease;
+}
+
+.cthread:hover { background: var(--surface-2, rgba(127, 127, 127, .08)); }
+
+.cthread.is-active {
+  background: var(--surface-2, rgba(127, 127, 127, .12));
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+[dir="rtl"] .cthread.is-active { box-shadow: inset -3px 0 0 var(--brand); }
+
+.cthread__body { flex: 1; min-width: 0; }
+
+.cthread__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cthread__time { font-size: 11px; margin-inline-start: auto; }
+
+.cthread__snippet {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -- the room ------------------------------------------------------------- */
+
+.cchat__room {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, 14px);
+  overflow: hidden;
+}
+
+.cchat__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-block-end: 1px solid var(--border);
+}
+
+.cchat__who { font-weight: 600; }
+
+.cchat__meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.cchat__window { margin: 10px 14px 0; }
+
+.cchat__stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-behavior: smooth;
+}
+
+.cchat__blank { margin: auto; }
+
+/* -- bubbles -------------------------------------------------------------- */
+
+.bub { display: flex; }
+.bub--in  { justify-content: flex-start; }
+.bub--out { justify-content: flex-end; }
+
+.bub__box {
+  max-width: min(78%, 560px);
+  padding: 8px 11px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, rgba(127, 127, 127, .10));
+  font-size: 13.5px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.bub--in  .bub__box { border-start-start-radius: 3px; }
+.bub--out .bub__box {
+  border-start-end-radius: 3px;
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 34%, transparent);
+}
+
+.bub--failed .bub__box {
+  background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger, #e5484d) 40%, transparent);
+}
+
+.bub__subject { font-weight: 600; margin-block-end: 3px; }
+.bub__text { white-space: pre-wrap; }
+
+.bub__file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: 5px;
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.bub__file a { color: var(--brand); text-decoration: none; }
+.bub__file a:hover { text-decoration: underline; }
+
+.bub__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: 4px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.bub__time { font-size: 10.5px; }
+
+.bub__error {
+  margin-block-start: 5px;
+  font-size: 11.5px;
+  color: var(--danger, #e5484d);
+}
+
+.bub__day {
+  align-self: center;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-2, rgba(127, 127, 127, .12));
+  border-radius: 999px;
+  padding: 2px 12px;
+  margin: 6px 0;
+}
+
+/* -- composer ------------------------------------------------------------- */
+
+.cchat__composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-block-start: 1px solid var(--border);
+}
+
+.cchat__composer .icon-btn { cursor: pointer; }
+
+.cchat__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.cchat__files:empty { padding: 0; }
+
+.cchat__files .chip { display: inline-flex; align-items: center; gap: 5px; }
+.cchat__files .chip button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+}
+
+.chip--sm { font-size: 10.5px; padding: 1px 7px; }
+
+/* -- narrow screens ------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .cchat {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .cchat__list { max-height: 260px; }
+  .cchat__stream { min-height: 380px; }
+  .bub__box { max-width: 88%; }
+}

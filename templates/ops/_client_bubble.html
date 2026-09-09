@@ -1,0 +1,39 @@
+{% load eagle_tags %}{% comment %}
+One message in the client conversation. Rendered server-side on first load and
+mirrored in chat.js for live updates — keep the two in step.
+Expects: entry (dict from services.client_thread)
+{% endcomment %}
+<div class="bub {% if entry.kind == 'out' %}bub--out{% else %}bub--in{% endif %}{% if entry.status == 'failed' %} bub--failed{% endif %}"
+     data-uid="{{ entry.uid }}"
+     {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
+     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}">
+  <div class="bub__box">
+    {% if entry.subject %}<div class="bub__subject">{{ entry.subject }}</div>{% endif %}
+
+    {% if entry.body %}<div class="bub__text">{{ entry.body|linebreaksbr }}</div>{% endif %}
+
+    {% for f in entry.files %}
+      <div class="bub__file">
+        {% icon "paperclip" "ic--sm" %}
+        {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
+        {% else %}<span>{{ f.name }}</span>{% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="bub__foot">
+      {% if entry.is_delivery %}
+        <span class="chip chip--sm" data-ar="تسليم تاسك" data-en="Task delivery">تسليم تاسك</span>
+      {% endif %}
+      {% if entry.task_code %}<span class="mono muted">{{ entry.task_code }}</span>{% endif %}
+      {% if entry.sender %}<span class="muted">{{ entry.sender }}</span>{% endif %}
+      <span class="bub__time mono">{{ entry.at|date:"H:i" }}</span>
+      {% if entry.kind == 'out' %}
+        {% if entry.status == 'sent' %}{% icon "check" "ic--sm" %}
+        {% elif entry.status == 'failed' %}{% icon "alert" "ic--sm" %}
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if entry.error %}<div class="bub__error">{{ entry.error }}</div>{% endif %}
+  </div>
+</div>

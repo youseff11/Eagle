@@ -18,6 +18,10 @@
         <span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>
         <span class="nav__count hidden" data-counter="inbox">0</span>
       </a>
+      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_chat_detail' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
+        {% icon "message" %}
+        <span data-ar="شات العملاء" data-en="Client chat">شات العملاء</span>
+      </a>
       <a class="nav__item {% if url_name == 'ops_tasks' or url_name == 'ops_task_new' %}is-active{% endif %}" href="{% url 'dashboard:ops_tasks' %}">
         {% icon "layers" %}
         <span data-ar="التاسكات" data-en="Tasks">التاسكات</span>

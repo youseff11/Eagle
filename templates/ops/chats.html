@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% load static eagle_tags %}
+{% block title %}Client chat{% endblock %}
+{% block page_title %}<span data-ar="شات العملاء" data-en="Client chat">شات العملاء</span>{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="{% static 'css/chat.css' %}">{% endblock %}
+
+{% block content %}
+<div class="cchat"
+     id="clientChat"
+     data-list-url="{% url 'dashboard:api_client_chat_list' %}"
+     data-thread-url="{% url 'dashboard:api_client_chat_fetch' 'CODE' %}"
+     data-send-url="{% url 'dashboard:api_client_chat_send' 'CODE' %}"
+     data-detail-url="{% url 'dashboard:ops_chat_detail' 'CODE' %}"
+     data-active="{% if active %}{{ active.code }}{% endif %}">
+
+  {# ---- conversation list ------------------------------------------------ #}
+  <aside class="cchat__list">
+    <div class="cchat__search">
+      <form method="get" class="field-icon" style="margin:0">
+        {% icon "search" "ic--lead" %}
+        <input class="input" name="q" value="{{ query }}"
+               data-ar-ph="دوّر على كود عميل…" data-en-ph="Search a client code…"
+               placeholder="دوّر على كود عميل…">
+      </form>
+    </div>
+
+    <div class="cchat__threads" id="threadList">
+      {% for row in conversations %}
+        <a class="cthread {% if active and row.client.code == active.code %}is-active{% endif %}"
+           data-code="{{ row.client.code }}"
+           href="{% url 'dashboard:ops_chat_detail' row.client.code %}">
+          <span class="avatar avatar--brand">{{ row.client.code|slice:"3:" }}</span>
+          <span class="cthread__body">
+            <span class="cthread__top">
+              <b class="mono">{{ row.client|label_for:user }}</b>
+              <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
+            </span>
+            <span class="cthread__snippet">
+              {% if row.preview.outgoing %}{% icon "check" "ic--sm" %}{% endif %}{{ row.preview.text }}
+            </span>
+          </span>
+        </a>
+      {% empty %}
+        <div class="empty">
+          {% icon "message" "ic--xl" %}
+          <span data-ar="مفيش محادثات لسه." data-en="No conversations yet.">مفيش محادثات لسه.</span>
+        </div>
+      {% endfor %}
+    </div>
+  </aside>
+
+  {# ---- the conversation itself ------------------------------------------ #}
+  <section class="cchat__room">
+    {% if active %}
+      <header class="cchat__head">
+        <span class="avatar avatar--brand">{{ active.code|slice:"3:" }}</span>
+        <div>
+          <div class="cchat__who mono">{{ active|label_for:user }}</div>
+          <div class="cchat__meta muted">
+            {% if channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}WhatsApp
+            {% elif channel == 'email' %}{% icon "mail" "ic--sm" %}Email
+            {% else %}<span data-ar="مفيش قناة" data-en="No channel">مفيش قناة</span>{% endif %}
+          </div>
+        </div>
+        <div class="grow"></div>
+        <a class="btn btn--ghost" href="{% url 'dashboard:client_detail' active.code %}">
+          {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
+        </a>
+      </header>
+
+      {# WhatsApp only allows free text within 24h of the client's last message. #}
+      <div class="note note--warn cchat__window hidden" id="windowClosed">
+        {% icon "clock" %}
+        <div>
+          <strong data-ar="نافذة الـ24 ساعة قفلت" data-en="The 24-hour window is closed">نافذة الـ24 ساعة قفلت</strong>
+          <div data-ar="واتساب مش بيسمح تبعت رسالة حرة بعد 24 ساعة من آخر رسالة للعميل. استنى لحد ما يبعتلك تاني."
+               data-en="WhatsApp does not allow a free-form message more than 24h after the client's last one. Wait until they message you again.">
+            واتساب مش بيسمح تبعت رسالة حرة بعد 24 ساعة من آخر رسالة للعميل.
+          </div>
+        </div>
+      </div>
+
+      <div class="cchat__stream" id="chatStream">
+        {% for entry in thread %}{% include "ops/_client_bubble.html" %}{% endfor %}
+      </div>
+
+      <form class="cchat__composer" id="chatComposer" autocomplete="off">
+        {% csrf_token %}
+        <label class="icon-btn" title="ملف">
+          {% icon "paperclip" %}
+          <input type="file" id="chatFiles" multiple hidden>
+        </label>
+        <input class="input grow" id="chatBody"
+               data-ar-ph="اكتب رسالتك للعميل…" data-en-ph="Write your reply…"
+               placeholder="اكتب رسالتك للعميل…">
+        <button class="btn btn--primary" type="submit" id="chatSend">
+          {% icon "send" "ic--sm" %}<span data-ar="إرسال" data-en="Send">إرسال</span>
+        </button>
+      </form>
+      <div class="cchat__files" id="chatFileList"></div>
+    {% else %}
+      <div class="empty cchat__blank">
+        {% icon "message" "ic--xl" %}
+        <span data-ar="اختار محادثة من على الجنب." data-en="Pick a conversation on the side.">اختار محادثة من على الجنب.</span>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{% static 'js/chat.js' %}"></script>{% endblock %}

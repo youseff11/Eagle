@@ -7,6 +7,7 @@ same logic can be reused by the webhooks, the management commands and the API.
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
@@ -21,6 +22,7 @@ from .models import (
     Client,
     InboundMessage,
     Notification,
+    OutboundMessage,
     Role,
     RoomKind,
     Task,
@@ -680,6 +682,184 @@ def cancel_task(task, user, reason=""):
         )
     log(user, "task.cancel", task.code, reason)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Client conversations — the WhatsApp-style chat with the client
+# ---------------------------------------------------------------------------
+#
+# A conversation is not stored as its own table. It is simply everything we
+# ever exchanged with one client: ``InboundMessage`` rows coming in and
+# ``OutboundMessage`` rows going out, merged on time. That way the chat and
+# the task deliveries live in the same thread and nothing is duplicated.
+
+def client_conversations(user, query=""):
+    """One row per client we have ever talked to, most recent activity first."""
+    from django.db.models import Max
+
+    if user.is_admin_role:
+        rows = Client.objects.filter(messages__isnull=False)
+    else:
+        # One filter, one join: the operation never sees a conversation made
+        # only of rate-blocked messages, and the Max below then reflects only
+        # the messages that role is allowed to know about.
+        rows = Client.objects.filter(messages__is_rate_blocked=False)
+    rows = rows.annotate(last_activity=Max("messages__received_at")).distinct()
+
+    query = (query or "").strip()
+    if query:
+        if user.is_admin_role:
+            rows = rows.filter(
+                Q(code__icontains=query)
+                | Q(name__icontains=query)
+                | Q(company__icontains=query)
+                | Q(phone__icontains=query)
+            )
+        else:
+            rows = rows.filter(code__icontains=query)
+
+    return rows.order_by("-last_activity")
+
+
+def _visible_inbound(client, user):
+    qs = client.messages.prefetch_related("attachments")
+    if not user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+    return qs
+
+
+def conversation_preview(client, user):
+    """The snippet shown in the conversation list."""
+    last = _visible_inbound(client, user).order_by("-received_at").first()
+    out = client.deliveries.order_by("-created_at").first()
+    if out and last and out.created_at > last.received_at:
+        text = out.body or (f"{out.file_count} ملف" if out.file_count else "—")
+        return {"text": text[:70], "at": out.created_at, "outgoing": True}
+    if last:
+        text = last.body or (f"{last.attachments.count()} ملف" if last.attachments.exists() else "—")
+        return {"text": text[:70], "at": last.received_at, "outgoing": False}
+    return {"text": "", "at": None, "outgoing": False}
+
+
+def client_thread(client, user, limit=200):
+    """Merged inbound + outbound timeline for one client, oldest first."""
+    items = []
+
+    for row in _visible_inbound(client, user).order_by("-received_at")[:limit]:
+        items.append({
+            "kind": "in",
+            "id": row.id,
+            "uid": f"in-{row.id}",
+            "body": row.body,
+            "subject": row.subject,
+            "channel": row.channel,
+            "at": row.received_at,
+            "blocked": row.is_rate_blocked,
+            "task_code": row.task.code if row.task_id else "",
+            "files": [
+                {"url": a.file.url, "name": a.original_name or a.file.name, "size": a.size}
+                for a in row.attachments.all()
+            ],
+        })
+
+    outbound = client.deliveries.select_related("created_by", "task").prefetch_related("uploads")
+    for row in outbound.order_by("-created_at")[:limit]:
+        files = [
+            {"url": a.file.url, "name": a.original_name or a.file.name, "size": a.size}
+            for a in row.uploads.all()
+        ]
+        # Task deliveries keep their file list in JSON (the bytes went straight
+        # to WhatsApp), so show the names without a link.
+        if not files:
+            files = [{"url": "", "name": f.get("name", ""), "size": 0} for f in (row.files or [])]
+        items.append({
+            "kind": "out",
+            "id": row.id,
+            "uid": f"out-{row.id}",
+            "body": row.body,
+            "subject": "",
+            "channel": row.channel,
+            "at": row.created_at,
+            "blocked": False,
+            "status": row.status,
+            "error": row.error_message,
+            "is_delivery": row.kind == OutboundMessage.Kind.DELIVERY,
+            "task_code": row.task.code if row.task_id else "",
+            "sender": row.created_by.short_name if row.created_by_id else "",
+            "files": files,
+        })
+
+    items.sort(key=lambda entry: entry["at"])
+    return items
+
+
+def send_client_message(client, user, body="", uploads=None):
+    """Free-form reply to a client on whichever channel they used last.
+
+    Returns ``(ok, outbound, error_ar)``. Nothing is ever silently dropped —
+    a failure is stored as a FAILED row so it stays visible in the thread.
+    """
+    from . import mailer, whatsapp as wa
+    from .models import OutboundAttachment, OutboundMessage
+
+    uploads = list(uploads or [])
+    body = (body or "").strip()
+    if not body and not uploads:
+        return False, None, "مفيش حاجة تتبعت."
+
+    conf = AppSettings.load()
+    channel = client_channel(client)
+    target = client.phone if channel == Channel.WHATSAPP else client.email
+
+    outbound = OutboundMessage.objects.create(
+        client=client, task=None, kind=OutboundMessage.Kind.CHAT,
+        created_by=user, channel=channel, to_identity=target or "", body=body,
+        files=[{"name": item.name, "status": "pending"} for item in uploads],
+    )
+    stored = [
+        OutboundAttachment.objects.create(
+            message=outbound, file=item, original_name=item.name, size=item.size
+        )
+        for item in uploads
+    ]
+
+    if not channel or not target:
+        outbound.status = OutboundMessage.Status.FAILED
+        outbound.error_message = (
+            "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
+        )
+        outbound.save(update_fields=["status", "error_message"])
+        return False, outbound, outbound.error_message
+
+    payload = [_read_attachment(a) for a in stored]
+
+    try:
+        if channel == Channel.WHATSAPP:
+            if body:
+                outbound.provider_id = wa.send_text(target, body)
+            for index, (name, content, mime) in enumerate(payload):
+                wa.send_file(target, content, name, mime, caption="" if body else name)
+                outbound.files[index]["status"] = "sent"
+        else:
+            mailer.send_delivery(
+                conf, target,
+                subject=f"Eagle — {client.code}",
+                body=body or "مرفق الملفات.",
+                attachments=payload,
+            )
+            for entry in outbound.files:
+                entry["status"] = "sent"
+    except (wa.WhatsAppError, mailer.MailError) as exc:
+        outbound.status = OutboundMessage.Status.FAILED
+        outbound.error_message = exc.message_ar
+        outbound.save(update_fields=["status", "error_message", "files"])
+        log(user, "client.reply_failed", client.code, exc.message_en[:200])
+        return False, outbound, exc.message_ar
+
+    outbound.status = OutboundMessage.Status.SENT
+    outbound.save(update_fields=["status", "provider_id", "files"])
+    log(user, "client.reply", client.code, (body or f"{len(payload)} file(s)")[:120])
+    return True, outbound, ""
 
 
 # ---------------------------------------------------------------------------

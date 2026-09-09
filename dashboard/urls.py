@@ -14,6 +14,8 @@ urlpatterns = [
 
     # -- operation ----------------------------------------------------------
     path("ops/inbox/", views.ops_inbox, name="ops_inbox"),
+    path("ops/chats/", views.ops_chats, name="ops_chats"),
+    path("ops/chats/<str:code>/", views.ops_chats, name="ops_chat_detail"),
     path("ops/tasks/", views.ops_tasks, name="ops_tasks"),
     path("ops/tasks/new/", views.ops_task_new, name="ops_task_new"),
     path("ops/team/", views.ops_team, name="ops_team"),
@@ -74,6 +76,13 @@ urlpatterns = [
     path("api/rooms/<int:room_id>/messages/", api.chat_fetch, name="api_chat_fetch"),
     path("api/rooms/<int:room_id>/send/", api.chat_send, name="api_chat_send"),
     path("api/clients/<str:client_code>/requirement/", api.add_requirement, name="api_requirement"),
+    path("api/client-chats/", api.client_chat_list, name="api_client_chat_list"),
+    path("api/client-chats/<str:client_code>/", api.client_chat_fetch, name="api_client_chat_fetch"),
+    path(
+        "api/client-chats/<str:client_code>/send/",
+        api.client_chat_send,
+        name="api_client_chat_send",
+    ),
 
     # -- webhooks -----------------------------------------------------------
     path("webhooks/whatsapp/", webhooks.whatsapp_hook, name="wh_whatsapp"),

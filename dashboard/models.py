@@ -106,6 +106,10 @@ def upload_chat(instance, filename):
     return f"chat/{timezone.now():%Y/%m}/{filename}"
 
 
+def upload_outbound(instance, filename):
+    return f"outbound/{timezone.now():%Y/%m}/{filename}"
+
+
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
@@ -298,6 +302,33 @@ class Client(models.Model):
         if user is not None and getattr(user, "can_see_client_identity", False):
             return f"{self.code} · {self.name or self.company or '—'}"
         return self.code
+
+    # -- the WhatsApp 24-hour customer-service window ------------------------
+    # WhatsApp only lets a business send a free-form message within 24h of the
+    # client's own last message. After that only an approved template works,
+    # so the chat UI has to say plainly whether the window is still open.
+
+    @property
+    def last_inbound_at(self):
+        last = self.messages.order_by("-received_at").first()
+        return last.received_at if last else None
+
+    @property
+    def reply_window_ends(self):
+        started = self.last_inbound_at
+        return started + timedelta(hours=24) if started else None
+
+    @property
+    def reply_window_open(self):
+        ends = self.reply_window_ends
+        return bool(ends and ends > timezone.now())
+
+    @property
+    def reply_window_minutes_left(self):
+        ends = self.reply_window_ends
+        if not ends:
+            return 0
+        return max(0, int((ends - timezone.now()).total_seconds() // 60))
 
 
 class ClientRequirement(models.Model):
@@ -750,14 +781,22 @@ class AppSettings(models.Model):
 
 
 class OutboundMessage(models.Model):
-    """A delivery sent back to the client (files and/or a note)."""
+    """Anything we send back to the client — a task delivery or a chat reply."""
 
     class Status(models.TextChoices):
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
         SKIPPED = "skipped", "Closed without sending"
 
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="deliveries")
+    class Kind(models.TextChoices):
+        DELIVERY = "delivery", "Task delivery"
+        CHAT = "chat", "Chat reply"
+
+    #: A chat reply belongs to a client, not to a task, so this is optional.
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.CASCADE, related_name="deliveries"
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.DELIVERY)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="deliveries")
     channel = models.CharField(max_length=12, choices=Channel.choices, blank=True)
     #: The client's phone/e-mail. Only the admin ever sees it.
@@ -775,11 +814,36 @@ class OutboundMessage(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self):
-        return f"{self.task.code} → {self.client.code} ({self.status})"
+        source = self.task.code if self.task_id else self.get_kind_display()
+        return f"{source} → {self.client.code} ({self.status})"
 
     @property
     def file_count(self):
         return len(self.files or [])
+
+
+class OutboundAttachment(models.Model):
+    """A real file the operation sent to the client from the chat."""
+
+    message = models.ForeignKey(
+        OutboundMessage, on_delete=models.CASCADE, related_name="uploads"
+    )
+    file = models.FileField(upload_to=upload_outbound)
+    original_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.original_name or self.file.name
+
+    @property
+    def pretty_size(self):
+        value = float(self.size or 0)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+            value /= 1024
+        return f"{value:.1f} GB"
 
 
 class AuditLog(models.Model):

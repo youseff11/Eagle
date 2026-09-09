@@ -15,6 +15,7 @@ from .models import (
     ChatAttachment,
     ChatMessage,
     ChatRoom,
+    Client,
     ClientRequirement,
     InboundMessage,
     Notification,
@@ -426,6 +427,92 @@ def chat_send(request, room_id):
             level="info", url=f"/tasks/{task.code}/?room={room.id}", task=task,
         )
     return JsonResponse({"ok": True, "message": _message_json(message, request.user)})
+
+
+# ---------------------------------------------------------------------------
+# Client conversations (the WhatsApp-style chat)
+# ---------------------------------------------------------------------------
+
+def _client_or_404(request, client_code):
+    client = get_object_or_404(Client, code=client_code)
+    if not (request.user.is_operation or request.user.is_admin_role):
+        raise Http404
+    return client
+
+
+def _thread_entry_json(entry, viewer):
+    return {
+        "uid": entry["uid"],
+        "kind": entry["kind"],
+        "body": entry["body"],
+        "subject": entry.get("subject", ""),
+        "channel": entry.get("channel", ""),
+        "status": entry.get("status", ""),
+        "error": entry.get("error", ""),
+        "sender": entry.get("sender", ""),
+        "task_code": entry.get("task_code", ""),
+        "is_delivery": entry.get("is_delivery", False),
+        "time": timezone.localtime(entry["at"]).strftime("%H:%M"),
+        "date": timezone.localtime(entry["at"]).strftime("%Y-%m-%d"),
+        "files": entry.get("files", []),
+    }
+
+
+def _conversation_json(client, viewer):
+    preview = services.conversation_preview(client, viewer)
+    return {
+        "code": client.code,
+        "label": client.label_for(viewer),
+        "text": preview["text"],
+        "outgoing": preview["outgoing"],
+        "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+        "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
+        # The 24-hour rule is a WhatsApp rule — e-mail has no such window.
+        "channel": services.client_channel(client),
+        "window_open": client.reply_window_open,
+        "minutes_left": client.reply_window_minutes_left,
+    }
+
+
+@api_role_required(Role.OPERATION)
+@require_GET
+def client_chat_list(request):
+    rows = services.client_conversations(request.user, request.GET.get("q", ""))[:100]
+    return JsonResponse({
+        "ok": True,
+        "items": [_conversation_json(row, request.user) for row in rows],
+    })
+
+
+@api_role_required(Role.OPERATION)
+@require_GET
+def client_chat_fetch(request, client_code):
+    client = _client_or_404(request, client_code)
+    entries = services.client_thread(client, request.user)
+    return JsonResponse({
+        "ok": True,
+        "client": _conversation_json(client, request.user),
+        "messages": [_thread_entry_json(e, request.user) for e in entries],
+    })
+
+
+@api_role_required(Role.OPERATION)
+@require_POST
+def client_chat_send(request, client_code):
+    client = _client_or_404(request, client_code)
+    ok, outbound, error = services.send_client_message(
+        client,
+        request.user,
+        body=request.POST.get("body", ""),
+        uploads=request.FILES.getlist("files"),
+    )
+    payload = {"ok": ok, "error": error}
+    if outbound is not None:
+        # Re-render the whole thread tail so a failed send still shows up.
+        entries = services.client_thread(client, request.user)
+        payload["messages"] = [_thread_entry_json(e, request.user) for e in entries]
+        payload["client"] = _conversation_json(client, request.user)
+    return JsonResponse(payload, status=200 if ok else 400)
 
 
 # ---------------------------------------------------------------------------

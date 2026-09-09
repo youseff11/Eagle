@@ -114,6 +114,34 @@ def ops_inbox(request):
 
 
 @role_required(Role.OPERATION)
+def ops_chats(request, code=""):
+    """WhatsApp-style conversations with the clients."""
+    user = request.user
+    query = request.GET.get("q", "").strip()
+    conversations = list(services.client_conversations(user, query)[:100])
+
+    active = None
+    if code:
+        active = get_object_or_404(Client, code=code)
+    elif conversations:
+        active = conversations[0]
+
+    thread = services.client_thread(active, user) if active else []
+
+    context = {
+        "conversations": [
+            {"client": row, "preview": services.conversation_preview(row, user)}
+            for row in conversations
+        ],
+        "active": active,
+        "thread": thread,
+        "query": query,
+        "channel": services.client_channel(active) if active else "",
+    }
+    return render(request, "ops/chats.html", context)
+
+
+@role_required(Role.OPERATION)
 def ops_tasks(request):
     status = request.GET.get("status", "")
     qs = Task.objects.select_related("client", "team_lead", "translator")
