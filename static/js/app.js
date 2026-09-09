@@ -391,36 +391,75 @@ window.Eagle = (function () {
 
   /* --------------------------------------------------------- page actions */
 
+  /**
+   * Delegated so buttons inside content injected later (live inbox rows)
+   * work without re-binding.
+   */
   function initActions() {
-    $$("[data-action]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        var url = el.getAttribute("data-action");
-        var confirmAr = el.getAttribute("data-confirm-ar");
-        if (confirmAr && !window.confirm(t(confirmAr, el.getAttribute("data-confirm-en") || confirmAr))) {
-          return;
+    document.addEventListener("click", function (event) {
+      var el = event.target && event.target.closest && event.target.closest("[data-action]");
+      if (!el || el.disabled) { return; }
+
+      var url = el.getAttribute("data-action");
+      var confirmAr = el.getAttribute("data-confirm-ar");
+      if (confirmAr && !window.confirm(t(confirmAr, el.getAttribute("data-confirm-en") || confirmAr))) {
+        return;
+      }
+      el.disabled = true;
+      var payload = {};
+      var fieldId = el.getAttribute("data-field");
+      if (fieldId) {
+        var field = document.getElementById(fieldId);
+        if (field) { payload[el.getAttribute("data-field-name") || "user"] = field.value; }
+      }
+      post(url, payload).then(function (res) {
+        el.disabled = false;
+        if (res.ok) {
+          toast({ level: "success", title: t("تم", "Done") });
+          setTimeout(function () { window.location.reload(); }, 500);
+        } else {
+          toast({
+            level: "danger",
+            title: t("مش ممكن", "Not possible"),
+            body: res.error || ""
+          });
         }
-        el.disabled = true;
-        var payload = {};
-        var fieldId = el.getAttribute("data-field");
-        if (fieldId) {
-          var field = document.getElementById(fieldId);
-          if (field) { payload[el.getAttribute("data-field-name") || "user"] = field.value; }
-        }
-        post(url, payload).then(function (res) {
-          el.disabled = false;
-          if (res.ok) {
-            toast({ level: "success", title: t("تم", "Done") });
-            setTimeout(function () { window.location.reload(); }, 500);
-          } else {
-            toast({
-              level: "danger",
-              title: t("مش ممكن", "Not possible"),
-              body: res.error || ""
-            });
-          }
-        });
       });
     });
+  }
+
+  /* -------------------------------------------------------- live inbox */
+
+  function initInboxLive() {
+    var list = $("#inboxList");
+    if (!list) { return; }
+
+    var url = list.getAttribute("data-live-url");
+    var last = Number(list.getAttribute("data-last") || 0);
+    var empty = $("#inboxEmpty");
+    var params = "&state=" + encodeURIComponent(list.getAttribute("data-state") || "") +
+      "&q=" + encodeURIComponent(list.getAttribute("data-q") || "");
+
+    function poll() {
+      get(url + "?after=" + last + params).then(function (data) {
+        if (!data || !data.items || !data.items.length) { return; }
+        data.items.forEach(function (item) {
+          var holder = document.createElement("div");
+          holder.innerHTML = item.html.trim();
+          var node = holder.firstElementChild;
+          if (!node) { return; }
+          node.classList.add("is-new");
+          // Newest first, directly under the empty-state placeholder.
+          list.insertBefore(node, empty ? empty.nextSibling : list.firstChild);
+          last = Math.max(last, item.id);
+        });
+        list.setAttribute("data-last", last);
+        if (empty) { empty.classList.add("hidden"); }
+        applyLang(state.lang, false);   // translate the freshly injected markup
+      }).catch(function () { /* offline: next tick will retry */ });
+    }
+
+    setInterval(poll, cfg.pollMs || 3000);
   }
 
   function initAiCheck() {
@@ -632,6 +671,7 @@ window.Eagle = (function () {
     initChat();
     initAiCheck();
     initDeliver();
+    initInboxLive();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",
       "الاتصال بواتساب شغال", "WhatsApp connection is working");

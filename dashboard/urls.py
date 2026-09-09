@@ -69,6 +69,7 @@ urlpatterns = [
     path("api/integrations/whatsapp/test/", api.whatsapp_test, name="api_whatsapp_test"),
     path("api/integrations/email/test/", api.email_test, name="api_email_test"),
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),
+    path("api/inbox/feed/", api.inbox_feed, name="api_inbox_feed"),
     path("api/messages/<int:pk>/claim/", api.claim_message, name="api_claim_message"),
     path("api/rooms/<int:room_id>/messages/", api.chat_fetch, name="api_chat_fetch"),
     path("api/rooms/<int:room_id>/send/", api.chat_send, name="api_chat_send"),

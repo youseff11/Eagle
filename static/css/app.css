@@ -408,6 +408,13 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface);
 }
 .msg-item + .msg-item { margin-top: 10px; }
+/* A row that just arrived over the live feed. */
+.msg-item.is-new { animation: msg-arrive .5s ease-out, msg-flash 2.4s ease-out; }
+@keyframes msg-arrive { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes msg-flash { 0%, 35% { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); } 100% { box-shadow: none; } }
+
+#liveBadge .badge__dot { animation: live-pulse 2s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: .25; } }
 .msg-item.is-blocked { border-color: var(--danger-soft); background: var(--danger-soft); }
 .msg-item__body { flex: 1; min-width: 0; }
 .msg-item__text { white-space: pre-wrap; word-break: break-word; color: var(--text); }

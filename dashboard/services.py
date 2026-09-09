@@ -147,6 +147,30 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
     return message
 
 
+def inbox_queryset(user, state="", query=""):
+    """The operation inbox, filtered identically for the page and the live feed."""
+    from django.db.models import Q
+
+    qs = InboundMessage.objects.select_related("client", "claimed_by", "task").prefetch_related(
+        "attachments"
+    )
+    # Rate talk never reaches the operation role.
+    if not user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+
+    if state == "unclaimed":
+        qs = qs.filter(claimed_by__isnull=True)
+    elif state == "mine":
+        qs = qs.filter(claimed_by=user)
+    elif state == "notask":
+        qs = qs.filter(task__isnull=True)
+
+    query = (query or "").strip()
+    if query:
+        qs = qs.filter(Q(body__icontains=query) | Q(client__code__icontains=query))
+    return qs
+
+
 def claim_message(message, user):
     if message.claimed_by_id:
         return False

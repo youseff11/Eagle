@@ -135,6 +135,13 @@ class User(AbstractUser):
     class Meta:
         ordering = ("role", "username")
 
+    def save(self, *args, **kwargs):
+        # `createsuperuser` cannot ask for a role, so it would land on the
+        # default (translator) and show up in translator assignment lists.
+        if self._state.adding and self.is_superuser and self.role == Role.TRANSLATOR:
+            self.role = Role.ADMIN
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.get_full_name() or self.username
 
@@ -681,7 +688,7 @@ class AppSettings(models.Model):
         max_length=200, blank=True,
         help_text="Meta App Secret — used to verify the X-Hub-Signature-256 header.",
     )
-    whatsapp_api_version = models.CharField(max_length=10, default="v21.0")
+    whatsapp_api_version = models.CharField(max_length=10, default="v23.0")
     webhook_shared_secret = models.CharField(max_length=120, blank=True)
 
     imap_host = models.CharField(max_length=120, blank=True)

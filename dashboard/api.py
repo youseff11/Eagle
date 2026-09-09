@@ -319,6 +319,31 @@ def set_deadline(request, code):
 # ---------------------------------------------------------------------------
 
 @api_role_required(Role.OPERATION)
+@require_GET
+def inbox_feed(request):
+    """Messages newer than ``after``, rendered with the same partial as the page."""
+    from django.template.loader import render_to_string
+
+    after = _int(request.GET.get("after"), 0)
+    rows = services.inbox_queryset(
+        request.user, request.GET.get("state", ""), request.GET.get("q", "")
+    ).filter(id__gt=after)[:20]
+
+    # Oldest first so the client can prepend each one and keep newest on top.
+    rows = list(rows)[::-1]
+    return JsonResponse({
+        "ok": True,
+        "items": [
+            {
+                "id": row.id,
+                "html": render_to_string("ops/_message_item.html", {"item": row}, request=request),
+            }
+            for row in rows
+        ],
+    })
+
+
+@api_role_required(Role.OPERATION)
 @require_POST
 def claim_message(request, pk):
     message = get_object_or_404(InboundMessage, pk=pk)

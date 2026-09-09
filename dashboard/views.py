@@ -95,26 +95,14 @@ def home(request):
 @role_required(Role.OPERATION)
 def ops_inbox(request):
     user = request.user
-    qs = InboundMessage.objects.select_related("client", "claimed_by").prefetch_related(
-        "attachments"
-    )
-    if not user.is_admin_role:
-        qs = qs.filter(is_rate_blocked=False)
-
     state = request.GET.get("state", "")
-    if state == "unclaimed":
-        qs = qs.filter(claimed_by__isnull=True)
-    elif state == "mine":
-        qs = qs.filter(claimed_by=user)
-    elif state == "notask":
-        qs = qs.filter(task__isnull=True)
-
     query = request.GET.get("q", "").strip()
-    if query:
-        qs = qs.filter(Q(body__icontains=query) | Q(client__code__icontains=query))
+    messages_list = list(services.inbox_queryset(user, state, query)[:150])
 
     context = {
-        "messages_list": qs[:150],
+        "messages_list": messages_list,
+        # The live feed asks for anything newer than this.
+        "last_message_id": messages_list[0].id if messages_list else 0,
         "state": state,
         "query": query,
         "unclaimed_count": InboundMessage.objects.filter(

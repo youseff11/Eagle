@@ -1,0 +1,62 @@
+{% load eagle_tags %}{# One inbox row. Rendered by the page loop AND by the live feed. #}
+<div class="msg-item {% if item.is_rate_blocked %}is-blocked{% endif %}" data-message="{{ item.pk }}">
+  <div class="avatar avatar--brand">
+    {% if item.channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}{% else %}{% icon "mail" "ic--sm" %}{% endif %}
+  </div>
+
+  <div class="msg-item__body">
+    <div class="row row--between">
+      <div class="row row--tight">
+        <strong class="mono">{{ item.client_code }}</strong>
+        <span class="chip">{{ item.get_channel_display }}</span>
+        {% if item.is_rate_blocked %}
+          <span class="badge badge--dead"><i class="badge__dot"></i><span
+            data-ar="محجوبة — سعر" data-en="Hidden — rate">محجوبة — سعر</span></span>
+        {% endif %}
+        {% if item.task_id %}
+          <a class="badge badge--ok mono" href="{% url 'dashboard:task_detail' item.task.code %}">{{ item.task.code }}</a>
+        {% endif %}
+      </div>
+      <small class="mono">{{ item.received_at|date:"Y-m-d H:i" }}</small>
+    </div>
+
+    {% if item.subject %}<div style="font-weight:600">{{ item.subject }}</div>{% endif %}
+    <div class="msg-item__text">{{ item.body }}</div>
+
+    {% if item.attachments.all %}
+      <div class="files">
+        {% for attachment in item.attachments.all %}
+          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if user.is_admin_role and item.sender_identity %}
+      <div class="muted mono" style="font-size:.75rem;margin-top:7px">
+        {{ item.sender_identity }} {{ item.sender_display }}
+      </div>
+    {% endif %}
+
+    <div class="row row--tight" style="margin-top:11px">
+      {% if item.claimed_by_id %}
+        <span class="badge badge--ok">
+          {% icon "user-check" "ic--sm" %}
+          <span data-ar="استلمها" data-en="Claimed by">استلمها</span> {{ item.claimed_by.short_name }}
+        </span>
+      {% else %}
+        <button class="btn btn--sm btn--accent" type="button"
+                data-action="{% url 'dashboard:api_claim_message' item.pk %}">
+          {% icon "user-check" "ic--sm" %}<span data-ar="استلمت الرسالة" data-en="Claim">استلمت الرسالة</span>
+        </button>
+      {% endif %}
+
+      {% if not item.task_id %}
+        <a class="btn btn--sm btn--primary" href="{% url 'dashboard:ops_task_new' %}?message={{ item.pk }}">
+          {% icon "arrow-right" "ic--sm" %}<span data-ar="حوّلها لتاسك" data-en="Convert to task">حوّلها لتاسك</span>
+        </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
