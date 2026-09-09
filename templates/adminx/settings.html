@@ -8,7 +8,7 @@
   <h1 data-ar="الإعدادات" data-en="Settings">الإعدادات</h1>
 </div>
 
-<form method="post" style="max-width:920px">
+<form method="post" id="settingsForm" action="{% url 'dashboard:admin_settings' %}" style="max-width:920px">
   {% csrf_token %}
 
   <div class="card">
@@ -50,7 +50,17 @@
   </div>
 
   <div class="card">
-    <div class="card__head">{% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3></div>
+    <div class="card__head">
+      {% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3>
+      <div class="grow"></div>
+      {% if conf.whatsapp_access_token and conf.whatsapp_phone_number_id %}
+        <span class="badge badge--ok"><i class="badge__dot"></i><span
+          data-ar="المفاتيح محفوظة" data-en="Keys saved">المفاتيح محفوظة</span></span>
+      {% else %}
+        <span class="badge badge--dead"><i class="badge__dot"></i><span
+          data-ar="المفاتيح لسه متحفظتش" data-en="Keys not saved yet">المفاتيح لسه متحفظتش</span></span>
+      {% endif %}
+    </div>
 
     <div class="label" data-ar="حط الرابط ده في Meta ← Configuration ← Callback URL"
          data-en="Put this in Meta → Configuration → Callback URL">Callback URL</div>
@@ -96,16 +106,26 @@
              placeholder="2010…">
       <button class="btn btn--accent" type="button" id="waTestBtn"
               data-url="{% url 'dashboard:api_whatsapp_test' %}">
-        {% icon "refresh" "ic--sm" %}<span data-ar="اختبار الاتصال" data-en="Test connection">اختبار الاتصال</span>
+        {% icon "refresh" "ic--sm" %}<span data-ar="احفظ واختبر الاتصال" data-en="Save & test connection">احفظ واختبر الاتصال</span>
       </button>
       <span class="muted" style="font-size:.78rem"
-            data-ar="احفظ الإعدادات الأول." data-en="Save the settings first.">احفظ الإعدادات الأول.</span>
+            data-ar="الزرار بيحفظ الأول لوحده." data-en="The button saves first, automatically.">الزرار بيحفظ الأول لوحده.</span>
     </div>
     <div id="waTestResult" class="mt"></div>
   </div>
 
   <div class="card">
-    <div class="card__head">{% icon "mail" %}<h3 data-ar="الإيميل" data-en="Email">الإيميل</h3></div>
+    <div class="card__head">
+      {% icon "mail" %}<h3 data-ar="الإيميل" data-en="Email">الإيميل</h3>
+      <div class="grow"></div>
+      {% if conf.imap_host and conf.imap_user %}
+        <span class="badge badge--ok"><i class="badge__dot"></i><span
+          data-ar="محفوظ" data-en="Saved">محفوظ</span></span>
+      {% else %}
+        <span class="badge badge--dead"><i class="badge__dot"></i><span
+          data-ar="لسه متحفظش" data-en="Not saved yet">لسه متحفظش</span></span>
+      {% endif %}
+    </div>
 
     <div class="label" data-ar="استقبال (IMAP)" data-en="Receiving (IMAP)">استقبال (IMAP)</div>
     <p class="muted mono" style="font-size:.76rem">python manage.py fetch_emails</p>
@@ -140,7 +160,7 @@
              placeholder="test@example.com">
       <button class="btn btn--accent" type="button" id="mailTestBtn"
               data-url="{% url 'dashboard:api_email_test' %}">
-        {% icon "refresh" "ic--sm" %}<span data-ar="اختبار الاتصال" data-en="Test connection">اختبار الاتصال</span>
+        {% icon "refresh" "ic--sm" %}<span data-ar="احفظ واختبر الاتصال" data-en="Save & test connection">احفظ واختبر الاتصال</span>
       </button>
     </div>
     <div id="mailTestResult" class="mt"></div>

@@ -531,19 +531,48 @@ window.Eagle = (function () {
     }
   }
 
+  /** Save the settings form first — testing reads the database, not the page. */
+  function saveSettingsForm() {
+    var form = $("#settingsForm");
+    if (!form) { return Promise.resolve({ ok: true }); }
+    return fetch(form.getAttribute("action") || window.location.href, {
+      method: "POST",
+      headers: { "X-CSRFToken": csrf(), "X-Requested-With": "XMLHttpRequest" },
+      body: new FormData(form),
+      credentials: "same-origin"
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: r.ok }; }); })
+      .catch(function () { return { ok: false }; });
+  }
+
   function bindTest(buttonId, inputId, resultId, okLabelAr, okLabelEn) {
     var button = $("#" + buttonId);
     if (!button) { return; }
     var out = $("#" + resultId);
+
     button.addEventListener("click", function () {
       button.disabled = true;
       out.innerHTML = '<div class="muted" style="font-size:.8rem">' +
-        escapeHtml(t("بيجرب…", "Testing…")) + "</div>";
-      post(button.getAttribute("data-url"), { to: ($("#" + inputId) || {}).value || "" })
-        .then(function (res) {
+        escapeHtml(t("بيحفظ الإعدادات…", "Saving settings…")) + "</div>";
+
+      saveSettingsForm().then(function (saved) {
+        if (!saved.ok) {
           button.disabled = false;
-          renderReport(out, res, t(okLabelAr, okLabelEn));
-        });
+          var fields = Object.keys(saved.errors || {});
+          out.innerHTML = '<div class="note note--high">' + svgIcon("alert") + "<div>" +
+            escapeHtml(t("الحفظ فشل — فيه حقل غلط: ", "Save failed — invalid field: ")) +
+            escapeHtml(fields.join(", ") || t("راجع الحقول.", "check the fields.")) +
+            "</div></div>";
+          return;
+        }
+        out.innerHTML = '<div class="muted" style="font-size:.8rem">' +
+          escapeHtml(t("بيجرب الاتصال…", "Testing the connection…")) + "</div>";
+        return post(button.getAttribute("data-url"), { to: ($("#" + inputId) || {}).value || "" })
+          .then(function (res) {
+            button.disabled = false;
+            renderReport(out, res, t(okLabelAr, okLabelEn));
+          });
+      });
     });
   }
 

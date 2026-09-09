@@ -5,7 +5,7 @@ from django.contrib.auth import login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.db.models import Q
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -422,11 +422,22 @@ def _pending_assignments():
 def admin_settings(request):
     conf = AppSettings.load()
     form = SettingsForm(request.POST or None, instance=conf)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        services.log(request.user, "settings.update")
-        flash.success(request, "saved")
-        return redirect("dashboard:admin_settings")
+
+    if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        if form.is_valid():
+            form.save()
+            services.log(request.user, "settings.update")
+            if is_ajax:
+                # The "save & test" button saves first, then calls the test API.
+                return JsonResponse({"ok": True})
+            flash.success(request, "saved")
+            return redirect("dashboard:admin_settings")
+        if is_ajax:
+            return JsonResponse(
+                {"ok": False, "errors": {k: [str(e) for e in v] for k, v in form.errors.items()}},
+                status=400,
+            )
 
     host = request.get_host()
     return render(request, "adminx/settings.html", {
