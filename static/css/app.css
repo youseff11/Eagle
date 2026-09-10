@@ -625,6 +625,20 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .auth__alert .ic { flex: none; margin-top: 2px; }
 .auth__foot { margin-top: 20px; color: var(--faint); font-size: .755rem; text-align: center; }
 
+/* Legal identity of the operator — required on a public page by Meta's
+   business verification. Quiet, but real text (never an image). */
+.auth__legal {
+  margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
+  color: var(--faint); font-size: .72rem; line-height: 1.75; text-align: center;
+}
+.auth__legal-brand {
+  color: var(--muted); font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; font-size: .68rem; margin-bottom: 4px;
+}
+.auth__legal-row b { color: var(--muted); font-weight: 600; }
+.auth__legal-row a { color: inherit; text-decoration: none; }
+.auth__legal-row a:hover { color: var(--text); text-decoration: underline; }
+
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
