@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from django.contrib.staticfiles.storage import ManifestStaticFilesStorage
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage
@@ -162,3 +163,19 @@ class BunnyStorage(Storage):
         directories = [e["ObjectName"] for e in entries if e.get("IsDirectory")]
         files = [e["ObjectName"] for e in entries if not e.get("IsDirectory")]
         return directories, files
+
+
+class HashedStaticStorage(ManifestStaticFilesStorage):
+    """Static files served under a content-hashed name (``app.4f2c1e9a.css``).
+
+    The hash changes whenever the file's bytes change, so every deploy hands
+    browsers and Cloudflare a URL they have never seen — a stale copy of the
+    stylesheet can no longer survive at the edge, and no cache purge is needed
+    after a deploy.
+
+    ``manifest_strict = False`` keeps the site up if ``collectstatic`` has not
+    been run yet: a name missing from the manifest falls back to the plain
+    filename instead of raising and taking every page down with it.
+    """
+
+    manifest_strict = False
