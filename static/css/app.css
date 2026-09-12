@@ -639,6 +639,57 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .auth__legal-row a { color: inherit; text-decoration: none; }
 .auth__legal-row a:hover { color: var(--text); text-decoration: underline; }
 
+/* ---------------------------------------------------- public legal pages */
+/* /privacy/, /terms/, /data-deletion/ — open to everyone, no login. */
+
+.legal { min-height: 100vh; background: var(--bg); padding: 34px 20px 44px; }
+.legal__wrap { width: min(760px, 100%); margin: 0 auto; }
+
+.legal__brand { display: inline-flex; align-items: center; gap: 11px; margin-bottom: 30px; }
+.legal__title { font-size: 1.6rem; letter-spacing: -.02em; margin-bottom: 4px; }
+.legal__updated { color: var(--faint); font-size: .78rem; margin-bottom: 20px; }
+
+.legal__tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  border-bottom: 1px solid var(--border); margin-bottom: 26px;
+}
+.legal__tabs a {
+  padding: 9px 13px; font-size: .845rem; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.legal__tabs a:hover { color: var(--text); }
+.legal__tabs a.is-active { color: var(--heading); font-weight: 600; border-bottom-color: var(--brand); }
+
+.legal__body { font-size: .9rem; line-height: 1.85; color: var(--text); }
+.legal__lead {
+  font-size: .97rem; color: var(--muted); line-height: 1.8;
+  padding: 14px 16px; background: var(--surface-2);
+  border: 1px solid var(--border-soft); border-radius: var(--r);
+  margin-bottom: 30px;
+}
+.legal__body section + section { margin-top: 30px; }
+.legal__body h2 {
+  font-size: 1.02rem; margin-bottom: 9px; padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.legal__body p { margin-bottom: 11px; }
+.legal__body ul { margin: 0 0 11px; padding-inline-start: 20px; }
+.legal__body li { margin-bottom: 6px; }
+.legal__body a { color: var(--brand); }
+.legal__body a:hover { text-decoration: underline; }
+
+.legal__contact { list-style: none; padding: 0; margin-top: 4px; }
+.legal__contact li { display: flex; align-items: center; gap: 8px; }
+.legal__contact .ic { color: var(--faint); flex: none; }
+
+.legal .auth__legal { margin-top: 40px; text-align: start; }
+
+@media (max-width: 560px) {
+  .legal { padding: 26px 16px 36px; }
+  .legal__title { font-size: 1.35rem; }
+  .legal__tabs a { padding: 8px 10px; font-size: .8rem; }
+}
+
 /* ------------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {

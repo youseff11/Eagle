@@ -89,6 +89,26 @@ def home(request):
 
 
 # ---------------------------------------------------------------------------
+# Public legal pages
+#
+# These are open to everyone — no login. Meta requires a reachable privacy
+# policy and data-deletion page before a WhatsApp app can be published, and
+# the pages carry the registered legal name for business verification.
+# ---------------------------------------------------------------------------
+
+def privacy(request):
+    return render(request, "public/privacy.html", {"page": "privacy"})
+
+
+def terms(request):
+    return render(request, "public/terms.html", {"page": "terms"})
+
+
+def data_deletion(request):
+    return render(request, "public/data_deletion.html", {"page": "deletion"})
+
+
+# ---------------------------------------------------------------------------
 # Operation
 # ---------------------------------------------------------------------------
 

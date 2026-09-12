@@ -12,6 +12,11 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout"),
     path("", views.home, name="home"),
 
+    # -- public legal pages (no login) --------------------------------------
+    path("privacy/", views.privacy, name="privacy"),
+    path("terms/", views.terms, name="terms"),
+    path("data-deletion/", views.data_deletion, name="data_deletion"),
+
     # -- operation ----------------------------------------------------------
     path("ops/inbox/", views.ops_inbox, name="ops_inbox"),
     path("ops/chats/", views.ops_chats, name="ops_chats"),

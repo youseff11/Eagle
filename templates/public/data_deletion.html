@@ -1,0 +1,77 @@
+{% extends "public/base.html" %}
+
+{% block title %}حذف البيانات · Eagle Translation{% endblock %}
+{% block page_heading %}<span data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</span>{% endblock %}
+
+{% block body %}
+
+<p class="legal__lead"
+   data-ar="لو عايز تمسح بياناتك من عندنا، الصفحة دي بتشرح إزاي تطلب كده وإيه اللي بيتمسح وفي خلال قد إيه."
+   data-en="If you want your data removed from our systems, this page explains how to ask, what gets deleted, and how long it takes.">
+  لو عايز تمسح بياناتك من عندنا، الصفحة دي بتشرح إزاي تطلب كده وإيه اللي بيتمسح وفي خلال قد إيه.
+</p>
+
+<section>
+  <h2 data-ar="إزاي تطلب الحذف" data-en="How to request deletion">إزاي تطلب الحذف</h2>
+  <p data-ar="ابعتلنا بأي طريقة من دول وقول «أطلب حذف بياناتي»:"
+     data-en="Contact us in any of these ways and say “I request deletion of my data”:">
+    ابعتلنا بأي طريقة من دول وقول «أطلب حذف بياناتي»:
+  </p>
+  <ul class="legal__contact">
+    <li>{% icon "mail" "ic--sm" %}<a href="mailto:eagle2operation2@gmail.com" dir="ltr">eagle2operation2@gmail.com</a></li>
+    <li>{% icon "phone" "ic--sm" %}<a href="tel:+201004500410" dir="ltr">+20 100 450 0410</a></li>
+    <li>{% icon "message" "ic--sm" %}<span data-ar="أو رد على أي محادثة واتساب بينا وأنت طالب الحذف" data-en="Or reply on any WhatsApp conversation with us asking for deletion">أو رد على أي محادثة واتساب بينا وأنت طالب الحذف</span></li>
+  </ul>
+  <p data-ar="عشان نتأكد إن الطلب منك فعلًا، لازم يوصلنا من نفس الرقم أو الإيميل اللي كنت بتكلمنا منه. لو مش قادر، هنسألك سؤال أو اتنين عن آخر تعامل بينا."
+     data-en="To confirm the request is really from you, it must come from the same number or e-mail you contacted us on. If that is not possible, we will ask a question or two about your last order.">
+    عشان نتأكد إن الطلب منك فعلًا، لازم يوصلنا من نفس الرقم أو الإيميل اللي كنت بتكلمنا منه. لو مش قادر، هنسألك سؤال أو اتنين عن آخر تعامل بينا.
+  </p>
+</section>
+
+<section>
+  <h2 data-ar="إيه اللي بيتمسح" data-en="What gets deleted">إيه اللي بيتمسح</h2>
+  <ul>
+    <li data-ar="كل الرسائل اللي بعتهالنا وردودنا عليها."
+        data-en="All the messages you sent us and our replies.">
+      كل الرسائل اللي بعتهالنا وردودنا عليها.
+    </li>
+    <li data-ar="كل المستندات اللي رفعتها والنسخ المترجمة منها."
+        data-en="All the documents you uploaded and their translated versions.">
+      كل المستندات اللي رفعتها والنسخ المترجمة منها.
+    </li>
+    <li data-ar="رقم تليفونك وعنوان إيميلك وأي بيانات تواصل عندنا."
+        data-en="Your phone number, e-mail address, and any contact details we hold.">
+      رقم تليفونك وعنوان إيميلك وأي بيانات تواصل عندنا.
+    </li>
+  </ul>
+</section>
+
+<section>
+  <h2 data-ar="المدة" data-en="How long it takes">المدة</h2>
+  <p data-ar="بننفّذ طلب الحذف خلال 30 يوم من استلامه، وبنبعتلك تأكيد لما يخلص."
+     data-en="We carry out deletion requests within 30 days of receiving them, and we confirm to you when it is done.">
+    بننفّذ طلب الحذف خلال 30 يوم من استلامه، وبنبعتلك تأكيد لما يخلص.
+  </p>
+</section>
+
+<section>
+  <h2 data-ar="حاجات ممكن تفضل عندنا" data-en="What may remain">حاجات ممكن تفضل عندنا</h2>
+  <p data-ar="لو كان فيه فواتير أو مستندات محاسبية تخص تعاملك معانا، القانون المصري بيلزمنا نحتفظ بيها لمدة معيّنة حتى لو طلبت الحذف. دي بتفضل في السجلات المحاسبية بس، ومش بتتستخدم في أي حاجة تانية."
+     data-en="If there are invoices or accounting records relating to your orders, Egyptian law requires us to keep them for a set period even after a deletion request. These stay in the accounting records only and are not used for anything else.">
+    لو كان فيه فواتير أو مستندات محاسبية تخص تعاملك معانا، القانون المصري بيلزمنا نحتفظ بيها لمدة معيّنة حتى لو طلبت الحذف. دي بتفضل في السجلات المحاسبية بس، ومش بتتستخدم في أي حاجة تانية.
+  </p>
+  <p data-ar="كمان، نسخة الرسائل اللي محفوظة عند واتساب نفسه على تليفونك أو في حسابك مش تحت سيطرتنا — دي بتتمسح من جهازك."
+     data-en="Also, the copy of the messages held by WhatsApp itself on your phone or in your account is not under our control — you delete that from your device.">
+    كمان، نسخة الرسائل اللي محفوظة عند واتساب نفسه على تليفونك أو في حسابك مش تحت سيطرتنا — دي بتتمسح من جهازك.
+  </p>
+</section>
+
+<section>
+  <h2 data-ar="حذف جزئي" data-en="Partial deletion">حذف جزئي</h2>
+  <p data-ar="لو عايز تمسح مستند معيّن أو محادثة واحدة بس بدل كل حاجة، قولنا وهنعملها."
+     data-en="If you want a specific document or a single conversation deleted rather than everything, just say so and we will do it.">
+    لو عايز تمسح مستند معيّن أو محادثة واحدة بس بدل كل حاجة، قولنا وهنعملها.
+  </p>
+</section>
+
+{% endblock %}

@@ -1,0 +1,94 @@
+{% load static eagle_tags %}<!DOCTYPE html>
+<html lang="{{ eagle_lang }}" dir="{{ eagle_dir }}" data-theme="{{ eagle_theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Eagle Translation{% endblock %}</title>
+  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+
+{% include "partials/icons.html" %}
+
+<div class="auth__utils">
+  <div class="seg">
+    <button type="button" data-lang-btn="ar">عربي</button>
+    <button type="button" data-lang-btn="en">EN</button>
+  </div>
+  <button class="icon-btn" id="themeToggle" type="button"
+          data-ar-title="تبديل الوضع الليلي" data-en-title="Toggle dark mode">
+    <span id="themeIcon">{% icon "moon" %}</span>
+  </button>
+</div>
+
+<div class="legal">
+  <div class="legal__wrap">
+
+    <a class="legal__brand" href="{% url 'dashboard:login' %}">
+      <span class="brand__mark">{% icon "eagle" %}</span>
+      <span>
+        <span class="brand__name">EAGLE</span>
+        <span class="brand__sub">translation ops</span>
+      </span>
+    </a>
+
+    <h1 class="legal__title">{% block page_heading %}{% endblock %}</h1>
+    <p class="legal__updated">
+      <span data-ar="آخر تحديث" data-en="Last updated">آخر تحديث</span>:
+      <span dir="ltr">2026-09-12</span>
+    </p>
+
+    <nav class="legal__tabs">
+      <a href="{% url 'dashboard:privacy' %}"
+         class="{% if page == 'privacy' %}is-active{% endif %}"
+         data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</a>
+      <a href="{% url 'dashboard:terms' %}"
+         class="{% if page == 'terms' %}is-active{% endif %}"
+         data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</a>
+      <a href="{% url 'dashboard:data_deletion' %}"
+         class="{% if page == 'deletion' %}is-active{% endif %}"
+         data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
+    </nav>
+
+    <article class="legal__body">
+      {% block body %}{% endblock %}
+    </article>
+
+    {# Public identity of the operator. Meta's business verification looks for
+       the registered legal name as real text on the public site. #}
+    <footer class="auth__legal">
+      <div class="auth__legal-brand">Eagle Translation</div>
+      <div class="auth__legal-row">
+        <span data-ar="الاسم القانوني" data-en="Legal name">الاسم القانوني</span>:
+        <b>النسر للتوريدات العامة</b>
+      </div>
+      <div class="auth__legal-row">شارع زيدان، أبو المطامير، البحيرة 22731، مصر</div>
+      <div class="auth__legal-row">
+        <span data-ar="سجل تجاري" data-en="Commercial register">سجل تجاري</span>
+        <span dir="ltr">51760</span>
+        <span aria-hidden="true">·</span>
+        <a href="tel:+201004500410" dir="ltr">+20 100 450 0410</a>
+      </div>
+      <div class="auth__legal-row">
+        <a href="https://www.eagel-operation.com" dir="ltr">www.eagel-operation.com</a>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+  window.EAGLE_CFG = {
+    lang: "{{ eagle_lang }}",
+    theme: "{{ eagle_theme }}",
+    prefsUrl: "{% url 'dashboard:api_prefs' %}"
+  };
+</script>
+<script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
