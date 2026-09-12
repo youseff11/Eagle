@@ -77,7 +77,7 @@ SECRET_KEY = env(
 
 DEBUG = env_bool("EAGLE_DEBUG", "DEBUG", default=True)
 
-ALLOWED_HOSTS = env_list("www.eagel-operation.com", "ALLOWED_HOSTS")
+ALLOWED_HOSTS = env_list("EAGLE_HOSTS", "ALLOWED_HOSTS")
 if DEBUG and not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
 
@@ -246,9 +246,18 @@ STORAGES = {
         if USE_BUNNY else
         {"BACKEND": "django.core.files.storage.FileSystemStorage"}
     ),
-    # Content-hashed names, so a deploy always produces a fresh URL and
-    # Cloudflare can never keep serving yesterday's stylesheet.
-    "staticfiles": {"BACKEND": "dashboard.storages.HashedStaticStorage"},
+    # In production, content-hashed names (``app.4f2c1e9a.css``) so a deploy
+    # always produces a URL Cloudflare has never seen and the edge can never
+    # keep serving yesterday's stylesheet. Under DEBUG the dev server serves
+    # files straight from ``static/`` by their plain names, so hashing there
+    # would just 404.
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG else
+            "dashboard.storages.HashedStaticStorage"
+        )
+    },
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
