@@ -639,6 +639,15 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .auth__legal-row a { color: inherit; text-decoration: none; }
 .auth__legal-row a:hover { color: var(--text); text-decoration: underline; }
 
+/* Links to the public legal pages — shown without signing in. */
+.auth__legal-links {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 4px 8px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.auth__legal-links a { color: var(--muted); }
+.auth__legal-links a:hover { color: var(--text); text-decoration: underline; }
+
 /* ---------------------------------------------------- public legal pages */
 /* /privacy/, /terms/, /data-deletion/ — open to everyone, no login. */
 

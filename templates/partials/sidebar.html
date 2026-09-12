@@ -85,6 +85,18 @@
     <a class="nav__item {% if url_name == 'notifications' %}is-active{% endif %}" href="{% url 'dashboard:notifications' %}">
       {% icon "bell" %}<span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>
     </a>
+
+    {# The public legal pages — same links the login page shows. #}
+    <div class="nav__label" data-ar="الصفحات القانونية" data-en="Legal">الصفحات القانونية</div>
+    <a class="nav__item {% if url_name == 'privacy' %}is-active{% endif %}" href="{% url 'dashboard:privacy' %}">
+      {% icon "shield" %}<span data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</span>
+    </a>
+    <a class="nav__item {% if url_name == 'terms' %}is-active{% endif %}" href="{% url 'dashboard:terms' %}">
+      {% icon "file" %}<span data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</span>
+    </a>
+    <a class="nav__item {% if url_name == 'data_deletion' %}is-active{% endif %}" href="{% url 'dashboard:data_deletion' %}">
+      {% icon "trash" %}<span data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</span>
+    </a>
   </nav>
 
   <div class="side-user">

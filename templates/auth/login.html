@@ -105,6 +105,18 @@
       <div class="auth__legal-row">
         <a href="https://www.eagel-operation.com" dir="ltr">www.eagel-operation.com</a>
       </div>
+
+      {# Reachable without signing in — Meta requires these to be public. #}
+      <nav class="auth__legal-links">
+        <a href="{% url 'dashboard:privacy' %}"
+           data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</a>
+        <span aria-hidden="true">·</span>
+        <a href="{% url 'dashboard:terms' %}"
+           data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</a>
+        <span aria-hidden="true">·</span>
+        <a href="{% url 'dashboard:data_deletion' %}"
+           data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
+      </nav>
     </footer>
   </div>
 </main>
