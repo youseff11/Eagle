@@ -77,7 +77,7 @@ SECRET_KEY = env(
 
 DEBUG = env_bool("EAGLE_DEBUG", "DEBUG", default=True)
 
-ALLOWED_HOSTS = env_list("EAGLE_HOSTS", "ALLOWED_HOSTS")
+ALLOWED_HOSTS = env_list("www.eagel-operation.com", "ALLOWED_HOSTS")
 if DEBUG and not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
 
