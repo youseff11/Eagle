@@ -307,6 +307,10 @@ window.Eagle = (function () {
     var box = $("#chatBody");
     if (!box) { return; }
     var roomId = box.getAttribute("data-room");
+    // The client-chat page (/ops/chats/) uses the same id for its composer
+    // input, which carries no data-room. Without this guard that page polls
+    // /api/rooms/null/messages/ every few seconds and fills the log with 404s.
+    if (!roomId || roomId === "null") { return; }
     var last = Number(box.getAttribute("data-last") || 0);
     var form = $("#chatForm");
     var input = $("#chatInput");
