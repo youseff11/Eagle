@@ -26,9 +26,14 @@
     {% if item.attachments.all %}
       <div class="files">
         {% for attachment in item.attachments.all %}
-          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
-            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
-          </a>
+          {% if attachment.is_audio %}
+            <audio class="voice-inline" controls preload="metadata"
+                   src="{{ attachment.file.url }}"></audio>
+          {% else %}
+            <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+              {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+            </a>
+          {% endif %}
         {% endfor %}
       </div>
     {% endif %}

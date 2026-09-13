@@ -61,6 +61,7 @@ class Command(BaseCommand):
         db_ok = self.safely("Database", self._check_database)
         migrated = self.safely("Migrations", self._check_migrations) if db_ok else None
         self.safely("File storage", self._check_storage, options["write"])
+        self.safely("Voice notes (ffmpeg)", self._check_ffmpeg)
 
         if migrated:
             self.safely("WhatsApp", self._check_whatsapp)
@@ -116,6 +117,23 @@ class Command(BaseCommand):
             self.line(OK, f"File storage ({backend})", f"upload+delete fine — {url}")
         except Exception as exc:  # noqa: BLE001
             self.line(BAD, f"File storage ({backend})", str(exc)[:180])
+
+    def _check_ffmpeg(self):
+        """Chrome records WebM, which WhatsApp rejects — ffmpeg is the bridge.
+
+        Firefox and Safari record formats WhatsApp takes untouched, so a missing
+        ffmpeg only costs Chrome users their voice notes, not the whole feature.
+        """
+        from dashboard import audio
+
+        binary = audio.ffmpeg_path()
+        if binary:
+            self.line(OK, "Voice notes (ffmpeg)", binary)
+        else:
+            self.line(
+                WARN, "Voice notes (ffmpeg)",
+                "not installed — Chrome recordings cannot be converted to Ogg/Opus",
+            )
 
     def _check_whatsapp(self):
         from dashboard import whatsapp

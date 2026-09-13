@@ -161,6 +161,70 @@
 .bub__file a { color: var(--brand); text-decoration: none; }
 .bub__file a:hover { text-decoration: underline; }
 
+/* -- voice notes ---------------------------------------------------------- */
+
+.bub__voice {
+  margin-block-start: 5px;
+  padding: 6px 7px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 260px;
+}
+
+.bub__voice-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-block-end: 5px;
+}
+.bub__voice-head .mono { margin-inline-start: auto; }
+
+/* The native player is the whole point: one click and it plays. */
+.bub__voice audio,
+.voice-inline {
+  display: block;
+  width: 100%;
+  height: 34px;
+}
+
+.voice-inline { max-width: 320px; margin-block-start: 6px; }
+
+/* -- recording bar -------------------------------------------------------- */
+
+.cchat__rec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+}
+
+.rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger, #e5484d);
+  animation: rec-pulse 1.1s ease-in-out infinite;
+  flex: none;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot { animation: none; }
+}
+
+.rec-state { color: var(--muted); }
+.rec-preview { height: 34px; max-width: 260px; }
+
+#micBtn.is-live { color: var(--danger, #e5484d); }
+
 .bub__foot {
   display: flex;
   align-items: center;

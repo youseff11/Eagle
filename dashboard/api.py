@@ -505,6 +505,8 @@ def client_chat_send(request, client_code):
         request.user,
         body=request.POST.get("body", ""),
         uploads=request.FILES.getlist("files"),
+        voice=request.FILES.get("voice"),
+        voice_seconds=_int(request.POST.get("seconds"), 0),
     )
     payload = {"ok": ok, "error": error}
     if outbound is not None:

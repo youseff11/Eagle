@@ -13,11 +13,22 @@ Expects: entry (dict from services.client_thread)
     {% if entry.body %}<div class="bub__text">{{ entry.body|linebreaksbr }}</div>{% endif %}
 
     {% for f in entry.files %}
-      <div class="bub__file">
-        {% icon "paperclip" "ic--sm" %}
-        {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
-        {% else %}<span>{{ f.name }}</span>{% endif %}
-      </div>
+      {% if f.audio and f.url %}
+        <div class="bub__voice">
+          <div class="bub__voice-head">
+            {% icon "mic" "ic--sm" %}
+            <span data-ar="رسالة صوتية" data-en="Voice note">رسالة صوتية</span>
+            {% if f.length %}<span class="mono muted">{{ f.length }}</span>{% endif %}
+          </div>
+          <audio controls preload="metadata" src="{{ f.url }}"></audio>
+        </div>
+      {% else %}
+        <div class="bub__file">
+          {% icon "paperclip" "ic--sm" %}
+          {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
+          {% else %}<span>{{ f.name }}</span>{% endif %}
+        </div>
+      {% endif %}
     {% endfor %}
 
     <div class="bub__foot">

@@ -137,6 +137,29 @@ def guess_mime(filename, fallback="application/octet-stream"):
     return mimetypes.guess_type(filename or "")[0] or fallback
 
 
+#: ``mimetypes`` picks odd extensions for audio (``audio/ogg`` -> ``.oga``) and
+#: has no entry at all for a few of these, so the common ones are pinned here.
+MEDIA_EXTENSIONS = {
+    "audio/aac": ".aac",
+    "audio/amr": ".amr",
+    "audio/mp4": ".m4a",
+    "audio/mpeg": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "audio/webm": ".weba",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "video/3gpp": ".3gp",
+    "video/mp4": ".mp4",
+}
+
+
+def media_extension(mime):
+    mime = (mime or "").split(";")[0].strip().lower()
+    return MEDIA_EXTENSIONS.get(mime) or mimetypes.guess_extension(mime) or ".bin"
+
+
 def media_kind(mime):
     """Which WhatsApp message type suits this file."""
     mime = (mime or "").lower()
@@ -167,8 +190,7 @@ def fetch_media(media_id):
     mime = meta.get("mime_type", "application/octet-stream").split(";")[0].strip()
     content = _call(url, token=token, raw_response=True)
 
-    extension = mimetypes.guess_extension(mime) or ".bin"
-    return content, f"{media_id}{extension}", mime
+    return content, f"{media_id}{media_extension(mime)}", mime
 
 
 # ---------------------------------------------------------------------------

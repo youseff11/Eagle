@@ -121,6 +121,9 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             file=item["file"],
             original_name=item.get("name", ""),
             size=item.get("size", 0),
+            mime=item.get("mime", ""),
+            is_voice=bool(item.get("is_voice")),
+            duration=item.get("duration", 0) or 0,
         )
 
     code = client.code if client else "UNKNOWN"
@@ -552,7 +555,9 @@ def _read_attachment(attachment):
         content = attachment.file.read()
     finally:
         attachment.file.close()
-    return name, content, wa.guess_mime(name)
+    # ``mime`` is only set on rows saved since voice notes landed; older rows
+    # and plain uploads still fall back to the filename.
+    return name, content, getattr(attachment, "mime", "") or wa.guess_mime(name)
 
 
 def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
@@ -728,15 +733,40 @@ def _visible_inbound(client, user):
     return qs
 
 
+def _attachment_snippet(attachments):
+    """What the conversation list shows when a message is only files."""
+    rows = list(attachments)
+    if not rows:
+        return "—"
+    if any(a.is_voice or a.is_audio for a in rows):
+        return "رسالة صوتية"
+    return f"{len(rows)} ملف"
+
+
+def _file_json(attachment):
+    """One attachment as the chat templates and chat.js expect it."""
+    return {
+        "url": attachment.file.url,
+        "name": attachment.original_name or attachment.file.name,
+        "size": attachment.size,
+        "mime": attachment.mime,
+        "voice": attachment.is_voice,
+        "audio": attachment.is_audio,
+        "length": attachment.pretty_duration,
+    }
+
+
 def conversation_preview(client, user):
     """The snippet shown in the conversation list."""
     last = _visible_inbound(client, user).order_by("-received_at").first()
-    out = client.deliveries.order_by("-created_at").first()
+    out = client.deliveries.prefetch_related("uploads").order_by("-created_at").first()
     if out and last and out.created_at > last.received_at:
-        text = out.body or (f"{out.file_count} ملف" if out.file_count else "—")
+        text = out.body or _attachment_snippet(out.uploads.all())
+        if text == "—" and out.file_count:
+            text = f"{out.file_count} ملف"
         return {"text": text[:70], "at": out.created_at, "outgoing": True}
     if last:
-        text = last.body or (f"{last.attachments.count()} ملف" if last.attachments.exists() else "—")
+        text = last.body or _attachment_snippet(last.attachments.all())
         return {"text": text[:70], "at": last.received_at, "outgoing": False}
     return {"text": "", "at": None, "outgoing": False}
 
@@ -756,22 +786,20 @@ def client_thread(client, user, limit=200):
             "at": row.received_at,
             "blocked": row.is_rate_blocked,
             "task_code": row.task.code if row.task_id else "",
-            "files": [
-                {"url": a.file.url, "name": a.original_name or a.file.name, "size": a.size}
-                for a in row.attachments.all()
-            ],
+            "files": [_file_json(a) for a in row.attachments.all()],
         })
 
     outbound = client.deliveries.select_related("created_by", "task").prefetch_related("uploads")
     for row in outbound.order_by("-created_at")[:limit]:
-        files = [
-            {"url": a.file.url, "name": a.original_name or a.file.name, "size": a.size}
-            for a in row.uploads.all()
-        ]
+        files = [_file_json(a) for a in row.uploads.all()]
         # Task deliveries keep their file list in JSON (the bytes went straight
         # to WhatsApp), so show the names without a link.
         if not files:
-            files = [{"url": "", "name": f.get("name", ""), "size": 0} for f in (row.files or [])]
+            files = [
+                {"url": "", "name": f.get("name", ""), "size": 0,
+                 "mime": "", "voice": False, "audio": False, "length": ""}
+                for f in (row.files or [])
+            ]
         items.append({
             "kind": "out",
             "id": row.id,
@@ -793,28 +821,55 @@ def client_thread(client, user, limit=200):
     return items
 
 
-def send_client_message(client, user, body="", uploads=None):
+def send_client_message(client, user, body="", uploads=None, voice=None, voice_seconds=0):
     """Free-form reply to a client on whichever channel they used last.
+
+    ``voice`` is a recording made in the browser. It is converted to whatever
+    WhatsApp accepts *before* it is stored, so the file kept in the thread is
+    byte-for-byte the one the client received.
 
     Returns ``(ok, outbound, error_ar)``. Nothing is ever silently dropped —
     a failure is stored as a FAILED row so it stays visible in the thread.
     """
-    from . import mailer, whatsapp as wa
+    from django.core.files.base import ContentFile
+
+    from . import audio, mailer, whatsapp as wa
     from .models import OutboundAttachment, OutboundMessage
 
     uploads = list(uploads or [])
     body = (body or "").strip()
-    if not body and not uploads:
+    if not body and not uploads and voice is None:
         return False, None, "مفيش حاجة تتبعت."
 
     conf = AppSettings.load()
     channel = client_channel(client)
     target = client.phone if channel == Channel.WHATSAPP else client.email
 
+    # Convert first: a recording Meta would reject must never reach the thread
+    # pretending it was sent.
+    recording, convert_error = None, ""
+    if voice is not None:
+        raw = voice.read()
+        name = voice.name or "voice"
+        mime = audio.base_mime(getattr(voice, "content_type", ""))
+        try:
+            content, name, mime = audio.prepare(raw, name, mime)
+        except audio.AudioError as exc:
+            content, convert_error = raw, exc.message_ar
+            log(user, "client.voice_failed", client.code, exc.message_en[:200])
+        recording = {
+            "content": content, "name": name, "mime": mime,
+            "seconds": max(0, min(int(voice_seconds or 0), audio.MAX_SECONDS)),
+        }
+
+    names = [item.name for item in uploads]
+    if recording:
+        names.append(recording["name"])
+
     outbound = OutboundMessage.objects.create(
         client=client, task=None, kind=OutboundMessage.Kind.CHAT,
         created_by=user, channel=channel, to_identity=target or "", body=body,
-        files=[{"name": item.name, "status": "pending"} for item in uploads],
+        files=[{"name": name, "status": "pending"} for name in names],
     )
     stored = [
         OutboundAttachment.objects.create(
@@ -822,6 +877,22 @@ def send_client_message(client, user, body="", uploads=None):
         )
         for item in uploads
     ]
+    if recording:
+        stored.append(OutboundAttachment.objects.create(
+            message=outbound,
+            file=ContentFile(recording["content"], name=recording["name"]),
+            original_name=recording["name"],
+            size=len(recording["content"]),
+            mime=recording["mime"],
+            is_voice=True,
+            duration=recording["seconds"],
+        ))
+
+    if convert_error:
+        outbound.status = OutboundMessage.Status.FAILED
+        outbound.error_message = convert_error
+        outbound.save(update_fields=["status", "error_message"])
+        return False, outbound, convert_error
 
     if not channel or not target:
         outbound.status = OutboundMessage.Status.FAILED
@@ -831,7 +902,10 @@ def send_client_message(client, user, body="", uploads=None):
         outbound.save(update_fields=["status", "error_message"])
         return False, outbound, outbound.error_message
 
-    payload = [_read_attachment(a) for a in stored]
+    # The recording is already in memory — no point fetching it back from the CDN.
+    payload = [_read_attachment(a) for a in stored[:len(uploads)]]
+    if recording:
+        payload.append((recording["name"], recording["content"], recording["mime"]))
 
     try:
         if channel == Channel.WHATSAPP:

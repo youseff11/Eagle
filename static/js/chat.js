@@ -61,6 +61,19 @@
     }
 
     (msg.files || []).forEach(function (f) {
+      // Anything the browser can play gets a player, not a download link —
+      // one click and you hear it.
+      if (f.audio && f.url) {
+        parts.push(
+          '<div class="bub__voice"><div class="bub__voice-head">' +
+            icon("mic", "ic--sm") +
+            '<span data-ar="رسالة صوتية" data-en="Voice note">' +
+              esc(E.t("رسالة صوتية", "Voice note")) + "</span>" +
+            (f.length ? '<span class="mono muted">' + esc(f.length) + "</span>" : "") +
+          '</div><audio controls preload="metadata" src="' + esc(f.url) + '"></audio></div>'
+        );
+        return;
+      }
       var label = f.url
         ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener">' + esc(f.name) + "</a>"
         : "<span>" + esc(f.name) + "</span>";
@@ -212,30 +225,19 @@
     });
   }
 
-  function send(event) {
-    if (event) { event.preventDefault(); }
-    if (busy || !activeCode) { return; }
-
-    var text = (bodyInput ? bodyInput.value : "").trim();
-    if (!text && !pending.length) { return; }
-
-    var data = new FormData();
-    data.append("body", text);
-    pending.forEach(function (file) { data.append("files", file); });
-
+  /** Post one FormData to the send endpoint and fold the reply into the stream. */
+  function deliver(data, onSent) {
     busy = true;
     if (sendBtn) { sendBtn.disabled = true; }
 
-    E.post(urlFor(root.dataset.sendUrl, activeCode), data).then(function (res) {
+    return E.post(urlFor(root.dataset.sendUrl, activeCode), data).then(function (res) {
       if (res && res.messages) {
         renderMessages(res.messages);
         applyClientState(res.client);
         toBottom();
       }
       if (res && res.ok) {
-        if (bodyInput) { bodyInput.value = ""; }
-        pending = [];
-        drawPending();
+        if (onSent) { onSent(); }
       } else {
         E.toast({
           level: "danger",
@@ -253,6 +255,204 @@
       if (sendBtn) { sendBtn.disabled = false; }
     });
   }
+
+  function send(event) {
+    if (event) { event.preventDefault(); }
+    if (busy || !activeCode) { return; }
+
+    var text = (bodyInput ? bodyInput.value : "").trim();
+    if (!text && !pending.length) { return; }
+
+    var data = new FormData();
+    data.append("body", text);
+    pending.forEach(function (file) { data.append("files", file); });
+
+    deliver(data, function () {
+      if (bodyInput) { bodyInput.value = ""; }
+      pending = [];
+      drawPending();
+    });
+  }
+
+  /* ---------------------------------------------------------- recording */
+
+  // Browsers disagree on what they can record. The first two are formats
+  // WhatsApp accepts untouched; the WebM fallback is converted server-side.
+  var REC_TYPES = [
+    { mime: "audio/ogg;codecs=opus", ext: ".ogg" },
+    { mime: "audio/mp4", ext: ".m4a" },
+    { mime: "audio/webm;codecs=opus", ext: ".webm" },
+    { mime: "audio/webm", ext: ".webm" }
+  ];
+  var REC_MAX_SECONDS = 300;
+
+  var micBtn = document.getElementById("micBtn");
+  var recBar = document.getElementById("recBar");
+  var recTime = document.getElementById("recTime");
+  var recDotEl = document.getElementById("recDot");
+  var recState = document.getElementById("recState");
+  var recPreview = document.getElementById("recPreview");
+  var recStop = document.getElementById("recStop");
+  var recSend = document.getElementById("recSend");
+  var recCancel = document.getElementById("recCancel");
+
+  var rec = {
+    recorder: null, stream: null, chunks: [], ticker: null,
+    seconds: 0, blob: null, ext: ".webm", url: "", aborted: false
+  };
+
+  function recType() {
+    if (!window.MediaRecorder) { return null; }
+    for (var i = 0; i < REC_TYPES.length; i += 1) {
+      try {
+        if (MediaRecorder.isTypeSupported(REC_TYPES[i].mime)) { return REC_TYPES[i]; }
+      } catch (err) { /* older browsers throw instead of returning false */ }
+    }
+    return { mime: "", ext: ".webm" };
+  }
+
+  function clock(seconds) {
+    return Math.floor(seconds / 60) + ":" + ("0" + (seconds % 60)).slice(-2);
+  }
+
+  function recRelease() {
+    if (rec.ticker) { clearInterval(rec.ticker); rec.ticker = null; }
+    if (rec.stream) {
+      rec.stream.getTracks().forEach(function (track) { track.stop(); });
+      rec.stream = null;
+    }
+    rec.recorder = null;
+  }
+
+  function recReset() {
+    recRelease();
+    if (rec.url) { URL.revokeObjectURL(rec.url); rec.url = ""; }
+    rec.chunks = [];
+    rec.blob = null;
+    rec.seconds = 0;
+    rec.aborted = false;
+    if (recBar) { recBar.classList.add("hidden"); }
+    if (recPreview) { recPreview.classList.add("hidden"); recPreview.removeAttribute("src"); }
+    if (recStop) { recStop.classList.remove("hidden"); }
+    if (recSend) { recSend.classList.add("hidden"); }
+    if (recDotEl) { recDotEl.classList.remove("hidden"); }
+    if (recTime) { recTime.textContent = "0:00"; }
+    if (micBtn) { micBtn.classList.remove("is-live"); micBtn.disabled = false; }
+    if (recState) {
+      recState.textContent = E.t("بسجّل…", "Recording…");
+      recState.dataset.ar = "بسجّل…";
+      recState.dataset.en = "Recording…";
+    }
+  }
+
+  function recReady() {
+    // Recording stopped and we have something to listen to before sending.
+    if (rec.url) { URL.revokeObjectURL(rec.url); }
+    rec.url = URL.createObjectURL(rec.blob);
+    if (recPreview) {
+      recPreview.src = rec.url;
+      recPreview.classList.remove("hidden");
+    }
+    if (recStop) { recStop.classList.add("hidden"); }
+    if (recSend) { recSend.classList.remove("hidden"); }
+    if (recDotEl) { recDotEl.classList.add("hidden"); }
+    if (micBtn) { micBtn.classList.remove("is-live"); }
+    if (recState) {
+      recState.textContent = E.t("اسمعها قبل ما تبعتها", "Listen before sending");
+      recState.dataset.ar = "اسمعها قبل ما تبعتها";
+      recState.dataset.en = "Listen before sending";
+    }
+  }
+
+  function startRecording() {
+    if (!activeCode || rec.recorder) { return; }
+
+    var type = recType();
+    if (!type || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      E.toast({
+        level: "danger",
+        title: E.t("المتصفح ده مش بيسجّل صوت", "This browser cannot record audio")
+      });
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      rec.stream = stream;
+      rec.chunks = [];
+      rec.seconds = 0;
+      rec.ext = type.ext;
+      rec.aborted = false;
+      rec.recorder = type.mime
+        ? new MediaRecorder(stream, { mimeType: type.mime })
+        : new MediaRecorder(stream);
+
+      rec.recorder.ondataavailable = function (event) {
+        if (event.data && event.data.size) { rec.chunks.push(event.data); }
+      };
+      rec.recorder.onstop = function () {
+        var mime = (rec.recorder && rec.recorder.mimeType) || type.mime || "audio/webm";
+        var blob = new Blob(rec.chunks, { type: mime });
+        recRelease();
+        if (rec.aborted || !blob.size) { recReset(); return; }
+        rec.blob = blob;
+        recReady();
+      };
+      rec.recorder.start();
+
+      if (recBar) { recBar.classList.remove("hidden"); }
+      if (micBtn) { micBtn.classList.add("is-live"); micBtn.disabled = true; }
+      rec.ticker = setInterval(function () {
+        rec.seconds += 1;
+        if (recTime) { recTime.textContent = clock(rec.seconds); }
+        if (rec.seconds >= REC_MAX_SECONDS) { stopRecording(); }
+      }, 1000);
+    }).catch(function () {
+      E.toast({
+        level: "danger",
+        title: E.t("مفيش إذن للمايك", "Microphone permission denied"),
+        body: E.t("اسمح للموقع يستخدم المايك من إعدادات المتصفح.",
+          "Allow this site to use the microphone in your browser settings.")
+      });
+    });
+  }
+
+  function stopRecording() {
+    if (rec.recorder && rec.recorder.state !== "inactive") {
+      rec.recorder.stop();
+    } else {
+      recReset();
+    }
+  }
+
+  function cancelRecording() {
+    rec.aborted = true;
+    if (rec.recorder && rec.recorder.state !== "inactive") {
+      rec.recorder.stop();     // onstop sees `aborted` and throws the blob away
+    } else {
+      recReset();
+    }
+  }
+
+  function sendRecording() {
+    if (busy || !rec.blob || !activeCode) { return; }
+    var data = new FormData();
+    data.append("body", (bodyInput ? bodyInput.value : "").trim());
+    data.append("seconds", String(rec.seconds));
+    data.append("voice", rec.blob, "voice" + rec.ext);
+    if (recSend) { recSend.disabled = true; }
+    deliver(data, function () {
+      if (bodyInput) { bodyInput.value = ""; }
+    }).then(function () {
+      if (recSend) { recSend.disabled = false; }
+      recReset();
+    });
+  }
+
+  if (micBtn) { micBtn.addEventListener("click", startRecording); }
+  if (recStop) { recStop.addEventListener("click", stopRecording); }
+  if (recSend) { recSend.addEventListener("click", sendRecording); }
+  if (recCancel) { recCancel.addEventListener("click", cancelRecording); }
+  window.addEventListener("beforeunload", recRelease);
 
   /* --------------------------------------------------------------- init */
 

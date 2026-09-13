@@ -17,6 +17,7 @@ from .models import (
     InboundMessage,
     MessageAttachment,
     Notification,
+    OutboundAttachment,
     RatingEvent,
     Shift,
     Task,
@@ -102,10 +103,16 @@ class AppSettingsAdmin(admin.ModelAdmin):
         return False
 
 
+class OutboundAttachmentInline(admin.TabularInline):
+    model = OutboundAttachment
+    extra = 0
+
+
 @admin.register(OutboundMessage)
 class OutboundMessageAdmin(admin.ModelAdmin):
-    list_display = ("task", "client", "channel", "status", "file_count", "created_at")
-    list_filter = ("channel", "status")
+    list_display = ("task", "client", "channel", "kind", "status", "file_count", "created_at")
+    list_filter = ("channel", "status", "kind")
+    inlines = [OutboundAttachmentInline]
 
 
 admin.site.register([

@@ -91,6 +91,9 @@
           {% icon "paperclip" %}
           <input type="file" id="chatFiles" multiple hidden>
         </label>
+        <button class="icon-btn" type="button" id="micBtn"
+                data-ar-title="سجّل رسالة صوتية" data-en-title="Record a voice note"
+                title="سجّل رسالة صوتية">{% icon "mic" %}</button>
         <input class="input grow" id="chatBody"
                data-ar-ph="اكتب رسالتك للعميل…" data-en-ph="Write your reply…"
                placeholder="اكتب رسالتك للعميل…">
@@ -98,6 +101,27 @@
           {% icon "send" "ic--sm" %}<span data-ar="إرسال" data-en="Send">إرسال</span>
         </button>
       </form>
+
+      {# Recording bar — replaces nothing, sits under the composer while active. #}
+      <div class="cchat__rec hidden" id="recBar">
+        <span class="rec-dot" id="recDot"></span>
+        <span class="rec-state" id="recState"
+              data-ar="بسجّل…" data-en="Recording…">بسجّل…</span>
+        <span class="mono" id="recTime">0:00</span>
+        <audio class="rec-preview hidden" id="recPreview" controls preload="metadata"></audio>
+        <span class="grow"></span>
+        <button class="btn btn--sm" type="button" id="recStop">
+          {% icon "stop" "ic--sm" %}<span data-ar="وقف" data-en="Stop">وقف</span>
+        </button>
+        <button class="btn btn--sm btn--primary hidden" type="button" id="recSend">
+          {% icon "send" "ic--sm" %}<span data-ar="ابعت" data-en="Send">ابعت</span>
+        </button>
+        <button class="icon-btn" type="button" id="recCancel"
+                data-ar-title="إلغاء" data-en-title="Cancel" title="إلغاء">
+          {% icon "trash" "ic--sm" %}
+        </button>
+      </div>
+
       <div class="cchat__files" id="chatFileList"></div>
     {% else %}
       <div class="empty cchat__blank">

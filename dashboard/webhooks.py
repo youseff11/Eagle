@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 #: WhatsApp message types that carry a file.
 MEDIA_TYPES = ("image", "document", "audio", "video", "sticker", "voice")
 
+#: Types that arrive as sound. A push-to-talk recording comes through as
+#: ``audio`` with ``"voice": true`` on the block; a forwarded mp3 does not.
+AUDIO_TYPES = ("audio", "voice")
+
 
 def _guard(request):
     """Optional shared-secret check for the simplified (non-Meta) payload."""
@@ -72,7 +76,13 @@ def _pull_media(message):
         return []
 
     name = block.get("filename") or fallback_name
-    return [{"file": ContentFile(content, name=name), "name": name, "size": len(content)}]
+    return [{
+        "file": ContentFile(content, name=name),
+        "name": name,
+        "size": len(content),
+        "mime": mime,
+        "is_voice": kind in AUDIO_TYPES and bool(block.get("voice", kind == "voice")),
+    }]
 
 
 def _body_of(message):
@@ -83,6 +93,9 @@ def _body_of(message):
     caption = block.get("caption") or ""
     if caption:
         return caption
+    if kind in AUDIO_TYPES:
+        # The bubble shows a player; a "[audio]" line next to it is just noise.
+        return ""
     if kind in MEDIA_TYPES:
         return f"[{kind}]"
     if kind == "location":

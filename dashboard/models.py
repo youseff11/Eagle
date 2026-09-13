@@ -401,13 +401,39 @@ class InboundMessage(models.Model):
         return user.is_operation
 
 
-class MessageAttachment(models.Model):
+class PlayableFile:
+    """Shared behaviour for the two attachment models.
+
+    Not a model: it only adds properties, so mixing it in costs no migration.
+    Both sides of a conversation can carry a voice note, and both need to know
+    whether the browser can play the file inline instead of offering a download.
+    """
+
+    @property
+    def is_audio(self):
+        from . import audio
+
+        return audio.is_audio(self.mime, self.original_name or self.file.name)
+
+    @property
+    def pretty_duration(self):
+        from . import audio
+
+        return audio.pretty_duration(self.duration) if self.duration else ""
+
+
+class MessageAttachment(PlayableFile, models.Model):
     message = models.ForeignKey(
         InboundMessage, on_delete=models.CASCADE, related_name="attachments"
     )
     file = models.FileField(upload_to=upload_inbound)
     original_name = models.CharField(max_length=250, blank=True)
     size = models.BigIntegerField(default=0)
+    #: Kept so the dashboard can decide between a player and a download link.
+    mime = models.CharField(max_length=120, blank=True)
+    #: True for a WhatsApp voice note (push-to-talk), false for an audio file.
+    is_voice = models.BooleanField(default=False)
+    duration = models.PositiveIntegerField(default=0, help_text="Seconds")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -822,7 +848,7 @@ class OutboundMessage(models.Model):
         return len(self.files or [])
 
 
-class OutboundAttachment(models.Model):
+class OutboundAttachment(PlayableFile, models.Model):
     """A real file the operation sent to the client from the chat."""
 
     message = models.ForeignKey(
@@ -831,6 +857,10 @@ class OutboundAttachment(models.Model):
     file = models.FileField(upload_to=upload_outbound)
     original_name = models.CharField(max_length=250, blank=True)
     size = models.BigIntegerField(default=0)
+    #: Stored after conversion, so this is the format the client received.
+    mime = models.CharField(max_length=120, blank=True)
+    is_voice = models.BooleanField(default=False)
+    duration = models.PositiveIntegerField(default=0, help_text="Seconds")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
