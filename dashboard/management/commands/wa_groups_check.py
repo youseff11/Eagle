@@ -193,6 +193,24 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.waba = payload
 
+    #: Fields worth asking about one at a time when introspection comes back
+    #: empty. The two open questions are the number's age (the 30-day rule) and
+    #: whether two-step is on, so anything date-shaped or pin-shaped is here,
+    #: plus the handful of status fields that are useful when they do exist.
+    PROBE_FIELDS = {
+        "phone number": (
+            "last_onboarded_time", "created_time", "is_pin_enabled",
+            "two_step_verification_enabled", "status", "account_mode",
+            "messaging_limit_tier", "certificate", "throughput",
+            "eligibility_for_api_business_global_search", "health_status",
+        ),
+        "WABA": (
+            "created_time", "business_verification_status", "country",
+            "currency", "timezone_id", "message_template_namespace",
+            "primary_business_location", "health_status",
+        ),
+    }
+
     def _metadata(self, base, node_id, token, label):
         """Ask Graph what this node really exposes.
 
@@ -204,22 +222,41 @@ class Command(BaseCommand):
         — so those are pulled out of the list and shown first.
         """
         payload, error = self._get(f"{base}/{node_id}?metadata=1", token)
+        names = []
         if payload is None:
             self.stdout.write(self.style.ERROR(f"  {label} metadata: {error[:200]}"))
+        else:
+            fields = (payload.get("metadata") or {}).get("fields") or []
+            names = sorted(f.get("name", "") for f in fields if f.get("name"))
+
+        if names:
+            self.stdout.write(f"  {label} node exposes {len(names)} field(s):")
+            interesting = [
+                n for n in names
+                if any(w in n for w in ("time", "date", "created", "onboard", "pin", "verif"))
+            ]
+            if interesting:
+                self.stdout.write("    of interest here: " + ", ".join(interesting))
+            self.stdout.write("    all: " + ", ".join(names))
             self.stdout.write("")
             return
 
-        fields = (payload.get("metadata") or {}).get("fields") or []
-        names = sorted(f.get("name", "") for f in fields if f.get("name"))
-        self.stdout.write(f"  {label} node exposes {len(names)} field(s):")
-
-        interesting = [
-            n for n in names
-            if any(word in n for word in ("time", "date", "created", "onboard", "pin", "verif"))
-        ]
-        if interesting:
-            self.stdout.write("    of interest here: " + ", ".join(interesting))
-        self.stdout.write("    all: " + ", ".join(names))
+        # Introspection came back empty — Graph does this for the WhatsApp nodes
+        # rather than erroring, which looks like "the node has no fields" and is
+        # not an answer. Ask about each candidate field instead: Graph answers a
+        # field it does not have with "nonexisting field", so one request per
+        # name settles existence AND reads the value in the same call.
+        self.stdout.write(self.style.WARNING(
+            f"  {label} metadata: introspection returned nothing — probing fields one by one."
+        ))
+        for name in self.PROBE_FIELDS.get(label, ()):
+            probe, probe_error = self._get(f"{base}/{node_id}?fields={name}", token)
+            if probe is None:
+                short = probe_error.split(".")[0][:90]
+                self.stdout.write(f"    {name:<34} — no ({short})")
+            else:
+                value = probe.get(name, "(returned, but empty)")
+                self.stdout.write(self.style.SUCCESS(f"    {name:<34} = {value}"))
         self.stdout.write("")
 
     def _oba_checklist(self):
