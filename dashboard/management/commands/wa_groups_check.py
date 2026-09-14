@@ -31,7 +31,9 @@ PHONE_FIELDS = (
 )
 PHONE_FIELDS_SAFE = "display_phone_number,verified_name,quality_rating"
 
-WABA_FIELDS = "name,account_review_status,is_official_business_account,ownership_type"
+WABA_FIELDS = ("name,account_review_status,is_official_business_account,"
+               "ownership_type,created_time")
+WABA_FIELDS_SAFE = "name,account_review_status,ownership_type"
 
 #: The four webhook fields a groups integration has to be subscribed to.
 GROUP_WEBHOOK_FIELDS = (
@@ -79,10 +81,16 @@ class Command(BaseCommand):
         self.stdout.write(f"  API version     : {version}")
         self.stdout.write("")
 
+        self.phone = {}
+        self.waba = {}
+
         self._phone(base, phone_id, token)
         if options["waba_id"]:
             self._waba(base, options["waba_id"].strip(), token)
         open_door = self._groups(base, phone_id, token)
+
+        if not open_door:
+            self._oba_checklist()
 
         if open_door and options["create_test"]:
             # Reading the edge and being allowed to write to it are two
@@ -139,6 +147,7 @@ class Command(BaseCommand):
         if payload is None:
             self.stdout.write(self.style.ERROR(f"  Phone number    : {error[:200]}"))
             return
+        self.phone = payload
         self.stdout.write("  Phone number:")
         self._show(payload, [
             "display_phone_number", "verified_name", "quality_rating",
@@ -151,15 +160,88 @@ class Command(BaseCommand):
         url = f"{base}/{waba_id}?fields={urllib.parse.quote(WABA_FIELDS)}"
         payload, error = self._get(url, token)
         if payload is None:
+            url = f"{base}/{waba_id}?fields={urllib.parse.quote(WABA_FIELDS_SAFE)}"
+            payload, error = self._get(url, token)
+        if payload is None:
             self.stdout.write(self.style.ERROR(f"  WABA            : {error[:200]}"))
             self.stdout.write("")
             return
         self.stdout.write(f"  WABA {waba_id}:")
         self._show(payload, [
             "name", "account_review_status", "is_official_business_account",
-            "ownership_type",
+            "ownership_type", "created_time",
         ])
         self.stdout.write("")
+        self.waba = payload
+
+    def _oba_checklist(self):
+        """What is still missing for Official Business Account status.
+
+        Meta's own summary page says "business verified" and "account approved"
+        in green, and neither of those is OBA — they are the bar Eagle already
+        cleared. OBA is a separate flag, and this prints the five requirements
+        with the three that can be measured actually measured.
+        """
+        self.stdout.write("")
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            "  Official Business Account — what is still missing"
+        ))
+        self.stdout.write(
+            "  Note: 'business verified' and 'account approved' are NOT this.\n"
+            "  Those are already green and are a different, lower bar.\n"
+        )
+
+        quality = (self.phone.get("quality_rating") or "").upper()
+        review = (self.waba.get("account_review_status") or "").upper()
+        name_status = (self.phone.get("name_status") or "").upper()
+        created = self.waba.get("created_time") or ""
+
+        def row(done, label, detail=""):
+            mark = self.style.SUCCESS(" done ") if done is True else (
+                self.style.ERROR(" TODO ") if done is False else self.style.WARNING(" ?    ")
+            )
+            self.stdout.write(f"  [{mark}] {label}" + (f" — {detail}" if detail else ""))
+
+        row(None if not quality else quality == "GREEN",
+            "Messaging policy in good standing", f"quality_rating = {quality or 'unknown'}")
+        row(review == "APPROVED", "Business verification complete",
+            f"account_review_status = {review or 'unknown'}")
+
+        age = self._account_age_days(created)
+        if age is None:
+            row(None, "Registered 30+ days",
+                "Meta did not return created_time — check the number's age in WhatsApp Manager")
+        else:
+            row(age >= 30, "Registered 30+ days", f"{age} days old")
+
+        row(None, "Two-step verification ON for the number",
+            "not exposed by the API — check WhatsApp Manager > phone number > two-step")
+        row(name_status == "APPROVED", "Display name approved",
+            f"name_status = {name_status or 'unknown'}")
+
+        self.stdout.write("")
+        self.stdout.write(
+            "  When all five are green: WhatsApp Manager > the number > "
+            "Official business account > Submit Request.\n"
+            "  A rejection locks the request for 30 days, so do not submit early.\n"
+            "  Then re-run this command with --create-test."
+        )
+
+    @staticmethod
+    def _account_age_days(created):
+        """``created_time`` is an ISO stamp when Meta sends one at all."""
+        if not created:
+            return None
+        from datetime import datetime, timezone as dt_timezone
+
+        text = str(created).replace("Z", "+00:00")
+        try:
+            stamp = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=dt_timezone.utc)
+        return (datetime.now(dt_timezone.utc) - stamp).days
 
     def _post(self, url, token, payload):
         try:
