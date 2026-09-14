@@ -616,19 +616,60 @@ class RatingEvent(models.Model):
 # ---------------------------------------------------------------------------
 
 class ChatRoom(models.Model):
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="rooms")
+    #: Internal rooms always hang off a task. A client group can stand on its
+    #: own — opened from the chats page for a client with no task in flight —
+    #: so both sides are optional and at least one is always set.
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.CASCADE, related_name="rooms"
+    )
+    #: Who the room relays to. Mirrored from the task for task-bound rooms so
+    #: every client room can be found by client in one query.
+    client = models.ForeignKey(
+        Client, null=True, blank=True, on_delete=models.CASCADE, related_name="rooms"
+    )
     kind = models.CharField(max_length=12, choices=RoomKind.choices)
+    #: What the group is called in the chats list. Task rooms leave it empty.
+    title = models.CharField(max_length=120, blank=True)
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     members = models.ManyToManyField(User, related_name="chat_rooms", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ("id",)
         constraints = [
-            models.UniqueConstraint(fields=["task", "kind"], name="uniq_room_per_task_kind")
+            # One room of each kind per task. Standalone groups have no task,
+            # so the rule only applies where there is one.
+            models.UniqueConstraint(
+                fields=["task", "kind"], name="uniq_room_per_task_kind",
+                condition=models.Q(task__isnull=False),
+            )
         ]
 
     def __str__(self):
-        return f"{self.task.code} · {self.get_kind_display()}"
+        return f"{self.display_title} · {self.get_kind_display()}"
+
+    @property
+    def relay_client(self):
+        """The client this room talks to, whichever way it was created."""
+        if self.client_id:
+            return self.client
+        return self.task.client if self.task_id else None
+
+    @property
+    def is_group(self):
+        """A standalone client group, as opposed to a task's client room."""
+        return self.kind == RoomKind.CLIENT and self.task_id is None
+
+    @property
+    def display_title(self):
+        if self.title:
+            return self.title
+        if self.task_id:
+            return self.task.code
+        client = self.relay_client
+        return client.code if client else "—"
 
     def can_access(self, user):
         if user.is_admin_role:
@@ -797,6 +838,13 @@ class AppSettings(models.Model):
     smtp_from = models.CharField(max_length=190, blank=True)
     smtp_use_tls = models.BooleanField(default=True)
 
+    #: Which roles may open a client group. Comma-separated role values; the
+    #: admin is always allowed, so nobody can lock themselves out of it.
+    group_creator_roles = models.CharField(
+        max_length=120, default="admin,operation",
+        help_text="Roles allowed to create a client group, comma-separated.",
+    )
+
     simulation_enabled = models.BooleanField(default=True)
     poll_ms = models.PositiveIntegerField(default=3000)
 
@@ -835,6 +883,20 @@ class AppSettings(models.Model):
     @property
     def keyword_list(self):
         return [k.strip().lower() for k in (self.rate_keywords or "").split(",") if k.strip()]
+
+    @property
+    def group_roles(self):
+        return [r.strip() for r in (self.group_creator_roles or "").split(",") if r.strip()]
+
+    def can_create_group(self, user):
+        """A group opens a line to a real client, so this is gated by role."""
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        # The admin is always allowed: the setting lives in the admin panel and
+        # locking the admin out of it would be a one-way door.
+        if user.is_admin_role:
+            return True
+        return user.role in self.group_roles
 
 
 class OutboundMessage(models.Model):

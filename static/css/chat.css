@@ -28,6 +28,46 @@
   border-block-end: 1px solid var(--border);
 }
 
+/* -- all / chats / groups -------------------------------------------------- */
+
+.cchat__filter {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+  border-block-end: 1px solid var(--border);
+}
+
+.cchat__pill {
+  flex: 1;
+  text-align: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--muted);
+  transition: background .12s ease, color .12s ease;
+}
+.cchat__pill:hover { background: var(--surface-2, rgba(127, 127, 127, .08)); }
+.cchat__pill.is-active {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 36%, transparent);
+  color: var(--heading, inherit);
+  font-weight: 600;
+}
+
+.cchat__new {
+  display: flex;
+  padding: 10px;
+  border-block-end: 1px solid var(--border);
+}
+
+/* A group is not a person: mark it so the two never read alike in the list. */
+.avatar--group {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+  color: var(--brand);
+}
+
 .cchat__threads {
   overflow-y: auto;
   flex: 1;

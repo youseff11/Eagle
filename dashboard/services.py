@@ -208,7 +208,14 @@ def claim_message(message, user):
 # ---------------------------------------------------------------------------
 
 def ensure_room(task, kind):
-    room, created = ChatRoom.objects.get_or_create(task=task, kind=kind)
+    room, created = ChatRoom.objects.get_or_create(
+        task=task, kind=kind,
+        defaults={"client": task.client if kind == RoomKind.CLIENT else None},
+    )
+    if kind == RoomKind.CLIENT and room.client_id != task.client_id:
+        # Mirrored from the task so every client room is findable by client.
+        room.client_id = task.client_id
+        room.save(update_fields=["client"])
     members = [task.created_by, task.team_lead]
     if kind == RoomKind.GROUP:
         members.append(task.translator)
@@ -294,7 +301,10 @@ def relay_chat_message(message):
         return False, "الغرفة دي مش بتوصل العميل."
 
     try:
-        task = message.room.task
+        room = message.room
+        client = room.relay_client
+        if client is None:
+            return False, "الغرفة دي مش مربوطة بعميل."
         sender = message.sender
         prefix = client_prefix(sender)
         # A files-only message still needs a caption, otherwise WhatsApp shows
@@ -305,7 +315,7 @@ def relay_chat_message(message):
 
         extra = [_read_attachment(a) for a in message.attachments.all()]
         ok, _outbound, error = send_client_message(
-            task.client, sender, body=body.strip(), extra_files=extra,
+            client, sender, body=body.strip(), extra_files=extra,
         )
     except Exception as exc:  # noqa: BLE001
         # The room message is already saved. Anything that goes wrong on the
@@ -319,57 +329,202 @@ def relay_chat_message(message):
     return ok, message.relay_error
 
 
-def mirror_inbound_to_room(inbound):
-    """Drop a message the client just sent into the task room the team watches.
+def client_rooms_for(client_id, only_open=True):
+    """Every relayed room that talks to this client, task-bound or standalone."""
+    qs = ChatRoom.objects.filter(kind=RoomKind.CLIENT, client_id=client_id)
+    if only_open:
+        # A task room stops receiving once its task is finished; a standalone
+        # group has no lifecycle, so it stays open until it is deleted.
+        qs = qs.filter(Q(task__isnull=True) | Q(task__status__in=ACTIVE_TASK_STATUSES))
+    return qs.select_related("task", "client")
 
-    Picks the client's most recently touched active task that has a client
-    room open. With no such task the message stays in the inbox only, which is
-    the old behaviour and still correct.
+
+def create_client_group(user, client, title="", task=None, members=None):
+    """Open a standalone relayed group for a client. Returns ``(room, error_ar)``."""
+    conf = AppSettings.load()
+    if not conf.can_create_group(user):
+        return None, "مالكش صلاحية تعمل جروب. الأدمن بيظبطها من الإعدادات."
+    if client is None:
+        return None, "لازم تختار عميل."
+    if not client_channel(client):
+        return None, "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
+
+    # A task may only ever have one client room (the unique constraint says so),
+    # so asking for a second one joins the existing room instead of failing.
+    existing = None
+    if task is not None:
+        existing = ChatRoom.objects.filter(task=task, kind=RoomKind.CLIENT).first()
+
+    if existing is not None:
+        room, created = existing, False
+        if title and not room.title:
+            room.title = title.strip()[:120]
+            room.save(update_fields=["title"])
+    else:
+        room = ChatRoom.objects.create(
+            kind=RoomKind.CLIENT, client=client, task=task,
+            title=(title or "").strip()[:120], created_by=user,
+        )
+        created = True
+
+    people = {user}
+    people.update(m for m in (members or []) if m is not None)
+    if task is not None:
+        people.update(p for p in (task.created_by, task.team_lead) if p is not None)
+        if task.translator_accepted_at and task.translator_id:
+            people.add(task.translator)
+    # add, not set: joining an existing task room must not evict its members.
+    room.members.add(*people)
+
+    if created:
+        system_message(
+            room, key="client_room_opened",
+            body_ar="الجروب ده بيوصل العميل على واتساب. أي رسالة هنا هتروحله.",
+            body_en="This group reaches the client on WhatsApp. Anything here is sent to them.",
+        )
+    for member in room.members.exclude(pk=user.pk):
+        notify(
+            member,
+            title_ar="اتضفت في جروب عميل",
+            title_en="Added to a client group",
+            body_ar=f"{user.short_name} ضافك في جروب مع العميل {client.code}.",
+            body_en=f"{user.short_name} added you to a group with client {client.code}.",
+            level="info", url=f"/ops/chats/g/{room.id}/",
+        )
+    log(user, "group.create", client.code, room.title or "-")
+    return room, ""
+
+
+def group_thread(room, user, limit=200):
+    """A group's messages in the same shape ``client_thread`` returns.
+
+    Reusing that shape means the bubble template and chat.js work unchanged.
+    """
+    rows = (
+        room.messages
+        .select_related("sender", "inbound")
+        .prefetch_related("attachments", "inbound__attachments")
+        .order_by("-id")[:limit]
+    )
+    items = []
+    for row in reversed(list(rows)):
+        if row.is_system:
+            continue
+        items.append({
+            "uid": f"g{room.id}-{row.id}",
+            "kind": "in" if row.from_client else "out",
+            "body": row.body,
+            "subject": "",
+            "channel": "",
+            "at": row.created_at,
+            "status": row.relay_status,
+            "error": row.relay_error,
+            "sender": row.sender.short_name if row.sender_id else "",
+            "is_delivery": False,
+            "task_code": room.task.code if room.task_id else "",
+            "files": [_file_json(a) for a in row.relay_files],
+        })
+    return items
+
+
+def group_preview(room, user):
+    """The snippet shown for a group in the conversation list."""
+    last = room.messages.order_by("-id").first()
+    if last is None:
+        return {"text": "", "at": room.created_at, "outgoing": False}
+    text = last.body or _attachment_snippet(last.relay_files)
+    return {"text": text[:70], "at": last.created_at, "outgoing": not last.from_client}
+
+
+def groups_for(user, query=""):
+    """Every relayed room this person is in — task-bound or standalone.
+
+    A task's client room is a group too, so it belongs in this list; leaving it
+    out would hide it from the chats page and from a room created against a
+    task that already had one.
+    """
+    from django.db.models import Max
+
+    qs = ChatRoom.objects.filter(kind=RoomKind.CLIENT)
+    if not user.is_admin_role:
+        qs = qs.filter(members=user)
+    query = (query or "").strip()
+    if query:
+        qs = qs.filter(
+            Q(title__icontains=query)
+            | Q(client__code__icontains=query)
+            | Q(task__code__icontains=query)
+        )
+    return (
+        qs.select_related("client", "task")
+        .annotate(last_at=Max("messages__created_at"))
+        .distinct()
+        .order_by("-last_at", "-id")
+    )
+
+
+def mirror_inbound_to_room(inbound):
+    """Drop a message the client just sent into the room the team watches.
+
+    Works for a task's client room and for a standalone group alike. With no
+    open room — or with more than one, where routing would be a guess — the
+    message stays in the inbox only, which is the old behaviour and correct.
     """
     if inbound.client_id is None or inbound.is_rate_blocked:
         return None
 
-    rooms = list(
-        ChatRoom.objects
-        .filter(
-            kind=RoomKind.CLIENT,
-            task__client_id=inbound.client_id,
-            task__status__in=ACTIVE_TASK_STATUSES,
-        )
-        .select_related("task", "task__client")[:5]
-    )
+    rooms = list(client_rooms_for(inbound.client_id)[:10])
     if not rooms:
         return None
-    if len(rooms) > 1:
-        # Two live tasks for one client: there is no honest way to tell which
-        # one the message is about. Guessing would show a client's message to
-        # the wrong translator, so it stays in the inbox for a human to route.
-        return None
-    room = rooms[0]
 
+    # A standalone group belongs to the client, not to one piece of work, so
+    # every group is entitled to the client's words. Task rooms are different:
+    # with two live tasks there is no honest way to tell which one a message is
+    # about, and guessing would show it to the wrong team — so a task room only
+    # receives when it is the client's only one.
+    groups = [r for r in rooms if r.task_id is None]
+    task_rooms = [r for r in rooms if r.task_id is not None]
+    targets = list(groups)
+    if len(task_rooms) == 1:
+        targets.append(task_rooms[0])
+    if not targets:
+        return None
+
+    first = None
+    for room in targets:
+        message = _mirror_into(room, inbound)
+        first = first or message
+    return first
+
+
+def _mirror_into(room, inbound):
     message = ChatMessage.objects.create(
         room=room, sender=None, body=inbound.body or "", inbound=inbound,
     )
 
     task = room.task
+    code = room.relay_client.code if room.relay_client else "—"
+    where = task.code if task else (room.title or code)
+    url = f"/tasks/{task.code}/?room={room.id}" if task else f"/ops/chats/g/{room.id}/"
     preview = (inbound.body or "ملفات")[:60]
+
     # Operation and admin already got the generic "new client message" ping
     # from the inbox; only the people who would otherwise miss it are told.
-    # can_view is re-checked per member: a stale membership row must not leak
-    # a preview of the client's words to someone off the task.
+    # For a task room, can_view is re-checked per member so a stale membership
+    # row cannot leak a preview of the client's words to someone off the task.
+    # A standalone group has no task, so membership is the whole rule there.
     recipients = [
         m for m in room.members.exclude(role__in=[Role.OPERATION, Role.ADMIN])
-        if task.can_view(m)
+        if task is None or task.can_view(m)
     ]
     for member in recipients:
         notify(
             member,
             title_ar="رسالة جديدة من العميل",
             title_en="New message from the client",
-            body_ar=f"العميل {task.client.code} في {task.code}: {preview}",
-            body_en=f"Client {task.client.code} in {task.code}: {preview}",
-            level="info", url=f"/tasks/{task.code}/?room={room.id}",
-            sound=True, task=task,
+            body_ar=f"العميل {code} في {where}: {preview}",
+            body_en=f"Client {code} in {where}: {preview}",
+            level="info", url=url, sound=True, task=task,
         )
     return message
 
@@ -902,19 +1057,24 @@ def _attachment_snippet(attachments):
     rows = list(attachments)
     if not rows:
         return "—"
-    if any(a.is_voice or a.is_audio for a in rows):
+    # getattr: a ChatAttachment shares the audio behaviour without the columns.
+    if any(getattr(a, "is_voice", False) or a.is_audio for a in rows):
         return "رسالة صوتية"
     return f"{len(rows)} ملف"
 
 
 def _file_json(attachment):
-    """One attachment as the chat templates and chat.js expect it."""
+    """One attachment as the chat templates and chat.js expect it.
+
+    getattr throughout: a ChatAttachment carries the same behaviour as an
+    inbound or outbound attachment but without the mime/voice/duration columns.
+    """
     return {
         "url": attachment.file.url,
         "name": attachment.original_name or attachment.file.name,
         "size": attachment.size,
-        "mime": attachment.mime,
-        "voice": attachment.is_voice,
+        "mime": getattr(attachment, "mime", ""),
+        "voice": getattr(attachment, "is_voice", False),
         "audio": attachment.is_audio,
         "length": attachment.pretty_duration,
     }

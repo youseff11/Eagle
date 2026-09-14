@@ -20,6 +20,7 @@ urlpatterns = [
     # -- operation ----------------------------------------------------------
     path("ops/inbox/", views.ops_inbox, name="ops_inbox"),
     path("ops/chats/", views.ops_chats, name="ops_chats"),
+    path("ops/chats/g/<int:room_id>/", views.ops_group_chat, name="ops_group_chat"),
     path("ops/chats/<str:code>/", views.ops_chats, name="ops_chat_detail"),
     path("ops/tasks/", views.ops_tasks, name="ops_tasks"),
     path("ops/tasks/new/", views.ops_task_new, name="ops_task_new"),
@@ -82,6 +83,9 @@ urlpatterns = [
     path("api/rooms/<int:room_id>/send/", api.chat_send, name="api_chat_send"),
     path("api/clients/<str:client_code>/requirement/", api.add_requirement, name="api_requirement"),
     path("api/client-chats/", api.client_chat_list, name="api_client_chat_list"),
+    path("api/groups/new/", api.group_create, name="api_group_create"),
+    path("api/groups/<int:room_id>/", api.group_chat_fetch, name="api_group_chat_fetch"),
+    path("api/groups/<int:room_id>/send/", api.group_chat_send, name="api_group_chat_send"),
     path("api/client-chats/<str:client_code>/", api.client_chat_fetch, name="api_client_chat_fetch"),
     path(
         "api/client-chats/<str:client_code>/send/",

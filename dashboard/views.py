@@ -29,6 +29,7 @@ from .models import (
     AppSettings,
     AssignmentStatus,
     ChatAttachment,
+    ChatRoom,
     Client,
     InboundMessage,
     Notification,
@@ -133,31 +134,106 @@ def ops_inbox(request):
     return render(request, "ops/inbox.html", context)
 
 
+def _chat_sidebar(user, query, kind):
+    """The left-hand list: 1:1 client chats and groups, newest first."""
+    rows = []
+    # The 1:1 list is every client the business has ever talked to. Only the
+    # roles that already own the client inbox may see it — a translator who is
+    # in one group must not get a directory of every client and their words.
+    sees_all_clients = user.is_operation or user.is_admin_role
+    if kind in ("all", "chats") and sees_all_clients:
+        for client in services.client_conversations(user, query)[:100]:
+            preview = services.conversation_preview(client, user)
+            rows.append({
+                "is_group": False,
+                "client": client,
+                "code": client.code,
+                "label": client.label_for(user),
+                "url": f"/ops/chats/{client.code}/",
+                "preview": preview,
+            })
+    if kind in ("all", "groups"):
+        for room in services.groups_for(user, query)[:100]:
+            client = room.relay_client
+            rows.append({
+                "is_group": True,
+                "room": room,
+                "client": client,
+                "code": f"g{room.id}",
+                "label": room.display_title,
+                "url": f"/ops/chats/g/{room.id}/",
+                "preview": services.group_preview(room, user),
+            })
+    rows.sort(key=lambda r: r["preview"]["at"] or timezone.now(), reverse=True)
+    return rows
+
+
+def _chats_context(request, kind):
+    user = request.user
+    query = request.GET.get("q", "").strip()
+    return {
+        "conversations": _chat_sidebar(user, query, kind),
+        "query": query,
+        "filter": kind,
+        "can_create_group": AppSettings.load().can_create_group(user),
+        "group_clients": Client.objects.filter(is_active=True).order_by("code")[:300],
+        "group_people": User.objects.filter(is_active=True).exclude(pk=user.pk)
+                            .order_by("role", "username")[:200],
+    }
+
+
 @role_required(Role.OPERATION)
 def ops_chats(request, code=""):
     """WhatsApp-style conversations with the clients."""
     user = request.user
-    query = request.GET.get("q", "").strip()
-    conversations = list(services.client_conversations(user, query)[:100])
+    kind = request.GET.get("type", "all")
+    if kind not in ("all", "chats", "groups"):
+        kind = "all"
+    context = _chats_context(request, kind)
 
     active = None
     if code:
         active = get_object_or_404(Client, code=code)
-    elif conversations:
-        active = conversations[0]
+    else:
+        first = next((r for r in context["conversations"] if not r["is_group"]), None)
+        active = first["client"] if first else None
 
-    thread = services.client_thread(active, user) if active else []
-
-    context = {
-        "conversations": [
-            {"client": row, "preview": services.conversation_preview(row, user)}
-            for row in conversations
-        ],
+    context.update({
         "active": active,
-        "thread": thread,
-        "query": query,
+        "active_code": active.code if active else "",
+        "thread": services.client_thread(active, user) if active else [],
         "channel": services.client_channel(active) if active else "",
-    }
+    })
+    return render(request, "ops/chats.html", context)
+
+
+@login_required
+def ops_group_chat(request, room_id):
+    """One group's conversation, rendered by the same page as a 1:1 chat."""
+    user = request.user
+    room = get_object_or_404(
+        ChatRoom.objects.select_related("client", "task"),
+        pk=room_id, kind=RoomKind.CLIENT,
+    )
+    if not room.can_access(user):
+        raise Http404
+    if room.task_id and not room.task.can_view(user):
+        raise Http404
+
+    kind = request.GET.get("type", "all")
+    if kind not in ("all", "chats", "groups"):
+        kind = "all"
+    context = _chats_context(request, kind)
+
+    client = room.relay_client
+    context.update({
+        "active": client,
+        "active_group": room,
+        "active_code": f"g{room.id}",
+        "thread": services.group_thread(room, user),
+        "channel": services.client_channel(client) if client else "",
+        "members": room.members.all(),
+    })
     return render(request, "ops/chats.html", context)
 
 

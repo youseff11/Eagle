@@ -28,7 +28,12 @@
   var timer = null;
   var busy = false;
 
+  // A group's endpoints are fixed (they carry a room id, not a client code),
+  // so only the 1:1 URLs need the placeholder swapped.
+  var isGroup = activeCode.charAt(0) === "g" && /^g\d+$/.test(activeCode);
+
   function urlFor(template, code) {
+    if (isGroup) { return template || ""; }
     return (template || "").replace("CODE", encodeURIComponent(code));
   }
 
@@ -162,9 +167,15 @@
     var a = document.createElement("a");
     a.className = "cthread";
     a.dataset.code = item.code;
-    a.href = root.dataset.detailUrl.replace("CODE", encodeURIComponent(item.code));
-    a.innerHTML =
-      '<span class="avatar avatar--brand">' + E.escapeHtml(item.code.slice(3)) + "</span>" +
+    // The server hands back the destination for both kinds — a group's URL
+    // carries a room id, not a client code, so it cannot be built from a
+    // template here.
+    a.href = item.url ||
+      root.dataset.detailUrl.replace("CODE", encodeURIComponent(item.code));
+    var face = item.group
+      ? '<span class="avatar avatar--group">' + icon("users", "ic--sm") + "</span>"
+      : '<span class="avatar avatar--brand">' + E.escapeHtml(item.code.slice(3)) + "</span>";
+    a.innerHTML = face +
       '<span class="cthread__body">' +
         '<span class="cthread__top">' +
           '<b class="mono">' + E.escapeHtml(item.label) + "</b>" +
@@ -177,7 +188,12 @@
 
   function pollList() {
     if (!threadList) { return Promise.resolve(); }
-    return E.get(root.dataset.listUrl).then(function (res) {
+    var listUrl = root.dataset.listUrl;
+    var kind = root.dataset.filter || "all";
+    if (kind !== "all") {
+      listUrl += (listUrl.indexOf("?") === -1 ? "?" : "&") + "type=" + kind;
+    }
+    return E.get(listUrl).then(function (res) {
       if (!res || !res.ok) { return; }
       var empty = threadList.querySelector(".empty");
       if (empty && (res.items || []).length) { empty.remove(); }
@@ -447,6 +463,71 @@
       recReset();
     });
   }
+
+  /* ------------------------------------------------------- new group */
+
+  var groupModal = document.getElementById("newGroupModal");
+  var groupOpen = document.getElementById("newGroupBtn");
+  var groupSave = document.getElementById("newGroupSave");
+  var groupError = document.getElementById("groupError");
+
+  function showGroupModal(show) {
+    if (!groupModal) { return; }
+    groupModal.classList.toggle("hidden", !show);
+    if (groupError) { groupError.textContent = ""; }
+  }
+
+  function createGroup() {
+    if (!groupSave) { return; }
+    var client = (document.getElementById("groupClient") || {}).value || "";
+    if (!client) {
+      if (groupError) {
+        groupError.textContent = E.t("اختار عميل الأول.", "Pick a client first.");
+      }
+      return;
+    }
+
+    var data = new FormData();
+    data.append("client", client);
+    data.append("title", (document.getElementById("groupTitle") || {}).value || "");
+    data.append("task", (document.getElementById("groupTask") || {}).value || "");
+    var picker = document.getElementById("groupMembers");
+    if (picker) {
+      Array.prototype.forEach.call(picker.selectedOptions || [], function (opt) {
+        data.append("members", opt.value);
+      });
+    }
+
+    groupSave.disabled = true;
+    E.post(groupSave.dataset.url, data).then(function (res) {
+      if (res && res.ok && res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      if (groupError) {
+        groupError.textContent = (res && res.error) ||
+          E.t("مقدرتش أعمل الجروب.", "Could not create the group.");
+      }
+    }).catch(function () {
+      if (groupError) {
+        groupError.textContent = E.t("مشكلة في الاتصال", "Connection problem");
+      }
+    }).then(function () {
+      groupSave.disabled = false;
+    });
+  }
+
+  if (groupOpen) { groupOpen.addEventListener("click", function () { showGroupModal(true); }); }
+  ["newGroupClose", "newGroupCancel"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.addEventListener("click", function () { showGroupModal(false); }); }
+  });
+  if (groupModal) {
+    groupModal.addEventListener("click", function (event) {
+      if (event.target === groupModal) { showGroupModal(false); }
+    });
+  }
+  if (groupSave) { groupSave.addEventListener("click", createGroup); }
 
   if (micBtn) { micBtn.addEventListener("click", startRecording); }
   if (recStop) { recStop.addEventListener("click", stopRecording); }

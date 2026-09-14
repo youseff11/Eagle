@@ -154,6 +154,30 @@ class ShiftForm(forms.ModelForm):
 
 
 class SettingsForm(forms.ModelForm):
+    """The admin panel's settings. ``group_creator_roles`` is stored as a
+    comma-separated string but edited as checkboxes, so it is swapped for a
+    MultipleChoiceField and joined back on save."""
+
+    GROUP_ROLE_CHOICES = (
+        ("operation", "الأوبريشن · Operation"),
+        ("team_lead", "التيم ليدر · Team leader"),
+        ("translator", "المترجم · Translator"),
+    )
+
+    group_creator_roles = forms.MultipleChoiceField(
+        choices=GROUP_ROLE_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="مين يقدر يعمل جروب مع عميل",
+        help_text="الأدمن دايمًا يقدر — مش هينفع يتشال من هنا.",
+    )
+
+    def clean_group_creator_roles(self):
+        roles = self.cleaned_data.get("group_creator_roles") or []
+        # The admin is always allowed; storing it keeps the value honest for
+        # anyone reading the column directly.
+        return ",".join(["admin"] + [r for r in roles if r != "admin"])
+
     class Meta:
         model = AppSettings
         fields = (
@@ -167,6 +191,7 @@ class SettingsForm(forms.ModelForm):
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
             "smtp_from", "smtp_use_tls",
             "simulation_enabled", "poll_ms",
+            "group_creator_roles",
         )
         widgets = {
             "claude_api_key": forms.PasswordInput(
@@ -192,6 +217,13 @@ class SettingsForm(forms.ModelForm):
         for name, field in self.fields.items():
             if isinstance(field.widget, (forms.TextInput, forms.NumberInput, forms.EmailInput)):
                 field.widget.attrs.setdefault("class", "input")
+
+        # The model stores "admin,operation"; the checkboxes want a list.
+        instance = getattr(self, "instance", None)
+        if instance is not None and not self.is_bound:
+            self.initial["group_creator_roles"] = [
+                r for r in instance.group_roles if r != "admin"
+            ]
 
 
 class SimulateMessageForm(forms.Form):

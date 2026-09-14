@@ -9,31 +9,61 @@
 <div class="cchat"
      id="clientChat"
      data-list-url="{% url 'dashboard:api_client_chat_list' %}"
-     data-thread-url="{% url 'dashboard:api_client_chat_fetch' 'CODE' %}"
-     data-send-url="{% url 'dashboard:api_client_chat_send' 'CODE' %}"
-     data-detail-url="{% url 'dashboard:ops_chat_detail' 'CODE' %}"
-     data-active="{% if active %}{{ active.code }}{% endif %}">
+     data-filter="{{ filter }}"
+     {% if active_group %}
+       data-thread-url="{% url 'dashboard:api_group_chat_fetch' active_group.id %}"
+       data-send-url="{% url 'dashboard:api_group_chat_send' active_group.id %}"
+       data-active="g{{ active_group.id }}"
+     {% else %}
+       data-thread-url="{% url 'dashboard:api_client_chat_fetch' 'CODE' %}"
+       data-send-url="{% url 'dashboard:api_client_chat_send' 'CODE' %}"
+       data-active="{% if active %}{{ active.code }}{% endif %}"
+     {% endif %}
+     data-detail-url="{% url 'dashboard:ops_chat_detail' 'CODE' %}">
 
   {# ---- conversation list ------------------------------------------------ #}
   <aside class="cchat__list">
     <div class="cchat__search">
       <form method="get" class="field-icon" style="margin:0">
+        {% if filter != 'all' %}<input type="hidden" name="type" value="{{ filter }}">{% endif %}
         {% icon "search" "ic--lead" %}
         <input class="input" name="q" value="{{ query }}"
-               data-ar-ph="دوّر على كود عميل…" data-en-ph="Search a client code…"
-               placeholder="دوّر على كود عميل…">
+               data-ar-ph="دوّر على كود عميل أو اسم جروب…" data-en-ph="Search a client code or group…"
+               placeholder="دوّر على كود عميل أو اسم جروب…">
       </form>
     </div>
 
+    {# ---- all / chats / groups ---- #}
+    <div class="cchat__filter">
+      <a class="cchat__pill {% if filter == 'all' %}is-active{% endif %}"
+         href="?{% if query %}q={{ query }}{% endif %}"
+         data-ar="الكل" data-en="All">الكل</a>
+      <a class="cchat__pill {% if filter == 'chats' %}is-active{% endif %}"
+         href="?type=chats{% if query %}&q={{ query }}{% endif %}"
+         data-ar="شاتات" data-en="Chats">شاتات</a>
+      <a class="cchat__pill {% if filter == 'groups' %}is-active{% endif %}"
+         href="?type=groups{% if query %}&q={{ query }}{% endif %}"
+         data-ar="جروبات" data-en="Groups">جروبات</a>
+    </div>
+
+    {% if can_create_group %}
+      <div class="cchat__new">
+        <button class="btn btn--sm btn--primary grow" type="button" id="newGroupBtn">
+          {% icon "users" "ic--sm" %}<span data-ar="جروب جديد" data-en="New group">جروب جديد</span>
+        </button>
+      </div>
+    {% endif %}
+
     <div class="cchat__threads" id="threadList">
       {% for row in conversations %}
-        <a class="cthread {% if active and row.client.code == active.code %}is-active{% endif %}"
-           data-code="{{ row.client.code }}"
-           href="{% url 'dashboard:ops_chat_detail' row.client.code %}">
-          <span class="avatar avatar--brand">{{ row.client.code|slice:"3:" }}</span>
+        <a class="cthread {% if row.code == active_code %}is-active{% endif %}"
+           data-code="{{ row.code }}" href="{{ row.url }}">
+          <span class="avatar {% if row.is_group %}avatar--group{% else %}avatar--brand{% endif %}">
+            {% if row.is_group %}{% icon "users" "ic--sm" %}{% else %}{{ row.code|slice:"3:" }}{% endif %}
+          </span>
           <span class="cthread__body">
             <span class="cthread__top">
-              <b class="mono">{{ row.client|label_for:user }}</b>
+              <b class="mono">{{ row.label }}</b>
               <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
             </span>
             <span class="cthread__snippet">
@@ -52,22 +82,47 @@
 
   {# ---- the conversation itself ------------------------------------------ #}
   <section class="cchat__room">
-    {% if active %}
+    {% if active or active_group %}
       <header class="cchat__head">
-        <span class="avatar avatar--brand">{{ active.code|slice:"3:" }}</span>
+        <span class="avatar {% if active_group %}avatar--group{% else %}avatar--brand{% endif %}">
+          {% if active_group %}{% icon "users" "ic--sm" %}{% else %}{{ active.code|slice:"3:" }}{% endif %}
+        </span>
         <div>
-          <div class="cchat__who mono">{{ active|label_for:user }}</div>
+          <div class="cchat__who mono">
+            {% if active_group %}{{ active_group.display_title }}{% else %}{{ active|label_for:user }}{% endif %}
+          </div>
           <div class="cchat__meta muted">
             {% if channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}WhatsApp
             {% elif channel == 'email' %}{% icon "mail" "ic--sm" %}Email
             {% else %}<span data-ar="مفيش قناة" data-en="No channel">مفيش قناة</span>{% endif %}
+            {% if active_group %}
+              · <span data-ar="جروب" data-en="Group">جروب</span> · {{ members|length }}
+              {% if active_group.task_id %}
+                · <a class="mono" href="{% url 'dashboard:task_detail' active_group.task.code %}">{{ active_group.task.code }}</a>
+              {% endif %}
+            {% endif %}
           </div>
         </div>
         <div class="grow"></div>
-        <a class="btn btn--ghost" href="{% url 'dashboard:client_detail' active.code %}">
-          {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
-        </a>
+        {% if active %}
+          <a class="btn btn--ghost" href="{% url 'dashboard:client_detail' active.code %}">
+            {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
+          </a>
+        {% endif %}
       </header>
+
+      {% if active_group %}
+        <div class="note note--warn cchat__window">
+          {% icon "users" %}
+          <div>
+            <strong data-ar="الجروب ده بيوصل العميل" data-en="This group reaches the client">الجروب ده بيوصل العميل</strong>
+            <div data-ar="أي رسالة هنا بتروح واتساب العميل باسم دورك — مش اسمك ولا رقمك."
+                 data-en="Anything here goes to the client's WhatsApp under your role — not your name or number.">
+              أي رسالة هنا بتروح واتساب العميل باسم دورك — مش اسمك ولا رقمك.
+            </div>
+          </div>
+        </div>
+      {% endif %}
 
       {# WhatsApp only allows free text within 24h of the client's last message. #}
       <div class="note note--warn cchat__window hidden" id="windowClosed">
@@ -102,7 +157,7 @@
         </button>
       </form>
 
-      {# Recording bar — replaces nothing, sits under the composer while active. #}
+      {# Recording bar — sits under the composer while active. #}
       <div class="cchat__rec hidden" id="recBar">
         <span class="rec-dot" id="recDot"></span>
         <span class="rec-state" id="recState"
@@ -131,6 +186,74 @@
     {% endif %}
   </section>
 </div>
+
+{% if can_create_group %}
+  {# ---- new group ------------------------------------------------------- #}
+  <div class="modal-backdrop hidden" id="newGroupModal">
+    <div class="modal" style="text-align:start">
+      <div class="row row--tight">
+        {% icon "users" %}
+        <div class="modal__title" data-ar="جروب جديد مع عميل" data-en="New client group">جروب جديد مع عميل</div>
+        <div class="grow"></div>
+        <button class="icon-btn" type="button" id="newGroupClose"
+                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
+      </div>
+
+      <p class="muted" style="font-size:.82rem"
+         data-ar="الفريق بيتكلم هنا، والعميل بيستقبل على واتساب في شاته العادي. العميل بيشوف الدور بس — مش الأسامي ولا الأرقام."
+         data-en="The team talks here and the client receives it on WhatsApp in their ordinary chat. The client sees roles only — never names or numbers.">
+        الفريق بيتكلم هنا، والعميل بيستقبل على واتساب في شاته العادي.
+      </p>
+
+      <div class="field">
+        <label data-ar="العميل" data-en="Client">العميل</label>
+        <select class="input" id="groupClient">
+          <option value=""></option>
+          {% for c in group_clients %}
+            <option value="{{ c.code }}">{{ c.code }} · {{ c|label_for:user }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label data-ar="اسم الجروب (اختياري)" data-en="Group name (optional)">اسم الجروب (اختياري)</label>
+        <input class="input" id="groupTitle" maxlength="120"
+               data-ar-ph="مثلاً: ترجمة عقد الشركة" data-en-ph="e.g. Company contract translation"
+               placeholder="مثلاً: ترجمة عقد الشركة">
+      </div>
+
+      <div class="field">
+        <label data-ar="كود تاسك (اختياري)" data-en="Task code (optional)">كود تاسك (اختياري)</label>
+        <input class="input mono" id="groupTask" dir="ltr"
+               data-ar-ph="TSK-00001" data-en-ph="TSK-00001" placeholder="TSK-00001">
+      </div>
+
+      <div class="field">
+        <label data-ar="الأعضاء" data-en="Members">الأعضاء</label>
+        <select class="input" id="groupMembers" multiple size="6">
+          {% for person in group_people %}
+            <option value="{{ person.id }}">{{ person.short_name }} — {% role_badge person.role %}</option>
+          {% endfor %}
+        </select>
+        <small class="muted" data-ar="انت هتتضاف تلقائيًا. اضغط Ctrl عشان تختار أكتر من واحد."
+               data-en="You are added automatically. Hold Ctrl to pick more than one.">
+          انت هتتضاف تلقائيًا.
+        </small>
+      </div>
+
+      <div class="row" style="margin-top:14px;align-items:center">
+        <div id="groupError" style="color:var(--danger,#e5484d);font-size:.8rem"></div>
+        <div class="grow"></div>
+        <button class="btn" type="button" id="newGroupCancel"
+                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn--primary" type="button" id="newGroupSave"
+                data-url="{% url 'dashboard:api_group_create' %}">
+          {% icon "plus" "ic--sm" %}<span data-ar="اعمل الجروب" data-en="Create group">اعمل الجروب</span>
+        </button>
+      </div>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}<script src="{% static 'js/chat.js' %}"></script>{% endblock %}

@@ -83,8 +83,11 @@
           </div>
 
           {% if not active_room %}
-            {# Only the client room is visible to this person. Opening it has
-               to be a deliberate click, so nothing is focused by default. #}
+            {% comment %}
+              Only the client room is visible to this person. Opening it has to
+              be a deliberate click, so nothing is focused by default.
+              ({# #} is single-line only in Django — a multi-line one renders.)
+            {% endcomment %}
             <div class="empty" style="padding:28px 12px">
               {% icon "message" "ic--xl" %}
               <span data-ar="اختار تبويب من فوق عشان تبدأ."

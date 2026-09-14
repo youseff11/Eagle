@@ -365,9 +365,12 @@ def _room_or_404(request, room_id):
     room = get_object_or_404(
         ChatRoom.objects.select_related("task", "task__client"), pk=room_id
     )
-    # Membership alone is not enough: someone taken off the task keeps their
-    # row in the members table, and a client room relays to a real person.
-    if not (room.can_access(request.user) and room.task.can_view(request.user)):
+    # Membership alone is not enough for a task room: someone taken off the
+    # task keeps their row in the members table, and a client room relays to a
+    # real person. A standalone group has no task, so membership is the rule.
+    if not room.can_access(request.user):
+        raise Http404
+    if room.task_id and not room.task.can_view(request.user):
         raise Http404
     return room
 
@@ -415,13 +418,42 @@ def chat_fetch(request, room_id):
     })
 
 
+def _store_voice(message, upload):
+    """Save a browser recording as a chat attachment, converted for WhatsApp.
+
+    Converting before storing means the room and the client hold the same
+    bytes — the same rule the client chat follows.
+    """
+    from django.core.files.base import ContentFile
+
+    from . import audio
+
+    raw = upload.read()
+    name = upload.name or "voice"
+    mime = audio.base_mime(getattr(upload, "content_type", ""))
+    error = ""
+    try:
+        content, name, mime = audio.prepare(raw, name, mime)
+    except audio.AudioError as exc:
+        content, error = raw, exc.message_ar
+
+    ChatAttachment.objects.create(
+        message=message,
+        file=ContentFile(content, name=name),
+        original_name=name,
+        size=len(content),
+    )
+    return error
+
+
 @login_required
 @require_POST
 def chat_send(request, room_id):
     room = _room_or_404(request, room_id)
     body = (request.POST.get("body") or "").strip()
     uploads = request.FILES.getlist("files")
-    if not body and not uploads:
+    voice = request.FILES.get("voice")
+    if not body and not uploads and voice is None:
         return JsonResponse({"ok": False, "error": "empty"}, status=400)
 
     message = ChatMessage.objects.create(room=room, sender=request.user, body=body)
@@ -429,26 +461,39 @@ def chat_send(request, room_id):
         ChatAttachment.objects.create(
             message=message, file=item, original_name=item.name, size=item.size
         )
+    voice_error = ""
+    if voice is not None:
+        voice_error = _store_voice(message, voice)
 
     # A client room is a relay: whatever lands here goes on to the client's
     # WhatsApp. A failure is recorded on the message, never swallowed.
     relay_error = ""
     if room.kind == RoomKind.CLIENT:
-        _ok, relay_error = services.relay_chat_message(message)
+        if voice_error:
+            # The recording is saved but WhatsApp would reject it, so say so
+            # instead of relaying a file the client cannot play.
+            message.relay_status = "failed"
+            message.relay_error = voice_error
+            message.save(update_fields=["relay_status", "relay_error"])
+            relay_error = voice_error
+        else:
+            _ok, relay_error = services.relay_chat_message(message)
 
     task = room.task
+    where = task.code if task else (room.title or room.display_title)
+    url = f"/tasks/{task.code}/?room={room.id}" if task else f"/ops/chats/g/{room.id}/"
     # A membership row can outlive the assignment; the notification body quotes
     # the message, so re-check access rather than trusting the row.
     for member in room.members.exclude(pk=request.user.pk):
-        if not task.can_view(member):
+        if task is not None and not task.can_view(member):
             continue
         services.notify(
             member,
             title_ar="رسالة جديدة في الشات",
             title_en="New chat message",
-            body_ar=f"{request.user.short_name} في {task.code}: {(body or 'ملفات')[:60]}",
-            body_en=f"{request.user.short_name} in {task.code}: {(body or 'files')[:60]}",
-            level="info", url=f"/tasks/{task.code}/?room={room.id}", task=task,
+            body_ar=f"{request.user.short_name} في {where}: {(body or 'ملفات')[:60]}",
+            body_en=f"{request.user.short_name} in {where}: {(body or 'files')[:60]}",
+            level="info", url=url, task=task,
         )
     return JsonResponse({
         "ok": True,
@@ -490,6 +535,8 @@ def _conversation_json(client, viewer):
     preview = services.conversation_preview(client, viewer)
     return {
         "code": client.code,
+        "group": False,
+        "url": f"/ops/chats/{client.code}/",
         "label": client.label_for(viewer),
         "text": preview["text"],
         "outgoing": preview["outgoing"],
@@ -502,14 +549,150 @@ def _conversation_json(client, viewer):
     }
 
 
-@api_role_required(Role.OPERATION)
+def _group_json(room, viewer):
+    """A group in the same shape as a 1:1 conversation, so one list renders both."""
+    preview = services.group_preview(room, viewer)
+    client = room.relay_client
+    return {
+        "code": f"g{room.id}",
+        "group": True,
+        "room": room.id,
+        "url": f"/ops/chats/g/{room.id}/",
+        "label": room.display_title,
+        "client_code": client.code if client else "",
+        "text": preview["text"],
+        "outgoing": preview["outgoing"],
+        "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+        "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
+        "channel": services.client_channel(client) if client else "",
+        "window_open": client.reply_window_open if client else False,
+        "minutes_left": client.reply_window_minutes_left if client else 0,
+    }
+
+
+@login_required
 @require_GET
 def client_chat_list(request):
-    rows = services.client_conversations(request.user, request.GET.get("q", ""))[:100]
+    """Feeds the chats sidebar. Mirrors views._chat_sidebar exactly.
+
+    Any signed-in member can poll it — they only ever get their own groups —
+    but the 1:1 list is the whole client directory, so it stays with the roles
+    that own the client inbox.
+    """
+    query = request.GET.get("q", "")
+    kind = request.GET.get("type", "all")
+    sees_all_clients = request.user.is_operation or request.user.is_admin_role
+    items = []
+    if kind in ("all", "chats") and sees_all_clients:
+        items += [
+            _conversation_json(row, request.user)
+            for row in services.client_conversations(request.user, query)[:100]
+        ]
+    if kind in ("all", "groups"):
+        items += [
+            _group_json(room, request.user)
+            for room in services.groups_for(request.user, query)[:100]
+        ]
+    # Newest activity first across both kinds.
+    items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
+    return JsonResponse({"ok": True, "items": items})
+
+
+@login_required
+@require_POST
+def group_create(request):
+    """Open a group with a client. The role gate lives in AppSettings."""
+    conf = AppSettings.load()
+    if not conf.can_create_group(request.user):
+        return JsonResponse(
+            {"ok": False, "error": "مالكش صلاحية تعمل جروب. الأدمن بيظبطها من الإعدادات."},
+            status=403,
+        )
+
+    client = Client.objects.filter(code=request.POST.get("client", "").strip()).first()
+    task = None
+    task_code = (request.POST.get("task") or "").strip()
+    if task_code:
+        task = Task.objects.filter(code=task_code).first()
+        if task is None:
+            return JsonResponse({"ok": False, "error": "التاسك دي مش موجودة."}, status=400)
+        # Attaching a task pulls its people into the group, so the person
+        # opening it has to be allowed to see that task in the first place.
+        if not task.can_view(request.user):
+            return JsonResponse(
+                {"ok": False, "error": "التاسك دي مش من حقك."}, status=403
+            )
+        if client is not None and task.client_id != client.id:
+            return JsonResponse(
+                {"ok": False, "error": "التاسك دي مش بتاعة العميل ده."}, status=400
+            )
+
+    members = list(User.objects.filter(
+        pk__in=[_int(v) for v in request.POST.getlist("members") if _int(v)],
+        is_active=True,
+    ))
+
+    room, error = services.create_client_group(
+        request.user, client,
+        title=request.POST.get("title", ""), task=task, members=members,
+    )
+    if room is None:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    return JsonResponse({"ok": True, "room": room.id, "url": f"/ops/chats/g/{room.id}/"})
+
+
+def _group_or_404(request, room_id):
+    room = get_object_or_404(
+        ChatRoom.objects.select_related("client", "task"),
+        pk=room_id, kind=RoomKind.CLIENT,
+    )
+    if not room.can_access(request.user):
+        raise Http404
+    if room.task_id and not room.task.can_view(request.user):
+        raise Http404
+    return room
+
+
+@login_required
+@require_GET
+def group_chat_fetch(request, room_id):
+    room = _group_or_404(request, room_id)
     return JsonResponse({
         "ok": True,
-        "items": [_conversation_json(row, request.user) for row in rows],
+        "client": _group_json(room, request.user),
+        "messages": [
+            _thread_entry_json(e, request.user)
+            for e in services.group_thread(room, request.user)
+        ],
     })
+
+
+@login_required
+@require_POST
+def group_chat_send(request, room_id):
+    """Same contract as client_chat_send, so chat.js drives both identically."""
+    room = _group_or_404(request, room_id)
+    response = chat_send(request, room_id)
+    ok = response.status_code == 200
+    payload = {
+        "ok": ok,
+        "error": "",
+        "messages": [
+            _thread_entry_json(e, request.user)
+            for e in services.group_thread(room, request.user)
+        ],
+        "client": _group_json(room, request.user),
+    }
+    if ok:
+        import json as _json
+
+        relay_error = _json.loads(response.content).get("relay_error") or ""
+        if relay_error:
+            payload["ok"] = False
+            payload["error"] = relay_error
+    else:
+        payload["error"] = "مفيش حاجة تتبعت."
+    return JsonResponse(payload, status=200)
 
 
 @api_role_required(Role.OPERATION)
