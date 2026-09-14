@@ -27,7 +27,8 @@ from dashboard.models import AppSettings
 #: when one field is unknown to the version in use, so there is a fallback.
 PHONE_FIELDS = (
     "display_phone_number,verified_name,quality_rating,platform_type,"
-    "code_verification_status,name_status,is_official_business_account"
+    "code_verification_status,name_status,is_official_business_account,"
+    "is_pin_enabled,messaging_limit_tier,health_status"
 )
 PHONE_FIELDS_SAFE = "display_phone_number,verified_name,quality_rating"
 
@@ -88,6 +89,7 @@ class Command(BaseCommand):
 
         self.phone = {}
         self.waba = {}
+        self.blockers = []
 
         self._phone(base, phone_id, token)
         if options["waba_id"]:
@@ -171,8 +173,48 @@ class Command(BaseCommand):
         self._show(payload, [
             "display_phone_number", "verified_name", "quality_rating",
             "platform_type", "code_verification_status", "name_status",
-            "is_official_business_account",
+            "is_official_business_account", "is_pin_enabled",
+            "messaging_limit_tier",
         ])
+        self.stdout.write("")
+        self._health(payload.get("health_status"))
+
+    def _health(self, health):
+        """What Meta says is wrong *right now*, in its own words.
+
+        ``health_status`` is the only field on the whole node that states the
+        current blockers outright instead of leaving them to be inferred from
+        flags. It outranks everything else here: a flag can be read two ways,
+        but "your display name has not been approved yet" cannot.
+        """
+        if not isinstance(health, dict):
+            return
+
+        overall = health.get("can_send_message", "?")
+        style = self.style.SUCCESS if overall == "AVAILABLE" else self.style.ERROR
+        self.stdout.write("  Health — what Meta says is blocking this account:")
+        self.stdout.write("    " + style(f"can_send_message = {overall}"))
+
+        self.blockers = []
+        for entity in health.get("entities") or []:
+            kind = entity.get("entity_type", "?")
+            state = entity.get("can_send_message", "?")
+            if state == "AVAILABLE":
+                continue
+            self.stdout.write(f"    {kind} ({state}):")
+            for err in entity.get("errors") or []:
+                # Calling/SIP errors are noise for a messaging integration.
+                if err.get("error_code") in (138024, 138025):
+                    continue
+                text = err.get("error_description", "")
+                self.stdout.write(self.style.ERROR(f"      - [{err.get('error_code')}] {text}"))
+                fix = err.get("possible_solution")
+                if fix:
+                    self.stdout.write(f"        fix: {fix}")
+                self.blockers.append(text)
+            for note in entity.get("additional_info") or []:
+                self.stdout.write(self.style.WARNING(f"      ! {note}"))
+                self.blockers.append(note)
         self.stdout.write("")
 
     def _waba(self, base, waba_id, token):
@@ -309,21 +351,34 @@ class Command(BaseCommand):
         else:
             row(age >= 30, "Registered 30+ days", f"{age} days old")
 
-        row(None, "Two-step verification ON for the number",
-            "not exposed by the API — set it with `manage.py wa_set_pin`, or read it "
-            "at WhatsApp Manager > the number > Two-step verification")
+        pin = self.phone.get("is_pin_enabled")
+        if pin is None:
+            row(None, "Two-step verification ON for the number",
+                "is_pin_enabled not returned — set it with `manage.py wa_set_pin`")
+        else:
+            row(bool(pin), "Two-step verification ON for the number",
+                f"is_pin_enabled = {pin}"
+                + ("" if pin else " — run `manage.py wa_set_pin`"))
 
-        # `name_status` describes a *name-change request*, not the name. Once a
-        # name is approved there is no pending request, so the field goes back
-        # to NON_EXISTS — which reads like "no name" and is nothing of the kind.
-        # The name itself is `verified_name`: Meta only fills it in after review.
-        if verified_name:
+        # Read this one from health_status, not from flags. `verified_name`
+        # holds the name Eagle ASKED for, and it is filled in whether or not
+        # review has passed — reading approval out of it was wrong, and this
+        # row said "done" while Meta was saying the opposite in plain English.
+        unapproved = any("display name has not been approved" in b.lower()
+                         for b in getattr(self, "blockers", []))
+        if unapproved:
+            row(False, "Display name approved",
+                f'Meta: the display name ("{verified_name}") is NOT approved yet '
+                f"— submit it at WhatsApp Manager > the number > Profile > Display name")
+        elif verified_name and name_status == "APPROVED":
             row(True, "Display name approved", f'verified_name = "{verified_name}"')
         elif name_status in ("PENDING_REVIEW", "AVAILABLE_WITHOUT_REVIEW"):
-            row(None, "Display name approved", f"a name change is in review ({name_status})")
+            row(None, "Display name approved", f"in review ({name_status})")
         else:
-            row(False, "Display name approved",
-                f"no verified_name on the number (name_status = {name_status or 'unknown'})")
+            row(None, "Display name approved",
+                f'verified_name = "{verified_name or "—"}", name_status = '
+                f"{name_status or 'unknown'} — check the Profile tab; the flags alone "
+                "do not say whether review passed")
 
         self.stdout.write("")
         self.stdout.write(
