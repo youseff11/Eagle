@@ -204,6 +204,7 @@ class Command(BaseCommand):
         quality = (self.phone.get("quality_rating") or "").upper()
         review = (self.waba.get("account_review_status") or "").upper()
         name_status = (self.phone.get("name_status") or "").upper()
+        verified_name = (self.phone.get("verified_name") or "").strip()
         created = self.waba.get("created_time") or ""
 
         def row(done, label, detail=""):
@@ -214,8 +215,17 @@ class Command(BaseCommand):
 
         row(None if not quality else quality == "GREEN",
             "Messaging policy in good standing", f"quality_rating = {quality or 'unknown'}")
-        row(review == "APPROVED", "Business verification complete",
-            f"account_review_status = {review or 'unknown'}")
+        # A missing field is not a failed requirement. Without a WABA id on the
+        # command line there is no `account_review_status` to read at all, and
+        # printing TODO for that sent the last run chasing a box that was
+        # already ticked in Business Settings.
+        if not review:
+            row(None, "Business verification complete",
+                "not read — pass the WABA id (wa_groups_check <WABA_ID>), or see "
+                "Business Settings > Security Centre > Business verification")
+        else:
+            row(review == "APPROVED", "Business verification complete",
+                f"account_review_status = {review}")
 
         age = self._account_age_days(created)
         if age is None:
@@ -225,15 +235,30 @@ class Command(BaseCommand):
             row(age >= 30, "Registered 30+ days", f"{age} days old")
 
         row(None, "Two-step verification ON for the number",
-            "not exposed by the API — check WhatsApp Manager > phone number > two-step")
-        row(name_status == "APPROVED", "Display name approved",
-            f"name_status = {name_status or 'unknown'}")
+            "not exposed by the API — set it with `manage.py wa_set_pin`, or read it "
+            "at WhatsApp Manager > the number > Two-step verification")
+
+        # `name_status` describes a *name-change request*, not the name. Once a
+        # name is approved there is no pending request, so the field goes back
+        # to NON_EXISTS — which reads like "no name" and is nothing of the kind.
+        # The name itself is `verified_name`: Meta only fills it in after review.
+        if verified_name:
+            row(True, "Display name approved", f'verified_name = "{verified_name}"')
+        elif name_status in ("PENDING_REVIEW", "AVAILABLE_WITHOUT_REVIEW"):
+            row(None, "Display name approved", f"a name change is in review ({name_status})")
+        else:
+            row(False, "Display name approved",
+                f"no verified_name on the number (name_status = {name_status or 'unknown'})")
 
         self.stdout.write("")
         self.stdout.write(
             "  When all five are green: WhatsApp Manager > the number > "
             "Official business account > Submit Request.\n"
             "  A rejection locks the request for 30 days, so do not submit early.\n"
+            "  Green does not mean approved, either: Meta's own wording on that\n"
+            "  page is that the badge marks 'a well-known real brand'. The five\n"
+            "  rows below are what lets you APPLY; recognition is what the\n"
+            "  reviewer then judges, and this command cannot measure that.\n"
             "  Then re-run this command with --create-test."
         )
 
