@@ -5,9 +5,19 @@ Expects: entry (dict from services.client_thread)
 {% endcomment %}
 <div class="bub {% if entry.kind == 'out' %}bub--out{% else %}bub--in{% endif %}{% if entry.status == 'failed' %} bub--failed{% endif %}"
      data-uid="{{ entry.uid }}"
+     data-body="{{ entry.body|slice:':90' }}"
+     data-who="{% if entry.kind == 'in' %}العميل{% else %}{{ entry.sender }}{% endif %}"
      {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
-     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}">
+     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}">
+  <button class="bub__reply" type="button" data-reply="{{ entry.uid }}"
+          data-ar-title="رد" data-en-title="Reply" title="رد">{% icon "reply" "ic--sm" %}</button>
   <div class="bub__box">
+    {% if entry.quote %}
+      <div class="bub__quote">
+        {% if entry.quote_who %}<b>{{ entry.quote_who }}</b>{% endif %}
+        <span>{{ entry.quote }}</span>
+      </div>
+    {% endif %}
     {% if entry.subject %}<div class="bub__subject">{{ entry.subject }}</div>{% endif %}
 
     {% if entry.body %}<div class="bub__text">{{ entry.body|linebreaksbr }}</div>{% endif %}
@@ -18,9 +28,8 @@ Expects: entry (dict from services.client_thread)
           <div class="bub__voice-head">
             {% icon "mic" "ic--sm" %}
             <span data-ar="رسالة صوتية" data-en="Voice note">رسالة صوتية</span>
-            {% if f.length %}<span class="mono muted">{{ f.length }}</span>{% endif %}
           </div>
-          <audio controls preload="metadata" src="{{ f.url }}"></audio>
+          {% include "partials/voice.html" with url=f.url length=f.length %}
         </div>
       {% else %}
         <div class="bub__file">

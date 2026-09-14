@@ -146,6 +146,9 @@
 .cchat__stream {
   flex: 1;
   overflow-y: auto;
+  /* A swiped bubble moves up to 80px sideways; unset overflow-x computes to
+     auto next to overflow-y, which would turn that into a real scroll. */
+  overflow-x: hidden;
   padding: 16px 14px;
   display: flex;
   flex-direction: column;
@@ -201,6 +204,81 @@
 .bub__file a { color: var(--brand); text-decoration: none; }
 .bub__file a:hover { text-decoration: underline; }
 
+/* -- replying ------------------------------------------------------------- */
+
+/* The bubble is the drag surface, so the row has to position the button, and
+   the browser must not claim the horizontal axis before the handler sees it. */
+.bub { position: relative; align-items: center; touch-action: pan-y; }
+
+.bub__quote {
+  display: block;
+  margin-block-end: 5px;
+  padding: 4px 8px;
+  border-inline-start: 3px solid var(--brand);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand) 7%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.bub__quote b { display: block; color: var(--brand); font-size: 11px; }
+.bub__quote span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Desktop: revealed on hover, beside the bubble rather than inside it.
+   Kept in flow rather than absolutely placed — the stream now clips its
+   horizontal overflow (so a swipe cannot scroll it), and anything positioned
+   outside the bubble row would be clipped along with it. The reserved width is
+   the price, and it is reclaimed entirely on touch, where the button is gone. */
+.bub__reply {
+  order: 2;
+  flex: none;
+  visibility: hidden;
+  opacity: 0;
+  width: 28px; height: 28px;
+  margin-inline: 6px;
+  display: grid; place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: opacity .12s ease;
+}
+.bub--out .bub__reply { order: 0; }
+.bub:hover .bub__reply { visibility: visible; opacity: 1; }
+.bub__reply:hover { color: var(--brand); border-color: var(--brand); }
+.bub__reply:focus-visible { visibility: visible; opacity: 1; }
+
+/* Touch: no hover to reveal it, and the swipe is the gesture people reach
+   for anyway — so the button stays out of the way there. */
+@media (hover: none) {
+  .bub__reply { display: none; }
+  .bub.is-swiped .bub__box {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 55%, transparent);
+  }
+}
+
+.cchat__replybar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 7px 10px;
+  border-inline-start: 3px solid var(--brand);
+  border-radius: 8px;
+  background: var(--surface-2, rgba(127, 127, 127, .10));
+  font-size: 12px;
+}
+.cchat__replybar-body { flex: 1; min-width: 0; }
+.cchat__replybar-body b { display: block; color: var(--brand); font-size: 11px; }
+.cchat__replybar-body span {
+  display: block; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* -- voice notes ---------------------------------------------------------- */
 
 .bub__voice {
@@ -222,15 +300,7 @@
 }
 .bub__voice-head .mono { margin-inline-start: auto; }
 
-/* The native player is the whole point: one click and it plays. */
-.bub__voice audio,
-.voice-inline {
-  display: block;
-  width: 100%;
-  height: 34px;
-}
-
-.voice-inline { max-width: 320px; margin-block-start: 6px; }
+.bub__voice .voice { width: 100%; max-width: none; margin-top: 0; }
 
 /* -- recording bar -------------------------------------------------------- */
 

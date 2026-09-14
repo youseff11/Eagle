@@ -91,7 +91,7 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True):
 @transaction.atomic
 def ingest_message(*, channel, body="", subject="", sender_identity="",
                    sender_display="", external_id="", received_at=None,
-                   attachments=None):
+                   attachments=None, reply_to_external=""):
     """Create an :class:`InboundMessage` and fan out the notifications."""
     if external_id:
         existing = InboundMessage.objects.filter(external_id=external_id).first()
@@ -115,6 +115,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         subject=subject or "",
         body=body or "",
         received_at=received_at or timezone.now(),
+        reply_to_external=reply_to_external or "",
         is_rate_blocked=bool(keyword),
         blocked_keyword=keyword,
     )
@@ -313,10 +314,24 @@ def relay_chat_message(message):
         if not (message.body or "").strip():
             body = prefix + "مرفق ملف."
 
+        quoted = message.reply_to
+        quote_wamid, quote_preview = "", ""
+        if quoted is not None:
+            # Quote whichever side it came from: the client's own message id,
+            # or the id WhatsApp gave our relayed copy.
+            quote_wamid = (
+                quoted.inbound.external_id if quoted.inbound_id else quoted.relay_wamid
+            ) or ""
+            quote_preview = _quote_text(quoted)
+
         extra = [_read_attachment(a) for a in message.attachments.all()]
-        ok, _outbound, error = send_client_message(
+        ok, outbound, error = send_client_message(
             client, sender, body=body.strip(), extra_files=extra,
+            reply_to_wamid=quote_wamid, reply_preview=quote_preview,
         )
+        if ok and outbound is not None and outbound.provider_id:
+            # Remembered so a later reply to THIS message can quote it too.
+            message.relay_wamid = outbound.provider_id
     except Exception as exc:  # noqa: BLE001
         # The room message is already saved. Anything that goes wrong on the
         # way out has to end up on the bubble, never as a silent non-delivery.
@@ -325,7 +340,7 @@ def relay_chat_message(message):
 
     message.relay_status = "sent" if ok else "failed"
     message.relay_error = "" if ok else (error or "")
-    message.save(update_fields=["relay_status", "relay_error"])
+    message.save(update_fields=["relay_status", "relay_error", "relay_wamid"])
     return ok, message.relay_error
 
 
@@ -402,7 +417,7 @@ def group_thread(room, user, limit=200):
     """
     rows = (
         room.messages
-        .select_related("sender", "inbound")
+        .select_related("sender", "inbound", "reply_to", "reply_to__sender")
         .prefetch_related("attachments", "inbound__attachments")
         .order_by("-id")[:limit]
     )
@@ -410,7 +425,14 @@ def group_thread(room, user, limit=200):
     for row in reversed(list(rows)):
         if row.is_system:
             continue
+        quoted = row.reply_to
         items.append({
+            "quote": _quote_text(quoted),
+            "quote_who": (
+                ("العميل" if quoted.from_client else (
+                    quoted.sender.short_name if quoted.sender_id else ""))
+                if quoted else ""
+            ),
             "uid": f"g{room.id}-{row.id}",
             "kind": "in" if row.from_client else "out",
             "body": row.body,
@@ -425,6 +447,17 @@ def group_thread(room, user, limit=200):
             "files": [_file_json(a) for a in row.relay_files],
         })
     return items
+
+
+def _quote_text(message):
+    """A one-line stand-in for a quoted message — its text, or its file's name."""
+    if message is None:
+        return ""
+    text = (message.body or "").strip()
+    if not text:
+        first = next(iter(message.relay_files), None)
+        text = (first.original_name or first.file.name) if first else ""
+    return text[:160]
 
 
 def group_preview(room, user):
@@ -1110,6 +1143,8 @@ def client_thread(client, user, limit=200):
             "at": row.received_at,
             "blocked": row.is_rate_blocked,
             "task_code": row.task.code if row.task_id else "",
+            "wamid": row.external_id or "",
+            "reply_to": row.reply_to_external or "",
             "files": [_file_json(a) for a in row.attachments.all()],
         })
 
@@ -1138,15 +1173,47 @@ def client_thread(client, user, limit=200):
             "is_delivery": row.kind == OutboundMessage.Kind.DELIVERY,
             "task_code": row.task.code if row.task_id else "",
             "sender": row.created_by.short_name if row.created_by_id else "",
+            "wamid": row.provider_id or "",
+            "reply_to": row.reply_to_wamid or "",
+            "quote": row.reply_preview or "",
             "files": files,
         })
 
     items.sort(key=lambda entry: entry["at"])
+    _resolve_quotes(items)
     return items
 
 
+def _resolve_quotes(items):
+    """Fill each entry's ``quote`` from the message it replies to.
+
+    The client's own replies arrive with only a WhatsApp id, so the text has to
+    be looked up in the thread we already hold rather than fetched again.
+    """
+    by_wamid = {e["wamid"]: e for e in items if e.get("wamid")}
+    for entry in items:
+        target = by_wamid.get(entry.get("reply_to") or "")
+        if target is None:
+            # An outbound row may already carry the snippet it was sent with,
+            # even when the quoted message is older than this page of thread.
+            entry.setdefault("quote", "")
+            entry["quote_who"] = entry.get("quote_who", "")
+            continue
+        # Keep a stored snippet if there is one; the author still has to be
+        # derived either way, which is what the old early-exit skipped.
+        text = entry.get("quote") or target.get("body") or ""
+        if not text and target.get("files"):
+            text = target["files"][0].get("name", "")
+        entry["quote"] = text[:160]
+        entry["quote_who"] = "العميل" if target["kind"] == "in" else (target.get("sender") or "")
+    for entry in items:
+        entry.setdefault("quote", "")
+        entry.setdefault("quote_who", "")
+
+
 def send_client_message(client, user, body="", uploads=None, voice=None,
-                        voice_seconds=0, extra_files=None):
+                        voice_seconds=0, extra_files=None, reply_to_wamid="",
+                        reply_preview=""):
     """Free-form reply to a client on whichever channel they used last.
 
     ``voice`` is a recording made in the browser. It is converted to whatever
@@ -1201,6 +1268,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         client=client, task=None, kind=OutboundMessage.Kind.CHAT,
         created_by=user, channel=channel, to_identity=target or "", body=body,
         files=[{"name": name, "status": "pending"} for name in names],
+        reply_to_wamid=reply_to_wamid or "", reply_preview=(reply_preview or "")[:160],
     )
     stored = [
         OutboundAttachment.objects.create(
@@ -1241,10 +1309,14 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
 
     try:
         if channel == Channel.WHATSAPP:
+            quote = reply_to_wamid or ""
             if body:
-                outbound.provider_id = wa.send_text(target, body)
+                outbound.provider_id = wa.send_text(target, body, context_id=quote)
+                quote = ""       # only the first message carries the quote
             for index, (name, content, mime) in enumerate(payload):
-                wa.send_file(target, content, name, mime, caption="" if body else name)
+                wa.send_file(target, content, name, mime,
+                             caption="" if body else name, context_id=quote)
+                quote = ""
                 outbound.files[index]["status"] = "sent"
         else:
             mailer.send_delivery(

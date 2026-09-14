@@ -521,6 +521,67 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   color: var(--danger, #e5484d);
 }
 
+/* -- voice notes ---------------------------------------------------------- */
+/* Ours, not the browser's: <audio controls> is a different widget in every
+   engine and on Android renders as a white pill that reads as a broken image. */
+
+.voice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 190px;
+  max-width: 300px;
+  margin-top: 6px;
+  padding: 6px 10px 6px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.voice__play {
+  flex: none;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+}
+.voice__play:hover { filter: brightness(1.08); }
+.voice__play .ic { width: 15px; height: 15px; }
+
+/* One button, two glyphs — swapped by a class, so there is no icon to fetch
+   at the moment of pressing play. */
+.voice__icon { display: none; line-height: 0; }
+.voice__icon--play { display: block; }
+.voice.is-playing .voice__icon--play { display: none; }
+.voice.is-playing .voice__icon--pause { display: block; }
+
+.voice__bar {
+  flex: 1;
+  height: 4px;
+  min-width: 40px;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  position: relative;
+}
+/* A 4px line is a poor tap target, so the hit area is padded out invisibly. */
+.voice__bar::before {
+  content: ""; position: absolute; inset: -12px 0;
+}
+.voice__fill {
+  display: block; height: 100%; width: 0;
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width .1s linear;
+}
+
+.voice__time { flex: none; font-size: .72rem; color: var(--muted); min-width: 32px; text-align: center; }
+.voice.is-broken .voice__play { background: var(--faint); cursor: not-allowed; }
+.voice.is-broken .voice__time { color: var(--danger, #e5484d); }
+
 .chat__form { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
 .chat__form textarea { flex: 1; min-height: 42px; max-height: 130px; }
 .chat__files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }

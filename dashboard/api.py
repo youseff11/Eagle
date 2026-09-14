@@ -456,7 +456,16 @@ def chat_send(request, room_id):
     if not body and not uploads and voice is None:
         return JsonResponse({"ok": False, "error": "empty"}, status=400)
 
-    message = ChatMessage.objects.create(room=room, sender=request.user, body=body)
+    # "gR-N" from the group page, or a bare id from the task page.
+    reply_raw = (request.POST.get("reply_uid") or request.POST.get("reply_to") or "").strip()
+    reply_id = _int(reply_raw.rsplit("-", 1)[-1], 0)
+    reply_to = ChatMessage.objects.filter(
+        pk=reply_id, room=room, is_system=False
+    ).first() if reply_id else None
+
+    message = ChatMessage.objects.create(
+        room=room, sender=request.user, body=body, reply_to=reply_to,
+    )
     for item in uploads:
         ChatAttachment.objects.create(
             message=message, file=item, original_name=item.name, size=item.size
@@ -525,6 +534,8 @@ def _thread_entry_json(entry, viewer):
         "sender": entry.get("sender", ""),
         "task_code": entry.get("task_code", ""),
         "is_delivery": entry.get("is_delivery", False),
+        "quote": entry.get("quote", ""),
+        "quote_who": entry.get("quote_who", ""),
         "time": timezone.localtime(entry["at"]).strftime("%H:%M"),
         "date": timezone.localtime(entry["at"]).strftime("%Y-%m-%d"),
         "files": entry.get("files", []),
@@ -768,10 +779,38 @@ def client_chat_fetch(request, client_code):
     })
 
 
+def _resolve_reply(client, reply_uid, viewer):
+    """Turn a thread uid ("in-12" / "out-5") into a WhatsApp id and a snippet.
+
+    The uid comes from the browser, so the row is re-fetched and checked against
+    this client — a uid from another client's thread must not quote into here.
+    Rate-blocked messages are hidden from the operation role, so the same filter
+    applies: quoting one would put its text back on screen and on the client's
+    phone, which is precisely what the block exists to prevent.
+    """
+    reply_uid = (reply_uid or "").strip()
+    if "-" not in reply_uid:
+        return "", ""
+    side, _, raw = reply_uid.partition("-")
+    try:
+        pk = int(raw)
+    except (TypeError, ValueError):
+        return "", ""
+
+    if side == "in":
+        row = services._visible_inbound(client, viewer).filter(pk=pk).first()
+        return (row.external_id or "", (row.body or "")[:160]) if row else ("", "")
+    if side == "out":
+        row = OutboundMessage.objects.filter(pk=pk, client=client).first()
+        return (row.provider_id or "", (row.body or "")[:160]) if row else ("", "")
+    return "", ""
+
+
 @api_role_required(Role.OPERATION)
 @require_POST
 def client_chat_send(request, client_code):
     client = _client_or_404(request, client_code)
+    reply_wamid, reply_preview = _resolve_reply(client, request.POST.get("reply_uid", ""), request.user)
     ok, outbound, error = services.send_client_message(
         client,
         request.user,
@@ -779,6 +818,8 @@ def client_chat_send(request, client_code):
         uploads=request.FILES.getlist("files"),
         voice=request.FILES.get("voice"),
         voice_seconds=_int(request.POST.get("seconds"), 0),
+        reply_to_wamid=reply_wamid,
+        reply_preview=reply_preview,
     )
     payload = {"ok": ok, "error": error}
     if outbound is not None:

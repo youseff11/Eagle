@@ -157,6 +157,17 @@
         {% for entry in thread %}{% include "ops/_client_bubble.html" %}{% endfor %}
       </div>
 
+      {# What you are replying to, shown above the box until you send or cancel. #}
+      <div class="cchat__replybar hidden" id="replyBar">
+        {% icon "reply" "ic--sm" %}
+        <div class="cchat__replybar-body">
+          <b id="replyWho"></b>
+          <span id="replyText"></span>
+        </div>
+        <button class="icon-btn" type="button" id="replyCancel"
+                data-ar-title="إلغاء الرد" data-en-title="Cancel reply">{% icon "x" "ic--sm" %}</button>
+      </div>
+
       <form class="cchat__composer" id="chatComposer" autocomplete="off">
         {% csrf_token %}
         <label class="icon-btn" title="ملف">

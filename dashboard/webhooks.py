@@ -148,6 +148,8 @@ def whatsapp_hook(request):
                     sender_display=contacts.get(sender, ""),
                     external_id=message.get("id", ""),
                     attachments=_pull_media(message),
+                    # Set when the client quoted one of our messages.
+                    reply_to_external=(message.get("context") or {}).get("id", ""),
                 )
                 created.append(record.id)
 

@@ -60,6 +60,11 @@
     if (msg.status === "failed") { cls += " bub--failed"; }
 
     var parts = [];
+    if (msg.quote) {
+      parts.push('<div class="bub__quote">' +
+        (msg.quote_who ? "<b>" + esc(msg.quote_who) + "</b>" : "") +
+        "<span>" + esc(msg.quote) + "</span></div>");
+    }
     if (msg.subject) { parts.push('<div class="bub__subject">' + esc(msg.subject) + "</div>"); }
     if (msg.body) {
       parts.push('<div class="bub__text">' + esc(msg.body).replace(/\n/g, "<br>") + "</div>");
@@ -74,8 +79,7 @@
             icon("mic", "ic--sm") +
             '<span data-ar="رسالة صوتية" data-en="Voice note">' +
               esc(E.t("رسالة صوتية", "Voice note")) + "</span>" +
-            (f.length ? '<span class="mono muted">' + esc(f.length) + "</span>" : "") +
-          '</div><audio controls preload="metadata" src="' + esc(f.url) + '"></audio></div>'
+          "</div>" + E.voiceHtml(f.url, f.length) + "</div>"
         );
         return;
       }
@@ -101,14 +105,19 @@
 
     if (msg.error) { parts.push('<div class="bub__error">' + esc(msg.error) + "</div>"); }
 
-    return '<div class="' + cls + '" data-uid="' + esc(msg.uid) + '">' +
+    return '<div class="' + cls + '" data-uid="' + esc(msg.uid) + '"' +
+      ' data-body="' + esc((msg.body || "").slice(0, 90)) + '"' +
+      ' data-who="' + esc(msg.kind === "in" ? E.t("العميل", "Client") : (msg.sender || "")) + '">' +
+      '<button class="bub__reply" type="button" data-reply="' + esc(msg.uid) + '" ' +
+        'data-ar-title="رد" data-en-title="Reply" title="' + esc(E.t("رد", "Reply")) + '">' +
+        icon("reply", "ic--sm") + "</button>" +
       '<div class="bub__box">' + parts.join("") + "</div></div>";
   }
 
   /** Cheap fingerprint so a poll only touches the DOM when something moved. */
   function signature(msg) {
     return [msg.status || "", (msg.body || "").length, (msg.files || []).length,
-      msg.error ? 1 : 0].join("|");
+      msg.error ? 1 : 0, msg.quote ? 1 : 0].join("|");
   }
 
   function renderMessages(messages) {
@@ -124,6 +133,10 @@
         // pending -> sent/failed); otherwise leave the node alone so the
         // user's text selection and scroll position survive the poll.
         if (existing.dataset.sig !== sig) {
+          // Detaching an <audio> does not stop it: a voice note playing in a
+          // bubble the poll is about to replace would keep sounding from a
+          // node nothing on screen can pause any more.
+          existing.querySelectorAll("audio").forEach(function (a) { a.pause(); });
           var fresh = document.createElement("div");
           fresh.innerHTML = bubbleHtml(msg);
           fresh.firstChild.dataset.sig = sig;
@@ -281,14 +294,118 @@
 
     var data = new FormData();
     data.append("body", text);
+    if (replyUid) { data.append("reply_uid", replyUid); }
     pending.forEach(function (file) { data.append("files", file); });
 
     deliver(data, function () {
       if (bodyInput) { bodyInput.value = ""; }
       pending = [];
       drawPending();
+      clearReply();
     });
   }
+
+  /* -------------------------------------------------------------- replying */
+
+  var replyBar = document.getElementById("replyBar");
+  var replyWho = document.getElementById("replyWho");
+  var replyText = document.getElementById("replyText");
+  var replyCancel = document.getElementById("replyCancel");
+  var replyUid = "";
+
+  function setReply(bubble) {
+    if (!bubble || !replyBar) { return; }
+    replyUid = bubble.dataset.uid || "";
+    if (replyWho) { replyWho.textContent = bubble.dataset.who || ""; }
+    if (replyText) {
+      replyText.textContent = bubble.dataset.body ||
+        E.t("مرفق", "Attachment");
+    }
+    replyBar.classList.remove("hidden");
+    if (bodyInput) { bodyInput.focus(); }
+  }
+
+  function clearReply() {
+    replyUid = "";
+    if (replyBar) { replyBar.classList.add("hidden"); }
+  }
+
+  if (replyCancel) { replyCancel.addEventListener("click", clearReply); }
+  if (bodyInput) {
+    bodyInput.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { clearReply(); }
+    });
+  }
+
+  // Desktop: the button that appears on the bubble.
+  if (stream) {
+    stream.addEventListener("click", function (event) {
+      var button = event.target.closest && event.target.closest(".bub__reply");
+      if (button) { setReply(button.closest(".bub")); }
+    });
+  }
+
+  /* Phones: drag a bubble sideways, exactly like WhatsApp.
+     The gesture has to lose to a vertical scroll, so the first few pixels
+     decide which one it is and the other is left alone from then on. */
+  (function swipeToReply() {
+    if (!stream) { return; }
+    var bubble = null, startX = 0, startY = 0, dx = 0, axis = "";
+    var THRESHOLD = 55;      // far enough that a stray nudge is not a reply
+    var MAX = 80;
+
+    function reset(animate) {
+      if (bubble) {
+        bubble.style.transition = animate ? "transform .18s ease" : "";
+        bubble.style.transform = "";
+        var node = bubble;
+        setTimeout(function () { node.style.transition = ""; }, 200);
+      }
+      bubble = null; dx = 0; axis = "";
+    }
+
+    stream.addEventListener("touchstart", function (event) {
+      if (event.touches.length !== 1) { return; }
+      var target = event.target.closest && event.target.closest(".bub");
+      // Not while scrubbing a voice note — that drag means something else.
+      if (!target || (event.target.closest && event.target.closest(".voice"))) { return; }
+      bubble = target;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+      dx = 0; axis = "";
+    }, { passive: true });
+
+    stream.addEventListener("touchmove", function (event) {
+      if (!bubble) { return; }
+      var moveX = event.touches[0].clientX - startX;
+      var moveY = event.touches[0].clientY - startY;
+      if (!axis) {
+        if (Math.abs(moveX) < 8 && Math.abs(moveY) < 8) { return; }
+        axis = Math.abs(moveX) > Math.abs(moveY) ? "x" : "y";
+        if (axis === "y") { reset(false); return; }
+      }
+      // Right-to-left page: the "pull" direction is mirrored with it.
+      var rtl = document.documentElement.getAttribute("dir") === "rtl";
+      dx = rtl ? Math.min(0, moveX) : Math.max(0, moveX);
+      var shown = Math.max(-MAX, Math.min(MAX, dx));
+      bubble.style.transform = "translateX(" + shown + "px)";
+      bubble.classList.toggle("is-swiped", Math.abs(dx) > THRESHOLD);
+    }, { passive: true });
+
+    function finish() {
+      if (!bubble) { return; }
+      var target = bubble;
+      var hit = Math.abs(dx) > THRESHOLD;
+      target.classList.remove("is-swiped");
+      reset(true);
+      if (hit) { setReply(target); }
+    }
+    stream.addEventListener("touchend", finish, { passive: true });
+    stream.addEventListener("touchcancel", function () {
+      if (bubble) { bubble.classList.remove("is-swiped"); }
+      reset(true);
+    }, { passive: true });
+  })();
 
   /* ---------------------------------------------------------- recording */
 
@@ -454,10 +571,12 @@
     var data = new FormData();
     data.append("body", (bodyInput ? bodyInput.value : "").trim());
     data.append("seconds", String(rec.seconds));
+    if (replyUid) { data.append("reply_uid", replyUid); }
     data.append("voice", rec.blob, "voice" + rec.ext);
     if (recSend) { recSend.disabled = true; }
     deliver(data, function () {
       if (bodyInput) { bodyInput.value = ""; }
+      clearReply();
     }).then(function () {
       if (recSend) { recSend.disabled = false; }
       recReset();

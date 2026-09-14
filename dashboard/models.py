@@ -370,6 +370,8 @@ class InboundMessage(models.Model):
     subject = models.CharField(max_length=250, blank=True)
     body = models.TextField(blank=True)
     received_at = models.DateTimeField(default=timezone.now)
+    #: The WhatsApp id this message replies to, when the client quoted one.
+    reply_to_external = models.CharField(max_length=190, blank=True)
     #: Messages that talk about rates are hidden from the operation role.
     is_rate_blocked = models.BooleanField(default=False)
     blocked_keyword = models.CharField(max_length=60, blank=True)
@@ -696,6 +698,13 @@ class ChatMessage(models.Model):
         InboundMessage, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="mirrors",
     )
+    #: WhatsApp's own id for the relayed copy of this message. Kept so a reply
+    #: to it can quote it on the client's phone, not only in our own UI.
+    relay_wamid = models.CharField(max_length=190, blank=True)
+    reply_to = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="replies",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -926,6 +935,10 @@ class OutboundMessage(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.SENT)
     error_message = models.TextField(blank=True)
     provider_id = models.CharField(max_length=190, blank=True)
+    #: Quoting a message, WhatsApp-style: the id we replied to plus a snippet
+    #: of it, so the thread can show the quote without a second lookup.
+    reply_to_wamid = models.CharField(max_length=190, blank=True)
+    reply_preview = models.CharField(max_length=160, blank=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

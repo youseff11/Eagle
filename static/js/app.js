@@ -331,10 +331,7 @@ window.Eagle = (function () {
           (message.relay_status === "failed" ? " bubble--failed" : "");
 
         var attachments = (message.attachments || []).map(function (a) {
-          if (a.audio) {
-            return '<audio class="voice-inline" controls preload="metadata" src="' +
-              escapeHtml(a.url) + '"></audio>';
-          }
+          if (a.audio) { return voiceHtml(a.url, a.length); }
           return '<a class="file-pill" href="' + escapeHtml(a.url) +
             '" target="_blank" rel="noopener">' +
             svgIcon("paperclip", "ic--sm") + escapeHtml(a.name) +
@@ -672,9 +669,169 @@ window.Eagle = (function () {
     });
   }
 
+  /* --------------------------------------------------------- voice notes */
+
+  /** Mirrors templates/partials/voice.html — keep the two in step. */
+  function voiceHtml(url, length) {
+    return '<div class="voice" data-voice>' +
+      '<button class="voice__play" type="button" ' +
+        'data-ar-title="تشغيل" data-en-title="Play" title="' +
+        escapeHtml(t("تشغيل", "Play")) + '">' +
+        '<span class="voice__icon voice__icon--play">' + svgIcon("play", "ic--sm") + "</span>" +
+        '<span class="voice__icon voice__icon--pause">' + svgIcon("pause", "ic--sm") + "</span>" +
+      "</button>" +
+      '<div class="voice__bar" role="slider" tabindex="0" aria-label="Seek">' +
+        '<span class="voice__fill"></span>' +
+      "</div>" +
+      '<span class="voice__time mono">' + escapeHtml(length || "0:00") + "</span>" +
+      '<audio class="voice__audio" preload="metadata" src="' + escapeHtml(url) + '"></audio>' +
+      "</div>";
+  }
+
+  /**
+   * Voice notes, played by our own control.
+   *
+   * Every browser draws <audio controls> differently — Android Chrome renders
+   * a squashed white pill that looks broken next to everything else — so the
+   * markup carries a play button and a bar, and the <audio> element behind it
+   * is only the engine. Bound once on the document so a bubble inserted by a
+   * poll five minutes from now works without re-binding anything.
+   */
+  function initVoice() {
+    var playing = null;   // only one voice note at a time, like a phone
+
+    function clock(seconds) {
+      if (!isFinite(seconds) || seconds < 0) { seconds = 0; }
+      var whole = Math.floor(seconds);
+      return Math.floor(whole / 60) + ":" + ("0" + (whole % 60)).slice(-2);
+    }
+
+    function paint(box) {
+      var audio = box.querySelector(".voice__audio");
+      var fill = box.querySelector(".voice__fill");
+      var time = box.querySelector(".voice__time");
+      var bar = box.querySelector(".voice__bar");
+      if (!audio) { return; }
+      var total = audio.duration;
+      if (fill) {
+        fill.style.width = (isFinite(total) && total > 0)
+          ? ((audio.currentTime / total) * 100) + "%" : "0%";
+      }
+      if (time) {
+        // Counting up while playing, total length while idle — the two
+        // numbers people actually want at those two moments. Until metadata
+        // arrives the browser reports NaN (or Infinity for a WebM recording),
+        // so the length the server already rendered is left alone.
+        if (!audio.paused || audio.currentTime) {
+          time.textContent = clock(audio.currentTime);
+        } else if (isFinite(total) && total > 0) {
+          time.textContent = clock(total);
+        }
+      }
+      if (bar) {
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", isFinite(total) ? Math.floor(total) : 0);
+        bar.setAttribute("aria-valuenow", Math.floor(audio.currentTime || 0));
+      }
+    }
+
+    function wire(box) {
+      var audio = box.querySelector(".voice__audio");
+      if (!audio || box.dataset.wired) { return audio; }
+      box.dataset.wired = "1";
+      audio.addEventListener("timeupdate", function () { paint(box); });
+      audio.addEventListener("loadedmetadata", function () { paint(box); });
+      audio.addEventListener("ended", function () {
+        box.classList.remove("is-playing");
+        audio.currentTime = 0;
+        paint(box);
+      });
+      audio.addEventListener("error", function () {
+        box.classList.add("is-broken");
+        var time = box.querySelector(".voice__time");
+        if (time) { time.textContent = t("مش متاح", "unavailable"); }
+      });
+      paint(box);
+      return audio;
+    }
+
+    function stop(box) {
+      var audio = box && box.querySelector(".voice__audio");
+      if (audio) { audio.pause(); }
+      if (box) { box.classList.remove("is-playing"); }
+    }
+
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest && event.target.closest(".voice__play");
+      if (button) {
+        var box = button.closest(".voice");
+        var audio = wire(box);
+        if (!audio) { return; }
+        if (audio.paused) {
+          if (playing && playing !== box) { stop(playing); }
+          playing = box;
+          box.classList.add("is-playing");
+          audio.play().catch(function () { box.classList.remove("is-playing"); });
+        } else {
+          stop(box);
+        }
+        return;
+      }
+
+      var bar = event.target.closest && event.target.closest(".voice__bar");
+      if (bar) {
+        var seekBox = bar.closest(".voice");
+        var seekAudio = wire(seekBox);
+        if (!seekAudio || !isFinite(seekAudio.duration)) { return; }
+        var rect = bar.getBoundingClientRect();
+        var ratio = (event.clientX - rect.left) / rect.width;
+        // The bar runs right-to-left in Arabic, so the same pixel means the
+        // opposite fraction of the recording.
+        if (document.documentElement.getAttribute("dir") === "rtl") {
+          ratio = 1 - ratio;
+        }
+        seekAudio.currentTime = Math.max(0, Math.min(1, ratio)) * seekAudio.duration;
+        paint(seekBox);
+      }
+    });
+
+    // It announces itself as a slider and takes a tab stop, so it has to be
+    // operable without a mouse — the native control it replaced was.
+    document.addEventListener("keydown", function (event) {
+      var bar = event.target.closest && event.target.closest(".voice__bar");
+      if (!bar) { return; }
+      var box = bar.closest(".voice");
+      var audio = wire(box);
+      if (!audio) { return; }
+
+      var rtl = document.documentElement.getAttribute("dir") === "rtl";
+      var back = rtl ? "ArrowRight" : "ArrowLeft";
+      var forward = rtl ? "ArrowLeft" : "ArrowRight";
+
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        box.querySelector(".voice__play").click();
+      } else if (event.key === back || event.key === forward) {
+        if (!isFinite(audio.duration)) { return; }
+        event.preventDefault();
+        var step = event.key === forward ? 5 : -5;
+        audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + step));
+        paint(box);
+      }
+    });
+
+    // Metadata (and therefore the length) only loads once the element exists.
+    document.addEventListener("play", function (event) {
+      if (event.target && event.target.classList.contains("voice__audio")) {
+        wire(event.target.closest(".voice"));
+      }
+    }, true);
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function init() {
+    initVoice();
     applyLang(state.lang, false);
     applyTheme(state.theme, false);
 
@@ -718,6 +875,7 @@ window.Eagle = (function () {
 
   return {
     t: t, toast: toast, beep: beep, post: post, get: get,
-    applyLang: applyLang, applyTheme: applyTheme, escapeHtml: escapeHtml
+    applyLang: applyLang, applyTheme: applyTheme, escapeHtml: escapeHtml,
+    voiceHtml: voiceHtml, svgIcon: svgIcon
   };
 })();

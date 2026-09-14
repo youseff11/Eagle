@@ -210,14 +210,21 @@ def _send(payload):
     return messages[0].get("id", "")
 
 
-def send_text(to, body):
-    return _send({
+def _with_context(payload, context_id):
+    """Quote a message. WhatsApp shows it above the reply, as in the app."""
+    if context_id:
+        payload["context"] = {"message_id": context_id}
+    return payload
+
+
+def send_text(to, body, context_id=""):
+    return _send(_with_context({
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": normalize_number(to),
         "type": "text",
         "text": {"preview_url": False, "body": body[:4000]},
-    })
+    }, context_id))
 
 
 def upload_media(content, filename, mime):
@@ -238,7 +245,7 @@ def upload_media(content, filename, mime):
     return media_id
 
 
-def send_file(to, content, filename, mime=None, caption=""):
+def send_file(to, content, filename, mime=None, caption="", context_id=""):
     """Upload then send one file. Returns the WhatsApp message id."""
     mime = mime or guess_mime(filename)
     kind = media_kind(mime)
@@ -250,13 +257,13 @@ def send_file(to, content, filename, mime=None, caption=""):
     if caption and kind in ("document", "image", "video"):
         block["caption"] = caption[:1000]
 
-    return _send({
+    return _send(_with_context({
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": normalize_number(to),
         "type": kind,
         kind: block,
-    })
+    }, context_id))
 
 
 def mark_read(message_id):

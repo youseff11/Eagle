@@ -1,0 +1,20 @@
+{% load eagle_tags %}{% comment %}
+One voice note. The native <audio controls> widget is a different shape and
+colour in every browser — on Android Chrome it renders as a squashed white pill
+that reads as a bug — so the control is ours and the <audio> element is only
+the engine behind it. Driven by the delegated player in static/js/app.js, which
+picks up any .voice node no matter when it was inserted.
+Expects: url, and optionally length (a "0:04" string).
+{% endcomment %}
+<div class="voice" data-voice>
+  <button class="voice__play" type="button"
+          data-ar-title="تشغيل" data-en-title="Play" title="تشغيل">
+    <span class="voice__icon voice__icon--play">{% icon "play" "ic--sm" %}</span>
+    <span class="voice__icon voice__icon--pause">{% icon "pause" "ic--sm" %}</span>
+  </button>
+  <div class="voice__bar" role="slider" tabindex="0" aria-label="Seek">
+    <span class="voice__fill"></span>
+  </div>
+  <span class="voice__time mono">{{ length|default:"0:00" }}</span>
+  <audio class="voice__audio" preload="metadata" src="{{ url }}"></audio>
+</div>

@@ -152,8 +152,7 @@
                       <div class="files">
                         {% for attachment in message.relay_files %}
                           {% if attachment.is_audio %}
-                            <audio class="voice-inline" controls preload="metadata"
-                                   src="{{ attachment.file.url }}"></audio>
+                            {% include "partials/voice.html" with url=attachment.file.url length=attachment.pretty_duration %}
                           {% else %}
                             <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
                               {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
