@@ -347,7 +347,8 @@ class Command(BaseCommand):
         age = self._account_age_days(created)
         if age is None:
             row(None, "Registered 30+ days",
-                "Meta did not return created_time — check the number's age in WhatsApp Manager")
+                "no created_time on the API — read the real date in WhatsApp Manager > "
+                "Activity log, the row 'تمت إضافة <number>' / 'added <number>'")
         else:
             row(age >= 30, "Registered 30+ days", f"{age} days old")
 
@@ -367,9 +368,17 @@ class Command(BaseCommand):
         unapproved = any("display name has not been approved" in b.lower()
                          for b in getattr(self, "blockers", []))
         if unapproved:
+            # "not approved YET" covers both "never submitted" and "sitting in
+            # review", and nothing on the API tells the two apart. Telling the
+            # reader to go submit a name is therefore dangerous advice: a new
+            # submission REPLACES a review already in flight and restarts the
+            # clock. The activity log is what distinguishes them, so send the
+            # reader there instead of at the edit box.
             row(False, "Display name approved",
-                f'Meta: the display name ("{verified_name}") is NOT approved yet '
-                f"— submit it at WhatsApp Manager > the number > Profile > Display name")
+                f'Meta: the display name ("{verified_name}") is NOT approved yet. '
+                "Before submitting anything, open WhatsApp Manager > Activity log "
+                "and look for 'name verification requested' — if one is there, the "
+                "review is already running and a new submission would replace it.")
         elif verified_name and name_status == "APPROVED":
             row(True, "Display name approved", f'verified_name = "{verified_name}"')
         elif name_status in ("PENDING_REVIEW", "AVAILABLE_WITHOUT_REVIEW"):
