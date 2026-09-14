@@ -87,12 +87,10 @@ class Command(BaseCommand):
         self._phone(base, phone_id, token)
         if options["waba_id"]:
             self._waba(base, options["waba_id"].strip(), token)
-        open_door = self._groups(base, phone_id, token)
+        can_read = self._groups(base, phone_id, token)
 
-        if not open_door:
-            self._oba_checklist()
-
-        if open_door and options["create_test"]:
+        open_door = can_read
+        if can_read and options["create_test"]:
             # Reading the edge and being allowed to write to it are two
             # different permissions. Only a real create settles it.
             open_door = self._create_test(base, phone_id, token, keep=options["keep"])
@@ -108,9 +106,16 @@ class Command(BaseCommand):
                 + " in the App Dashboard, then re-run wa_webhook_link."
             )
         elif open_door:
+            oba = self.phone.get("is_official_business_account")
             self.stdout.write(self.style.WARNING(
                 "VERDICT: the groups edge READS fine. Creating is untested."
             ))
+            if oba is False:
+                # Reading is allowed for everyone; creating is the gated part.
+                self.stdout.write(
+                    "  But is_official_business_account is False, so a create will"
+                    " almost certainly be refused."
+                )
             self.stdout.write("  Re-run with --create-test to settle it.")
         else:
             self.stdout.write(self.style.ERROR(
@@ -121,6 +126,11 @@ class Command(BaseCommand):
                 "  bar than business verification. Groups cannot be built until Meta\n"
                 "  grants it; the error line above is the authority, not the docs."
             )
+
+        # The checklist is most useful in exactly the case it used to skip:
+        # the edge reads, the flag is False, and nothing says what to do next.
+        if self.phone.get("is_official_business_account") is not True:
+            self._oba_checklist()
         self.stdout.write("")
 
     # ------------------------------------------------------------------
