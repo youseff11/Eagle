@@ -33,43 +33,49 @@ from dashboard import whatsapp
 #: ``name`` and ``language: "en"``.
 LANGUAGE = "ar"
 
-#: name -> (category, body, footer, what it is for)
+#: name -> {category, body, footer, example, purpose}
 #:
-#: Two rules Meta enforces that are easy to trip over:
-#:   * a body may not begin or end with a variable, so every one below is
-#:     wrapped in real words;
-#:   * variables must be numbered {{1}}, {{2}}, ... with no gaps.
+#: Rules Meta enforces that are easy to trip over:
+#:   * variables must be numbered {{1}}, {{2}}, ... with no gaps;
+#:   * a body may not begin or end with a variable;
+#:   * **a body containing variables must ship sample values**. The first
+#:     submission left ``example`` out and every template came back rejected
+#:     or refused outright, which is the only signal Meta gives for it.
 TEMPLATES = {
-    "order_received": (
-        "UTILITY",
-        "مرحبًا {{1}}، استلمنا طلب الترجمة رقم {{2}}. "
-        "عدد الصفحات: {{3}}، والتسليم المتوقع: {{4}}. "
-        "هنبلغك أول ما يخلص.",
-        "Eagle Translation",
-        "Sent the moment a request is logged, so the client has a reference number.",
-    ),
-    "quote_ready": (
-        "UTILITY",
-        "مرحبًا {{1}}، عرض السعر لطلب الترجمة رقم {{2}} جاهز. "
-        "الإجمالي {{3}} جنيه ومدة التنفيذ {{4}}. "
-        "لو موافق رد على الرسالة دي ونبدأ على طول.",
-        "Eagle Translation",
-        "Sent when pricing is decided and the client has to approve before work starts.",
-    ),
-    "missing_info": (
-        "UTILITY",
-        "مرحبًا {{1}}، عشان نكمّل طلب الترجمة رقم {{2}} ناقصنا: {{3}}. "
-        "ابعتها هنا ونكمّل على طول.",
-        "Eagle Translation",
-        "Sent when a request is blocked waiting on the client.",
-    ),
-    "order_delivered": (
-        "UTILITY",
-        "مرحبًا {{1}}، طلب الترجمة رقم {{2}} اتسلّم والملفات موجودة في المحادثة. "
-        "لو محتاج أي تعديل رد على الرسالة دي خلال {{3}}.",
-        "Eagle Translation",
-        "Sent on delivery, and it reopens the 24h window for revisions.",
-    ),
+    "order_received": {
+        "category": "UTILITY",
+        "body": "مرحبًا {{1}}، استلمنا طلب الترجمة رقم {{2}}. "
+                "عدد الصفحات: {{3}}، والتسليم المتوقع: {{4}}. "
+                "هنبلغك أول ما يخلص.",
+        "footer": "Eagle Translation",
+        "example": ["أحمد", "T-1042", "12", "الخميس 18 سبتمبر"],
+        "purpose": "Sent the moment a request is logged, so the client has a reference number.",
+    },
+    "quote_ready": {
+        "category": "UTILITY",
+        "body": "مرحبًا {{1}}، عرض السعر لطلب الترجمة رقم {{2}} جاهز. "
+                "الإجمالي {{3}} جنيه ومدة التنفيذ {{4}}. "
+                "لو موافق رد على الرسالة دي ونبدأ على طول.",
+        "footer": "Eagle Translation",
+        "example": ["أحمد", "T-1042", "850", "يومين"],
+        "purpose": "Sent when pricing is decided and the client has to approve before work starts.",
+    },
+    "missing_info": {
+        "category": "UTILITY",
+        "body": "مرحبًا {{1}}، عشان نكمّل طلب الترجمة رقم {{2}} ناقصنا: {{3}}. "
+                "ابعتها هنا ونكمّل على طول.",
+        "footer": "Eagle Translation",
+        "example": ["أحمد", "T-1042", "صورة واضحة للصفحة الأخيرة"],
+        "purpose": "Sent when a request is blocked waiting on the client.",
+    },
+    "order_delivered": {
+        "category": "UTILITY",
+        "body": "مرحبًا {{1}}، طلب الترجمة رقم {{2}} اتسلّم والملفات موجودة في المحادثة. "
+                "لو محتاج أي تعديل رد على الرسالة دي خلال {{3}} من استلامك للملفات.",
+        "footer": "Eagle Translation",
+        "example": ["أحمد", "T-1042", "48 ساعة"],
+        "purpose": "Sent on delivery, and it reopens the 24h window for revisions.",
+    },
 }
 
 
@@ -85,6 +91,9 @@ class Command(BaseCommand):
         parser.add_argument("--submit", nargs="*", metavar="NAME",
                             help="Submit templates for review. No names = every "
                                  "one not already at Meta.")
+        parser.add_argument("--delete", nargs="+", metavar="NAME",
+                            help="Remove templates at Meta by name, freeing the "
+                                 "name so a fixed version can be resubmitted.")
 
     # ------------------------------------------------------------------
     def handle(self, *args, **options):
@@ -98,6 +107,10 @@ class Command(BaseCommand):
 
         if options["show"]:
             self._show_local()
+            return
+
+        if options["delete"]:
+            self._delete(base, token, options["delete"])
             return
 
         existing = self._existing(base, token)
@@ -121,18 +134,27 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING(
             f"Templates defined in this file ({len(TEMPLATES)}), language {LANGUAGE}"
         ))
-        for name, (category, body, footer, purpose) in sorted(TEMPLATES.items()):
+        for name, spec in sorted(TEMPLATES.items()):
             self.stdout.write("")
-            self.stdout.write(self.style.SUCCESS(f"  {name}  [{category}]"))
-            self.stdout.write(f"    {purpose}")
-            for line in body.split("\n"):
-                self.stdout.write(f"    | {line}")
-            self.stdout.write(f"    | -- {footer}")
+            self.stdout.write(self.style.SUCCESS(f"  {name}  [{spec['category']}]"))
+            self.stdout.write(f"    {spec['purpose']}")
+            self.stdout.write(f"    | {spec['body']}")
+            self.stdout.write(f"    | -- {spec['footer']}")
+            # Show the body as the reviewer will read it — the sample values are
+            # what a human at Meta actually judges, not the {{1}} placeholders.
+            filled = spec["body"]
+            for index, value in enumerate(spec["example"], start=1):
+                filled = filled.replace("{{%d}}" % index, value)
+            self.stdout.write(f"    as reviewed: {filled}")
         self.stdout.write("")
 
     def _existing(self, base, token):
         """``{name: status}`` for everything Meta already holds."""
-        url = f"{base}?fields=name,status,category,language&limit=200"
+        # `rejected_reason` is the whole point of this read: a template that
+        # comes back REJECTED says nothing useful without it, and guessing at
+        # the wording instead of asking is how the first round was wasted.
+        url = (f"{base}?fields=name,status,category,language,rejected_reason,id"
+               f"&limit=200")
         try:
             payload = whatsapp._call(url, token=token)
         except whatsapp.WhatsAppError as exc:
@@ -141,7 +163,7 @@ class Command(BaseCommand):
             ))
             return {}
         return {
-            item.get("name"): (item.get("status"), item.get("language"))
+            item.get("name"): item
             for item in payload.get("data", [])
         }
 
@@ -160,12 +182,28 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"  At Meta ({len(existing)}):"))
-        for name, (status, language) in sorted(existing.items()):
+        for name, item in sorted(existing.items()):
+            status = item.get("status", "?")
             style = self.style.SUCCESS if status == "APPROVED" else (
                 self.style.ERROR if status == "REJECTED" else self.style.WARNING
             )
             here = "" if name in TEMPLATES else "   (not defined in wa_templates.py)"
-            self.stdout.write(f"    {name:<24} {language:<6} " + style(status) + here)
+            self.stdout.write(
+                f"    {name:<24} {item.get('language', '?'):<6} "
+                + style(status) + here
+            )
+            reason = item.get("rejected_reason")
+            if reason and reason != "NONE":
+                self.stdout.write(self.style.ERROR(f"        reason: {reason}"))
+
+        rejected = [n for n, i in existing.items() if i.get("status") == "REJECTED"]
+        if rejected:
+            self.stdout.write("")
+            self.stdout.write(
+                "  A rejected name is taken until it is removed, so resubmitting\n"
+                "  under the same name does nothing. Delete, then submit again:\n"
+                f"    --delete {' '.join(sorted(rejected))}"
+            )
 
         missing = sorted(set(TEMPLATES) - set(existing))
         if missing:
@@ -173,25 +211,47 @@ class Command(BaseCommand):
             self.stdout.write(f"  Defined here but not submitted: {', '.join(missing)}")
         self.stdout.write("")
 
+    def _delete(self, base, token, names):
+        """Free a template name at Meta.
+
+        Deleting is how a rejected template gets another try: the name stays
+        taken until it goes, and a resubmission under a taken name is a no-op.
+        Nothing here touches messages already sent with the template.
+        """
+        self.stdout.write("")
+        for name in names:
+            url = f"{base}?name={urllib.parse.quote(name)}"
+            try:
+                whatsapp._call(url, token=token, method="DELETE")
+            except whatsapp.WhatsAppError as exc:
+                self.stdout.write(self.style.ERROR(f"  {name:<24} not deleted"))
+                self.stdout.write(f"      {exc.raw or exc.message_en}")
+                continue
+            self.stdout.write(self.style.SUCCESS(f"  {name:<24} deleted"))
+        self.stdout.write("")
+        self.stdout.write("  Now re-run with --submit to send the fixed version.")
+        self.stdout.write("")
+
     def _submit(self, base, token, wanted, existing):
         self.stdout.write("")
         for name in wanted:
             if name in existing:
-                status, _ = existing[name]
+                status = existing[name].get("status", "?")
+                hint = "  — --delete it first" if status == "REJECTED" else ""
                 self.stdout.write(self.style.WARNING(
-                    f"  {name:<24} already at Meta ({status}) — skipped"
+                    f"  {name:<24} already at Meta ({status}) — skipped{hint}"
                 ))
                 continue
 
-            category, body, footer, _purpose = TEMPLATES[name]
+            spec = TEMPLATES[name]
+            body = {"type": "BODY", "text": spec["body"]}
+            if spec.get("example"):
+                body["example"] = {"body_text": [spec["example"]]}
             payload = {
                 "name": name,
                 "language": LANGUAGE,
-                "category": category,
-                "components": [
-                    {"type": "BODY", "text": body},
-                    {"type": "FOOTER", "text": footer},
-                ],
+                "category": spec["category"],
+                "components": [body, {"type": "FOOTER", "text": spec["footer"]}],
             }
             try:
                 result = whatsapp._call(
