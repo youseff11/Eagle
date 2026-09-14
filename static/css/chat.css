@@ -130,6 +130,7 @@
   gap: 10px;
   padding: 10px 14px;
   border-block-end: 1px solid var(--border);
+  flex: none;
 }
 
 .cchat__who { font-weight: 600; }
@@ -141,7 +142,7 @@
   font-size: 12px;
 }
 
-.cchat__window { margin: 10px 14px 0; }
+.cchat__window { margin: 10px 14px 0; flex: none; }
 
 .cchat__stream {
   flex: 1;
@@ -149,6 +150,10 @@
   /* A swiped bubble moves up to 80px sideways; unset overflow-x computes to
      auto next to overflow-y, which would turn that into a real scroll. */
   overflow-x: hidden;
+  /* Hitting the top or bottom of the messages must not hand the scroll on to
+     the page behind — that is what pulls the address bar in and out. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 16px 14px;
   display: flex;
   flex-direction: column;
@@ -263,6 +268,7 @@
 
 .cchat__replybar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   margin: 0 12px;
@@ -370,12 +376,14 @@
   gap: 8px;
   padding: 10px 12px;
   border-block-start: 1px solid var(--border);
+  flex: none;
 }
 
 .cchat__composer .icon-btn { cursor: pointer; }
 
 .cchat__files {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 12px 10px;
@@ -399,6 +407,7 @@
 
 .cchat__members {
   display: flex;
+  flex: none;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
@@ -412,6 +421,14 @@
 [dir="ltr"] .cchat__back .ic { transform: rotate(180deg); }
 
 /* -- narrow screens: one pane at a time, the way WhatsApp does it ---------- */
+
+/* Nothing behind the full-screen conversation may scroll. */
+html.chat-locked,
+html.chat-locked body {
+  overflow: hidden;
+  height: 100%;
+  overscroll-behavior: none;
+}
 
 @media (max-width: 860px) {
   .cchat {
@@ -441,7 +458,6 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    height: 100dvh;
     border: 0;
     border-radius: 0;
     padding-block-end: env(safe-area-inset-bottom, 0px);

@@ -37,6 +37,21 @@
     return (template || "").replace("CODE", encodeURIComponent(code));
   }
 
+  /* While an open conversation owns the whole screen, the page behind it must
+     not scroll. A stray scroll there collapses the browser's address bar, the
+     viewport resizes, and the whole panel jumps — which reads as the frame
+     sliding along with the messages instead of holding still. */
+  (function lockPageBehind() {
+    var narrow = window.matchMedia("(max-width: 860px)");
+    function apply() {
+      var fullScreen = narrow.matches && root.classList.contains("is-open");
+      document.documentElement.classList.toggle("chat-locked", fullScreen);
+    }
+    apply();
+    if (narrow.addEventListener) { narrow.addEventListener("change", apply); }
+    else if (narrow.addListener) { narrow.addListener(apply); }
+  })();
+
   function atBottom() {
     if (!stream) { return true; }
     return stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
@@ -107,7 +122,7 @@
 
     return '<div class="' + cls + '" data-uid="' + esc(msg.uid) + '"' +
       ' data-body="' + esc((msg.body || "").slice(0, 90)) + '"' +
-      ' data-who="' + esc(msg.kind === "in" ? E.t("العميل", "Client") : (msg.sender || "")) + '">' +
+      ' data-who="' + esc(msg.kind === "in" ? "العميل" : (msg.sender || "")) + '">' +
       '<button class="bub__reply" type="button" data-reply="' + esc(msg.uid) + '" ' +
         'data-ar-title="رد" data-en-title="Reply" title="' + esc(E.t("رد", "Reply")) + '">' +
         icon("reply", "ic--sm") + "</button>" +
