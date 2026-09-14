@@ -73,6 +73,8 @@
                  href="?room={{ room.id }}">
                 {% if room.kind == 'ops_lead' %}
                   <span data-ar="أوبريشن + تيم ليدر" data-en="Operation + Team leader">أوبريشن + تيم ليدر</span>
+                {% elif room.kind == 'client' %}
+                  {% icon "phone" "ic--sm" %}<span data-ar="مع العميل" data-en="With the client">مع العميل</span>
                 {% else %}
                   <span data-ar="جروب التاسك" data-en="Task group">جروب التاسك</span>
                 {% endif %}
@@ -80,7 +82,31 @@
             {% endfor %}
           </div>
 
-          <div class="chat__body" id="chatBody"
+          {% if not active_room %}
+            {# Only the client room is visible to this person. Opening it has
+               to be a deliberate click, so nothing is focused by default. #}
+            <div class="empty" style="padding:28px 12px">
+              {% icon "message" "ic--xl" %}
+              <span data-ar="اختار تبويب من فوق عشان تبدأ."
+                    data-en="Pick a tab above to start.">اختار تبويب من فوق عشان تبدأ.</span>
+            </div>
+          {% else %}
+
+          {% if active_room.kind == 'client' %}
+            <div class="note note--warn chat__relay-note">
+              {% icon "phone" %}
+              <div>
+                <strong data-ar="الغرفة دي بتوصل العميل" data-en="This room reaches the client">الغرفة دي بتوصل العميل</strong>
+                <div data-ar="أي رسالة هنا بتروح واتساب العميل باسم دورك — مش اسمك ولا رقمك. الكلام الداخلي مكانه تبويب جروب التاسك."
+                     data-en="Anything here goes to the client's WhatsApp under your role — not your name or number. Internal talk belongs in the task group tab.">
+                  أي رسالة هنا بتروح واتساب العميل باسم دورك — مش اسمك ولا رقمك.
+                </div>
+              </div>
+            </div>
+          {% endif %}
+
+          <div class="chat__body{% if active_room.kind == 'client' %} chat__body--client{% endif %}"
+               id="chatBody"
                data-room="{{ active_room.id }}" data-last="{{ last_message_id }}">
             {% for message in chat_messages %}
               {% if message.is_system %}
@@ -88,19 +114,39 @@
                   <div class="bubble__box">{{ message.body }}</div>
                 </div>
               {% else %}
-                <div class="bubble {% if message.sender_id == user.id %}bubble--mine{% endif %}">
-                  <div class="bubble__meta">{{ message.sender.short_name }} · {{ message.created_at|date:"H:i" }}</div>
+                <div class="bubble
+                            {% if message.from_client %}bubble--client
+                            {% elif message.sender_id == user.id %}bubble--mine{% endif %}
+                            {% if message.relay_status == 'failed' %}bubble--failed{% endif %}">
+                  <div class="bubble__meta">
+                    {% if message.from_client %}
+                      {% icon "phone" "ic--sm" %}<span data-ar="العميل" data-en="Client">العميل</span>
+                    {% else %}
+                      {{ message.sender.short_name }}
+                      {% if message.relay_status == 'sent' %}{% icon "check" "ic--sm" %}
+                      {% elif message.relay_status == 'failed' %}{% icon "alert" "ic--sm" %}{% endif %}
+                    {% endif %}
+                    · {{ message.created_at|date:"H:i" }}
+                  </div>
                   <div class="bubble__box">{{ message.body }}
-                    {% if message.attachments.all %}
+                    {% if message.relay_files %}
                       <div class="files">
-                        {% for attachment in message.attachments.all %}
-                          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
-                            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
-                            <span class="muted">{{ attachment.pretty_size }}</span></a>
+                        {% for attachment in message.relay_files %}
+                          {% if attachment.is_audio %}
+                            <audio class="voice-inline" controls preload="metadata"
+                                   src="{{ attachment.file.url }}"></audio>
+                          {% else %}
+                            <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                              {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+                              <span class="muted">{{ attachment.pretty_size }}</span></a>
+                          {% endif %}
                         {% endfor %}
                       </div>
                     {% endif %}
                   </div>
+                  {% if message.relay_error %}
+                    <div class="bubble__error">{{ message.relay_error }}</div>
+                  {% endif %}
                 </div>
               {% endif %}
             {% endfor %}
@@ -119,6 +165,7 @@
             </button>
           </form>
           <div class="chat__files" id="chatFileList"></div>
+          {% endif %}{# active_room #}
         </div>
       </div>
     {% else %}

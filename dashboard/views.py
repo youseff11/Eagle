@@ -274,13 +274,29 @@ def task_detail(request, code):
     if not task.can_view(user):
         raise Http404
 
+    # Tasks that were already running when the client room shipped never got
+    # one. Backfill on first view — guarded by exists() so an ordinary GET
+    # stays read-only once the room is there.
+    if (
+        task.status in ACTIVE_TASK_STATUSES
+        and task.rooms.exists()
+        and not task.rooms.filter(kind=RoomKind.CLIENT).exists()
+    ):
+        services.ensure_room(task, RoomKind.CLIENT)
+
     rooms = list(services.rooms_for(task, user))
     active_room = None
     room_id = request.GET.get("room")
     if room_id:
         active_room = next((r for r in rooms if str(r.id) == str(room_id)), None)
     if active_room is None and rooms:
-        active_room = rooms[-1]
+        # Never land on the client room by default: opening the page should not
+        # put a box that talks to the client under someone's cursor. The most
+        # recent *internal* room wins, and the client tab is a deliberate click.
+        # If the only room this person can see is the client one, show nothing
+        # rather than opening a live line to the client under their cursor.
+        internal = [r for r in rooms if r.kind != RoomKind.CLIENT]
+        active_room = internal[-1] if internal else None
 
     pending = task.pending_assignment
     my_pending = pending if (pending and pending.assignee_id == user.id) else None
@@ -296,9 +312,14 @@ def task_detail(request, code):
             base = base.filter(team_lead_id=task.team_lead_id)
         translators = base.prefetch_related("shifts")
 
-    chat_messages = list(
-        active_room.messages.select_related("sender").prefetch_related("attachments")
-    ) if active_room else []
+    # Newest 200, then back into reading order. A client room accumulates the
+    # whole conversation, so an unbounded list would grow without limit.
+    chat_messages = list(reversed(
+        active_room.messages
+        .select_related("sender", "inbound")
+        .prefetch_related("attachments", "inbound__attachments")
+        .order_by("-id")[:200]
+    )) if active_room else []
 
     # Files the operation can forward to the client (translator's output first).
     deliverables = []

@@ -12,6 +12,7 @@ from .models import (
     AssignmentStatus,
     Client,
     Role,
+    RoomKind,
     Task,
     TaskStatus,
     User,
@@ -62,7 +63,11 @@ class WorkflowTests(TestCase):
         self.assertTrue(ok)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.IN_PROGRESS)
-        self.assertEqual(task.rooms.count(), 2)
+        # ops+lead, the full group, and the relayed client room.
+        self.assertEqual(task.rooms.count(), 3)
+        client_room = task.rooms.get(kind=RoomKind.CLIENT)
+        # The translator accepted, so they may talk to the client.
+        self.assertIn(self.tr, client_room.members.all())
 
         services.mark_translated(task, self.tr)
         task.refresh_from_db()

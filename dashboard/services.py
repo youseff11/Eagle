@@ -4,6 +4,7 @@ Everything that mutates the state machine lives here so views stay thin and the
 same logic can be reused by the webhooks, the management commands and the API.
 """
 
+import logging
 from datetime import timedelta
 
 from django.db import transaction
@@ -29,6 +30,8 @@ from .models import (
     TaskStatus,
     User,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +152,20 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
                 url="/ops/inbox/",
                 sound=user.is_operation,
             )
+
+    # If this client has a live task with a client room open, the team sees the
+    # message there too — that room is the "group chat" they actually work in.
+    #
+    # on_commit + a swallowed exception on purpose: this runs inside an atomic
+    # block that the webhook depends on. A failure here must never roll back
+    # the InboundMessage itself, because Meta retries any non-200 forever.
+    def _mirror():
+        try:
+            mirror_inbound_to_room(message)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not mirror inbound message %s into a room", message.pk)
+
+    transaction.on_commit(_mirror)
     return message
 
 
@@ -195,16 +212,41 @@ def ensure_room(task, kind):
     members = [task.created_by, task.team_lead]
     if kind == RoomKind.GROUP:
         members.append(task.translator)
+    elif kind == RoomKind.CLIENT:
+        # Only a translator who actually accepted gets a box that talks to the
+        # client — being merely assigned is not enough.
+        if task.translator_accepted_at:
+            members.append(task.translator)
     members = [m for m in members if m is not None]
+
     if members:
         room.members.add(*members)
-    if created:
-        system_message(
-            room,
-            key="room_opened",
-            body_ar="تم فتح الشات. ابعت الملفات هنا.",
-            body_en="Chat opened. Share the files here.",
+
+    if kind == RoomKind.CLIENT:
+        # This room relays to a real client, so exactly one translator belongs
+        # in it: the one who accepted the task. Anyone who declined or was
+        # swapped out is removed. Other roles are left alone, so an admin can
+        # still add someone (an accountant, say) on purpose.
+        stale = room.members.filter(role=Role.TRANSLATOR).exclude(
+            pk__in=[m.pk for m in members]
         )
+        if stale.exists():
+            room.members.remove(*stale)
+    if created:
+        if kind == RoomKind.CLIENT:
+            system_message(
+                room,
+                key="client_room_opened",
+                body_ar="الغرفة دي بتوصل العميل على واتساب. أي رسالة هنا هتروحله.",
+                body_en="This room reaches the client on WhatsApp. Anything here is sent to them.",
+            )
+        else:
+            system_message(
+                room,
+                key="room_opened",
+                body_ar="تم فتح الشات. ابعت الملفات هنا.",
+                body_en="Chat opened. Share the files here.",
+            )
     return room
 
 
@@ -213,6 +255,123 @@ def system_message(room, *, key, body_ar, body_en):
         room=room, is_system=True, system_key=key,
         body=f"{body_ar} {body_en}",
     )
+
+
+# ---------------------------------------------------------------------------
+# The relayed client room
+#
+# WhatsApp's Groups API is closed to this number (see the project notes), and a
+# real WhatsApp group would expose every participant's phone number to everyone
+# anyway — which would undo the client-identity masking the whole dashboard is
+# built around. So the group lives here instead: the team is in a room on the
+# site, the client stays in their ordinary 1:1 WhatsApp chat, and Eagle carries
+# messages both ways. The client sees a role, never a name or a number.
+
+#: What the client sees in front of a relayed message.
+CLIENT_ROLE_LABELS = {
+    Role.ADMIN: "الإدارة",
+    Role.OPERATION: "الأوبريشن",
+    Role.TEAM_LEAD: "التيم ليدر",
+    Role.TRANSLATOR: "المترجم",
+}
+
+
+def client_prefix(user):
+    """Never empty: an unlabelled relay would read to the client as anonymous."""
+    label = CLIENT_ROLE_LABELS.get(getattr(user, "role", ""), "") or "الفريق"
+    return f"[{label}]\n"
+
+
+def relay_chat_message(message):
+    """Carry one room message out to the client. Returns ``(ok, error_ar)``.
+
+    The files are sent from the copies already stored on the ChatAttachment
+    rows, so the room and WhatsApp always show the same bytes.
+    """
+    if message.room.kind != RoomKind.CLIENT:
+        # Belt and braces: relaying an internal room would leak the team's
+        # private discussion to the client.
+        return False, "الغرفة دي مش بتوصل العميل."
+
+    try:
+        task = message.room.task
+        sender = message.sender
+        prefix = client_prefix(sender)
+        # A files-only message still needs a caption, otherwise WhatsApp shows
+        # the internal filename as the only text the client sees.
+        body = prefix + (message.body or "").strip()
+        if not (message.body or "").strip():
+            body = prefix + "مرفق ملف."
+
+        extra = [_read_attachment(a) for a in message.attachments.all()]
+        ok, _outbound, error = send_client_message(
+            task.client, sender, body=body.strip(), extra_files=extra,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # The room message is already saved. Anything that goes wrong on the
+        # way out has to end up on the bubble, never as a silent non-delivery.
+        logger.exception("Relay of chat message %s failed", message.pk)
+        ok, error = False, f"الرسالة اتحفظت بس مروحتش للعميل: {exc}"[:300]
+
+    message.relay_status = "sent" if ok else "failed"
+    message.relay_error = "" if ok else (error or "")
+    message.save(update_fields=["relay_status", "relay_error"])
+    return ok, message.relay_error
+
+
+def mirror_inbound_to_room(inbound):
+    """Drop a message the client just sent into the task room the team watches.
+
+    Picks the client's most recently touched active task that has a client
+    room open. With no such task the message stays in the inbox only, which is
+    the old behaviour and still correct.
+    """
+    if inbound.client_id is None or inbound.is_rate_blocked:
+        return None
+
+    rooms = list(
+        ChatRoom.objects
+        .filter(
+            kind=RoomKind.CLIENT,
+            task__client_id=inbound.client_id,
+            task__status__in=ACTIVE_TASK_STATUSES,
+        )
+        .select_related("task", "task__client")[:5]
+    )
+    if not rooms:
+        return None
+    if len(rooms) > 1:
+        # Two live tasks for one client: there is no honest way to tell which
+        # one the message is about. Guessing would show a client's message to
+        # the wrong translator, so it stays in the inbox for a human to route.
+        return None
+    room = rooms[0]
+
+    message = ChatMessage.objects.create(
+        room=room, sender=None, body=inbound.body or "", inbound=inbound,
+    )
+
+    task = room.task
+    preview = (inbound.body or "ملفات")[:60]
+    # Operation and admin already got the generic "new client message" ping
+    # from the inbox; only the people who would otherwise miss it are told.
+    # can_view is re-checked per member: a stale membership row must not leak
+    # a preview of the client's words to someone off the task.
+    recipients = [
+        m for m in room.members.exclude(role__in=[Role.OPERATION, Role.ADMIN])
+        if task.can_view(m)
+    ]
+    for member in recipients:
+        notify(
+            member,
+            title_ar="رسالة جديدة من العميل",
+            title_en="New message from the client",
+            body_ar=f"العميل {task.client.code} في {task.code}: {preview}",
+            body_en=f"Client {task.client.code} in {task.code}: {preview}",
+            level="info", url=f"/tasks/{task.code}/?room={room.id}",
+            sound=True, task=task,
+        )
+    return message
 
 
 def rooms_for(task, user):
@@ -310,6 +469,9 @@ def accept_assignment(assignment, user):
         task.lead_accepted_at = timezone.now()
         task.save(update_fields=["status", "lead_accepted_at", "updated_at"])
         room = ensure_room(task, RoomKind.OPS_LEAD)
+        # The client-facing room opens at the same moment, so the team can talk
+        # to the client from the task page from the very first day.
+        ensure_room(task, RoomKind.CLIENT)
         system_message(
             room, key="lead_accepted",
             body_ar=f"{user.short_name} استلم التاسك.",
@@ -328,6 +490,8 @@ def accept_assignment(assignment, user):
         task.translator_accepted_at = timezone.now()
         task.save(update_fields=["status", "translator_accepted_at", "updated_at"])
         room = ensure_room(task, RoomKind.GROUP)
+        # Re-run so the translator who just joined is added to the client room.
+        ensure_room(task, RoomKind.CLIENT)
         system_message(
             room, key="group_opened",
             body_ar=f"جروب التاسك {task.code} اتفتح: أوبريشن + تيم ليدر + مترجم.",
@@ -821,12 +985,17 @@ def client_thread(client, user, limit=200):
     return items
 
 
-def send_client_message(client, user, body="", uploads=None, voice=None, voice_seconds=0):
+def send_client_message(client, user, body="", uploads=None, voice=None,
+                        voice_seconds=0, extra_files=None):
     """Free-form reply to a client on whichever channel they used last.
 
     ``voice`` is a recording made in the browser. It is converted to whatever
     WhatsApp accepts *before* it is stored, so the file kept in the thread is
     byte-for-byte the one the client received.
+
+    ``extra_files`` is a list of ``(name, bytes, mime)`` already stored
+    elsewhere — the client room passes its ChatAttachments through it so the
+    same file is not saved twice.
 
     Returns ``(ok, outbound, error_ar)``. Nothing is ever silently dropped —
     a failure is stored as a FAILED row so it stays visible in the thread.
@@ -837,8 +1006,9 @@ def send_client_message(client, user, body="", uploads=None, voice=None, voice_s
     from .models import OutboundAttachment, OutboundMessage
 
     uploads = list(uploads or [])
+    extra_files = list(extra_files or [])
     body = (body or "").strip()
-    if not body and not uploads and voice is None:
+    if not body and not uploads and not extra_files and voice is None:
         return False, None, "مفيش حاجة تتبعت."
 
     conf = AppSettings.load()
@@ -863,6 +1033,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None, voice_s
         }
 
     names = [item.name for item in uploads]
+    names.extend(name for name, _content, _mime in extra_files)
     if recording:
         names.append(recording["name"])
 
@@ -904,6 +1075,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None, voice_s
 
     # The recording is already in memory — no point fetching it back from the CDN.
     payload = [_read_attachment(a) for a in stored[:len(uploads)]]
+    payload.extend(extra_files)
     if recording:
         payload.append((recording["name"], recording["content"], recording["mime"]))
 

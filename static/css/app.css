@@ -469,6 +469,31 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   background: transparent; border: 1px dashed var(--border);
   color: var(--muted); font-size: .765rem; text-align: center; border-radius: 8px;
 }
+/* -- the relayed client room --------------------------------------------- */
+
+/* A tinted body so nobody types internal talk here by accident. */
+.chat__body--client { background: color-mix(in srgb, var(--brand) 5%, transparent); }
+
+.chat__relay-note { margin-bottom: 10px; }
+
+/* The client's own messages: the other side of the conversation. */
+.bubble--client { align-self: flex-start; }
+.bubble--client .bubble__box {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+.bubble--failed .bubble__box {
+  background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger, #e5484d) 40%, transparent);
+}
+
+.bubble__error {
+  margin-top: 4px;
+  font-size: .72rem;
+  color: var(--danger, #e5484d);
+}
+
 .chat__form { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
 .chat__form textarea { flex: 1; min-height: 42px; max-height: 130px; }
 .chat__files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }

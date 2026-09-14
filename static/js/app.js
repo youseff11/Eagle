@@ -325,16 +325,37 @@ window.Eagle = (function () {
         wrap.className = "bubble bubble--system";
         wrap.innerHTML = '<div class="bubble__box">' + escapeHtml(message.body) + "</div>";
       } else {
-        wrap.className = "bubble" + (message.mine ? " bubble--mine" : "");
+        // Mirrors templates/shared/task_detail.html — keep the two in step.
+        wrap.className = "bubble" +
+          (message.from_client ? " bubble--client" : (message.mine ? " bubble--mine" : "")) +
+          (message.relay_status === "failed" ? " bubble--failed" : "");
+
         var attachments = (message.attachments || []).map(function (a) {
-          return '<a class="file-pill" href="' + a.url + '" target="_blank" rel="noopener">' +
+          if (a.audio) {
+            return '<audio class="voice-inline" controls preload="metadata" src="' +
+              escapeHtml(a.url) + '"></audio>';
+          }
+          return '<a class="file-pill" href="' + escapeHtml(a.url) +
+            '" target="_blank" rel="noopener">' +
             svgIcon("paperclip", "ic--sm") + escapeHtml(a.name) +
             ' <span class="muted">' + escapeHtml(a.size) + "</span></a>";
         }).join("");
+
+        var who = message.from_client
+          ? svgIcon("phone", "ic--sm") +
+            '<span data-ar="العميل" data-en="Client">' +
+            escapeHtml(t("العميل", "Client")) + "</span>"
+          : escapeHtml(message.sender) +
+            (message.relay_status === "sent" ? svgIcon("check", "ic--sm") : "") +
+            (message.relay_status === "failed" ? svgIcon("alert", "ic--sm") : "");
+
         wrap.innerHTML =
-          '<div class="bubble__meta">' + escapeHtml(message.sender) + " · " + message.time + "</div>" +
+          '<div class="bubble__meta">' + who + " · " + message.time + "</div>" +
           '<div class="bubble__box">' + escapeHtml(message.body) +
-          (attachments ? '<div class="files">' + attachments + "</div>" : "") + "</div>";
+          (attachments ? '<div class="files">' + attachments + "</div>" : "") + "</div>" +
+          (message.relay_error
+            ? '<div class="bubble__error">' + escapeHtml(message.relay_error) + "</div>"
+            : "");
       }
       box.appendChild(wrap);
     }
@@ -378,6 +399,15 @@ window.Eagle = (function () {
             render(res.message);
             last = Math.max(last, res.message.id);
             box.scrollTop = box.scrollHeight;
+            // The message is saved either way; only the trip to WhatsApp failed.
+            if (res.relay_error) {
+              toast({
+                level: "danger",
+                title: t("الرسالة محفوظة بس مروحتش للعميل",
+                  "Saved, but it did not reach the client"),
+                body: res.relay_error
+              });
+            }
           }
         });
       });

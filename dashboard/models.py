@@ -67,6 +67,10 @@ class Priority(models.TextChoices):
 class RoomKind(models.TextChoices):
     OPS_LEAD = "ops_lead", "Operation + Team leader"
     GROUP = "group", "Operation + Team leader + Translator"
+    #: The team on one side, the client's WhatsApp on the other. Eagle relays
+    #: between them, so the team gets a group chat without the client ever
+    #: leaving WhatsApp — and without anyone's phone number being exposed.
+    CLIENT = "client", "Team + Client (relayed to WhatsApp)"
 
 
 WEEKDAYS = (
@@ -413,13 +417,26 @@ class PlayableFile:
     def is_audio(self):
         from . import audio
 
-        return audio.is_audio(self.mime, self.original_name or self.file.name)
+        # getattr: ChatAttachment shares the behaviour without the columns.
+        return audio.is_audio(
+            getattr(self, "mime", ""), self.original_name or self.file.name
+        )
 
     @property
     def pretty_duration(self):
         from . import audio
 
-        return audio.pretty_duration(self.duration) if self.duration else ""
+        seconds = getattr(self, "duration", 0)
+        return audio.pretty_duration(seconds) if seconds else ""
+
+    @property
+    def pretty_size(self):
+        value = float(self.size or 0)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+            value /= 1024
+        return f"{value:.1f} GB"
 
 
 class MessageAttachment(PlayableFile, models.Model):
@@ -627,6 +644,18 @@ class ChatMessage(models.Model):
     body = models.TextField(blank=True)
     is_system = models.BooleanField(default=False)
     system_key = models.CharField(max_length=60, blank=True)
+
+    # -- relay bookkeeping (only used by a RoomKind.CLIENT room) -------------
+    #: "" for an ordinary in-system message, else "sent" / "failed".
+    relay_status = models.CharField(max_length=10, blank=True)
+    relay_error = models.TextField(blank=True)
+    #: Set when this row mirrors something the client sent us on WhatsApp.
+    #: The files stay on the InboundMessage — nothing is copied twice.
+    inbound = models.ForeignKey(
+        InboundMessage, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="mirrors",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -635,8 +664,19 @@ class ChatMessage(models.Model):
     def __str__(self):
         return f"#{self.pk} {self.room_id}"
 
+    @property
+    def from_client(self):
+        return self.inbound_id is not None
 
-class ChatAttachment(models.Model):
+    @property
+    def relay_files(self):
+        """Attachments to show — the client's own when this mirrors an inbound."""
+        if self.inbound_id:
+            return self.inbound.attachments.all()
+        return self.attachments.all()
+
+
+class ChatAttachment(PlayableFile, models.Model):
     message = models.ForeignKey(ChatMessage, on_delete=models.CASCADE, related_name="attachments")
     file = models.FileField(upload_to=upload_chat)
     original_name = models.CharField(max_length=250, blank=True)
@@ -644,15 +684,6 @@ class ChatAttachment(models.Model):
 
     def __str__(self):
         return self.original_name or self.file.name
-
-    @property
-    def pretty_size(self):
-        value = float(self.size or 0)
-        for unit in ("B", "KB", "MB", "GB"):
-            if value < 1024 or unit == "GB":
-                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        return f"{value:.1f} GB"
 
 
 # ---------------------------------------------------------------------------
@@ -865,15 +896,6 @@ class OutboundAttachment(PlayableFile, models.Model):
 
     def __str__(self):
         return self.original_name or self.file.name
-
-    @property
-    def pretty_size(self):
-        value = float(self.size or 0)
-        for unit in ("B", "KB", "MB", "GB"):
-            if value < 1024 or unit == "GB":
-                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        return f"{value:.1f} GB"
 
 
 class AuditLog(models.Model):

@@ -362,13 +362,18 @@ def claim_message(request, pk):
 # ---------------------------------------------------------------------------
 
 def _room_or_404(request, room_id):
-    room = get_object_or_404(ChatRoom.objects.select_related("task"), pk=room_id)
-    if not room.can_access(request.user):
+    room = get_object_or_404(
+        ChatRoom.objects.select_related("task", "task__client"), pk=room_id
+    )
+    # Membership alone is not enough: someone taken off the task keeps their
+    # row in the members table, and a client room relays to a real person.
+    if not (room.can_access(request.user) and room.task.can_view(request.user)):
         raise Http404
     return room
 
 
 def _message_json(message, viewer):
+    from_client = message.from_client
     return {
         "id": message.id,
         "body": message.body,
@@ -380,9 +385,18 @@ def _message_json(message, viewer):
         "mine": message.sender_id == viewer.id,
         "time": timezone.localtime(message.created_at).strftime("%H:%M"),
         "date": timezone.localtime(message.created_at).strftime("%Y-%m-%d"),
+        # Relay bookkeeping — only ever set in a client room.
+        "from_client": from_client,
+        "relay_status": message.relay_status,
+        "relay_error": message.relay_error,
         "attachments": [
-            {"url": a.file.url, "name": a.original_name or a.file.name, "size": a.pretty_size}
-            for a in message.attachments.all()
+            {
+                "url": a.file.url,
+                "name": a.original_name or a.file.name,
+                "size": a.pretty_size,
+                "audio": a.is_audio,
+            }
+            for a in message.relay_files
         ],
     }
 
@@ -392,9 +406,9 @@ def _message_json(message, viewer):
 def chat_fetch(request, room_id):
     room = _room_or_404(request, room_id)
     after = _int(request.GET.get("after"), 0)
-    qs = room.messages.filter(id__gt=after).select_related("sender").prefetch_related(
-        "attachments"
-    )[:100]
+    qs = room.messages.filter(id__gt=after).select_related(
+        "sender", "inbound"
+    ).prefetch_related("attachments", "inbound__attachments")[:100]
     return JsonResponse({
         "ok": True,
         "messages": [_message_json(m, request.user) for m in qs],
@@ -416,8 +430,18 @@ def chat_send(request, room_id):
             message=message, file=item, original_name=item.name, size=item.size
         )
 
+    # A client room is a relay: whatever lands here goes on to the client's
+    # WhatsApp. A failure is recorded on the message, never swallowed.
+    relay_error = ""
+    if room.kind == RoomKind.CLIENT:
+        _ok, relay_error = services.relay_chat_message(message)
+
     task = room.task
+    # A membership row can outlive the assignment; the notification body quotes
+    # the message, so re-check access rather than trusting the row.
     for member in room.members.exclude(pk=request.user.pk):
+        if not task.can_view(member):
+            continue
         services.notify(
             member,
             title_ar="رسالة جديدة في الشات",
@@ -426,7 +450,11 @@ def chat_send(request, room_id):
             body_en=f"{request.user.short_name} in {task.code}: {(body or 'files')[:60]}",
             level="info", url=f"/tasks/{task.code}/?room={room.id}", task=task,
         )
-    return JsonResponse({"ok": True, "message": _message_json(message, request.user)})
+    return JsonResponse({
+        "ok": True,
+        "relay_error": relay_error,
+        "message": _message_json(message, request.user),
+    })
 
 
 # ---------------------------------------------------------------------------
