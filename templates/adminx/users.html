@@ -43,12 +43,10 @@
           <td>
             {% if not person.is_active %}
               <span class="badge badge--dead" data-ar="موقوف" data-en="Disabled">موقوف</span>
-            {% elif person.is_online %}
-              <span class="row row--tight"><span class="dot dot--on"></span>
-                <small data-ar="نشط" data-en="Online">نشط</small></span>
-            {% else %}
-              <span class="row row--tight"><span class="dot dot--off"></span>
-                <small data-ar="أوفلاين" data-en="Offline">أوفلاين</small></span>
+            {% elif not person.is_online %}{% if person.on_shift %}
+              {% presence_cell person "shift" %}{% else %}{% presence_cell person "off" %}{% endif %}
+            {% elif person.is_busy %}{% presence_cell person "busy" %}
+            {% else %}{% presence_cell person "on" %}
             {% endif %}
           </td>
           <td class="mono">{{ person.shifts.count }}</td>

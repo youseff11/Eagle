@@ -83,9 +83,10 @@
               <small class="muted mono">{{ member.languages }}</small>
             </div>
             {% stars_html member.rating %}
-            {% if not member.is_online %}<span class="dot dot--off"></span>
-            {% elif member.is_busy %}<span class="dot dot--busy"></span>
-            {% else %}<span class="dot dot--on"></span>{% endif %}
+{% if not member.is_online %}{% if member.on_shift %}
+              {% presence_cell member "shift" True "free" %}{% else %}{% presence_cell member "off" True "free" %}{% endif %}
+            {% elif member.is_busy %}{% presence_cell member "busy" True "free" %}
+            {% else %}{% presence_cell member "free" True "free" %}{% endif %}
           </li>
         {% empty %}
           <li class="muted" data-ar="مفيش مترجمين تحتك." data-en="No translators assigned to you.">مفيش مترجمين تحتك.</li>

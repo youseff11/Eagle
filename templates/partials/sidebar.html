@@ -18,7 +18,7 @@
         <span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>
         <span class="nav__count hidden" data-counter="inbox">0</span>
       </a>
-      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_chat_detail' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
+      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_chat_detail' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
         {% icon "message" %}
         <span data-ar="شات العملاء" data-en="Client chat">شات العملاء</span>
       </a>
@@ -40,6 +40,10 @@
         <span data-ar="تاسكاتي" data-en="My tasks">تاسكاتي</span>
         <span class="nav__count hidden" data-counter="open">0</span>
       </a>
+      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
+        {% icon "users" %}
+        <span data-ar="جروبات العملاء" data-en="Client groups">جروبات العملاء</span>
+      </a>
     {% endif %}
 
     {% if user.is_translator %}
@@ -48,6 +52,10 @@
         {% icon "pen" %}
         <span data-ar="شغلي" data-en="My work">شغلي</span>
         <span class="nav__count hidden" data-counter="open">0</span>
+      </a>
+      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
+        {% icon "users" %}
+        <span data-ar="جروبات العملاء" data-en="Client groups">جروبات العملاء</span>
       </a>
     {% endif %}
 

@@ -366,6 +366,8 @@ select.input { appearance: none; padding-inline-end: 30px;
 .dot--on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .dot--off { background: var(--faint); }
 .dot--busy { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+/* Rostered but not at the keyboard — a different answer from "off today". */
+.dot--shift { background: transparent; border: 2px solid var(--ok); }
 
 .avatar {
   width: 32px; height: 32px; flex: none; border-radius: 9px;
@@ -520,6 +522,19 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   font-size: .72rem;
   color: var(--danger, #e5484d);
 }
+
+/* -- presence ------------------------------------------------------------- */
+
+.presence { display: inline-flex; align-items: center; gap: 6px; }
+.presence__state { white-space: nowrap; }
+/* "Last seen" only matters while someone is away — next to a live dot it is
+   noise. Driven by data-state so the poller changes it by changing one value. */
+.presence__seen { font-size: .72rem; color: var(--faint); white-space: nowrap; }
+.presence[data-state="on"] .presence__seen,
+.presence[data-state="free"] .presence__seen,
+.presence[data-state="busy"] .presence__seen { display: none; }
+/* The compact form is a bare dot; the time lives in its tooltip instead. */
+.presence--dot .presence__seen { display: none; }
 
 /* -- voice notes ---------------------------------------------------------- */
 /* Ours, not the browser's: <audio controls> is a different widget in every

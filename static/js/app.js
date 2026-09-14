@@ -828,10 +828,86 @@ window.Eagle = (function () {
     }, true);
   }
 
+  /* -------------------------------------------------------------- presence */
+
+  /* Mirrors PRESENCE_STATES in dashboard/templatetags/eagle_tags.py.
+     "free" and "on" are the same condition worded for two different boards —
+     the team screen asks who can take work, the staff screen who is signed in
+     — so a cell keeps whichever of the two the server chose for it. */
+  var PRESENCE_LABELS = {
+    on:    { dot: "on",    ar: "نشط", en: "Online" },
+    free:  { dot: "on",    ar: "فاضي", en: "Free" },
+    busy:  { dot: "busy",  ar: "مشغول", en: "Busy" },
+    shift: { dot: "shift", ar: "في الشيفت — مش فاتح", en: "On shift — not open" },
+    off:   { dot: "off",   ar: "أوفلاين", en: "Offline" }
+  };
+
+  /**
+   * Keeps the status dots current without a page refresh.
+   *
+   * Online means the site is open right now, so the value goes stale within a
+   * couple of minutes of rendering — a dot that only told the truth at page
+   * load could not answer "can I give this to them this minute", which is the
+   * only reason the column exists.
+   */
+  function initPresence() {
+    var cells = $$("[data-presence]");
+    if (!cells.length || !cfg.presenceUrl) { return; }
+
+    function paint(cell, state, seenAr, seenEn) {
+      var words = PRESENCE_LABELS[state] || PRESENCE_LABELS.off;
+      cell.dataset.state = state;
+
+      var dot = cell.querySelector(".dot");
+      if (dot) { dot.className = "dot dot--" + words.dot; }
+
+      var label = cell.querySelector(".presence__state");
+      if (label) {
+        label.setAttribute("data-ar", words.ar);
+        label.setAttribute("data-en", words.en);
+        label.textContent = t(words.ar, words.en);
+      }
+      var seen = cell.querySelector(".presence__seen");
+      if (seen && seenAr) {
+        seen.setAttribute("data-ar", seenAr);
+        seen.setAttribute("data-en", seenEn);
+        seen.textContent = t(seenAr, seenEn);
+        cell.setAttribute("title", t(seenAr, seenEn));
+      }
+    }
+
+    function refresh() {
+      get(cfg.presenceUrl).then(function (res) {
+        if (!res || !res.ok) { return; }
+        var byId = {};
+        (res.people || []).forEach(function (row) { byId[row.id] = row; });
+        $$("[data-presence]").forEach(function (cell) {
+          var row = byId[cell.dataset.presence];
+          if (!row) { return; }
+          var state;
+          if (row.online) {
+            // Keep this board's own word for "available" — the server chose it.
+            state = row.busy ? "busy" : (cell.dataset.free || "on");
+          } else {
+            state = row.on_shift ? "shift" : "off";
+          }
+          paint(cell, state, row.seen_ar, row.seen_en);
+        });
+      }).catch(function () { /* a dropped poll fixes itself next tick */ });
+    }
+
+    refresh();
+    setInterval(function () {
+      // No point asking while nobody is looking at the answer.
+      if (!document.hidden) { refresh(); }
+    }, 20000);
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function init() {
     initVoice();
+    initPresence();
     applyLang(state.lang, false);
     applyTheme(state.theme, false);
 

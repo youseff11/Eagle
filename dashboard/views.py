@@ -171,30 +171,53 @@ def _chat_sidebar(user, query, kind):
 def _chats_context(request, kind):
     user = request.user
     query = request.GET.get("q", "").strip()
-    return {
+    may_create = AppSettings.load().can_create_group(user)
+    context = {
         "conversations": _chat_sidebar(user, query, kind),
         "query": query,
         "filter": kind,
-        "can_create_group": AppSettings.load().can_create_group(user),
-        "group_clients": Client.objects.filter(is_active=True).order_by("code")[:300],
-        "group_people": User.objects.filter(is_active=True).exclude(pk=user.pk)
-                            .order_by("role", "username")[:200],
+        "can_create_group": may_create,
+        # Only the roles that see the whole client list get the filter — for
+        # everyone else this page is their groups and nothing else.
+        "show_filter": user.is_operation or user.is_admin_role,
+        "group_clients": [],
+        "group_people": [],
     }
+    if may_create:
+        context["group_clients"] = Client.objects.filter(is_active=True).order_by("code")[:300]
+        context["group_people"] = (
+            User.objects.filter(is_active=True).exclude(pk=user.pk)
+            .order_by("role", "username")[:200]
+        )
+    return context
 
 
-@role_required(Role.OPERATION)
+@login_required
 def ops_chats(request, code=""):
-    """WhatsApp-style conversations with the clients."""
+    """WhatsApp-style conversations with the clients.
+
+    Open to everyone, but not equally: the 1:1 client list is the whole client
+    directory, so it stays with the roles that own the client inbox. A team
+    leader or translator lands here on their own groups and nothing else —
+    which is what they needed a way in for.
+    """
     user = request.user
+    sees_all_clients = user.is_operation or user.is_admin_role
+
     kind = request.GET.get("type", "all")
     if kind not in ("all", "chats", "groups"):
         kind = "all"
+    if not sees_all_clients:
+        kind = "groups"
     context = _chats_context(request, kind)
 
     active = None
     if code:
+        # A 1:1 client conversation is not theirs to open.
+        if not sees_all_clients:
+            raise Http404
         active = get_object_or_404(Client, code=code)
-    else:
+    elif sees_all_clients:
         first = next((r for r in context["conversations"] if not r["is_group"]), None)
         active = first["client"] if first else None
 
@@ -227,6 +250,8 @@ def ops_group_chat(request, room_id):
     kind = request.GET.get("type", "all")
     if kind not in ("all", "chats", "groups"):
         kind = "all"
+    if not (user.is_operation or user.is_admin_role):
+        kind = "groups"
     context = _chats_context(request, kind)
 
     client = room.relay_client
@@ -486,7 +511,7 @@ def client_list(request):
     return render(request, "shared/clients.html", {"clients": qs[:200], "query": query})
 
 
-@login_required
+@role_required(Role.OPERATION, Role.TEAM_LEAD)
 def client_detail(request, code):
     client = get_object_or_404(Client, code=code)
     user = request.user

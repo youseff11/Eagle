@@ -1,7 +1,7 @@
 """Template helpers for the Eagle dashboard."""
 
 from django import template
-from django.utils.html import escape
+from django.utils.html import escape, strip_tags
 from django.utils.safestring import mark_safe
 
 register = template.Library()
@@ -126,6 +126,84 @@ def _rating(value):
 # Registered both ways so `{% stars_html x %}` and `{{ x|stars_html }}` both work.
 register.simple_tag(_rating, name="stars_html")
 register.filter("stars_html", _rating)
+
+
+#: state -> (dot modifier, arabic, english). "free" and "on" are the same
+#: condition worded for two different boards: the team screen asks who can take
+#: work, the staff screen asks who is signed in.
+PRESENCE_STATES = {
+    "on":    ("on", "نشط", "Online"),
+    "free":  ("on", "فاضي", "Free"),
+    "busy":  ("busy", "مشغول", "Busy"),
+    "shift": ("shift", "في الشيفت — مش فاتح", "On shift — not open"),
+    "off":   ("off", "أوفلاين", "Offline"),
+}
+
+
+@register.simple_tag
+def presence_cell(person, state="off", dot_only=False, free_word="on"):
+    """One status cell, rendered whole by the server.
+
+    The live poller in app.js repaints these, but it must not be what makes
+    them legible: a column that is blank until JavaScript lands is worse than
+    one that is a few seconds stale.
+
+    ``free_word`` is the word this board uses for "available" — the team screen
+    asks who can take work ("فاضي"), the staff screen who is signed in ("نشط").
+    It rides on the cell so the poller keeps saying the right one after the
+    person has been through busy or offline.
+    """
+    modifier, ar, en = PRESENCE_STATES.get(state, PRESENCE_STATES["off"])
+    seen = last_seen_label(person)
+    classes = "presence presence--dot" if dot_only else "presence"
+    label = "" if dot_only else (
+        f'<small class="presence__state" data-ar="{escape(ar)}" data-en="{escape(en)}">'
+        f"{escape(ar)}</small>"
+    )
+    return mark_safe(
+        f'<span class="{classes}" data-presence="{person.pk}" '
+        f'data-state="{escape(state)}" data-free="{escape(free_word)}" '
+        f'title="{escape(strip_tags(seen))}">'
+        f'<span class="dot dot--{escape(modifier)}"></span>'
+        f'{label}<small class="presence__seen">{seen}</small></span>'
+    )
+
+
+@register.filter
+def last_seen_label(user):
+    """When this person last had Eagle open, in words.
+
+    Django's humanize is not installed and its wording is English-only, so the
+    two languages are built here and swapped by the same data-ar/data-en pass
+    that handles the rest of the UI.
+    """
+    from django.utils import timezone
+
+    seen = getattr(user, "last_seen", None)
+    if not seen:
+        return mark_safe(
+            '<span data-ar="عمره ما دخل" data-en="Never signed in">عمره ما دخل</span>'
+        )
+
+    seconds = int((timezone.now() - seen).total_seconds())
+    if seconds < 60:
+        ar, en = "دلوقتي", "just now"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        ar, en = f"من {minutes} دقيقة", f"{minutes} min ago"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        ar, en = f"من {hours} ساعة", f"{hours}h ago"
+    elif seconds < 86400 * 7:
+        days = seconds // 86400
+        ar, en = f"من {days} يوم", f"{days}d ago"
+    else:
+        stamp = timezone.localtime(seen).strftime("%Y-%m-%d %H:%M")
+        ar = en = stamp
+
+    return mark_safe(
+        f'<span data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span>'
+    )
 
 
 @register.filter

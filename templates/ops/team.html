@@ -74,16 +74,10 @@
                 </div>
               </td>
               <td>
-                {% if not member.is_online %}
-                  <span class="row row--tight"><span class="dot dot--off"></span>
-                    <small data-ar="أوفلاين" data-en="Offline">أوفلاين</small></span>
-                {% elif member.is_busy %}
-                  <span class="row row--tight"><span class="dot dot--busy"></span>
-                    <small data-ar="مشغول" data-en="Busy">مشغول</small></span>
-                {% else %}
-                  <span class="row row--tight"><span class="dot dot--on"></span>
-                    <small data-ar="فاضي" data-en="Free">فاضي</small></span>
-                {% endif %}
+{% if not member.is_online %}{% if member.on_shift %}
+                  {% presence_cell member "shift" False "free" %}{% else %}{% presence_cell member "off" False "free" %}{% endif %}
+                {% elif member.is_busy %}{% presence_cell member "busy" False "free" %}
+                {% else %}{% presence_cell member "free" False "free" %}{% endif %}
               </td>
               <td>
                 {% for task in member.active_tasks|slice:":2" %}

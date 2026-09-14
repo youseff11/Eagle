@@ -126,6 +126,80 @@ def heartbeat(request):
     return JsonResponse(data)
 
 
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
+@require_GET
+def presence(request):
+    """Who has Eagle open right now, for the pages that show a status dot.
+
+    Polled by the browser so the dots move on their own — the whole point of
+    the column is to answer "can I hand this to them this minute", and a value
+    that is only correct at page load cannot answer that.
+
+    Only the roles with a status board get it, and a team leader gets their own
+    team: everyone's login pattern and workload is not something a translator
+    needs, and an endpoint that lists all staff is a roster anyone can harvest.
+    """
+    from django.db.models import Count, Q as _Q
+
+    user = request.user
+    people = User.objects.filter(is_active=True)
+    if user.is_team_lead and not user.is_admin_role:
+        people = people.filter(_Q(pk=user.pk) | _Q(team_lead=user))
+
+    # One query instead of one per person: this is polled every 20 seconds by
+    # every open board, so a per-row count would dominate the database.
+    people = people.annotate(
+        open_as_translator=Count(
+            "translator_tasks",
+            filter=_Q(translator_tasks__status__in=ACTIVE_TASK_STATUSES),
+            distinct=True,
+        ),
+        open_as_lead=Count(
+            "lead_tasks",
+            filter=_Q(lead_tasks__status__in=ACTIVE_TASK_STATUSES),
+            distinct=True,
+        ),
+    ).prefetch_related("shifts")
+
+    rows = []
+    for person in people:
+        seconds = person.seconds_since_seen
+        if person.is_translator:
+            busy = person.open_as_translator > 0
+        elif person.is_team_lead:
+            busy = person.open_as_lead > 0
+        else:
+            busy = False
+        rows.append({
+            "id": person.id,
+            "online": person.is_online,
+            "busy": busy,
+            "on_shift": person.on_shift,
+            "seen_ar": _seen_label(seconds, person.last_seen, "ar"),
+            "seen_en": _seen_label(seconds, person.last_seen, "en"),
+        })
+    return JsonResponse({"ok": True, "people": rows})
+
+
+def _seen_label(seconds, stamp, lang):
+    """Mirrors the last_seen_label template filter — keep the two in step."""
+    if stamp is None:
+        return "عمره ما دخل" if lang == "ar" else "Never signed in"
+    seconds = int(seconds or 0)
+    if seconds < 60:
+        return "دلوقتي" if lang == "ar" else "just now"
+    if seconds < 3600:
+        n = seconds // 60
+        return f"من {n} دقيقة" if lang == "ar" else f"{n} min ago"
+    if seconds < 86400:
+        n = seconds // 3600
+        return f"من {n} ساعة" if lang == "ar" else f"{n}h ago"
+    if seconds < 86400 * 7:
+        n = seconds // 86400
+        return f"من {n} يوم" if lang == "ar" else f"{n}d ago"
+    return timezone.localtime(stamp).strftime("%Y-%m-%d %H:%M")
+
+
 @login_required
 @require_POST
 def mark_notifications_read(request):

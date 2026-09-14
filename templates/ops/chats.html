@@ -34,6 +34,7 @@
     </div>
 
     {# ---- all / chats / groups ---- #}
+    {% if show_filter %}
     <div class="cchat__filter">
       <a class="cchat__pill {% if filter == 'all' %}is-active{% endif %}"
          href="?{% if query %}q={{ query }}{% endif %}"
@@ -45,6 +46,7 @@
          href="?type=groups{% if query %}&q={{ query }}{% endif %}"
          data-ar="جروبات" data-en="Groups">جروبات</a>
     </div>
+    {% endif %}
 
     {% if can_create_group %}
       <div class="cchat__new">
@@ -114,7 +116,7 @@
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
           </button>
         {% endif %}
-        {% if active %}
+        {% if active and show_filter %}
           <a class="btn btn--ghost cchat__profile" href="{% url 'dashboard:client_detail' active.code %}">
             {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
           </a>

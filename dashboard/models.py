@@ -199,14 +199,35 @@ class User(AbstractUser):
                 return shift
         return None
 
+    #: How long after the last heartbeat someone still counts as present. The
+    #: browser beats on every poll, but a background tab is throttled to about
+    #: one timer a minute, so anything under two minutes would blink offline.
+    PRESENCE_TIMEOUT = 130
+
+    @property
+    def seconds_since_seen(self):
+        if not self.last_seen:
+            return None
+        return (timezone.now() - self.last_seen).total_seconds()
+
     @property
     def is_online(self):
+        """Online means the site is open right now — nothing else.
+
+        A shift used to be enough on its own, so someone rostered from 9 to 5
+        showed as present all day whether or not they had ever opened Eagle.
+        That made the whole column untrustworthy: the point of the dot is to
+        say who can be given a task this minute.
+        """
         if not self.is_active or self.force_offline:
             return False
-        if self.active_shifts():
-            return self.shift_now() is not None
-        # No shift configured -> fall back to the browser heartbeat.
-        return bool(self.last_seen and (timezone.now() - self.last_seen).total_seconds() < 120)
+        seen = self.seconds_since_seen
+        return seen is not None and seen < self.PRESENCE_TIMEOUT
+
+    @property
+    def on_shift(self):
+        """Rostered now — which is a different question from being present."""
+        return bool(self.active_shifts()) and self.shift_now() is not None
 
     @property
     def presence(self):
