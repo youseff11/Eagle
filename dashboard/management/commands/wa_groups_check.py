@@ -60,6 +60,11 @@ class Command(BaseCommand):
             "--keep", action="store_true",
             help="With --create-test: leave the group in place instead of deleting it.",
         )
+        parser.add_argument(
+            "--metadata", action="store_true",
+            help="Ask Graph which fields these nodes actually expose, and dump them. "
+                 "Use this instead of trusting the docs when a field comes back empty.",
+        )
 
     # ------------------------------------------------------------------
     def handle(self, *args, **options):
@@ -87,6 +92,10 @@ class Command(BaseCommand):
         self._phone(base, phone_id, token)
         if options["waba_id"]:
             self._waba(base, options["waba_id"].strip(), token)
+        if options["metadata"]:
+            self._metadata(base, phone_id, token, "phone number")
+            if options["waba_id"]:
+                self._metadata(base, options["waba_id"].strip(), token, "WABA")
         can_read = self._groups(base, phone_id, token)
 
         open_door = can_read
@@ -183,6 +192,35 @@ class Command(BaseCommand):
         ])
         self.stdout.write("")
         self.waba = payload
+
+    def _metadata(self, base, node_id, token, label):
+        """Ask Graph what this node really exposes.
+
+        ``?metadata=1`` makes Graph describe the node instead of reading it, so
+        this answers "does a registration date exist on this version at all?"
+        with the API's own answer rather than with a docs page that may describe
+        a different node. Two fields are worth hunting for by hand — anything
+        date-shaped (the 30-day requirement) and anything pin-shaped (two-step)
+        — so those are pulled out of the list and shown first.
+        """
+        payload, error = self._get(f"{base}/{node_id}?metadata=1", token)
+        if payload is None:
+            self.stdout.write(self.style.ERROR(f"  {label} metadata: {error[:200]}"))
+            self.stdout.write("")
+            return
+
+        fields = (payload.get("metadata") or {}).get("fields") or []
+        names = sorted(f.get("name", "") for f in fields if f.get("name"))
+        self.stdout.write(f"  {label} node exposes {len(names)} field(s):")
+
+        interesting = [
+            n for n in names
+            if any(word in n for word in ("time", "date", "created", "onboard", "pin", "verif"))
+        ]
+        if interesting:
+            self.stdout.write("    of interest here: " + ", ".join(interesting))
+        self.stdout.write("    all: " + ", ".join(names))
+        self.stdout.write("")
 
     def _oba_checklist(self):
         """What is still missing for Official Business Account status.
