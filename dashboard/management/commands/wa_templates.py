@@ -42,7 +42,7 @@ LANGUAGE = "ar"
 #:     submission left ``example`` out and every template came back rejected
 #:     or refused outright, which is the only signal Meta gives for it.
 TEMPLATES = {
-    "order_received": {
+    "translation_order_received": {
         "category": "UTILITY",
         "body": "مرحبًا {{1}}، استلمنا طلب الترجمة رقم {{2}}. "
                 "عدد الصفحات: {{3}}، والتسليم المتوقع: {{4}}. "
@@ -51,7 +51,7 @@ TEMPLATES = {
         "example": ["أحمد", "T-1042", "12", "الخميس 18 سبتمبر"],
         "purpose": "Sent the moment a request is logged, so the client has a reference number.",
     },
-    "quote_ready": {
+    "translation_quote_ready": {
         "category": "UTILITY",
         "body": "مرحبًا {{1}}، عرض السعر لطلب الترجمة رقم {{2}} جاهز. "
                 "الإجمالي {{3}} جنيه ومدة التنفيذ {{4}}. "
@@ -60,7 +60,7 @@ TEMPLATES = {
         "example": ["أحمد", "T-1042", "850", "يومين"],
         "purpose": "Sent when pricing is decided and the client has to approve before work starts.",
     },
-    "missing_info": {
+    "translation_missing_info": {
         "category": "UTILITY",
         "body": "مرحبًا {{1}}، عشان نكمّل طلب الترجمة رقم {{2}} ناقصنا: {{3}}. "
                 "ابعتها هنا ونكمّل على طول.",
@@ -92,8 +92,9 @@ class Command(BaseCommand):
                             help="Submit templates for review. No names = every "
                                  "one not already at Meta.")
         parser.add_argument("--delete", nargs="+", metavar="NAME",
-                            help="Remove templates at Meta by name, freeing the "
-                                 "name so a fixed version can be resubmitted.")
+                            help="Remove templates at Meta by name. WARNING: this "
+                                 "BURNS the name for 30 days — to fix a rejected "
+                                 "template, rename it here and submit, do not delete.")
 
     # ------------------------------------------------------------------
     def handle(self, *args, **options):
@@ -200,9 +201,10 @@ class Command(BaseCommand):
         if rejected:
             self.stdout.write("")
             self.stdout.write(
-                "  A rejected name is taken until it is removed, so resubmitting\n"
-                "  under the same name does nothing. Delete, then submit again:\n"
-                f"    --delete {' '.join(sorted(rejected))}"
+                "  A rejected name stays taken, so resubmitting under it does\n"
+                "  nothing. Do NOT --delete to free it: that burns the name for\n"
+                "  30 days. Rename the entry in wa_templates.py and --submit.\n"
+                f"    rejected: {', '.join(sorted(rejected))}"
             )
 
         missing = sorted(set(TEMPLATES) - set(existing))
@@ -212,13 +214,28 @@ class Command(BaseCommand):
         self.stdout.write("")
 
     def _delete(self, base, token, names):
-        """Free a template name at Meta.
+        """Remove a template at Meta — and burn its name for 30 days.
 
-        Deleting is how a rejected template gets another try: the name stays
-        taken until it goes, and a resubmission under a taken name is a no-op.
-        Nothing here touches messages already sent with the template.
+        This is NOT how a rejected template gets another try, which is what it
+        looks like and what cost a round here. Meta's own wording:
+
+            "Names of an approved template that has been deleted cannot be
+             used again for 30 days."
+
+        Measured, it holds for rejected ones too: three rejected templates were
+        deleted, and every resubmission under the same names was refused with a
+        bare "Invalid parameter" while an untouched name went through.
+
+        To fix a rejected template, give it a NEW name in TEMPLATES above and
+        submit that. Names are internal — no client ever sees one — so renaming
+        costs nothing and a deletion costs a month. Use this only to retire a
+        template for good.
         """
         self.stdout.write("")
+        self.stdout.write(self.style.WARNING(
+            "  Deleting burns each name for 30 days. To fix a rejected template,\n"
+            "  rename it in wa_templates.py and --submit instead."
+        ))
         for name in names:
             url = f"{base}?name={urllib.parse.quote(name)}"
             try:
