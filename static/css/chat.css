@@ -325,14 +325,66 @@
 
 .chip--sm { font-size: 10.5px; padding: 1px 7px; }
 
-/* -- narrow screens ------------------------------------------------------- */
+/* -- the group's member strip --------------------------------------------- */
 
-@media (max-width: 900px) {
+.cchat__members {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 7px 14px;
+  border-block-end: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* Back arrow: phones only — on a wide screen both panes are already visible. */
+.cchat__back { display: none; }
+[dir="ltr"] .cchat__back .ic { transform: rotate(180deg); }
+
+/* -- narrow screens: one pane at a time, the way WhatsApp does it ---------- */
+
+@media (max-width: 860px) {
   .cchat {
     grid-template-columns: 1fr;
-    height: auto;
+    /* One screen, not two stacked boxes — the composer stays on the bottom
+       edge and only the message stream scrolls. dvh so the mobile browser's
+       collapsing address bar does not cut the composer off. */
+    height: calc(100dvh - 150px);
+    min-height: 420px;
+    gap: 0;
   }
-  .cchat__list { max-height: 260px; }
-  .cchat__stream { min-height: 380px; }
+
+  /* The list is the screen until a conversation is picked; then it steps
+     aside completely and the conversation takes over. */
+  .cchat__list { max-height: none; }
+  .cchat__room { display: none; }
+  .cchat.is-open .cchat__list { display: none; }
+  .cchat.is-open .cchat__room { display: flex; }
+
+  .cchat__back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border-radius: 10px;
+    color: inherit;
+    text-decoration: none;
+    margin-inline-start: -6px;
+  }
+  .cchat__back:hover { background: var(--surface-2, rgba(127, 127, 127, .12)); }
+
+  /* Rows get taller and roomier — a thumb target, not a mouse target. */
+  .cthread { padding: 12px 14px; gap: 12px; }
+  .cthread__snippet { font-size: 13px; }
+  .cthread__time { font-size: 12px; }
+
+  .cchat__head { padding: 10px 12px; }
+  /* The header is for the name and the back arrow; anything else is a tap away. */
+  .cchat__profile { display: none; }
+
   .bub__box { max-width: 88%; }
+  .cchat__composer { padding: 8px 10px; }
+  .bub__voice { min-width: 0; }
 }

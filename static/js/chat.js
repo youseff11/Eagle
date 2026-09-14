@@ -529,6 +529,64 @@
   }
   if (groupSave) { groupSave.addEventListener("click", createGroup); }
 
+  /* ---------------------------------------------------- add members */
+
+  var memberModal = document.getElementById("addMemberModal");
+  var memberOpen = document.getElementById("addMemberBtn");
+  var memberSave = document.getElementById("addMemberSave");
+  var memberError = document.getElementById("addMemberError");
+
+  function showMemberModal(show) {
+    if (!memberModal) { return; }
+    memberModal.classList.toggle("hidden", !show);
+    if (memberError) { memberError.textContent = ""; }
+  }
+
+  function addMembers() {
+    if (!memberSave) { return; }
+    var picker = document.getElementById("addMemberPicker");
+    var chosen = picker ? Array.prototype.slice.call(picker.selectedOptions || []) : [];
+    if (!chosen.length) {
+      if (memberError) {
+        memberError.textContent = E.t("اختار حد الأول.", "Pick somebody first.");
+      }
+      return;
+    }
+
+    var data = new FormData();
+    chosen.forEach(function (opt) { data.append("members", opt.value); });
+
+    memberSave.disabled = true;
+    E.post(memberSave.dataset.url, data).then(function (res) {
+      if (res && res.ok) {
+        window.location.reload();
+        return;
+      }
+      if (memberError) {
+        memberError.textContent = (res && res.error) ||
+          E.t("مقدرتش أضيف.", "Could not add them.");
+      }
+    }).catch(function () {
+      if (memberError) {
+        memberError.textContent = E.t("مشكلة في الاتصال", "Connection problem");
+      }
+    }).then(function () {
+      memberSave.disabled = false;
+    });
+  }
+
+  if (memberOpen) { memberOpen.addEventListener("click", function () { showMemberModal(true); }); }
+  ["addMemberClose", "addMemberCancel"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.addEventListener("click", function () { showMemberModal(false); }); }
+  });
+  if (memberModal) {
+    memberModal.addEventListener("click", function (event) {
+      if (event.target === memberModal) { showMemberModal(false); }
+    });
+  }
+  if (memberSave) { memberSave.addEventListener("click", addMembers); }
+
   if (micBtn) { micBtn.addEventListener("click", startRecording); }
   if (recStop) { recStop.addEventListener("click", stopRecording); }
   if (recSend) { recSend.addEventListener("click", sendRecording); }

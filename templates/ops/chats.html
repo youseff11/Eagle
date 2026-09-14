@@ -6,7 +6,7 @@
 {% block head %}<link rel="stylesheet" href="{% static 'css/chat.css' %}">{% endblock %}
 
 {% block content %}
-<div class="cchat"
+<div class="cchat{% if has_selection %} is-open{% endif %}"
      id="clientChat"
      data-list-url="{% url 'dashboard:api_client_chat_list' %}"
      data-filter="{{ filter }}"
@@ -84,6 +84,11 @@
   <section class="cchat__room">
     {% if active or active_group %}
       <header class="cchat__head">
+        {# Phone only: back to the list, the way WhatsApp does it. #}
+        <a class="cchat__back" href="{% url 'dashboard:ops_chats' %}"
+           data-ar-title="رجوع" data-en-title="Back" title="رجوع">
+          {% icon "arrow-right" %}
+        </a>
         <span class="avatar {% if active_group %}avatar--group{% else %}avatar--brand{% endif %}">
           {% if active_group %}{% icon "users" "ic--sm" %}{% else %}{{ active.code|slice:"3:" }}{% endif %}
         </span>
@@ -104,12 +109,24 @@
           </div>
         </div>
         <div class="grow"></div>
+        {% if active_group and can_add_members %}
+          <button class="btn btn--ghost" type="button" id="addMemberBtn">
+            {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
+          </button>
+        {% endif %}
         {% if active %}
-          <a class="btn btn--ghost" href="{% url 'dashboard:client_detail' active.code %}">
+          <a class="btn btn--ghost cchat__profile" href="{% url 'dashboard:client_detail' active.code %}">
             {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
           </a>
         {% endif %}
       </header>
+
+      {% if active_group and members %}
+        <div class="cchat__members">
+          {% icon "users" "ic--sm" %}
+          {% for person in members %}<span class="chip chip--sm">{{ person.short_name }}</span>{% endfor %}
+        </div>
+      {% endif %}
 
       {% if active_group %}
         <div class="note note--warn cchat__window">
@@ -186,6 +203,51 @@
     {% endif %}
   </section>
 </div>
+
+{% if active_group and can_add_members %}
+  {# ---- add members to this group --------------------------------------- #}
+  <div class="modal-backdrop hidden" id="addMemberModal">
+    <div class="modal" style="text-align:start">
+      <div class="row row--tight">
+        {% icon "user-check" %}
+        <div class="modal__title" data-ar="ضيف أعضاء للجروب" data-en="Add members">ضيف أعضاء للجروب</div>
+        <div class="grow"></div>
+        <button class="icon-btn" type="button" id="addMemberClose"
+                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
+      </div>
+
+      <p class="muted" style="font-size:.82rem"
+         data-ar="اللي هتضيفه هيقدر يكتب للعميل على واتساب من الجروب ده."
+         data-en="Anyone you add can write to the client on WhatsApp from this group.">
+        اللي هتضيفه هيقدر يكتب للعميل على واتساب من الجروب ده.
+      </p>
+
+      <div class="field">
+        <label data-ar="الأعضاء الجداد" data-en="New members">الأعضاء الجداد</label>
+        <select class="input" id="addMemberPicker" multiple size="8">
+          {% for person in addable_people %}
+            <option value="{{ person.id }}">{{ person.short_name }} — {% role_badge person.role %}</option>
+          {% empty %}
+            <option disabled data-ar="مفيش حد يتضاف" data-en="Nobody left to add">مفيش حد يتضاف</option>
+          {% endfor %}
+        </select>
+        <small class="muted" data-ar="اضغط Ctrl عشان تختار أكتر من واحد."
+               data-en="Hold Ctrl to pick more than one.">اضغط Ctrl عشان تختار أكتر من واحد.</small>
+      </div>
+
+      <div class="row" style="margin-top:14px;align-items:center">
+        <div id="addMemberError" style="color:var(--danger,#e5484d);font-size:.8rem"></div>
+        <div class="grow"></div>
+        <button class="btn" type="button" id="addMemberCancel"
+                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn--primary" type="button" id="addMemberSave"
+                data-url="{% url 'dashboard:api_group_add_members' active_group.id %}">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف" data-en="Add">ضيف</span>
+        </button>
+      </div>
+    </div>
+  </div>
+{% endif %}
 
 {% if can_create_group %}
   {# ---- new group ------------------------------------------------------- #}

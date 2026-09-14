@@ -67,18 +67,34 @@
         </div>
 
         <div class="chat">
+          {% comment %}
+            Two lanes, kept visibly apart: what stays inside, and what the
+            client receives. Mixing them up is the one mistake that costs.
+          {% endcomment %}
           <div class="chat__tabs">
+            <span class="chat__lane" data-ar="داخلي" data-en="Internal">داخلي</span>
             {% for room in rooms %}
-              <a class="chat__tab {% if room.id == active_room.id %}is-active{% endif %}"
-                 href="?room={{ room.id }}">
-                {% if room.kind == 'ops_lead' %}
-                  <span data-ar="أوبريشن + تيم ليدر" data-en="Operation + Team leader">أوبريشن + تيم ليدر</span>
-                {% elif room.kind == 'client' %}
+              {% if room.kind != 'client' %}
+                <a class="chat__tab {% if room.id == active_room.id %}is-active{% endif %}"
+                   href="?room={{ room.id }}">
+                  {% if room.kind == 'ops_lead' %}
+                    <span data-ar="أوبريشن + تيم ليدر" data-en="Operation + Team leader">أوبريشن + تيم ليدر</span>
+                  {% else %}
+                    <span data-ar="جروب التاسك" data-en="Task group">جروب التاسك</span>
+                  {% endif %}
+                </a>
+              {% endif %}
+            {% endfor %}
+
+            {% for room in rooms %}
+              {% if room.kind == 'client' %}
+                <span class="chat__lane chat__lane--client"
+                      data-ar="بيوصل العميل" data-en="Reaches the client">بيوصل العميل</span>
+                <a class="chat__tab chat__tab--client {% if room.id == active_room.id %}is-active{% endif %}"
+                   href="?room={{ room.id }}">
                   {% icon "phone" "ic--sm" %}<span data-ar="مع العميل" data-en="With the client">مع العميل</span>
-                {% else %}
-                  <span data-ar="جروب التاسك" data-en="Task group">جروب التاسك</span>
-                {% endif %}
-              </a>
+                </a>
+              {% endif %}
             {% endfor %}
           </div>
 

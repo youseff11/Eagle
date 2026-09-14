@@ -654,6 +654,67 @@ def _group_or_404(request, room_id):
 
 
 @login_required
+@require_POST
+def group_add_members(request, room_id):
+    """Add people to a group. Same gate as creating one — it reaches a client."""
+    room = _group_or_404(request, room_id)
+    conf = AppSettings.load()
+    if not conf.can_create_group(request.user):
+        return JsonResponse(
+            {"ok": False, "error": "مالكش صلاحية تضيف أعضاء. الأدمن بيظبطها من الإعدادات."},
+            status=403,
+        )
+
+    wanted = [_int(v) for v in request.POST.getlist("members") if _int(v)]
+    people = list(User.objects.filter(pk__in=wanted, is_active=True))
+    if not people:
+        return JsonResponse({"ok": False, "error": "اختار حد الأول."}, status=400)
+
+    task = room.task
+    added, refused = [], []
+    for person in people:
+        # A task-bound group must not hand the task's client conversation to
+        # someone who is not on that task.
+        if task is not None and not task.can_view(person):
+            refused.append(person.short_name)
+            continue
+        if room.members.filter(pk=person.pk).exists():
+            continue
+        room.members.add(person)
+        added.append(person)
+
+    client = room.relay_client
+    for person in added:
+        services.notify(
+            person,
+            title_ar="اتضفت في جروب عميل",
+            title_en="Added to a client group",
+            body_ar=f"{request.user.short_name} ضافك في جروب مع العميل "
+                    f"{client.code if client else '—'}.",
+            body_en=f"{request.user.short_name} added you to a group with client "
+                    f"{client.code if client else '—'}.",
+            level="info", url=f"/ops/chats/g/{room.id}/",
+        )
+    if added:
+        services.system_message(
+            room, key="members_added",
+            body_ar="اتضاف للجروب: " + "، ".join(p.short_name for p in added),
+            body_en="Added to the group: " + ", ".join(p.short_name for p in added),
+        )
+        services.log(request.user, "group.add_members", client.code if client else "-",
+                     ", ".join(p.short_name for p in added)[:120])
+
+    error = ""
+    if refused:
+        error = "مش ينفع تضيف " + "، ".join(refused) + " — التاسك دي مش من حقهم."
+    return JsonResponse({
+        "ok": bool(added),
+        "added": [p.short_name for p in added],
+        "error": error or ("" if added else "دول في الجروب أصلاً."),
+    })
+
+
+@login_required
 @require_GET
 def group_chat_fetch(request, room_id):
     room = _group_or_404(request, room_id)

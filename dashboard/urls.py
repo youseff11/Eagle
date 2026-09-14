@@ -85,6 +85,7 @@ urlpatterns = [
     path("api/client-chats/", api.client_chat_list, name="api_client_chat_list"),
     path("api/groups/new/", api.group_create, name="api_group_create"),
     path("api/groups/<int:room_id>/", api.group_chat_fetch, name="api_group_chat_fetch"),
+    path("api/groups/<int:room_id>/members/", api.group_add_members, name="api_group_add_members"),
     path("api/groups/<int:room_id>/send/", api.group_chat_send, name="api_group_chat_send"),
     path("api/client-chats/<str:client_code>/", api.client_chat_fetch, name="api_client_chat_fetch"),
     path(

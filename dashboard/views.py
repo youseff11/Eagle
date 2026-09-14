@@ -203,6 +203,10 @@ def ops_chats(request, code=""):
         "active_code": active.code if active else "",
         "thread": services.client_thread(active, user) if active else [],
         "channel": services.client_channel(active) if active else "",
+        # On a phone the list and the conversation are two screens, like
+        # WhatsApp. Only an explicitly chosen conversation opens the second
+        # one; the bare /ops/chats/ URL is the list.
+        "has_selection": bool(code),
     })
     return render(request, "ops/chats.html", context)
 
@@ -226,13 +230,19 @@ def ops_group_chat(request, room_id):
     context = _chats_context(request, kind)
 
     client = room.relay_client
+    members = list(room.members.all())
     context.update({
         "active": client,
         "active_group": room,
         "active_code": f"g{room.id}",
         "thread": services.group_thread(room, user),
         "channel": services.client_channel(client) if client else "",
-        "members": room.members.all(),
+        "members": members,
+        "can_add_members": AppSettings.load().can_create_group(user),
+        "addable_people": User.objects.filter(is_active=True)
+                              .exclude(pk__in=[m.pk for m in members])
+                              .order_by("role", "username")[:200],
+        "has_selection": True,
     })
     return render(request, "ops/chats.html", context)
 
