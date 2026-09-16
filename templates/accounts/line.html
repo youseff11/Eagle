@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Payslip{% endblock %}
+{% block page_title %}<span data-ar="تفاصيل المستحقات" data-en="Payslip">تفاصيل المستحقات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ line.user.short_name }}</h1>
+  <div class="page-head__sub mono">{{ line.period.label }}</div>
+  <div class="grow"></div>
+  {% if user.is_admin_role %}
+    <a class="btn btn--sm" href="{% url 'dashboard:accounts_salary' line.user.pk %}"
+       data-ar="سجل الراتب" data-en="Salary history">سجل الراتب</a>
+    {% if not line.bonuses_approved and line.pending_bonus %}
+      <form method="post" action="{% url 'dashboard:accounts_line_bonus' line.pk %}">
+        {% csrf_token %}
+        <button class="btn btn--primary" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="اصرف المكافآت" data-en="Release the bonuses">اصرف المكافآت</span>
+        </button>
+      </form>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="grid grid--4">
+  <div class="kpi">
+    <div class="kpi__label" data-ar="الراتب الأساسي" data-en="Base salary">الراتب الأساسي</div>
+    <div class="kpi__value mono">{{ line.base_salary }}</div>
+  </div>
+  <div class="kpi kpi--ok">
+    <div class="kpi__label" data-ar="بونص الإنتاج اليومي" data-en="Daily production bonus">بونص الإنتاج اليومي</div>
+    <div class="kpi__value mono">{{ line.production_bonus }}</div>
+  </div>
+  <div class="kpi {% if line.deductions %}kpi--danger{% endif %}">
+    <div class="kpi__label" data-ar="خصومات معتمدة" data-en="Approved deductions">خصومات معتمدة</div>
+    <div class="kpi__value mono">{{ line.deductions }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="الصافي" data-en="Net">الصافي</div>
+    <div class="kpi__value mono">{{ line.net }}</div>
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div>
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="اليوم باليوم" data-en="Day by day">اليوم باليوم</h3>
+        <div class="grow"></div>
+        <span class="muted mono">{{ line.total_words }} / {{ line.target_words }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="الحالة" data-en="Status">الحالة</th>
+              <th data-ar="الكلمات" data-en="Words">الكلمات</th>
+              <th data-ar="الحد اليومي" data-en="Floor">الحد اليومي</th>
+              <th data-ar="بونص اليوم" data-en="Day bonus">بونص اليوم</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for day in days %}
+            <tr>
+              <td class="mono">{{ day.date }}</td>
+              <td>
+                {% if day.status == 'present' %}
+                  <span class="badge badge--ok" data-ar="حاضر" data-en="Present">حاضر</span>
+                {% elif day.status == 'leave' %}
+                  <span class="badge badge--info" data-ar="إجازة" data-en="Leave">إجازة</span>
+                {% elif day.status == 'excused' %}
+                  <span class="badge badge--wait" data-ar="غياب بعذر" data-en="Excused">غياب بعذر</span>
+                {% elif day.status == 'unexcused' %}
+                  <span class="badge badge--dead" data-ar="غياب بدون إذن" data-en="Unexcused">غياب بدون إذن</span>
+                {% else %}
+                  <span class="badge" data-ar="أجازة أسبوعية" data-en="Off">أجازة أسبوعية</span>
+                {% endif %}
+                {% if day.secondary %}
+                  <span class="chip" data-ar="لغة تانية" data-en="Secondary">لغة تانية</span>
+                {% endif %}
+                {% if day.difficult %}
+                  <span class="chip" data-ar="ملف صعب" data-en="Difficult">ملف صعب</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ day.words }}</td>
+              <td class="mono muted">{{ day.target }}</td>
+              <td class="mono">{{ day.bonus }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="مفيش أيام مسجلة." data-en="No days recorded.">مفيش أيام مسجلة.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "alert" %}
+        <h3 data-ar="الخصومات" data-en="Deductions">الخصومات</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="النوع" data-en="Kind">النوع</th>
+              <th data-ar="السبب" data-en="Reason">السبب</th>
+              <th data-ar="أيام" data-en="Days">أيام</th>
+              <th data-ar="القيمة" data-en="Amount">القيمة</th>
+              <th data-ar="الحالة" data-en="State">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in deduction_rows %}
+            <tr>
+              <td class="mono">{{ row.date }}</td>
+              <td>{{ row.kind }}</td>
+              <td class="muted">{{ row.reason }}</td>
+              <td class="mono">{{ row.days }}</td>
+              <td class="mono">{{ row.amount }}</td>
+              <td><span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span></td>
+            </tr>
+          {% endfor %}
+          {% for row in pending_rows %}
+            <tr>
+              <td class="mono">{{ row.date }}</td>
+              <td>{{ row.kind }}</td>
+              <td class="muted">{{ row.reason }}</td>
+              <td class="mono">{{ row.days }}</td>
+              <td class="mono muted">{{ row.amount }}</td>
+              <td>
+                <span class="badge badge--wait"
+                      data-ar="مستنية اعتماد" data-en="Awaiting approval">مستنية اعتماد</span>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not deduction_rows and not pending_rows %}
+            <tr><td colspan="6" class="empty"
+                    data-ar="مفيش خصومات." data-en="No deductions.">مفيش خصومات.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "list-checks" %}
+        <h3 data-ar="ملخص الحساب" data-en="How the net was reached">ملخص الحساب</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="الراتب الأساسي" data-en="Base salary">الراتب الأساسي</span>
+        <span class="mono">{{ line.base_salary }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="قيمة اليوم" data-en="Value of a day">قيمة اليوم</span>
+        <span class="mono">{{ line.day_value }}
+          <span class="muted">= {{ line.base_salary }} / {{ line.working_days }}</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="بونص الإنتاج" data-en="Production bonus">بونص الإنتاج</span>
+        <span class="mono">+ {{ line.production_bonus }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="مكافأة الانضباط" data-en="Discipline bonus">مكافأة الانضباط</span>
+        <span class="mono">
+          {% if line.discipline_bonus %}+ {{ line.discipline_bonus }}
+          {% elif line.discipline_bonus_earned %}
+            <span class="badge badge--wait">{{ conf.discipline_bonus }}
+              <span data-ar="مستنية" data-en="pending">مستنية</span></span>
+          {% else %}<span class="muted" data-ar="مستحقتش" data-en="not earned">مستحقتش</span>{% endif %}
+        </span>
+      </div>
+      <div class="kv">
+        <span data-ar="مكافأة التارجت" data-en="Target bonus">مكافأة التارجت</span>
+        <span class="mono">
+          {% if line.target_bonus %}+ {{ line.target_bonus }}
+          {% elif line.target_bonus_earned %}
+            <span class="badge badge--wait">{{ conf.target_bonus }}
+              <span data-ar="مستنية" data-en="pending">مستنية</span></span>
+          {% else %}<span class="muted" data-ar="مستحقتش" data-en="not earned">مستحقتش</span>{% endif %}
+        </span>
+      </div>
+      <div class="kv">
+        <span data-ar="الخصومات" data-en="Deductions">الخصومات</span>
+        <span class="mono">- {{ line.deductions }}</span>
+      </div>
+      <div class="kv">
+        <strong data-ar="الصافي" data-en="Net">الصافي</strong>
+        <strong class="mono">{{ line.net }}</strong>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "target" %}
+        <h3 data-ar="الشهر في أرقام" data-en="The month in numbers">الشهر في أرقام</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام الشغل" data-en="Worked days">أيام الشغل</span>
+        <span class="mono">{{ line.worked_days }} / {{ line.working_days }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="إجازات" data-en="Leave">إجازات</span>
+        <span class="mono">{{ line.leave_days }}
+          <span class="muted">/ {{ conf.monthly_leave_allowance }}</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="غياب بدون إذن" data-en="Unexcused">غياب بدون إذن</span>
+        <span class="mono">{{ line.unexcused_days }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام تحت الحد" data-en="Days under the floor">أيام تحت الحد</span>
+        <span class="mono">{{ line.under_target_days }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="إجمالي الكلمات" data-en="Total words">إجمالي الكلمات</span>
+        <span class="mono {% if line.below_alert_threshold %}deadline--late{% endif %}">
+          {{ line.total_words }} / {{ line.target_words }}
+        </span>
+      </div>
+    </div>
+
+    <div class="note note--info">
+      {% icon "shield" %}
+      <div data-ar="الأرقام دي متجمدة على قواعد الشهر ده. تعديل الراتب أو الشرائح دلوقتي مش بيغيّر شهر فات."
+           data-en="These figures are frozen on the rules of this month. Changing a salary or a tier today does not rewrite a month already run.">
+        الأرقام دي متجمدة على قواعد الشهر ده. تعديل الراتب أو الشرائح دلوقتي مش بيغيّر شهر فات.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

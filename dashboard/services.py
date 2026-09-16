@@ -827,6 +827,17 @@ def mark_translated(task, user):
     task.status = TaskStatus.UNDER_REVIEW
     task.translated_at = timezone.now()
     task.save(update_fields=["status", "translated_at", "updated_at"])
+
+    # The moment the files are all in is the moment to read them. A failure
+    # here must never block the translator from handing the job over, so the
+    # count is best-effort and the task detail page says what it found.
+    try:
+        from . import wordcount
+
+        wordcount.recount_task(task)
+    except Exception:
+        log(user, "task.word_count.failed", task.code)
+
     room = ensure_room(task, RoomKind.GROUP)
     system_message(
         room, key="translated",

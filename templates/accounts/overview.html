@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Accounts{% endblock %}
+{% block page_title %}<span data-ar="الحسابات" data-en="Accounts">الحسابات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="حسابات المترجمين" data-en="Translator payroll">حسابات المترجمين</h1>
+  <div class="page-head__sub mono">{{ year }}-{{ month|stringformat:"02d" }}</div>
+  <div class="grow"></div>
+  {% include "accounts/_month_picker.html" %}
+  <form method="post" action="{% url 'dashboard:accounts_recalculate' %}">
+    {% csrf_token %}
+    <input type="hidden" name="period" value="{{ year }}-{{ month }}">
+    <button class="btn btn--primary" type="submit">
+      {% icon "refresh" "ic--sm" %}<span data-ar="احسب الشهر" data-en="Run the month">احسب الشهر</span>
+    </button>
+  </form>
+</div>
+
+{% if missing_salary %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div>
+      <div data-ar="فيه مترجمين من غير راتب مسجل — سطرهم هيطلع بصفر:"
+           data-en="Some translators have no salary on record - their line computes to zero:">
+        فيه مترجمين من غير راتب مسجل — سطرهم هيطلع بصفر:
+      </div>
+      <div class="row row--tight">
+        {% for person in missing_salary %}
+          <a class="chip" href="{% url 'dashboard:accounts_salary' person.pk %}">{{ person.short_name }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if unsettled_tasks %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div>
+      <div data-ar="تاسكات اتسلمت الشهر ده وعدد كلماتها لسه مش متأكد — أكدها قبل ما تقفل الشهر:"
+           data-en="Jobs delivered this month whose word count nobody has settled - settle them before locking:">
+        تاسكات اتسلمت الشهر ده وعدد كلماتها لسه مش متأكد — أكدها قبل ما تقفل الشهر:
+      </div>
+      <div class="row row--tight">
+        {% for item in unsettled_tasks %}
+          <a class="chip mono" href="{% url 'dashboard:task_detail' item.code %}">
+            {{ item.code }}
+            <span class="muted">{{ item.translator.short_name|default:"—" }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if totals %}
+  <div class="grid grid--4">
+    <div class="kpi">
+      <div class="kpi__label" data-ar="الصافي" data-en="Net">الصافي</div>
+      <div class="kpi__value mono">{{ totals.net }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__label" data-ar="إجمالي الكلمات" data-en="Words">إجمالي الكلمات</div>
+      <div class="kpi__value mono">{{ totals.words }}</div>
+    </div>
+    <div class="kpi {% if totals.deductions %}kpi--warn{% endif %}">
+      <div class="kpi__label" data-ar="خصومات معتمدة" data-en="Approved deductions">خصومات معتمدة</div>
+      <div class="kpi__value mono">{{ totals.deductions }}</div>
+    </div>
+    <div class="kpi {% if totals.alerts %}kpi--danger{% endif %}">
+      <div class="kpi__label" data-ar="تحت حد التنبيه" data-en="Below the alert line">تحت حد التنبيه</div>
+      <div class="kpi__value mono">{{ totals.alerts }}</div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card__head">
+    {% icon "calendar" %}
+    <h3 data-ar="كشف الشهر" data-en="The month">كشف الشهر</h3>
+    <div class="grow"></div>
+    {% if period %}
+      <span class="badge {% if period.status == 'locked' %}badge--dead{% elif period.status == 'approved' %}badge--ok{% else %}badge--wait{% endif %}">
+        {{ period.get_status_display }}
+      </span>
+      {% if period.status == 'draft' %}
+        <form method="post" action="{% url 'dashboard:accounts_period_approve' period.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--sm btn--ok" type="submit"
+                  data-ar="اعتماد" data-en="Approve">اعتماد</button>
+        </form>
+      {% elif period.status == 'approved' %}
+        <form method="post" action="{% url 'dashboard:accounts_period_approve' period.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="lock" value="1">
+          <button class="btn btn--sm" type="submit"
+                  data-ar="قفل الشهر" data-en="Lock the month">قفل الشهر</button>
+        </form>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if lines %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th data-ar="المترجم" data-en="Translator">المترجم</th>
+            <th data-ar="الأساسي" data-en="Base">الأساسي</th>
+            <th data-ar="أيام شغل" data-en="Worked">أيام شغل</th>
+            <th data-ar="إجازة" data-en="Leave">إجازة</th>
+            <th data-ar="كلمات" data-en="Words">كلمات</th>
+            <th data-ar="بونص الإنتاج" data-en="Production bonus">بونص الإنتاج</th>
+            <th data-ar="مكافآت" data-en="Bonuses">مكافآت</th>
+            <th data-ar="خصومات" data-en="Deductions">خصومات</th>
+            <th data-ar="الصافي" data-en="Net">الصافي</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>
+              <div class="row row--tight">
+                <div class="avatar avatar--sm">{{ line.user.initials }}</div>
+                <div>
+                  <div>{{ line.user.short_name }}</div>
+                  <small class="muted mono">{{ line.user.username }}</small>
+                </div>
+              </div>
+            </td>
+            <td class="mono">{{ line.base_salary }}</td>
+            <td class="mono">{{ line.worked_days }}<span class="muted">/{{ line.working_days }}</span></td>
+            <td class="mono">
+              {{ line.leave_days }}
+              {% if line.extra_leave_days %}
+                <span class="badge badge--dead">+{{ line.extra_leave_days }}</span>
+              {% endif %}
+              {% if line.unexcused_days %}
+                <span class="badge badge--dead" data-ar="غياب" data-en="Absent">غياب {{ line.unexcused_days }}</span>
+              {% endif %}
+            </td>
+            <td class="mono {% if line.below_alert_threshold %}deadline--late{% endif %}">
+              {{ line.total_words }}
+            </td>
+            <td class="mono">{{ line.production_bonus }}</td>
+            <td class="mono">
+              {{ line.bonus_total }}
+              {% if line.pending_bonus %}
+                <span class="badge badge--wait"
+                      data-ar="مستنية اعتماد" data-en="Awaiting approval">مستنية {{ line.pending_bonus }}</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ line.deductions }}</td>
+            <td class="mono"><strong>{{ line.net }}</strong></td>
+            <td>
+              <a class="btn btn--sm" href="{% url 'dashboard:accounts_line' line.pk %}"
+                 data-ar="التفاصيل" data-en="Detail">التفاصيل</a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty"
+         data-ar="الشهر ده لسه ماتحسبش. اضغط «احسب الشهر»."
+         data-en="This month has not been computed yet. Use Run the month.">
+      الشهر ده لسه ماتحسبش. اضغط «احسب الشهر».
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "alert" %}
+    <h3 data-ar="خصومات مستنية الاعتماد" data-en="Deductions awaiting approval">خصومات مستنية الاعتماد</h3>
+    <div class="grow"></div>
+    <a class="btn btn--sm" href="{% url 'dashboard:accounts_violations' %}"
+       data-ar="كل المخالفات" data-en="All violations">كل المخالفات</a>
+  </div>
+  {% if pending_violations %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th data-ar="المترجم" data-en="Translator">المترجم</th>
+            <th data-ar="التاريخ" data-en="Date">التاريخ</th>
+            <th data-ar="النوع" data-en="Kind">النوع</th>
+            <th data-ar="السبب" data-en="Reason">السبب</th>
+            <th data-ar="الخصم" data-en="Penalty">الخصم</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in pending_violations %}
+          <tr>
+            <td>{{ row.user.short_name }}</td>
+            <td class="mono">{{ row.date }}</td>
+            <td>
+              {{ row.get_kind_display }}
+              {% if row.escalated %}
+                <span class="badge badge--dead"
+                      data-ar="تصعيد للمدير" data-en="Escalated">تصعيد للمدير</span>
+              {% endif %}
+            </td>
+            <td class="muted">{{ row.reason }}</td>
+            <td class="mono">
+              {% if row.penalty_days %}{{ row.penalty_days }}
+                <span class="muted" data-ar="يوم" data-en="days">يوم</span>{% endif %}
+              {% if row.penalty_amount %}{{ row.penalty_amount }}{% endif %}
+            </td>
+            <td>
+              <div class="row row--tight">
+                <form method="post"
+                      action="{% url 'dashboard:accounts_violation_decide' row.pk 'approve' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button class="btn btn--sm btn--ok" type="submit"
+                          data-ar="اعتماد" data-en="Approve">اعتماد</button>
+                </form>
+                <form method="post"
+                      action="{% url 'dashboard:accounts_violation_decide' row.pk 'reject' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button class="btn btn--sm btn--ghost" type="submit"
+                          data-ar="رفض" data-en="Reject">رفض</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty" data-ar="مفيش حاجة مستنية." data-en="Nothing waiting.">مفيش حاجة مستنية.</div>
+  {% endif %}
+</div>
+
+<div class="note note--info">
+  {% icon "info" %}
+  <div data-ar="مفيش خصم بيتطبق لوحده. النظام بيقترح، والمدير بيعتمد — والمكافأتين الشهريتين بيتحسبوا وبيتصرفوا بعد الاعتماد."
+       data-en="No deduction applies by itself. The system proposes, the manager approves - and the two monthly bonuses are computed but paid only once released.">
+    مفيش خصم بيتطبق لوحده. النظام بيقترح، والمدير بيعتمد — والمكافأتين الشهريتين بيتحسبوا وبيتصرفوا بعد الاعتماد.
+  </div>
+</div>
+{% endblock %}

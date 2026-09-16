@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Violations{% endblock %}
+{% block page_title %}<span data-ar="المخالفات والخصومات" data-en="Violations">المخالفات والخصومات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="المخالفات والخصومات" data-en="Violations and deductions">المخالفات والخصومات</h1>
+  <div class="page-head__sub"
+       data-ar="مفيش خصم بيتطبق قبل اعتماد المدير."
+       data-en="No deduction applies before the manager approves it.">
+    مفيش خصم بيتطبق قبل اعتماد المدير.
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div>
+    <div class="card">
+      <div class="card__head">
+        {% icon "timer" %}
+        <h3 data-ar="مستنية الاعتماد" data-en="Awaiting approval">مستنية الاعتماد</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="المترجم" data-en="Translator">المترجم</th>
+              <th data-ar="التاريخ" data-en="Date">التاريخ</th>
+              <th data-ar="النوع" data-en="Kind">النوع</th>
+              <th data-ar="التاسك" data-en="Task">التاسك</th>
+              <th data-ar="السبب" data-en="Reason">السبب</th>
+              <th data-ar="الخصم" data-en="Penalty">الخصم</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in pending %}
+            <tr>
+              <td>{{ row.user.short_name }}</td>
+              <td class="mono">{{ row.date }}</td>
+              <td>
+                {{ row.get_kind_display }}
+                {% if row.escalated %}
+                  <span class="badge badge--dead"
+                        data-ar="تصعيد للمدير" data-en="Escalated">تصعيد للمدير</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ row.task.code|default:"—" }}</td>
+              <td class="muted">{{ row.reason }}</td>
+              <td class="mono">
+                {% if row.penalty_days %}{{ row.penalty_days }}
+                  <span class="muted" data-ar="يوم" data-en="days">يوم</span>{% endif %}
+                {% if row.penalty_amount %}{{ row.penalty_amount }}{% endif %}
+              </td>
+              <td>
+                <div class="row row--tight">
+                  <form method="post"
+                        action="{% url 'dashboard:accounts_violation_decide' row.pk 'approve' %}">
+                    {% csrf_token %}
+                    <button class="btn btn--sm btn--ok" type="submit"
+                            data-ar="اعتماد" data-en="Approve">اعتماد</button>
+                  </form>
+                  <form method="post"
+                        action="{% url 'dashboard:accounts_violation_decide' row.pk 'reject' %}">
+                    {% csrf_token %}
+                    <button class="btn btn--sm btn--ghost" type="submit"
+                            data-ar="رفض" data-en="Reject">رفض</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7" class="empty"
+                    data-ar="مفيش حاجة مستنية." data-en="Nothing waiting.">مفيش حاجة مستنية.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "history" %}
+        <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="المترجم" data-en="Translator">المترجم</th>
+              <th data-ar="التاريخ" data-en="Date">التاريخ</th>
+              <th data-ar="النوع" data-en="Kind">النوع</th>
+              <th data-ar="الحالة" data-en="State">الحالة</th>
+              <th data-ar="اعتمدها" data-en="By">اعتمدها</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in decided %}
+            <tr>
+              <td>{{ row.user.short_name }}</td>
+              <td class="mono">{{ row.date }}</td>
+              <td>{{ row.get_kind_display }}</td>
+              <td>
+                {% if row.status == 'approved' %}
+                  <span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span>
+                {% else %}
+                  <span class="badge badge--info" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
+                {% endif %}
+              </td>
+              <td class="muted">{{ row.approved_by.short_name|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="سجل مخالفة" data-en="Record a violation">سجل مخالفة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label data-ar="المترجم" data-en="Translator">المترجم</label>
+          {{ form.user }}{{ form.user.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="التاريخ" data-en="Date">التاريخ</label>
+          {{ form.date }}{{ form.date.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="النوع" data-en="Kind">النوع</label>
+          {{ form.kind }}
+        </div>
+        <div class="field">
+          <label data-ar="التاسك (اختياري)" data-en="Task (optional)">التاسك (اختياري)</label>
+          {{ form.task }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="خصم بالأيام" data-en="Days">خصم بالأيام</label>
+            {{ form.penalty_days }}{{ form.penalty_days.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="خصم بالجنيه" data-en="Amount">خصم بالجنيه</label>
+            {{ form.penalty_amount }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="السبب" data-en="Reason">السبب</label>
+          {{ form.reason }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="سجل" data-en="Record">سجل</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "list-checks" %}
+        <h3 data-ar="القيم الافتراضية" data-en="Default penalties">القيم الافتراضية</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="خطأ ترجمة" data-en="Translation error">خطأ ترجمة</span>
+        <span class="mono">{{ conf.quality_penalty_days }}
+          <span class="muted" data-ar="يوم" data-en="days">يوم</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="غياب بدون إذن" data-en="Unexcused absence">غياب بدون إذن</span>
+        <span class="mono">{{ conf.unexcused_penalty_days }}
+          <span class="muted" data-ar="يوم" data-en="days">يوم</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="انخفاض إنتاجية" data-en="Low productivity">انخفاض إنتاجية</span>
+        <span class="mono">{{ conf.low_output_penalty_days }}
+          <span class="muted" data-ar="يوم" data-en="days">يوم</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="إجازة زيادة" data-en="Leave over balance">إجازة زيادة</span>
+        <span class="mono">{{ conf.extra_leave_penalty_days }}
+          <span class="muted" data-ar="يوم" data-en="days">يوم</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="التارجت مااتحققش" data-en="Missed target">التارجت مااتحققش</span>
+        <span class="mono">{{ conf.target_miss_penalty }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

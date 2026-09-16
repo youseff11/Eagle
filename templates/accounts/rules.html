@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Payroll rules{% endblock %}
+{% block page_title %}<span data-ar="قواعد الحساب" data-en="Payroll rules">قواعد الحساب</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="قواعد حساب المستحقات" data-en="Payroll rules">قواعد حساب المستحقات</h1>
+  <div class="page-head__sub"
+       data-ar="كل رقم هنا بيتعدل من غير ما حد يفتح الكود."
+       data-en="Every number here changes without touching the code.">
+    كل رقم هنا بيتعدل من غير ما حد يفتح الكود.
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div>
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "calendar" %}
+          <h3 data-ar="الشهر واليوم" data-en="The month and the day">الشهر واليوم</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="ساعات اليوم" data-en="Hours a day">ساعات اليوم</label>
+            {{ form.daily_hours }}
+          </div>
+          <div class="field">
+            <label data-ar="أيام العمل في الشهر" data-en="Working days a month">أيام العمل في الشهر</label>
+            {{ form.working_days_per_month }}{{ form.working_days_per_month.errors }}
+            <small class="muted"
+                   data-ar="قيمة اليوم = الراتب ÷ الرقم ده."
+                   data-en="A day is worth the salary divided by this.">
+              قيمة اليوم = الراتب ÷ الرقم ده.
+            </small>
+          </div>
+          <div class="field">
+            <label data-ar="رصيد الإجازات الشهري" data-en="Monthly leave balance">رصيد الإجازات الشهري</label>
+            {{ form.monthly_leave_allowance }}
+          </div>
+          <div class="field">
+            <label data-ar="الحد اليومي (لغة أساسية)" data-en="Daily floor (primary)">الحد اليومي</label>
+            {{ form.daily_target_words }}
+          </div>
+          <div class="field">
+            <label data-ar="الحد اليومي (لغة تانية)" data-en="Daily floor (secondary)">الحد اليومي (لغة تانية)</label>
+            {{ form.secondary_daily_target_words }}
+          </div>
+          <div class="field">
+            <label data-ar="التارجت الشهري" data-en="Monthly target">التارجت الشهري</label>
+            {{ form.monthly_target_words }}{{ form.monthly_target_words.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="حد التنبيه الشهري" data-en="Monthly alert line">حد التنبيه الشهري</label>
+            {{ form.monthly_alert_words }}{{ form.monthly_alert_words.errors }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "alert" %}
+          <h3 data-ar="الخصومات" data-en="Deductions">الخصومات</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="يوم إجازة زيادة (بالأيام)" data-en="Extra leave day (in days)">يوم إجازة زيادة</label>
+            {{ form.extra_leave_penalty_days }}
+          </div>
+          <div class="field">
+            <label data-ar="غياب بدون إذن (بالأيام)" data-en="Unexcused absence (in days)">غياب بدون إذن</label>
+            {{ form.unexcused_penalty_days }}
+          </div>
+          <div class="field">
+            <label data-ar="خطأ ترجمة (بالأيام)" data-en="Translation error (in days)">خطأ ترجمة</label>
+            {{ form.quality_penalty_days }}
+          </div>
+          <div class="field">
+            <label data-ar="انخفاض إنتاجية (بالأيام)" data-en="Low productivity (in days)">انخفاض إنتاجية</label>
+            {{ form.low_output_penalty_days }}
+          </div>
+          <div class="field">
+            <label data-ar="الغياب رقم كام يتصعّد للمدير" data-en="Which absence escalates">الغياب رقم كام يتصعّد</label>
+            {{ form.unexcused_escalation_count }}
+          </div>
+          <div class="field">
+            <label data-ar="خصم عدم تحقيق التارجت (جنيه)" data-en="Missed target penalty">خصم عدم تحقيق التارجت</label>
+            {{ form.target_miss_penalty }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "star" %}
+          <h3 data-ar="المكافآت" data-en="Bonuses">المكافآت</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="مكافأة الانضباط" data-en="Discipline bonus">مكافأة الانضباط</label>
+            {{ form.discipline_bonus }}
+          </div>
+          <div class="field">
+            <label data-ar="مكافأة تحقيق التارجت" data-en="Target bonus">مكافأة تحقيق التارجت</label>
+            {{ form.target_bonus }}
+          </div>
+        </div>
+        <label class="switch mt">
+          {{ form.bonuses_need_approval }}
+          <span data-ar="المكافأتين محتاجين اعتماد المدير قبل الصرف"
+                data-en="The two bonuses need the manager to release them">
+            المكافأتين محتاجين اعتماد المدير قبل الصرف
+          </span>
+        </label>
+      </div>
+
+      <button class="btn btn--primary" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="احفظ القواعد" data-en="Save the rules">احفظ القواعد</span>
+      </button>
+    </form>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "layers" %}
+        <h3 data-ar="شرائح بونص الإنتاج اليومي" data-en="Daily production bonus bands">شرائح بونص الإنتاج اليومي</h3>
+      </div>
+
+      <div class="note note--info">
+        {% icon "info" %}
+        <div data-ar="الشريحة مفتوحة من تحت ومقفولة من فوق: اليوم بياخد الشريحة لما الكلمات تكون أكتر من البداية ولحد النهاية. يعني الحد اليومي نفسه مش بونص — اللي فوقه هو البونص."
+             data-en="A band is open on the left and closed on the right: the day pays it when words are above the lower edge and up to the upper one. Hitting the floor itself pays nothing; beating it is what pays.">
+          الشريحة مفتوحة من تحت ومقفولة من فوق: اليوم بياخد الشريحة لما الكلمات تكون أكتر من البداية ولحد النهاية.
+          يعني الحد اليومي نفسه مش بونص — اللي فوقه هو البونص.
+        </div>
+      </div>
+
+      <h4 data-ar="اللغة الأساسية" data-en="Primary language">اللغة الأساسية</h4>
+      {% include "accounts/_tier_table.html" with tiers=primary %}
+
+      <h4 class="mt" data-ar="لغة غير أساسية" data-en="Secondary language">لغة غير أساسية</h4>
+      {% include "accounts/_tier_table.html" with tiers=secondary %}
+
+      <form method="post" action="{% url 'dashboard:accounts_tier_add' %}">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="النوع" data-en="Scale">النوع</label>
+            {{ tier_form.scale }}
+          </div>
+          <div class="field">
+            <label data-ar="أكتر من" data-en="Above">أكتر من</label>
+            {{ tier_form.min_words }}
+          </div>
+          <div class="field">
+            <label data-ar="لحد" data-en="Up to">لحد</label>
+            {{ tier_form.max_words }}
+          </div>
+          <div class="field">
+            <label data-ar="البونص" data-en="Bonus">البونص</label>
+            {{ tier_form.bonus }}
+          </div>
+        </div>
+        <button class="btn" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف شريحة" data-en="Add a band">ضيف شريحة</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "target" %}
+        <h3 data-ar="اتأكد إن الأرقام متسقة" data-en="Keep the numbers consistent">اتأكد إن الأرقام متسقة</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام × الحد اليومي" data-en="Days x daily floor">أيام × الحد اليومي</span>
+        <span class="mono">{{ conf.working_days_per_month }} × {{ conf.daily_target_words }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="التارجت الشهري" data-en="Monthly target">التارجت الشهري</span>
+        <span class="mono">{{ conf.monthly_target_words }}</span>
+      </div>
+      <div class="note note--warn">
+        {% icon "alert" %}
+        <div data-ar="لو التارجت أكبر من أيام العمل × الحد اليومي، مفيش مترجم هيقدر يوصله مهما شغل."
+             data-en="If the target exceeds working days times the daily floor, nobody can reach it however hard they work.">
+          لو التارجت أكبر من أيام العمل × الحد اليومي، مفيش مترجم هيقدر يوصله مهما شغل.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

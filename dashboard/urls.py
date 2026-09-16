@@ -29,10 +29,42 @@ urlpatterns = [
     # -- team leader / translator -------------------------------------------
     path("lead/", views.lead_home, name="lead_home"),
     path("translator/", views.translator_home, name="translator_home"),
+    path("translator/payroll/", views.translator_payroll, name="translator_payroll"),
+
+    # -- accounts -----------------------------------------------------------
+    path("accounts/", views.accounts_overview, name="accounts_overview"),
+    path("accounts/recalculate/", views.accounts_recalculate, name="accounts_recalculate"),
+    path(
+        "accounts/period/<int:pk>/approve/",
+        views.accounts_period_approve,
+        name="accounts_period_approve",
+    ),
+    path("accounts/line/<int:pk>/", views.accounts_line, name="accounts_line"),
+    path(
+        "accounts/line/<int:pk>/bonus/",
+        views.accounts_line_bonus,
+        name="accounts_line_bonus",
+    ),
+    path("accounts/attendance/", views.accounts_attendance, name="accounts_attendance"),
+    path("accounts/violations/", views.accounts_violations, name="accounts_violations"),
+    path(
+        "accounts/violations/<int:pk>/<str:action>/",
+        views.accounts_violation_decide,
+        name="accounts_violation_decide",
+    ),
+    path("accounts/rules/", views.accounts_rules, name="accounts_rules"),
+    path("accounts/rules/tier/", views.accounts_tier_add, name="accounts_tier_add"),
+    path(
+        "accounts/rules/tier/<int:pk>/delete/",
+        views.accounts_tier_delete,
+        name="accounts_tier_delete",
+    ),
+    path("accounts/salary/<int:pk>/", views.accounts_salary, name="accounts_salary"),
 
     # -- tasks --------------------------------------------------------------
     path("tasks/<str:code>/", views.task_detail, name="task_detail"),
     path("tasks/<str:code>/requirement/", views.task_add_requirement, name="task_requirement"),
+    path("tasks/<str:code>/words/", views.task_word_count, name="task_word_count"),
 
     # -- clients ------------------------------------------------------------
     path("clients/", views.client_list, name="client_list"),

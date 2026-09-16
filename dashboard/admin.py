@@ -18,10 +18,17 @@ from .models import (
     MessageAttachment,
     Notification,
     OutboundAttachment,
+    PayrollLine,
+    PayrollPeriod,
+    PayrollSettings,
+    ProductionTier,
     RatingEvent,
+    SalaryRecord,
     Shift,
     Task,
     User,
+    Violation,
+    WorkDay,
 )
 
 
@@ -115,9 +122,54 @@ class OutboundMessageAdmin(admin.ModelAdmin):
     inlines = [OutboundAttachmentInline]
 
 
+@admin.register(ProductionTier)
+class ProductionTierAdmin(admin.ModelAdmin):
+    list_display = ("scale", "min_words", "max_words", "bonus")
+    list_filter = ("scale",)
+
+
+@admin.register(WorkDay)
+class WorkDayAdmin(admin.ModelAdmin):
+    list_display = ("user", "date", "status", "words", "is_secondary_language", "difficult_file")
+    list_filter = ("status", "is_secondary_language", "difficult_file")
+    search_fields = ("user__username",)
+    date_hierarchy = "date"
+
+
+@admin.register(Violation)
+class ViolationAdmin(admin.ModelAdmin):
+    list_display = ("user", "date", "kind", "status", "penalty_days", "penalty_amount")
+    list_filter = ("kind", "status")
+    search_fields = ("user__username", "reason")
+
+
+class PayrollLineInline(admin.TabularInline):
+    model = PayrollLine
+    extra = 0
+    readonly_fields = ("user", "base_salary", "production_bonus", "deductions", "net")
+
+
+@admin.register(PayrollPeriod)
+class PayrollPeriodAdmin(admin.ModelAdmin):
+    list_display = ("label", "status", "computed_at", "approved_by")
+    list_filter = ("status",)
+    inlines = [PayrollLineInline]
+
+
+@admin.register(PayrollSettings)
+class PayrollSettingsAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "working_days_per_month", "daily_target_words", "updated_at")
+
+    def has_add_permission(self, request):
+        return not PayrollSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 admin.site.register([
     Shift, ClientRequirement, Assignment, ChatRoom, Notification,
-    RatingEvent, AICheckResult, AuditLog,
+    RatingEvent, AICheckResult, AuditLog, SalaryRecord,
 ])
 
 admin.site.site_header = "Eagle administration"

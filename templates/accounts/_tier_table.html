@@ -1,0 +1,32 @@
+{% load eagle_tags %}
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th data-ar="أكتر من" data-en="Above">أكتر من</th>
+        <th data-ar="لحد" data-en="Up to">لحد</th>
+        <th data-ar="بونص اليوم" data-en="Day bonus">بونص اليوم</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for tier in tiers %}
+      <tr>
+        <td class="mono">{{ tier.min_words }}</td>
+        <td class="mono">{{ tier.max_words|default:"—" }}</td>
+        <td class="mono">{{ tier.bonus }}</td>
+        <td>
+          <form method="post" action="{% url 'dashboard:accounts_tier_delete' tier.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--sm btn--ghost" type="submit"
+                    data-ar="شيل" data-en="Remove">شيل</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4" class="empty"
+              data-ar="مفيش شرائح." data-en="No bands.">مفيش شرائح.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

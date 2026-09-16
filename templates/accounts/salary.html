@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Salary{% endblock %}
+{% block page_title %}<span data-ar="سجل الراتب" data-en="Salary history">سجل الراتب</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ person.short_name }}</h1>
+  <div class="page-head__sub mono">{{ person.username }}</div>
+</div>
+
+<div class="grid grid--main">
+  <div>
+    <div class="card">
+      <div class="card__head">
+        {% icon "history" %}
+        <h3 data-ar="الرواتب" data-en="Salaries">الرواتب</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="ساري من" data-en="Effective from">ساري من</th>
+              <th data-ar="الراتب" data-en="Salary">الراتب</th>
+              <th data-ar="ملاحظة" data-en="Note">ملاحظة</th>
+              <th data-ar="سجّله" data-en="Recorded by">سجّله</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in records %}
+            <tr>
+              <td class="mono">{{ row.effective_from }}</td>
+              <td class="mono">{{ row.amount }}</td>
+              <td class="muted">{{ row.note }}</td>
+              <td class="muted">{{ row.created_by.short_name|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="empty"
+                    data-ar="مفيش راتب مسجل — السطر هيطلع بصفر."
+                    data-en="No salary on record - the payroll line computes to zero.">
+              مفيش راتب مسجل — السطر هيطلع بصفر.
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="الشهور المحسوبة" data-en="Computed months">الشهور المحسوبة</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th data-ar="الشهر" data-en="Month">الشهر</th>
+              <th data-ar="الأساسي" data-en="Base">الأساسي</th>
+              <th data-ar="كلمات" data-en="Words">كلمات</th>
+              <th data-ar="الصافي" data-en="Net">الصافي</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for line in lines %}
+            <tr>
+              <td class="mono">{{ line.period.label }}</td>
+              <td class="mono">{{ line.base_salary }}</td>
+              <td class="mono">{{ line.total_words }}</td>
+              <td class="mono"><strong>{{ line.net }}</strong></td>
+              <td>
+                <a class="btn btn--sm" href="{% url 'dashboard:accounts_line' line.pk %}"
+                   data-ar="التفاصيل" data-en="Detail">التفاصيل</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="لسه مفيش شهور محسوبة." data-en="No months computed yet.">
+              لسه مفيش شهور محسوبة.
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="راتب جديد" data-en="New salary">راتب جديد</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label data-ar="الراتب" data-en="Salary">الراتب</label>
+          {{ form.amount }}{{ form.amount.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="ساري من" data-en="Effective from">ساري من</label>
+          {{ form.effective_from }}{{ form.effective_from.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="ملاحظة" data-en="Note">ملاحظة</label>
+          {{ form.note }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="سجل" data-en="Record">سجل</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="note note--info">
+      {% icon "shield" %}
+      <div data-ar="الراتب القديم مابيتمسحش. أي شهر بيتحسب بالراتب اللي كان ساري فيه."
+           data-en="An old salary is never overwritten. Each month is computed on the salary that was in force then.">
+        الراتب القديم مابيتمسحش. أي شهر بيتحسب بالراتب اللي كان ساري فيه.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

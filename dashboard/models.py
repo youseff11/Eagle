@@ -64,6 +64,19 @@ class Priority(models.TextChoices):
     URGENT = "urgent", "Urgent"
 
 
+class WordCountState(models.TextChoices):
+    """Where a task's word count came from, and whether it can be trusted."""
+
+    EMPTY = "empty", "Not counted yet"
+    #: Read from the files and cross-checked - it may go straight to payroll.
+    AUTO = "auto", "Counted from the files"
+    #: Counted, but the two sides disagree or only one could be read.
+    REVIEW = "review", "Needs a human to confirm"
+    #: Nothing readable - a PDF or a scan. Somebody has to type it.
+    MANUAL_NEEDED = "manual_needed", "Must be entered by hand"
+    CONFIRMED = "confirmed", "Confirmed by a person"
+
+
 class RoomKind(models.TextChoices):
     OPS_LEAD = "ops_lead", "Operation + Team leader"
     GROUP = "group", "Operation + Team leader + Translator"
@@ -491,6 +504,29 @@ class Task(models.Model):
     description = models.TextField(blank=True)
     source_lang = models.CharField(max_length=40, blank=True)
     target_lang = models.CharField(max_length=40, blank=True)
+    #: The job's size. Payroll reads production from here and never from
+    #: anything the translator types about themselves.
+    word_count = models.PositiveIntegerField(default=0)
+    #: Counted out of the files by ``wordcount.recount_task``. The source is
+    #: what payroll uses - the client sent it, so the person whose bonus rides
+    #: on it cannot inflate it. The translated side is kept beside it because
+    #: the gap between the two is the signal worth looking at.
+    source_words = models.PositiveIntegerField(default=0)
+    translated_words = models.PositiveIntegerField(default=0)
+    source_word_method = models.CharField(max_length=16, blank=True)
+    translated_word_method = models.CharField(max_length=16, blank=True)
+    word_count_state = models.CharField(
+        max_length=16, choices=WordCountState.choices,
+        default=WordCountState.EMPTY, db_index=True,
+    )
+    word_count_note = models.CharField(max_length=250, blank=True)
+    is_difficult = models.BooleanField(
+        default=False,
+        help_text="Set by the project manager - exempts the day from the production floor.",
+    )
+    is_secondary_language = models.BooleanField(
+        default=False, help_text="The translator worked outside their main language."
+    )
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.NORMAL)
     status = models.CharField(
         max_length=24, choices=TaskStatus.choices, default=TaskStatus.NEW, db_index=True
@@ -542,6 +578,29 @@ class Task(models.Model):
     @property
     def pending_assignment(self):
         return self.assignments.filter(status=AssignmentStatus.PENDING).order_by("-id").first()
+
+    @property
+    def word_count_is_settled(self):
+        """True when the number may walk into payroll without being asked."""
+        return self.word_count_state in (WordCountState.AUTO, WordCountState.CONFIRMED)
+
+    @property
+    def word_count_gap(self):
+        """How far the translation is from its source, as a percentage."""
+        if not self.source_words or not self.translated_words:
+            return None
+        return abs(self.translated_words - self.source_words) / self.source_words * 100
+
+    @property
+    def production_date(self):
+        """The day this job counts towards, in local time.
+
+        The translator's work is done when the translation lands, so that is
+        the stamp payroll uses. Review and delivery can slide into the next
+        day - or the next month - without moving the words with them.
+        """
+        stamp = self.translated_at or self.delivered_at
+        return timezone.localtime(stamp).date() if stamp else None
 
     def deadline_state(self):
         if not self.deadline:
@@ -1006,3 +1065,467 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} · {self.target}"
+
+
+# ---------------------------------------------------------------------------
+# Accounts - translator payroll
+#
+# The contract is turned into data, not code: every threshold, tier and money
+# value below lives in `PayrollSettings` or `ProductionTier` so the admin can
+# change the rules from the panel without a deploy. Nothing that costs someone
+# money is applied automatically - a deduction becomes a `Violation` that a
+# manager has to approve first.
+# ---------------------------------------------------------------------------
+
+class TierScale(models.TextChoices):
+    PRIMARY = "primary", "Primary language"
+    SECONDARY = "secondary", "Secondary language"
+
+
+class DayStatus(models.TextChoices):
+    PRESENT = "present", "Present"
+    LEAVE = "leave", "Paid leave"
+    EXCUSED = "excused", "Excused absence"
+    UNEXCUSED = "unexcused", "Unexcused absence"
+    WEEKLY_OFF = "weekly_off", "Weekly off"
+    HOLIDAY = "holiday", "Public holiday"
+
+
+#: Days the translator was expected at a desk. Everything else is either a day
+#: off by design or an absence the payroll has to price.
+WORKING_DAY_STATUSES = (DayStatus.PRESENT,)
+
+#: Days that eat from the monthly leave balance.
+LEAVE_STATUSES = (DayStatus.LEAVE, DayStatus.EXCUSED)
+
+
+class ViolationKind(models.TextChoices):
+    DISCIPLINE = "discipline", "Internal rules"
+    QUALITY = "quality", "Translation error"
+    LOW_OUTPUT = "low_output", "Low productivity"
+    UNEXCUSED = "unexcused", "Absence without permission"
+    EXTRA_LEAVE = "extra_leave", "Leave beyond the balance"
+    TARGET_MISS = "target_miss", "Monthly target missed"
+    MANUAL = "manual", "Manual adjustment"
+
+
+class ApprovalStatus(models.TextChoices):
+    PENDING = "pending", "Waiting for approval"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+
+
+class PeriodStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    APPROVED = "approved", "Approved"
+    LOCKED = "locked", "Locked"
+
+
+class PayrollSettings(models.Model):
+    """Every number the payroll engine reads. One row, edited from the panel."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    daily_hours = models.PositiveSmallIntegerField(default=8)
+
+    #: A calendar month minus the four weekly days off. 26 x 3,000 = 78,000,
+    #: which is exactly the monthly target below - the two numbers have to
+    #: keep agreeing or the target becomes unreachable by construction.
+    working_days_per_month = models.PositiveSmallIntegerField(default=26)
+    monthly_leave_allowance = models.PositiveSmallIntegerField(default=4)
+
+    daily_target_words = models.PositiveIntegerField(default=3000)
+    secondary_daily_target_words = models.PositiveIntegerField(default=1500)
+    monthly_target_words = models.PositiveIntegerField(default=78000)
+    monthly_alert_words = models.PositiveIntegerField(
+        default=75000, help_text="Below this the admin is warned for the month."
+    )
+
+    #: Deductions, in days of pay. None of them is applied without approval.
+    extra_leave_penalty_days = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("1.25"),
+        help_text="Per leave day beyond the monthly allowance.",
+    )
+    unexcused_penalty_days = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("2.00")
+    )
+    quality_penalty_days = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("2.00")
+    )
+    low_output_penalty_days = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0.25")
+    )
+    unexcused_escalation_count = models.PositiveSmallIntegerField(
+        default=3, help_text="The n-th absence without permission escalates to the owner."
+    )
+
+    #: Money values.
+    target_miss_penalty = models.DecimalField(
+        max_digits=9, decimal_places=2, default=Decimal("250.00")
+    )
+    discipline_bonus = models.DecimalField(
+        max_digits=9, decimal_places=2, default=Decimal("250.00")
+    )
+    target_bonus = models.DecimalField(
+        max_digits=9, decimal_places=2, default=Decimal("250.00")
+    )
+
+    #: How far a translation may sit from its source before the count stops
+    #: being applied on its own. Arabic runs shorter than English for the same
+    #: content, so a band this wide is normal; well outside it is not.
+    word_count_gap_percent = models.PositiveSmallIntegerField(
+        default=40,
+        help_text="Above this gap between source and translation, a person confirms the count.",
+    )
+
+    #: The two bonuses are computed by the system but paid only once approved.
+    bonuses_need_approval = models.BooleanField(default=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Payroll settings"
+        verbose_name_plural = "Payroll settings"
+
+    def __str__(self):
+        return "Payroll rules"
+
+    def save(self, *args, **kwargs):
+        self.singleton = 1
+        super().save(*args, **kwargs)
+        PayrollSettings._cached = None
+
+    _cached = None
+
+    @classmethod
+    def load(cls):
+        obj, created = cls.objects.get_or_create(singleton=1)
+        if created:
+            ProductionTier.seed_defaults()
+        return obj
+
+    def target_for(self, secondary=False):
+        return self.secondary_daily_target_words if secondary else self.daily_target_words
+
+
+class ProductionTier(models.Model):
+    """One band of the daily production bonus.
+
+    The band is open on the left and closed on the right: a day pays this tier
+    when ``min_words < words <= max_words``. That is what makes the first tier
+    start *above* the daily target - hitting 3,000 exactly is the job, not a
+    bonus; 3,001 upwards is the extra the contract pays for.
+    """
+
+    scale = models.CharField(max_length=12, choices=TierScale.choices, default=TierScale.PRIMARY)
+    min_words = models.PositiveIntegerField(help_text="Exclusive lower edge.")
+    max_words = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Inclusive upper edge. Blank = open ended."
+    )
+    bonus = models.DecimalField(max_digits=9, decimal_places=2)
+
+    class Meta:
+        ordering = ("scale", "min_words")
+        unique_together = (("scale", "min_words"),)
+
+    def __str__(self):
+        ceiling = self.max_words or "+"
+        return f"{self.get_scale_display()} {self.min_words}-{ceiling} = {self.bonus}"
+
+    def covers(self, words):
+        if words <= self.min_words:
+            return False
+        return self.max_words is None or words <= self.max_words
+
+    DEFAULTS = {
+        TierScale.PRIMARY: (
+            (3000, 3800, "25"),
+            (3800, 4600, "35"),
+            (4600, 5900, "45"),
+            (5900, None, "60"),
+        ),
+        TierScale.SECONDARY: (
+            (1500, 2000, "25"),
+            (2000, 2500, "35"),
+            (2500, 3000, "45"),
+            (3000, 3500, "55"),
+            (3500, 4000, "65"),
+            (4000, 4500, "75"),
+            (4500, 5000, "85"),
+            (5000, None, "95"),
+        ),
+    }
+
+    @classmethod
+    def seed_defaults(cls):
+        """Write the contract's two tables once, if the table is empty."""
+        if cls.objects.exists():
+            return
+        rows = []
+        for scale, bands in cls.DEFAULTS.items():
+            for low, high, bonus in bands:
+                rows.append(cls(scale=scale, min_words=low, max_words=high, bonus=Decimal(bonus)))
+        cls.objects.bulk_create(rows)
+
+    @classmethod
+    def bonus_for(cls, words, secondary=False, tiers=None):
+        scale = TierScale.SECONDARY if secondary else TierScale.PRIMARY
+        pool = tiers if tiers is not None else cls.objects.filter(scale=scale)
+        for tier in sorted(pool, key=lambda t: t.min_words):
+            if tier.scale == scale and tier.covers(words):
+                return Decimal(tier.bonus)
+        return Decimal("0.00")
+
+
+class SalaryRecord(models.Model):
+    """Salary history. Raising a salary never rewrites a month already paid."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="salary_records")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    effective_from = models.DateField()
+    note = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-effective_from", "-id")
+
+    def __str__(self):
+        return f"{self.user} {self.amount} from {self.effective_from}"
+
+    @classmethod
+    def amount_on(cls, user, on_date):
+        """The salary in force on a date - the basis for recomputing old months."""
+        row = cls.objects.filter(user=user, effective_from__lte=on_date).first()
+        return Decimal(row.amount) if row else Decimal("0.00")
+
+
+class WorkDay(models.Model):
+    """One translator, one date: attendance plus what that day produced.
+
+    ``words`` is never typed in by the translator. It is refreshed from the
+    tasks actually delivered that day (see ``payroll.words_on``), so the
+    payroll and the job log can never tell two different stories.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="work_days")
+    date = models.DateField(db_index=True)
+    status = models.CharField(
+        max_length=12, choices=DayStatus.choices, default=DayStatus.PRESENT, db_index=True
+    )
+
+    check_in = models.DateTimeField(null=True, blank=True)
+    check_out = models.DateTimeField(null=True, blank=True)
+    late_minutes = models.PositiveIntegerField(default=0)
+    early_leave_minutes = models.PositiveIntegerField(default=0)
+
+    words = models.PositiveIntegerField(default=0)
+    #: True once the refresh has written this day's count from the job log. A
+    #: day the admin filled in by hand stays False and the refresh leaves it
+    #: alone - otherwise switching a month to job-driven counting would wipe
+    #: everything recorded before the jobs carried word counts.
+    words_from_jobs = models.BooleanField(default=False)
+    is_secondary_language = models.BooleanField(
+        default=False, help_text="Worked in a language other than their main one."
+    )
+    difficult_file = models.BooleanField(
+        default=False, help_text="Manager marked the file difficult - exempt from the daily floor."
+    )
+
+    absence_reason = models.CharField(max_length=200, blank=True)
+    note = models.CharField(max_length=250, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-date",)
+        unique_together = (("user", "date"),)
+        indexes = [models.Index(fields=["user", "date"], name="dash_workday_user_date_idx")]
+
+    def __str__(self):
+        return f"{self.user} {self.date} {self.status}"
+
+    @property
+    def is_working_day(self):
+        return self.status in WORKING_DAY_STATUSES
+
+    @property
+    def worked_minutes(self):
+        if not (self.check_in and self.check_out):
+            return 0
+        return max(0, int((self.check_out - self.check_in).total_seconds() // 60))
+
+    def target(self, conf=None):
+        conf = conf or PayrollSettings.load()
+        return conf.target_for(self.is_secondary_language)
+
+    def is_under_target(self, conf=None):
+        """A difficult file is exempt - that exemption is the manager's call."""
+        if not self.is_working_day or self.difficult_file:
+            return False
+        return self.words < self.target(conf)
+
+    def bonus(self, tiers=None):
+        if not self.is_working_day:
+            return Decimal("0.00")
+        return ProductionTier.bonus_for(
+            self.words, secondary=self.is_secondary_language, tiers=tiers
+        )
+
+
+class Violation(models.Model):
+    """Anything that can cost money. Nothing here is applied until approved."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="violations")
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    date = models.DateField(db_index=True)
+    kind = models.CharField(max_length=16, choices=ViolationKind.choices)
+    status = models.CharField(
+        max_length=10, choices=ApprovalStatus.choices,
+        default=ApprovalStatus.PENDING, db_index=True,
+    )
+
+    #: A deduction is priced either in days of pay or as a flat amount.
+    penalty_days = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    penalty_amount = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("0.00"))
+
+    reason = models.CharField(max_length=250, blank=True)
+    escalated = models.BooleanField(
+        default=False, help_text="Third absence without permission - sent to the owner."
+    )
+    #: Set for rows the engine raised itself, so a recalculation replaces its
+    #: own pending drafts instead of piling duplicates on the same day.
+    auto_key = models.CharField(max_length=80, blank=True, db_index=True)
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-date", "-id")
+        indexes = [
+            models.Index(fields=["user", "date", "status"], name="dash_viol_user_date_idx")
+        ]
+
+    def __str__(self):
+        return f"{self.user} {self.get_kind_display()} {self.date} ({self.status})"
+
+    @property
+    def is_approved(self):
+        return self.status == ApprovalStatus.APPROVED
+
+    def approve(self, by):
+        self.status = ApprovalStatus.APPROVED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])
+
+    def reject(self, by):
+        self.status = ApprovalStatus.REJECTED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])
+
+
+class PayrollPeriod(models.Model):
+    """One accounting month. A locked period is never recomputed."""
+
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+    status = models.CharField(
+        max_length=10, choices=PeriodStatus.choices, default=PeriodStatus.DRAFT
+    )
+    note = models.CharField(max_length=250, blank=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-year", "-month")
+        unique_together = (("year", "month"),)
+
+    def __str__(self):
+        return f"{self.year}-{self.month:02d}"
+
+    @property
+    def label(self):
+        return f"{self.year}-{self.month:02d}"
+
+    @property
+    def is_locked(self):
+        return self.status == PeriodStatus.LOCKED
+
+    @property
+    def total_net(self):
+        return sum((line.net for line in self.lines.all()), Decimal("0.00"))
+
+
+class PayrollLine(models.Model):
+    """One translator's month, frozen. Every figure that produced ``net`` is
+    stored next to it, so a payslip can be reread years later without asking
+    today's settings what the rules used to be."""
+
+    period = models.ForeignKey(PayrollPeriod, on_delete=models.CASCADE, related_name="lines")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payroll_lines")
+
+    base_salary = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    working_days = models.PositiveSmallIntegerField(default=0)
+    day_value = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+
+    worked_days = models.PositiveSmallIntegerField(default=0)
+    leave_days = models.PositiveSmallIntegerField(default=0)
+    unexcused_days = models.PositiveSmallIntegerField(default=0)
+    extra_leave_days = models.PositiveSmallIntegerField(default=0)
+
+    total_words = models.PositiveIntegerField(default=0)
+    target_words = models.PositiveIntegerField(default=0)
+    under_target_days = models.PositiveSmallIntegerField(default=0)
+
+    production_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    discipline_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    target_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    deductions = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+
+    gross = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    net = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+
+    #: True when the bonus was earned but is still waiting on the manager, so
+    #: the screen can show "earned, not yet paid" instead of silently zero.
+    discipline_bonus_earned = models.BooleanField(default=False)
+    target_bonus_earned = models.BooleanField(default=False)
+    bonuses_approved = models.BooleanField(default=False)
+    below_alert_threshold = models.BooleanField(default=False)
+
+    #: Day-by-day and line-by-line detail behind the totals above.
+    breakdown = models.JSONField(default=dict, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("user__username",)
+        unique_together = (("period", "user"),)
+
+    def __str__(self):
+        return f"{self.user} {self.period.label} = {self.net}"
+
+    @property
+    def bonus_total(self):
+        """The two monthly bonuses actually being paid on this line."""
+        return self.discipline_bonus + self.target_bonus
+
+    @property
+    def pending_bonus(self):
+        """Money the translator has earned that approval is still holding."""
+        if self.bonuses_approved:
+            return Decimal("0.00")
+        conf = PayrollSettings.load()
+        total = Decimal("0.00")
+        if self.discipline_bonus_earned:
+            total += conf.discipline_bonus
+        if self.target_bonus_earned:
+            total += conf.target_bonus
+        return total

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}My payroll{% endblock %}
+{% block page_title %}<span data-ar="مستحقاتي" data-en="My payroll">مستحقاتي</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="مستحقاتي" data-en="My payroll">مستحقاتي</h1>
+  <div class="page-head__sub mono">{{ year }}-{{ month|stringformat:"02d" }}</div>
+  <div class="grow"></div>
+  {% include "accounts/_month_picker.html" %}
+</div>
+
+{% if line %}
+  <div class="grid grid--4">
+    <div class="kpi">
+      <div class="kpi__label" data-ar="الراتب الأساسي" data-en="Base salary">الراتب الأساسي</div>
+      <div class="kpi__value mono">{{ line.base_salary }}</div>
+    </div>
+    <div class="kpi kpi--ok">
+      <div class="kpi__label" data-ar="بونص الإنتاج" data-en="Production bonus">بونص الإنتاج</div>
+      <div class="kpi__value mono">{{ line.production_bonus }}</div>
+    </div>
+    <div class="kpi {% if line.deductions %}kpi--danger{% endif %}">
+      <div class="kpi__label" data-ar="خصومات" data-en="Deductions">خصومات</div>
+      <div class="kpi__value mono">{{ line.deductions }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__label" data-ar="الصافي" data-en="Net">الصافي</div>
+      <div class="kpi__value mono">{{ line.net }}</div>
+    </div>
+  </div>
+
+  <div class="row row--tight">
+    <a class="btn btn--primary" href="{% url 'dashboard:accounts_line' line.pk %}">
+      {% icon "file" "ic--sm" %}<span data-ar="التفاصيل كاملة" data-en="Full breakdown">التفاصيل كاملة</span>
+    </a>
+    {% if line.pending_bonus %}
+      <span class="badge badge--wait">
+        <span data-ar="مكافآت مستنية اعتماد" data-en="Bonuses awaiting approval">مكافآت مستنية اعتماد</span>
+        <span class="mono">{{ line.pending_bonus }}</span>
+      </span>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="note note--info">
+    {% icon "info" %}
+    <div data-ar="الشهر ده لسه ماتحسبش. هيظهر هنا أول ما الحسابات تشغّله."
+         data-en="This month has not been run yet. It appears here once accounts computes it.">
+      الشهر ده لسه ماتحسبش. هيظهر هنا أول ما الحسابات تشغّله.
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "calendar" %}
+      <h3 data-ar="أيامي في الشهر" data-en="My days">أيامي في الشهر</h3>
+      <div class="grow"></div>
+      <span class="muted mono">
+        {{ conf.daily_target_words }}
+        <span data-ar="كلمة في اليوم" data-en="words a day">كلمة في اليوم</span>
+      </span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th data-ar="اليوم" data-en="Date">اليوم</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="الكلمات" data-en="Words">الكلمات</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for day in days %}
+          <tr>
+            <td class="mono">{{ day.date }}</td>
+            <td>
+              {% if day.status == 'present' %}
+                <span class="badge badge--ok" data-ar="حاضر" data-en="Present">حاضر</span>
+              {% elif day.status == 'leave' %}
+                <span class="badge badge--info" data-ar="إجازة" data-en="Leave">إجازة</span>
+              {% elif day.status == 'unexcused' %}
+                <span class="badge badge--dead" data-ar="غياب بدون إذن" data-en="Unexcused">غياب بدون إذن</span>
+              {% else %}
+                <span class="badge">{{ day.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ day.words }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="empty"
+                  data-ar="مفيش أيام مسجلة." data-en="No days recorded.">مفيش أيام مسجلة.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "alert" %}
+        <h3 data-ar="المخالفات" data-en="Violations">المخالفات</h3>
+      </div>
+      {% for row in violations %}
+        <div class="note">
+          {% icon "info" %}
+          <div>
+            <div class="note__where mono">{{ row.date }} · {{ row.get_kind_display }}</div>
+            <div>{{ row.reason }}</div>
+            {% if row.status == 'approved' %}
+              <span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span>
+            {% elif row.status == 'pending' %}
+              <span class="badge badge--wait"
+                    data-ar="مستنية اعتماد" data-en="Awaiting approval">مستنية اعتماد</span>
+            {% else %}
+              <span class="badge badge--info" data-ar="مرفوضة" data-en="Rejected">مرفوضة</span>
+            {% endif %}
+          </div>
+        </div>
+      {% empty %}
+        <div class="empty" data-ar="مفيش مخالفات." data-en="No violations.">مفيش مخالفات.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

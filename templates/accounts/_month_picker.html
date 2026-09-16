@@ -1,0 +1,15 @@
+{% load eagle_tags %}
+<form method="get" class="row row--tight">
+  {% if picker_user %}<input type="hidden" name="user" value="{{ picker_user }}">{% endif %}
+  <select class="input" name="period" onchange="this.form.submit()">
+    {% for choice in periods %}
+      <option value="{{ choice.0 }}-{{ choice.1 }}"
+              {% if choice.0 == year and choice.1 == month %}selected{% endif %}>
+        {{ choice.0 }}-{{ choice.1|stringformat:"02d" }}
+      </option>
+    {% endfor %}
+  </select>
+  <button class="btn btn--sm" type="submit">
+    {% icon "refresh" "ic--sm" %}<span data-ar="اعرض" data-en="Show">اعرض</span>
+  </button>
+</form>

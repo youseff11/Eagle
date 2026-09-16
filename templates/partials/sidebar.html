@@ -57,6 +57,10 @@
         {% icon "users" %}
         <span data-ar="جروبات العملاء" data-en="Client groups">جروبات العملاء</span>
       </a>
+      <a class="nav__item {% if url_name == 'translator_payroll' %}is-active{% endif %}" href="{% url 'dashboard:translator_payroll' %}">
+        {% icon "archive" %}
+        <span data-ar="مستحقاتي" data-en="My payroll">مستحقاتي</span>
+      </a>
     {% endif %}
 
     {% if not user.is_translator %}
@@ -78,6 +82,21 @@
       <a class="nav__item {% if url_name == 'admin_clients' %}is-active{% endif %}" href="{% url 'dashboard:admin_clients' %}">
         {% icon "archive" %}<span data-ar="بيانات العملاء" data-en="Client records">بيانات العملاء</span>
       </a>
+      <div class="nav__label" data-ar="الحسابات" data-en="Accounts">الحسابات</div>
+      <a class="nav__item {% if url_name == 'accounts_overview' or url_name == 'accounts_line' or url_name == 'accounts_salary' %}is-active{% endif %}" href="{% url 'dashboard:accounts_overview' %}">
+        {% icon "calendar" %}<span data-ar="كشف الشهر" data-en="Monthly payroll">كشف الشهر</span>
+      </a>
+      <a class="nav__item {% if url_name == 'accounts_attendance' %}is-active{% endif %}" href="{% url 'dashboard:accounts_attendance' %}">
+        {% icon "timer" %}<span data-ar="الحضور والإنتاج" data-en="Attendance">الحضور والإنتاج</span>
+      </a>
+      <a class="nav__item {% if url_name == 'accounts_violations' %}is-active{% endif %}" href="{% url 'dashboard:accounts_violations' %}">
+        {% icon "alert" %}<span data-ar="المخالفات والخصومات" data-en="Violations">المخالفات والخصومات</span>
+      </a>
+      <a class="nav__item {% if url_name == 'accounts_rules' %}is-active{% endif %}" href="{% url 'dashboard:accounts_rules' %}">
+        {% icon "list-checks" %}<span data-ar="قواعد الحساب" data-en="Payroll rules">قواعد الحساب</span>
+      </a>
+
+      <div class="nav__label" data-ar="الأدمن" data-en="Admin">الأدمن</div>
       <a class="nav__item {% if url_name == 'admin_settings' %}is-active{% endif %}" href="{% url 'dashboard:admin_settings' %}">
         {% icon "sliders" %}<span data-ar="الإعدادات و AI" data-en="Settings & AI">الإعدادات و AI</span>
       </a>

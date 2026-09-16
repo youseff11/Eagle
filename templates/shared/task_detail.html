@@ -411,6 +411,94 @@
       {% endif %}
     </div>
 
+    <!-- --------------------------- word count ------------------------------- -->
+    {% if can_set_words %}
+    <div class="card">
+      <div class="card__head">
+        {% icon "list-checks" %}
+        <h3 data-ar="عدد الكلمات" data-en="Word count">عدد الكلمات</h3>
+        <div class="grow"></div>
+        {% if task.word_count_state == 'auto' %}
+          <span class="badge badge--ok" data-ar="اتقرا من الملفات" data-en="Read from the files">اتقرا من الملفات</span>
+        {% elif task.word_count_state == 'confirmed' %}
+          <span class="badge badge--ok" data-ar="مؤكد" data-en="Confirmed">مؤكد</span>
+        {% elif task.word_count_state == 'review' %}
+          <span class="badge badge--wait" data-ar="محتاج تأكيد" data-en="Needs confirming">محتاج تأكيد</span>
+        {% elif task.word_count_state == 'manual_needed' %}
+          <span class="badge badge--dead" data-ar="لازم يتكتب بالإيد" data-en="Must be typed">لازم يتكتب بالإيد</span>
+        {% else %}
+          <span class="badge" data-ar="لسه ماتقراش" data-en="Not counted">لسه ماتقراش</span>
+        {% endif %}
+      </div>
+
+      <div class="kv">
+        <strong data-ar="اللي الحسابات بتاخده" data-en="What payroll uses">اللي الحسابات بتاخده</strong>
+        <strong class="mono">{{ task.word_count }}</strong>
+      </div>
+      <div class="kv">
+        <span data-ar="ملف العميل (المصدر)" data-en="Client file (source)">ملف العميل (المصدر)</span>
+        <span class="mono">{{ task.source_words }}
+          <span class="muted">{{ task.source_word_method }}</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="ملف المترجم" data-en="Translator file">ملف المترجم</span>
+        <span class="mono">{{ task.translated_words }}
+          <span class="muted">{{ task.translated_word_method }}</span></span>
+      </div>
+      {% if task.word_count_gap %}
+        <div class="kv">
+          <span data-ar="الفرق بينهم" data-en="Gap">الفرق بينهم</span>
+          <span class="mono {% if task.word_count_state == 'review' %}deadline--late{% endif %}">
+            {{ task.word_count_gap|floatformat:0 }}%
+          </span>
+        </div>
+      {% endif %}
+
+      {% if task.word_count_note %}
+        <div class="note note--warn">
+          {% icon "alert" %}
+          <div>{{ task.word_count_note }}</div>
+        </div>
+      {% endif %}
+
+      <form method="post" action="{% url 'dashboard:task_word_count' task.code %}">
+        {% csrf_token %}
+        <div class="row row--tight">
+          <button class="btn btn--sm" type="submit" name="action" value="recount">
+            {% icon "refresh" "ic--sm" %}<span data-ar="اقرا الملفات تاني" data-en="Read the files again">اقرا الملفات تاني</span>
+          </button>
+          {% if task.source_words %}
+            <button class="btn btn--sm btn--ok" type="submit" name="action" value="source"
+                    data-ar="اعتمد المصدر" data-en="Use the source">اعتمد المصدر</button>
+          {% endif %}
+          {% if task.translated_words %}
+            <button class="btn btn--sm" type="submit" name="action" value="translated"
+                    data-ar="اعتمد الترجمة" data-en="Use the translation">اعتمد الترجمة</button>
+          {% endif %}
+        </div>
+      </form>
+
+      <form method="post" action="{% url 'dashboard:task_word_count' task.code %}" class="mt">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="manual">
+        <div class="row row--tight">
+          <input class="input" type="number" name="words" min="0" dir="ltr"
+                 value="{{ task.word_count }}">
+          <button class="btn btn--sm btn--primary" type="submit"
+                  data-ar="اكتبه بإيدك" data-en="Set by hand">اكتبه بإيدك</button>
+        </div>
+      </form>
+
+      <div class="note note--info">
+        {% icon "info" %}
+        <div data-ar="النظام بيقرا docx و xlsx و pptx والملفات النصية. الـ PDF والملفات المصورة مش بتتقرا — الرقم فيها بيتكتب بالإيد."
+             data-en="The system reads docx, xlsx, pptx and plain text. PDFs and scans are not read - their number is typed by hand.">
+          النظام بيقرا docx و xlsx و pptx والملفات النصية. الـ PDF والملفات المصورة مش بتتقرا — الرقم فيها بيتكتب بالإيد.
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- --------------------------- requirements ----------------------------- -->
     <div class="card">
       <div class="card__head">

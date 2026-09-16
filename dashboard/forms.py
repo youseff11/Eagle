@@ -7,10 +7,15 @@ from .models import (
     AppSettings,
     Client,
     ClientRequirement,
+    PayrollSettings,
+    ProductionTier,
     Role,
+    SalaryRecord,
     Shift,
     Task,
     User,
+    Violation,
+    WorkDay,
 )
 
 DATETIME_INPUT_FORMATS = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"]
@@ -52,6 +57,9 @@ class TaskForm(forms.ModelForm):
         fields = (
             "client", "title", "description", "source_lang",
             "target_lang", "priority", "deadline",
+            # The job's size is what the accounts side later reads as the
+            # translator's production, so it is captured with the task itself.
+            "word_count", "is_difficult", "is_secondary_language",
         )
         widgets = {
             "client": forms.Select(attrs={"class": "input"}),
@@ -60,6 +68,9 @@ class TaskForm(forms.ModelForm):
             "source_lang": forms.TextInput(attrs={"class": "input", "placeholder": "EN"}),
             "target_lang": forms.TextInput(attrs={"class": "input", "placeholder": "AR"}),
             "priority": forms.Select(attrs={"class": "input"}),
+            "word_count": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "min": 0, "placeholder": "3000"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -250,3 +261,172 @@ class AICheckForm(forms.Form):
     translated_text = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"class": "input", "rows": 6})
     )
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+class PayrollSettingsForm(forms.ModelForm):
+    """The contract, as editable numbers. Nothing here is hard-coded anywhere
+    else, so changing a band or a bonus never needs a deploy."""
+
+    class Meta:
+        model = PayrollSettings
+        fields = (
+            "daily_hours", "working_days_per_month", "monthly_leave_allowance",
+            "daily_target_words", "secondary_daily_target_words",
+            "monthly_target_words", "monthly_alert_words",
+            "extra_leave_penalty_days", "unexcused_penalty_days",
+            "quality_penalty_days", "low_output_penalty_days",
+            "unexcused_escalation_count",
+            "target_miss_penalty", "discipline_bonus", "target_bonus",
+            "bonuses_need_approval",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            if isinstance(field.widget, (forms.TextInput, forms.NumberInput)):
+                field.widget.attrs.setdefault("class", "input")
+                field.widget.attrs.setdefault("dir", "ltr")
+
+    def clean(self):
+        data = super().clean()
+        days = data.get("working_days_per_month")
+        daily = data.get("daily_target_words")
+        monthly = data.get("monthly_target_words")
+        alert = data.get("monthly_alert_words")
+        # A monthly target above what the working days can physically produce
+        # would make the target bonus unreachable by arithmetic, not by effort.
+        if days and daily and monthly and monthly > days * daily:
+            self.add_error("monthly_target_words", (
+                f"أكبر من {days} يوم × {daily} كلمة = {days * daily}. "
+                "التارجت مش هيتحقق مهما حصل."
+            ))
+        if monthly and alert and alert > monthly:
+            self.add_error("monthly_alert_words", "حد التنبيه لازم يكون أقل من التارجت.")
+        return data
+
+
+class ProductionTierForm(forms.ModelForm):
+    class Meta:
+        model = ProductionTier
+        fields = ("scale", "min_words", "max_words", "bonus")
+        widgets = {
+            "scale": forms.Select(attrs={"class": "input"}),
+            "min_words": forms.NumberInput(attrs={"class": "input", "dir": "ltr"}),
+            "max_words": forms.NumberInput(attrs={"class": "input", "dir": "ltr"}),
+            "bonus": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+        }
+
+    def clean(self):
+        data = super().clean()
+        low, high = data.get("min_words"), data.get("max_words")
+        if low is not None and high is not None and high <= low:
+            self.add_error("max_words", "لازم يكون أكبر من بداية الشريحة.")
+        return data
+
+
+class SalaryRecordForm(forms.ModelForm):
+    class Meta:
+        model = SalaryRecord
+        fields = ("amount", "effective_from", "note")
+        widgets = {
+            "amount": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+            "effective_from": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "note": forms.TextInput(attrs={"class": "input"}),
+        }
+
+
+class WorkDayForm(forms.ModelForm):
+    """The admin's attendance sheet.
+
+    ``words`` is here because the job log only carries word counts from now
+    on, and a month recorded before that still has to be payable. The moment a
+    day has jobs, the refresh takes the number over and this box stops being
+    the source - which is what the help text says. The translator never sees
+    this form, so the contract's rule still holds: they do not type their own
+    production anywhere.
+    """
+
+    class Meta:
+        model = WorkDay
+        fields = (
+            "date", "status", "check_in", "check_out",
+            "late_minutes", "early_leave_minutes", "words",
+            "is_secondary_language", "difficult_file", "absence_reason", "note",
+        )
+        widgets = {
+            "words": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+            "date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "status": forms.Select(attrs={"class": "input"}),
+            "check_in": forms.DateTimeInput(
+                attrs={"class": "input", "type": "datetime-local"}
+            ),
+            "check_out": forms.DateTimeInput(
+                attrs={"class": "input", "type": "datetime-local"}
+            ),
+            "late_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr"}),
+            "early_leave_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr"}),
+            "absence_reason": forms.TextInput(attrs={"class": "input"}),
+            "note": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["check_in"].input_formats = DATETIME_INPUT_FORMATS
+        self.fields["check_out"].input_formats = DATETIME_INPUT_FORMATS
+
+    def clean(self):
+        data = super().clean()
+        status = data.get("status")
+        if status in ("unexcused", "excused") and not data.get("absence_reason"):
+            self.add_error("absence_reason", "سبب الغياب مطلوب.")
+        return data
+
+
+class ViolationForm(forms.ModelForm):
+    """A deduction someone is proposing. It is worth nothing until approved."""
+
+    class Meta:
+        model = Violation
+        fields = ("user", "task", "date", "kind", "penalty_days", "penalty_amount", "reason")
+        widgets = {
+            "user": forms.Select(attrs={"class": "input"}),
+            "task": forms.Select(attrs={"class": "input"}),
+            "date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "kind": forms.Select(attrs={"class": "input"}),
+            "penalty_days": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "step": "0.25"}
+            ),
+            "penalty_amount": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "step": "0.01"}
+            ),
+            "reason": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["user"].queryset = User.objects.filter(
+            role=Role.TRANSLATOR, is_active=True
+        )
+        self.fields["task"].required = False
+        self.fields["task"].queryset = Task.objects.order_by("-created_at")[:200]
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("penalty_days") and not data.get("penalty_amount"):
+            self.add_error("penalty_days", "حدد خصم بالأيام أو بالمبلغ.")
+        return data
+
+
+class TaskWordsForm(forms.ModelForm):
+    """What the job actually was. This is where production enters the system."""
+
+    class Meta:
+        model = Task
+        fields = ("word_count", "is_difficult", "is_secondary_language")
+        widgets = {
+            "word_count": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+        }

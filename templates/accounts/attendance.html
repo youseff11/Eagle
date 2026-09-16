@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Attendance{% endblock %}
+{% block page_title %}<span data-ar="الحضور والإنتاج" data-en="Attendance">الحضور والإنتاج</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الحضور والإنتاج" data-en="Attendance and production">الحضور والإنتاج</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <input type="hidden" name="period" value="{{ year }}-{{ month }}">
+    <select class="input" name="user" onchange="this.form.submit()">
+      {% for candidate in people %}
+        <option value="{{ candidate.pk }}"
+                {% if person and candidate.pk == person.pk %}selected{% endif %}>
+          {{ candidate.short_name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% include "accounts/_month_picker.html" with picker_user=person.pk %}
+</div>
+
+{% if person %}
+  <div class="grid grid--4">
+    <div class="kpi">
+      <div class="kpi__label" data-ar="كلمات الشهر" data-en="Words this month">كلمات الشهر</div>
+      <div class="kpi__value mono">{{ words }}</div>
+    </div>
+    <div class="kpi {% if leave_used > conf.monthly_leave_allowance %}kpi--danger{% endif %}">
+      <div class="kpi__label" data-ar="إجازات مستخدمة" data-en="Leave used">إجازات مستخدمة</div>
+      <div class="kpi__value mono">{{ leave_used }} / {{ conf.monthly_leave_allowance }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__label" data-ar="التارجت الشهري" data-en="Monthly target">التارجت الشهري</div>
+      <div class="kpi__value mono">{{ conf.monthly_target_words }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__label" data-ar="الحد اليومي" data-en="Daily floor">الحد اليومي</div>
+      <div class="kpi__value mono">{{ conf.daily_target_words }}</div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "timer" %}
+      <h3 data-ar="أيام الشهر" data-en="The month">أيام الشهر</h3>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th data-ar="اليوم" data-en="Date">اليوم</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="حضور" data-en="In">حضور</th>
+            <th data-ar="انصراف" data-en="Out">انصراف</th>
+            <th data-ar="تأخير" data-en="Late">تأخير</th>
+            <th data-ar="الكلمات" data-en="Words">الكلمات</th>
+            <th data-ar="ملاحظة" data-en="Note">ملاحظة</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for day in days %}
+          <tr>
+            <td class="mono">{{ day.date }}</td>
+            <td>
+              {% if day.status == 'present' %}
+                <span class="badge badge--ok" data-ar="حاضر" data-en="Present">حاضر</span>
+              {% elif day.status == 'leave' %}
+                <span class="badge badge--info" data-ar="إجازة" data-en="Leave">إجازة</span>
+              {% elif day.status == 'excused' %}
+                <span class="badge badge--wait" data-ar="غياب بعذر" data-en="Excused">غياب بعذر</span>
+              {% elif day.status == 'unexcused' %}
+                <span class="badge badge--dead" data-ar="غياب بدون إذن" data-en="Unexcused">غياب بدون إذن</span>
+              {% else %}
+                <span class="badge">{{ day.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
+            <td class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+            <td class="mono">{{ day.late_minutes }}</td>
+            <td class="mono {% if day.under_floor %}deadline--late{% endif %}">{{ day.words }}</td>
+            <td class="muted">{{ day.absence_reason }}{{ day.note }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="empty"
+                  data-ar="مفيش أيام مسجلة في الشهر ده."
+                  data-en="No days recorded this month.">مفيش أيام مسجلة في الشهر ده.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="سجل يوم" data-en="Record a day">سجل يوم</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label data-ar="اليوم" data-en="Date">اليوم</label>
+          {{ form.date }}{{ form.date.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="الحالة" data-en="Status">الحالة</label>
+          {{ form.status }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="حضور" data-en="Check in">حضور</label>
+            {{ form.check_in }}
+          </div>
+          <div class="field">
+            <label data-ar="انصراف" data-en="Check out">انصراف</label>
+            {{ form.check_out }}
+          </div>
+          <div class="field">
+            <label data-ar="تأخير (دقيقة)" data-en="Late (minutes)">تأخير (دقيقة)</label>
+            {{ form.late_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="انصراف مبكر (دقيقة)" data-en="Early leave (minutes)">انصراف مبكر (دقيقة)</label>
+            {{ form.early_leave_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="الكلمات (لو مفيش تاسكات)" data-en="Words (only if no jobs)">الكلمات</label>
+            {{ form.words }}
+            <small class="muted"
+                   data-ar="أول ما يبقى فيه تاسكات باليوم ده، النظام بياخد الرقم منها ويتجاهل اللي مكتوب هنا."
+                   data-en="Once the day has jobs the system takes the number from them and ignores this box.">
+              أول ما يبقى فيه تاسكات باليوم ده، النظام بياخد الرقم منها ويتجاهل اللي مكتوب هنا.
+            </small>
+          </div>
+        </div>
+        <div class="row row--tight mt">
+          <label class="switch">
+            {{ form.is_secondary_language }}
+            <span data-ar="لغة غير أساسية" data-en="Secondary language">لغة غير أساسية</span>
+          </label>
+          <label class="switch">
+            {{ form.difficult_file }}
+            <span data-ar="ملف صعب" data-en="Difficult file">ملف صعب</span>
+          </label>
+        </div>
+        <div class="field">
+          <label data-ar="سبب الغياب" data-en="Absence reason">سبب الغياب</label>
+          {{ form.absence_reason }}{{ form.absence_reason.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="ملاحظة" data-en="Note">ملاحظة</label>
+          {{ form.note }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="note note--info">
+      {% icon "info" %}
+      <div data-ar="عدد الكلمات مش بيتكتب هنا — النظام بيجمعه من التاسكات اللي المترجم سلّمها في اليوم ده."
+           data-en="Word counts are not typed here. The system sums them from the jobs the translator delivered that day.">
+        عدد الكلمات مش بيتكتب هنا — النظام بيجمعه من التاسكات اللي المترجم سلّمها في اليوم ده.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

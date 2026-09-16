@@ -49,6 +49,29 @@
           {{ form.deadline }}
           {{ form.deadline.errors }}
         </div>
+        <div class="field">
+          <label data-ar="عدد الكلمات" data-en="Word count">عدد الكلمات</label>
+          {{ form.word_count }}
+          {{ form.word_count.errors }}
+          <small class="muted"
+                 data-ar="ده اللي الحسابات بتقرا منه إنتاج المترجم — مش بيتكتب من المترجم نفسه."
+                 data-en="Accounts reads the translator's production from this, never from the translator.">
+            ده اللي الحسابات بتقرا منه إنتاج المترجم — مش بيتكتب من المترجم نفسه.
+          </small>
+        </div>
+      </div>
+
+      <div class="row row--tight mt">
+        <label class="switch">
+          {{ form.is_difficult }}
+          <span data-ar="ملف صعب (استثناء من الحد الأدنى اليومي)"
+                data-en="Difficult file (exempt from the daily floor)">ملف صعب</span>
+        </label>
+        <label class="switch">
+          {{ form.is_secondary_language }}
+          <span data-ar="لغة غير أساسية للمترجم"
+                data-en="Outside the translator's main language">لغة غير أساسية للمترجم</span>
+        </label>
       </div>
 
       <button class="btn btn--primary" type="submit">

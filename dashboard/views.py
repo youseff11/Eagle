@@ -12,20 +12,27 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import services
+from . import payroll, services, wordcount
 from .forms import (
     AICheckForm,
     ClientForm,
+    PayrollSettingsForm,
+    ProductionTierForm,
     RequirementForm,
+    SalaryRecordForm,
     SettingsForm,
     ShiftForm,
     SimulateMessageForm,
     StaffCreateForm,
     StaffEditForm,
     TaskForm,
+    ViolationForm,
+    WorkDayForm,
 )
 from .models import (
     ACTIVE_TASK_STATUSES,
+    LEAVE_STATUSES,
+    ApprovalStatus,
     AppSettings,
     AssignmentStatus,
     ChatAttachment,
@@ -33,12 +40,20 @@ from .models import (
     Client,
     InboundMessage,
     Notification,
+    PayrollLine,
+    PayrollPeriod,
+    PayrollSettings,
+    ProductionTier,
     Role,
     RoomKind,
     Shift,
     Task,
     TaskStatus,
+    TierScale,
     User,
+    Violation,
+    WordCountState,
+    WorkDay,
 )
 from .permissions import admin_only, role_required
 
@@ -477,8 +492,42 @@ def task_detail(request, code):
             if (user.is_operation or user.is_admin_role) else []
         ),
         "conf": AppSettings.load(),
+        # Who may settle a disputed word count: the people who can see both
+        # the client's file and the translator's, never the translator.
+        "can_set_words": user.is_admin_role or user.is_operation
+        or task.team_lead_id == user.id,
     }
     return render(request, "shared/task_detail.html", context)
+
+
+@login_required
+@require_POST
+def task_word_count(request, code):
+    """Recount from the files, or accept a number a person stands behind."""
+    task = get_object_or_404(Task, code=code)
+    user = request.user
+    # The translator uploads the file their own bonus is measured from, so
+    # they are the one role that cannot settle the number.
+    if not (user.is_admin_role or user.is_operation or task.team_lead_id == user.id):
+        raise Http404
+
+    action = request.POST.get("action") or "recount"
+    if action == "recount":
+        wordcount.recount_task(task)
+        services.log(user, "task.word_count.recount", task.code, str(task.word_count))
+    elif action == "manual":
+        raw = (request.POST.get("words") or "").strip()
+        if not raw.isdigit():
+            flash.error(request, "اكتب رقم صحيح.")
+            return redirect("dashboard:task_detail", code=code)
+        wordcount.confirm_task(task, user, words=int(raw))
+    elif action in ("source", "translated"):
+        wordcount.confirm_task(task, user, use=action)
+    else:
+        raise Http404
+
+    flash.success(request, str(task.word_count))
+    return redirect("dashboard:task_detail", code=code)
 
 
 @login_required
@@ -705,4 +754,312 @@ def admin_audit(request):
 
     return render(request, "adminx/audit.html", {
         "logs": AuditLog.objects.select_related("actor")[:200]
+    })
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+#
+# The admin runs the month; the translator reads their own payslip. Nothing on
+# these screens moves money on its own - a deduction has to be approved and the
+# two monthly bonuses have to be released.
+# ---------------------------------------------------------------------------
+
+def _period_choices(limit=13):
+    """The current month and the twelve before it."""
+    today = timezone.localdate()
+    out = []
+    year, month = today.year, today.month
+    for _ in range(limit):
+        out.append((year, month))
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+    return out
+
+
+def _requested_month(request):
+    """Read the month off the query string. ``?period=2026-09`` is what the
+    picker sends; ``?year=&month=`` is accepted so links stay readable."""
+    today = timezone.localdate()
+    source = request.POST if request.method == "POST" else request.GET
+    period = source.get("period") or ""
+    if "-" in period:
+        head, _, tail = period.partition("-")
+        raw_year, raw_month = head, tail
+    else:
+        raw_year = source.get("year") or today.year
+        raw_month = source.get("month") or today.month
+    try:
+        year, month = int(raw_year), int(raw_month)
+    except (TypeError, ValueError):
+        return today.year, today.month
+    if not 1 <= month <= 12 or not 2000 <= year <= 2100:
+        return today.year, today.month
+    return year, month
+
+
+@admin_only
+def accounts_overview(request):
+    year, month = _requested_month(request)
+    period = PayrollPeriod.objects.filter(year=year, month=month).first()
+    lines = (
+        period.lines.select_related("user").all() if period else PayrollLine.objects.none()
+    )
+    return render(request, "accounts/overview.html", {
+        "conf": PayrollSettings.load(),
+        "year": year,
+        "month": month,
+        "period": period,
+        "lines": lines,
+        "totals": payroll.month_totals(period) if period else None,
+        "periods": _period_choices(),
+        "pending_violations": Violation.objects.filter(
+            status=ApprovalStatus.PENDING
+        ).select_related("user")[:50],
+        "missing_salary": User.objects.filter(
+            role=Role.TRANSLATOR, is_active=True, salary_records__isnull=True
+        ),
+        # A job whose word count nobody has settled would walk into the month
+        # as a number that is either missing or unchecked. Say so before the
+        # month is run, not after it is paid.
+        "unsettled_tasks": Task.objects.filter(
+            translated_at__date__range=payroll.month_bounds(year, month),
+            word_count_state__in=(
+                WordCountState.EMPTY, WordCountState.REVIEW,
+                WordCountState.MANUAL_NEEDED,
+            ),
+        ).select_related("translator")[:30],
+    })
+
+
+@admin_only
+@require_POST
+def accounts_recalculate(request):
+    year, month = _requested_month(request)
+    period = payroll.compute_period(year, month, actor=request.user)
+    if period.is_locked:
+        flash.error(request, "الشهر مقفول - مش بيتحسب تاني.")
+    else:
+        flash.success(request, "اتحسب")
+    return redirect(f"{reverse('dashboard:accounts_overview')}?year={year}&month={month}")
+
+
+@admin_only
+@require_POST
+def accounts_period_approve(request, pk):
+    period = get_object_or_404(PayrollPeriod, pk=pk)
+    if period.is_locked:
+        flash.error(request, "الشهر مقفول بالفعل.")
+    else:
+        payroll.approve_period(period, request.user, lock=request.POST.get("lock") == "1")
+        flash.success(request, "اتعمد")
+    return redirect(
+        f"{reverse('dashboard:accounts_overview')}?year={period.year}&month={period.month}"
+    )
+
+
+@login_required
+def accounts_line(request, pk):
+    line = get_object_or_404(
+        PayrollLine.objects.select_related("user", "period"), pk=pk
+    )
+    # A translator may read their own payslip and nobody else's.
+    if not (request.user.is_admin_role or line.user_id == request.user.id):
+        raise Http404
+    return render(request, "accounts/line.html", {
+        "line": line,
+        "conf": PayrollSettings.load(),
+        "days": line.breakdown.get("days", []),
+        "deduction_rows": line.breakdown.get("deductions", []),
+        "pending_rows": line.breakdown.get("pending", []),
+    })
+
+
+@admin_only
+@require_POST
+def accounts_line_bonus(request, pk):
+    line = get_object_or_404(PayrollLine.objects.select_related("period"), pk=pk)
+    if line.period.is_locked:
+        flash.error(request, "الشهر مقفول.")
+    else:
+        payroll.approve_bonuses(line, request.user)
+        flash.success(request, "المكافآت اتصرفت")
+    return redirect("dashboard:accounts_line", pk=pk)
+
+
+@admin_only
+def accounts_attendance(request):
+    year, month = _requested_month(request)
+    first_day, last_day = payroll.month_bounds(year, month)
+    people = User.objects.filter(role=Role.TRANSLATOR, is_active=True)
+
+    person_id = request.GET.get("user")
+    person = people.filter(pk=person_id).first() if person_id else people.first()
+
+    form = WorkDayForm(request.POST or None)
+    if request.method == "POST" and person is not None and form.is_valid():
+        # One row per person per day, so a second save for the same date edits
+        # the first instead of hitting the unique constraint.
+        existing = WorkDay.objects.filter(
+            user=person, date=form.cleaned_data["date"]
+        ).first()
+        if existing is not None:
+            form = WorkDayForm(request.POST, instance=existing)
+            form.is_valid()
+        day = form.save(commit=False)
+        day.user = person
+        day.save()
+        services.log(request.user, "workday.save", f"{person.username} {day.date}")
+        flash.success(request, "اتسجل")
+        return redirect(
+            f"{reverse('dashboard:accounts_attendance')}"
+            f"?year={year}&month={month}&user={person.pk}"
+        )
+
+    conf = PayrollSettings.load()
+    days = []
+    if person is not None:
+        payroll.refresh_words(person, first_day, last_day)
+        days = list(WorkDay.objects.filter(
+            user=person, date__range=(first_day, last_day)
+        ).order_by("date"))
+        # Resolved once here so the table does not reload the settings per row.
+        for day in days:
+            day.under_floor = day.is_under_target(conf)
+
+    return render(request, "accounts/attendance.html", {
+        "conf": conf,
+        "form": form,
+        "people": people,
+        "person": person,
+        "days": days,
+        "year": year,
+        "month": month,
+        "periods": _period_choices(),
+        "leave_used": sum(1 for d in days if d.status in LEAVE_STATUSES),
+        "words": sum(d.words for d in days if d.is_working_day),
+    })
+
+
+@admin_only
+def accounts_violations(request):
+    form = ViolationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        row.created_by = request.user
+        row.save()
+        services.log(request.user, "violation.create", f"{row.user.username} {row.kind}")
+        flash.success(request, "اتسجلت - مستنية الاعتماد")
+        return redirect("dashboard:accounts_violations")
+
+    return render(request, "accounts/violations.html", {
+        "form": form,
+        "pending": Violation.objects.filter(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "task"),
+        "decided": Violation.objects.exclude(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "approved_by")[:60],
+        "conf": PayrollSettings.load(),
+    })
+
+
+@admin_only
+@require_POST
+def accounts_violation_decide(request, pk, action):
+    row = get_object_or_404(Violation, pk=pk)
+    if action == "approve":
+        row.approve(request.user)
+    elif action == "reject":
+        row.reject(request.user)
+    else:
+        raise Http404
+    services.log(request.user, f"violation.{action}", f"{row.user.username} {row.date}")
+    return redirect(request.POST.get("next") or "dashboard:accounts_violations")
+
+
+@admin_only
+def accounts_rules(request):
+    conf = PayrollSettings.load()
+    form = PayrollSettingsForm(request.POST or None, instance=conf)
+    tier_form = ProductionTierForm()
+
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        services.log(request.user, "payroll.rules.update")
+        flash.success(request, "اتحفظ")
+        return redirect("dashboard:accounts_rules")
+
+    return render(request, "accounts/rules.html", {
+        "form": form,
+        "conf": conf,
+        "tier_form": tier_form,
+        "primary": ProductionTier.objects.filter(scale=TierScale.PRIMARY),
+        "secondary": ProductionTier.objects.filter(scale=TierScale.SECONDARY),
+    })
+
+
+@admin_only
+@require_POST
+def accounts_tier_add(request):
+    form = ProductionTierForm(request.POST)
+    if form.is_valid():
+        form.save()
+        services.log(request.user, "payroll.tier.add")
+    else:
+        flash.error(request, "الشريحة مش مظبوطة.")
+    return redirect("dashboard:accounts_rules")
+
+
+@admin_only
+@require_POST
+def accounts_tier_delete(request, pk):
+    ProductionTier.objects.filter(pk=pk).delete()
+    services.log(request.user, "payroll.tier.delete", str(pk))
+    return redirect("dashboard:accounts_rules")
+
+
+@admin_only
+def accounts_salary(request, pk):
+    person = get_object_or_404(User, pk=pk)
+    form = SalaryRecordForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        row.user = person
+        row.created_by = request.user
+        row.save()
+        # History is append-only: an old month keeps the salary it was paid on.
+        services.log(request.user, "salary.set", person.username, str(row.amount))
+        flash.success(request, "اتسجل")
+        return redirect("dashboard:accounts_salary", pk=pk)
+
+    return render(request, "accounts/salary.html", {
+        "person": person,
+        "form": form,
+        "records": person.salary_records.all(),
+        "lines": person.payroll_lines.select_related("period")[:24],
+    })
+
+
+@role_required(Role.TRANSLATOR)
+def translator_payroll(request):
+    """The translator's own payslip - read only, and only ever their own."""
+    year, month = _requested_month(request)
+    line = PayrollLine.objects.filter(
+        user=request.user, period__year=year, period__month=month
+    ).select_related("period").first()
+    first_day, last_day = payroll.month_bounds(year, month)
+    return render(request, "accounts/mine.html", {
+        "line": line,
+        "conf": PayrollSettings.load(),
+        "year": year,
+        "month": month,
+        "periods": _period_choices(),
+        "days": WorkDay.objects.filter(
+            user=request.user, date__range=(first_day, last_day)
+        ).order_by("date"),
+        "violations": Violation.objects.filter(
+            user=request.user, date__range=(first_day, last_day)
+        ),
     })
