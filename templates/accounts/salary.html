@@ -16,8 +16,8 @@
         {% icon "history" %}
         <h3 data-ar="الرواتب" data-en="Salaries">الرواتب</h3>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="ساري من" data-en="Effective from">ساري من</th>
@@ -29,10 +29,10 @@
           <tbody>
           {% for row in records %}
             <tr>
-              <td class="mono">{{ row.effective_from }}</td>
-              <td class="mono">{{ row.amount }}</td>
-              <td class="muted">{{ row.note }}</td>
-              <td class="muted">{{ row.created_by.short_name|default:"—" }}</td>
+              <td data-ar-label="ساري من" data-en-label="Effective from" class="mono">{{ row.effective_from }}</td>
+              <td data-ar-label="الراتب" data-en-label="Salary" class="mono">{{ row.amount }}</td>
+              <td data-ar-label="ملاحظة" data-en-label="Note" class="muted">{{ row.note }}</td>
+              <td data-ar-label="سجّله" data-en-label="Recorded by" class="muted">{{ row.created_by.short_name|default:"—" }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="4" class="empty"
@@ -51,8 +51,8 @@
         {% icon "calendar" %}
         <h3 data-ar="الشهور المحسوبة" data-en="Computed months">الشهور المحسوبة</h3>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="الشهر" data-en="Month">الشهر</th>
@@ -65,11 +65,11 @@
           <tbody>
           {% for line in lines %}
             <tr>
-              <td class="mono">{{ line.period.label }}</td>
-              <td class="mono">{{ line.base_salary }}</td>
-              <td class="mono">{{ line.total_words }}</td>
-              <td class="mono"><strong>{{ line.net }}</strong></td>
-              <td>
+              <td data-ar-label="الشهر" data-en-label="Month" class="mono">{{ line.period.label }}</td>
+              <td data-ar-label="الأساسي" data-en-label="Base" class="mono">{{ line.base_salary }}</td>
+              <td data-ar-label="كلمات" data-en-label="Words" class="mono">{{ line.total_words }}</td>
+              <td data-ar-label="الصافي" data-en-label="Net" class="mono"><strong>{{ line.net }}</strong></td>
+              <td data-ar-label="" data-en-label="">
                 <a class="btn btn--sm" href="{% url 'dashboard:accounts_line' line.pk %}"
                    data-ar="التفاصيل" data-en="Detail">التفاصيل</a>
               </td>

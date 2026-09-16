@@ -103,8 +103,8 @@
   </div>
 
   {% if lines %}
-    <div class="table-wrap">
-      <table class="table">
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
         <thead>
           <tr>
             <th data-ar="المترجم" data-en="Translator">المترجم</th>
@@ -122,7 +122,7 @@
         <tbody>
         {% for line in lines %}
           <tr>
-            <td>
+            <td data-ar-label="المترجم" data-en-label="Translator">
               <div class="row row--tight">
                 <div class="avatar avatar--sm">{{ line.user.initials }}</div>
                 <div>
@@ -131,9 +131,9 @@
                 </div>
               </div>
             </td>
-            <td class="mono">{{ line.base_salary }}</td>
-            <td class="mono">{{ line.worked_days }}<span class="muted">/{{ line.working_days }}</span></td>
-            <td class="mono">
+            <td data-ar-label="الأساسي" data-en-label="Base" class="mono">{{ line.base_salary }}</td>
+            <td data-ar-label="أيام شغل" data-en-label="Worked" class="mono">{{ line.worked_days }}<span class="muted">/{{ line.working_days }}</span></td>
+            <td data-ar-label="إجازة" data-en-label="Leave" class="mono">
               {{ line.leave_days }}
               {% if line.extra_leave_days %}
                 <span class="badge badge--dead">+{{ line.extra_leave_days }}</span>
@@ -142,20 +142,20 @@
                 <span class="badge badge--dead" data-ar="غياب" data-en="Absent">غياب {{ line.unexcused_days }}</span>
               {% endif %}
             </td>
-            <td class="mono {% if line.below_alert_threshold %}deadline--late{% endif %}">
+            <td data-ar-label="كلمات" data-en-label="Words" class="mono {% if line.below_alert_threshold %}deadline--late{% endif %}">
               {{ line.total_words }}
             </td>
-            <td class="mono">{{ line.production_bonus }}</td>
-            <td class="mono">
+            <td data-ar-label="بونص الإنتاج" data-en-label="Production bonus" class="mono">{{ line.production_bonus }}</td>
+            <td data-ar-label="مكافآت" data-en-label="Bonuses" class="mono">
               {{ line.bonus_total }}
               {% if line.pending_bonus %}
                 <span class="badge badge--wait"
                       data-ar="مستنية اعتماد" data-en="Awaiting approval">مستنية {{ line.pending_bonus }}</span>
               {% endif %}
             </td>
-            <td class="mono">{{ line.deductions }}</td>
-            <td class="mono"><strong>{{ line.net }}</strong></td>
-            <td>
+            <td data-ar-label="خصومات" data-en-label="Deductions" class="mono">{{ line.deductions }}</td>
+            <td data-ar-label="الصافي" data-en-label="Net" class="mono"><strong>{{ line.net }}</strong></td>
+            <td data-ar-label="" data-en-label="">
               <a class="btn btn--sm" href="{% url 'dashboard:accounts_line' line.pk %}"
                  data-ar="التفاصيل" data-en="Detail">التفاصيل</a>
             </td>
@@ -182,8 +182,8 @@
        data-ar="كل المخالفات" data-en="All violations">كل المخالفات</a>
   </div>
   {% if pending_violations %}
-    <div class="table-wrap">
-      <table class="table">
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
         <thead>
           <tr>
             <th data-ar="المترجم" data-en="Translator">المترجم</th>
@@ -197,22 +197,22 @@
         <tbody>
         {% for row in pending_violations %}
           <tr>
-            <td>{{ row.user.short_name }}</td>
-            <td class="mono">{{ row.date }}</td>
-            <td>
+            <td data-ar-label="المترجم" data-en-label="Translator">{{ row.user.short_name }}</td>
+            <td data-ar-label="التاريخ" data-en-label="Date" class="mono">{{ row.date }}</td>
+            <td data-ar-label="النوع" data-en-label="Kind">
               {{ row.get_kind_display }}
               {% if row.escalated %}
                 <span class="badge badge--dead"
                       data-ar="تصعيد للمدير" data-en="Escalated">تصعيد للمدير</span>
               {% endif %}
             </td>
-            <td class="muted">{{ row.reason }}</td>
-            <td class="mono">
+            <td data-ar-label="السبب" data-en-label="Reason" class="muted">{{ row.reason }}</td>
+            <td data-ar-label="الخصم" data-en-label="Penalty" class="mono">
               {% if row.penalty_days %}{{ row.penalty_days }}
                 <span class="muted" data-ar="يوم" data-en="days">يوم</span>{% endif %}
               {% if row.penalty_amount %}{{ row.penalty_amount }}{% endif %}
             </td>
-            <td>
+            <td data-ar-label="" data-en-label="">
               <div class="row row--tight">
                 <form method="post"
                       action="{% url 'dashboard:accounts_violation_decide' row.pk 'approve' %}">

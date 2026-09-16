@@ -842,3 +842,152 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   .table-wrap { margin: 0 -18px; }
 }
 @media (min-width: 901px) { .menu-toggle { display: none; } }
+
+/* ------------------------------------------------- phones: layout and tables
+ *
+ * Two things break a dense admin screen on a 360px phone, and both are here.
+ *
+ * 1. The top bar. `.topbar__title` is a flex item, so its default
+ *    `min-width: auto` refuses to shrink below its own text and pushes the
+ *    controls off both edges. Below the tablet break the page heading right
+ *    underneath already names the page, so the duplicate in the bar goes away
+ *    entirely and the controls get the whole width back.
+ *
+ * 2. The tables. A payroll row is ten columns wide; sideways scrolling turns
+ *    reading one translator's month into a sport. A table marked
+ *    `table--cards` folds into one bordered card per row, each cell a label
+ *    and its value, with the first cell as the card's heading. The labels come
+ *    from `data-ar-label` / `data-en-label` and are picked by the `lang`
+ *    attribute, which the language toggle already sets - so they switch with
+ *    the rest of the interface and need no JavaScript of their own.
+ */
+
+@media (max-width: 720px) {
+  .content { padding: 14px 12px 28px; }
+  .card { padding: 14px 14px; border-radius: 12px; }
+  .card + .card { margin-top: 12px; }
+  .card__head { gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .card__head h2, .card__head h3 { font-size: .98rem; }
+
+  .topbar { padding: 0 12px; gap: 6px; }
+  .topbar__title { display: none; }
+  .topbar__divider { margin: 0 2px; }
+  .seg button { padding: 4px 8px; }
+
+  /* The page heading carries the name, the picker and the action - on a phone
+     each of those wants its own line rather than a fight for one. */
+  .page-head { gap: 10px; margin-bottom: 14px; }
+  .page-head h1 { font-size: 1.16rem; line-height: 1.35; flex: 1 1 100%; }
+  .page-head__sub { flex: 1 1 100%; }
+  .page-head .grow { display: none; }
+  .page-head form { flex: 1 1 100%; display: flex; gap: 6px; }
+  .page-head form .input { flex: 1; min-width: 0; }
+  .page-head form .btn { flex: none; }
+
+  /* Stat tiles read fine two-up; one-up just makes the page long. */
+  .grid { gap: 10px; }
+  .grid--3, .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi { padding: 12px 13px; }
+  .kpi__value { font-size: 1.28rem; }
+  .kpi__label { font-size: .74rem; }
+
+  /* Sticky only makes sense beside something. Stacked, it just jumps. */
+  .sticky-side { position: static; }
+
+  .form-grid { grid-template-columns: 1fr; }
+  .btn { padding: 8px 12px; }
+  .row--tight { gap: 8px; }
+
+  .kv { flex-wrap: wrap; gap: 2px 12px; }
+  .kv > span:first-child, .kv > strong:first-child { flex: 1 1 60%; }
+
+  /* -------------------------------------------------- one card per row */
+  /* `position: relative` keeps the visually hidden header box local
+     instead of letting it resolve against the page. */
+  .table-wrap--cards { overflow-x: visible; margin: 0; padding: 0; position: relative; }
+
+  .table--cards thead {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+
+  .table--cards tbody tr {
+    display: block; padding: 12px 13px;
+    border: 1px solid var(--border); border-radius: 11px;
+    background: var(--surface-2);
+  }
+  .table--cards tbody tr + tr { margin-top: 10px; }
+  .table--cards tbody tr:hover { background: var(--surface-2); }
+  .table--cards tbody tr:last-child td { border-bottom: 0; }
+
+  /* A cell is laid out as a label parked on the start edge and the value
+     filling the rest. The label is absolute rather than a flex sibling on
+     purpose: a value is often several elements - "26" plus a muted "/26", a
+     figure plus a badge - and as flex items those would be blown apart by
+     space-between. Out of flow, the value stays ordinary inline content and
+     reads as one thing. */
+  .table--cards tbody td {
+    display: block; position: relative;
+    padding: 6px 0; border: 0;
+    padding-inline-start: 40%;
+    text-align: end;
+    overflow-wrap: anywhere;
+  }
+  .table--cards tbody td::before {
+    content: attr(data-en-label);
+    position: absolute; inset-inline-start: 0; inset-block-start: 6px;
+    width: 37%; text-align: start;
+    color: var(--faint); font-size: .72rem; line-height: 1.5;
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+  [lang="ar"] .table--cards tbody td::before {
+    content: attr(data-ar-label);
+    text-transform: none; letter-spacing: 0; font-size: .78rem;
+  }
+
+  /* The first column is the row's identity - a name or a date. It reads as
+     the card's heading, not as one more label-and-value pair. */
+  .table--cards tbody td:first-child {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 0 9px; margin-bottom: 5px;
+    font-weight: 620; color: var(--heading); font-size: .93rem;
+    text-align: start;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .table--cards tbody td:first-child::before { content: none; }
+
+  /* A cell with no header of its own - the actions column - takes the whole
+     width instead of hanging off the end of a label that is not there. */
+  .table--cards tbody td[data-ar-label=""] {
+    padding-inline-start: 0; padding-top: 10px; text-align: start;
+  }
+  .table--cards tbody td[data-ar-label=""]::before { content: none; }
+
+  /* The empty-state row is a message, not a record. */
+  .table--cards tbody td[colspan] {
+    padding-inline-start: 0; text-align: center;
+  }
+  .table--cards tbody td[colspan]::before { content: none; }
+  .table--cards tbody tr:has(td[colspan]) {
+    border: 0; background: none; padding: 0;
+  }
+  .table--cards .empty { padding: 26px 12px; font-size: .86rem; }
+
+  .table--cards tbody td .badge,
+  .table--cards tbody td .chip { white-space: nowrap; }
+}
+
+/* A long page title still must not shove the top bar controls off screen at
+   tablet widths, where the title is still shown. */
+.topbar__title {
+  min-width: 0; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Two stat tiles still fit a 360px phone and read better than one stretched
+   across the whole width. Only the narrowest handsets get a single column. */
+@media (max-width: 340px) {
+  .grid--3, .grid--4 { grid-template-columns: 1fr; }
+  .page-head h1 { font-size: 1.08rem; }
+}

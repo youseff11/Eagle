@@ -20,8 +20,8 @@
         {% icon "timer" %}
         <h3 data-ar="مستنية الاعتماد" data-en="Awaiting approval">مستنية الاعتماد</h3>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="المترجم" data-en="Translator">المترجم</th>
@@ -36,23 +36,23 @@
           <tbody>
           {% for row in pending %}
             <tr>
-              <td>{{ row.user.short_name }}</td>
-              <td class="mono">{{ row.date }}</td>
-              <td>
+              <td data-ar-label="المترجم" data-en-label="Translator">{{ row.user.short_name }}</td>
+              <td data-ar-label="التاريخ" data-en-label="Date" class="mono">{{ row.date }}</td>
+              <td data-ar-label="النوع" data-en-label="Kind">
                 {{ row.get_kind_display }}
                 {% if row.escalated %}
                   <span class="badge badge--dead"
                         data-ar="تصعيد للمدير" data-en="Escalated">تصعيد للمدير</span>
                 {% endif %}
               </td>
-              <td class="mono">{{ row.task.code|default:"—" }}</td>
-              <td class="muted">{{ row.reason }}</td>
-              <td class="mono">
+              <td data-ar-label="التاسك" data-en-label="Task" class="mono">{{ row.task.code|default:"—" }}</td>
+              <td data-ar-label="السبب" data-en-label="Reason" class="muted">{{ row.reason }}</td>
+              <td data-ar-label="الخصم" data-en-label="Penalty" class="mono">
                 {% if row.penalty_days %}{{ row.penalty_days }}
                   <span class="muted" data-ar="يوم" data-en="days">يوم</span>{% endif %}
                 {% if row.penalty_amount %}{{ row.penalty_amount }}{% endif %}
               </td>
-              <td>
+              <td data-ar-label="" data-en-label="">
                 <div class="row row--tight">
                   <form method="post"
                         action="{% url 'dashboard:accounts_violation_decide' row.pk 'approve' %}">
@@ -83,8 +83,8 @@
         {% icon "history" %}
         <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="المترجم" data-en="Translator">المترجم</th>
@@ -97,17 +97,17 @@
           <tbody>
           {% for row in decided %}
             <tr>
-              <td>{{ row.user.short_name }}</td>
-              <td class="mono">{{ row.date }}</td>
-              <td>{{ row.get_kind_display }}</td>
-              <td>
+              <td data-ar-label="المترجم" data-en-label="Translator">{{ row.user.short_name }}</td>
+              <td data-ar-label="التاريخ" data-en-label="Date" class="mono">{{ row.date }}</td>
+              <td data-ar-label="النوع" data-en-label="Kind">{{ row.get_kind_display }}</td>
+              <td data-ar-label="الحالة" data-en-label="State">
                 {% if row.status == 'approved' %}
                   <span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span>
                 {% else %}
                   <span class="badge badge--info" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
                 {% endif %}
               </td>
-              <td class="muted">{{ row.approved_by.short_name|default:"—" }}</td>
+              <td data-ar-label="اعتمدها" data-en-label="By" class="muted">{{ row.approved_by.short_name|default:"—" }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="5" class="empty"

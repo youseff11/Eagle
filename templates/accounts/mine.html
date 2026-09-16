@@ -63,8 +63,8 @@
         <span data-ar="كلمة في اليوم" data-en="words a day">كلمة في اليوم</span>
       </span>
     </div>
-    <div class="table-wrap">
-      <table class="table">
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
         <thead>
           <tr>
             <th data-ar="اليوم" data-en="Date">اليوم</th>
@@ -75,8 +75,8 @@
         <tbody>
         {% for day in days %}
           <tr>
-            <td class="mono">{{ day.date }}</td>
-            <td>
+            <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
+            <td data-ar-label="الحالة" data-en-label="Status">
               {% if day.status == 'present' %}
                 <span class="badge badge--ok" data-ar="حاضر" data-en="Present">حاضر</span>
               {% elif day.status == 'leave' %}
@@ -87,7 +87,7 @@
                 <span class="badge">{{ day.get_status_display }}</span>
               {% endif %}
             </td>
-            <td class="mono">{{ day.words }}</td>
+            <td data-ar-label="الكلمات" data-en-label="Words" class="mono">{{ day.words }}</td>
           </tr>
         {% empty %}
           <tr><td colspan="3" class="empty"

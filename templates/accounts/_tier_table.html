@@ -1,6 +1,6 @@
 {% load eagle_tags %}
-<div class="table-wrap">
-  <table class="table">
+<div class="table-wrap table-wrap--cards">
+  <table class="table table--cards">
     <thead>
       <tr>
         <th data-ar="أكتر من" data-en="Above">أكتر من</th>
@@ -12,10 +12,10 @@
     <tbody>
     {% for tier in tiers %}
       <tr>
-        <td class="mono">{{ tier.min_words }}</td>
-        <td class="mono">{{ tier.max_words|default:"—" }}</td>
-        <td class="mono">{{ tier.bonus }}</td>
-        <td>
+        <td data-ar-label="أكتر من" data-en-label="Above" class="mono">{{ tier.min_words }}</td>
+        <td data-ar-label="لحد" data-en-label="Up to" class="mono">{{ tier.max_words|default:"—" }}</td>
+        <td data-ar-label="بونص اليوم" data-en-label="Day bonus" class="mono">{{ tier.bonus }}</td>
+        <td data-ar-label="" data-en-label="">
           <form method="post" action="{% url 'dashboard:accounts_tier_delete' tier.pk %}">
             {% csrf_token %}
             <button class="btn btn--sm btn--ghost" type="submit"

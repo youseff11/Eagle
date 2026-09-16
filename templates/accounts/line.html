@@ -50,8 +50,8 @@
         <div class="grow"></div>
         <span class="muted mono">{{ line.total_words }} / {{ line.target_words }}</span>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="اليوم" data-en="Date">اليوم</th>
@@ -64,8 +64,8 @@
           <tbody>
           {% for day in days %}
             <tr>
-              <td class="mono">{{ day.date }}</td>
-              <td>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
+              <td data-ar-label="الحالة" data-en-label="Status">
                 {% if day.status == 'present' %}
                   <span class="badge badge--ok" data-ar="حاضر" data-en="Present">حاضر</span>
                 {% elif day.status == 'leave' %}
@@ -84,9 +84,9 @@
                   <span class="chip" data-ar="ملف صعب" data-en="Difficult">ملف صعب</span>
                 {% endif %}
               </td>
-              <td class="mono">{{ day.words }}</td>
-              <td class="mono muted">{{ day.target }}</td>
-              <td class="mono">{{ day.bonus }}</td>
+              <td data-ar-label="الكلمات" data-en-label="Words" class="mono">{{ day.words }}</td>
+              <td data-ar-label="الحد اليومي" data-en-label="Floor" class="mono muted">{{ day.target }}</td>
+              <td data-ar-label="بونص اليوم" data-en-label="Day bonus" class="mono">{{ day.bonus }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="5" class="empty"
@@ -102,8 +102,8 @@
         {% icon "alert" %}
         <h3 data-ar="الخصومات" data-en="Deductions">الخصومات</h3>
       </div>
-      <div class="table-wrap">
-        <table class="table">
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
           <thead>
             <tr>
               <th data-ar="اليوم" data-en="Date">اليوم</th>
@@ -117,22 +117,22 @@
           <tbody>
           {% for row in deduction_rows %}
             <tr>
-              <td class="mono">{{ row.date }}</td>
-              <td>{{ row.kind }}</td>
-              <td class="muted">{{ row.reason }}</td>
-              <td class="mono">{{ row.days }}</td>
-              <td class="mono">{{ row.amount }}</td>
-              <td><span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span></td>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ row.date }}</td>
+              <td data-ar-label="النوع" data-en-label="Kind">{{ row.kind }}</td>
+              <td data-ar-label="السبب" data-en-label="Reason" class="muted">{{ row.reason }}</td>
+              <td data-ar-label="أيام" data-en-label="Days" class="mono">{{ row.days }}</td>
+              <td data-ar-label="القيمة" data-en-label="Amount" class="mono">{{ row.amount }}</td>
+              <td data-ar-label="الحالة" data-en-label="State"><span class="badge badge--dead" data-ar="مطبق" data-en="Applied">مطبق</span></td>
             </tr>
           {% endfor %}
           {% for row in pending_rows %}
             <tr>
-              <td class="mono">{{ row.date }}</td>
-              <td>{{ row.kind }}</td>
-              <td class="muted">{{ row.reason }}</td>
-              <td class="mono">{{ row.days }}</td>
-              <td class="mono muted">{{ row.amount }}</td>
-              <td>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ row.date }}</td>
+              <td data-ar-label="النوع" data-en-label="Kind">{{ row.kind }}</td>
+              <td data-ar-label="السبب" data-en-label="Reason" class="muted">{{ row.reason }}</td>
+              <td data-ar-label="أيام" data-en-label="Days" class="mono">{{ row.days }}</td>
+              <td data-ar-label="القيمة" data-en-label="Amount" class="mono muted">{{ row.amount }}</td>
+              <td data-ar-label="الحالة" data-en-label="State">
                 <span class="badge badge--wait"
                       data-ar="مستنية اعتماد" data-en="Awaiting approval">مستنية اعتماد</span>
               </td>
