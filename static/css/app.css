@@ -315,6 +315,28 @@ strong, b { font-weight: 620; }
   outline: none; border-color: var(--brand-line);
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
+
+/* Chrome paints its own pale blue over an autofilled field and a yellow over a
+   saved password, which is what made the sign-in form look like two different
+   designs. The colour cannot be overridden directly, but an inset shadow the
+   height of the field covers it, and a transition measured in years stops the
+   browser animating its own colour back in. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus,
+.input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 100px var(--surface-2) inset;
+  box-shadow: 0 0 0 100px var(--surface-2) inset;
+  caret-color: var(--text);
+  border-color: var(--border);
+  transition: background-color 500000s ease-in-out 0s;
+}
+.input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 100px var(--surface-2) inset, 0 0 0 3px var(--brand-soft);
+  box-shadow: 0 0 0 100px var(--surface-2) inset, 0 0 0 3px var(--brand-soft);
+  border-color: var(--brand-line);
+}
 textarea.input { resize: vertical; }
 select.input { appearance: none; padding-inline-end: 30px;
   background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%),
@@ -714,67 +736,149 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 
 /* ------------------------------------------------------------------- auth */
 
+/* ------------------------------------------------------------- sign in
+ *
+ * The one page people outside the team ever see, so it carries the weight of
+ * first impressions. Three things do the work: a card that sits above the
+ * page instead of being painted on it, a rhythm that lets the form breathe,
+ * and the legal block demoted to the footnote it is rather than the largest
+ * block on screen.
+ */
+
 .auth {
-  min-height: 100vh; display: grid; place-items: center; padding: 28px 20px;
-  background: var(--bg);
+  min-height: 100vh; display: grid; place-items: center;
+  padding: 44px 20px 32px;
+  background:
+    radial-gradient(1120px 620px at 50% -14%, var(--brand-soft), transparent 62%),
+    radial-gradient(760px 520px at 88% 112%, var(--accent-soft), transparent 60%),
+    var(--bg);
 }
-.auth__wrap { width: min(378px, 100%); }
+.auth__wrap { width: min(396px, 100%); }
+
 .auth__utils {
   position: fixed; inset-block-start: 18px; inset-inline-end: 18px;
   display: flex; align-items: center; gap: 7px; z-index: 5;
 }
-.auth__logo { display: flex; align-items: center; justify-content: center;
-  gap: 11px; margin-bottom: 26px; }
-.auth__title { font-size: 1.34rem; font-weight: 660; letter-spacing: -.02em; margin-bottom: 5px; }
-.auth__sub { color: var(--muted); margin-bottom: 24px; font-size: .865rem; }
 
-.auth__card { background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; padding: 26px 24px; }
+/* -- the lockup ------------------------------------------------------- */
+
+.auth__logo {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; margin-bottom: 26px;
+}
+.auth__logo .brand__mark {
+  width: 42px; height: 42px; border-radius: 13px;
+  box-shadow: 0 8px 20px -8px var(--brand-line), inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+.auth__logo .brand__mark .ic { width: 23px; height: 23px; }
+.auth__logo .brand__name { font-size: 1.06rem; letter-spacing: .12em; }
+.auth__logo .brand__sub { font-size: .605rem; letter-spacing: .2em; }
+
+/* -- the card --------------------------------------------------------- */
+
+.auth__card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 30px 28px 28px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .28), 0 28px 64px -32px rgba(0, 0, 0, .8);
+}
+[data-theme="light"] .auth__card {
+  /* Light mode has no darkness to sit against, so the card has to earn its
+     lift from a layered shadow rather than contrast alone. */
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, .05),
+    0 14px 30px -14px rgba(16, 24, 40, .16),
+    0 44px 86px -46px rgba(16, 24, 40, .26);
+}
+
+.auth__title {
+  font-size: 1.44rem; font-weight: 680; letter-spacing: -.025em;
+  margin-bottom: 6px; color: var(--heading);
+}
+.auth__sub { color: var(--muted); margin-bottom: 26px; font-size: .855rem; line-height: 1.6; }
+
+.auth .field { margin-bottom: 16px; }
+.auth .field > label { font-size: .775rem; font-weight: 600; margin-bottom: 7px; }
 
 .field-icon { position: relative; }
 .field-icon > .ic--lead {
-  position: absolute; inset-inline-start: 12px; inset-block-start: 50%;
+  position: absolute; inset-inline-start: 13px; inset-block-start: 50%;
   transform: translateY(-50%); color: var(--faint); pointer-events: none;
-  width: 16px; height: 16px;
+  width: 16px; height: 16px; transition: color .15s;
 }
-.field-icon .input { height: 42px; padding-inline-start: 38px; padding-inline-end: 38px; }
+.field-icon:focus-within > .ic--lead { color: var(--brand); }
+.field-icon .input {
+  height: 46px; border-radius: 11px; font-size: .9rem;
+  padding-inline-start: 40px; padding-inline-end: 42px;
+}
 .field-icon .peek {
-  position: absolute; inset-inline-end: 5px; inset-block-start: 50%; transform: translateY(-50%);
+  position: absolute; inset-inline-end: 6px; inset-block-start: 50%; transform: translateY(-50%);
   background: none; border: 0; color: var(--faint); cursor: pointer;
-  padding: 7px; border-radius: 6px; line-height: 0;
+  padding: 8px; border-radius: 8px; line-height: 0; transition: color .15s, background .15s;
 }
 .field-icon .peek:hover { color: var(--text); background: var(--surface-3); }
 
-.auth .btn--primary { height: 42px; margin-top: 6px; }
+/* On a white card a near-white field reads as nothing at all. A hairline of
+   inner shadow is enough to make it look like somewhere you can type. */
+[data-theme="light"] .field-icon .input {
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .045);
+}
+[data-theme="light"] .field-icon .input:focus {
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .045), 0 0 0 3px var(--brand-soft);
+}
+
+.auth .btn--primary {
+  height: 46px; margin-top: 10px; border-radius: 11px;
+  font-size: .92rem; letter-spacing: .01em;
+  box-shadow: 0 10px 22px -12px var(--brand-line);
+}
+.auth .btn--primary:active { transform: translateY(1px); }
+
 .auth__alert {
-  display: flex; gap: 9px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r);
+  display: flex; gap: 9px; align-items: flex-start; padding: 11px 13px; border-radius: var(--r);
   background: var(--danger-soft); color: var(--danger); margin-bottom: 18px; font-size: .83rem;
+  border: 1px solid transparent; border-color: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 .auth__alert .ic { flex: none; margin-top: 2px; }
-.auth__foot { margin-top: 20px; color: var(--faint); font-size: .755rem; text-align: center; }
 
-/* Legal identity of the operator — required on a public page by Meta's
-   business verification. Quiet, but real text (never an image). */
+.auth__foot {
+  margin-top: 16px; color: var(--faint); font-size: .765rem; text-align: center;
+}
+
+/* -- the operator's legal identity ------------------------------------ *
+ * Meta's business verification requires the real name and address on a
+ * public page, so it cannot go. It can be quiet: one small column under a
+ * rule, well below the fold of attention.
+ */
+
 .auth__legal {
-  margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
-  color: var(--faint); font-size: .72rem; line-height: 1.75; text-align: center;
+  margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--border);
+  color: var(--faint); font-size: .705rem; line-height: 1.7; text-align: center;
 }
 .auth__legal-brand {
-  color: var(--muted); font-weight: 600; letter-spacing: .04em;
-  text-transform: uppercase; font-size: .68rem; margin-bottom: 4px;
+  color: var(--muted); font-weight: 650; letter-spacing: .13em;
+  text-transform: uppercase; font-size: .645rem; margin-bottom: 6px;
 }
 .auth__legal-row b { color: var(--muted); font-weight: 600; }
 .auth__legal-row a { color: inherit; text-decoration: none; }
 .auth__legal-row a:hover { color: var(--text); text-decoration: underline; }
+.auth__legal-sep { opacity: .45; margin: 0 5px; }
 
-/* Links to the public legal pages — shown without signing in. */
 .auth__legal-links {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
-  gap: 4px 8px; margin-top: 10px; padding-top: 10px;
+  gap: 4px 10px; margin-top: 12px; padding-top: 12px;
   border-top: 1px solid var(--border-soft);
+  font-size: .72rem;
 }
 .auth__legal-links a { color: var(--muted); }
 .auth__legal-links a:hover { color: var(--text); text-decoration: underline; }
+
+@media (max-width: 480px) {
+  .auth { padding: 68px 14px 28px; }
+  .auth__card { padding: 24px 20px 22px; border-radius: 16px; }
+  .auth__title { font-size: 1.28rem; }
+  .auth__utils { inset-block-start: 14px; inset-inline-end: 14px; }
+}
 
 /* ---------------------------------------------------- public legal pages */
 /* /privacy/, /terms/, /data-deletion/ — open to everyone, no login. */

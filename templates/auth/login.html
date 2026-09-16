@@ -89,28 +89,26 @@
     <footer class="auth__legal">
       <div class="auth__legal-brand">Eagle Translation</div>
       <div class="auth__legal-row">
-        <span data-ar="الاسم القانوني" data-en="Legal name">الاسم القانوني</span>:
         <b>النسر للتوريدات العامة</b>
+        <span class="auth__legal-sep" aria-hidden="true">·</span>
+        <span data-ar="سجل تجاري" data-en="Commercial register">سجل تجاري</span>
+        <span dir="ltr">51760</span>
       </div>
       <div class="auth__legal-row">شارع زيدان، أبو المطامير، البحيرة 22731، مصر</div>
       <div class="auth__legal-row">
-        <span data-ar="سجل تجاري" data-en="Commercial register">سجل تجاري</span>
-        <span dir="ltr">51760</span>
-        <span aria-hidden="true">·</span>
         <a href="tel:+201004500410" dir="ltr">+20 100 450 0410</a>
-      </div>
-      <div class="auth__legal-row">
-        <a href="https://www.eagel-operation.com" dir="ltr">www.eagel-operation.com</a>
+        <span class="auth__legal-sep" aria-hidden="true">·</span>
+        <a href="https://www.eagel-operation.com" dir="ltr">eagel-operation.com</a>
       </div>
 
       {# Reachable without signing in — Meta requires these to be public. #}
       <nav class="auth__legal-links">
         <a href="{% url 'dashboard:privacy' %}"
            data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</a>
-        <span aria-hidden="true">·</span>
+        <span class="auth__legal-sep" aria-hidden="true">·</span>
         <a href="{% url 'dashboard:terms' %}"
            data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</a>
-        <span aria-hidden="true">·</span>
+        <span class="auth__legal-sep" aria-hidden="true">·</span>
         <a href="{% url 'dashboard:data_deletion' %}"
            data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
       </nav>
