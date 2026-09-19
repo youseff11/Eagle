@@ -654,3 +654,422 @@ class TaskWordCountTests(TestCase):
             f"/tasks/{self.task.code}/words/", {"action": "translated"}
         )
         self.assertEqual(response.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# Attendance
+# ---------------------------------------------------------------------------
+
+class AttendanceMathTests(TestCase):
+    """The rules that a wrong sign or a stray ``+ 1`` would quietly break."""
+
+    def test_overnight_shift_is_eight_hours_not_minus_sixteen(self):
+        from datetime import time
+        from .models import span_minutes
+
+        self.assertEqual(span_minutes(time(9, 0), time(17, 0)), 480)
+        self.assertEqual(span_minutes(time(17, 0), time(1, 0)), 480)
+        self.assertEqual(span_minutes(time(22, 0), time(6, 0)), 480)
+        self.assertEqual(span_minutes(time(10, 0), time(14, 0)), 240)
+
+    def test_grace_is_all_or_nothing(self):
+        """The contract's own example: 09:06 present, 09:14 late by 14."""
+        from datetime import datetime
+
+        from .attendance import late_after_grace
+
+        start = datetime(2026, 9, 20, 9, 0)
+        self.assertEqual(late_after_grace(start, datetime(2026, 9, 20, 9, 6), 10), 0)
+        self.assertEqual(late_after_grace(start, datetime(2026, 9, 20, 9, 10), 10), 0)
+        # Not 4. Once the window is passed the whole delay counts.
+        self.assertEqual(late_after_grace(start, datetime(2026, 9, 20, 9, 14), 10), 14)
+        self.assertEqual(late_after_grace(start, datetime(2026, 9, 20, 8, 55), 10), 0)
+
+    def test_distance_is_metres_not_degrees(self):
+        from .attendance import haversine_m
+
+        # A tenth of a degree of latitude is a shade over 11 km.
+        self.assertAlmostEqual(
+            haversine_m(30.0444, 31.2357, 30.1444, 31.2357), 11119, delta=40
+        )
+        self.assertEqual(haversine_m(30.0444, 31.2357, 30.0444, 31.2357), 0)
+
+
+class AttendanceTests(TestCase):
+    def setUp(self):
+        from datetime import time
+
+        from .models import OfficeLocation, PayrollSettings, ShiftTemplate, WorkMode
+
+        self.conf = PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        self.morning = ShiftTemplate.objects.get(name="Shift 1")      # 09:00-17:00
+        self.night = ShiftTemplate.objects.get(name="Shift 3")        # 17:00-01:00
+        self.time = time
+        self.WorkMode = WorkMode
+
+        self.person = User.objects.create_user(
+            "noha", password="x", role=Role.TRANSLATOR, work_mode=WorkMode.REMOTE
+        )
+        self.hr = User.objects.create_user(
+            "hr", password="x", role=Role.OPERATION, attendance_manager=True
+        )
+        self.office = OfficeLocation.objects.create(
+            name="Head office", latitude=Decimal("30.044400"),
+            longitude=Decimal("31.235700"), radius_meters=200,
+        )
+
+    # -- helpers -----------------------------------------------------------
+    def roster(self, person, weekday, template, mode=""):
+        from .models import Shift
+
+        return Shift.objects.create(
+            user=person, weekday=weekday, template=template, work_mode=mode
+        )
+
+    def at(self, year, month, day, hour, minute=0):
+        from datetime import datetime
+
+        return timezone.make_aware(datetime(year, month, day, hour, minute))
+
+    # -- the punch ---------------------------------------------------------
+    def test_a_remote_day_is_never_asked_for_a_location(self):
+        """Section 14 as a test: no office day, no location check, no flag."""
+        from . import attendance
+        from .models import PunchKind
+
+        # 2026-09-21 is a Monday.
+        self.roster(self.person, 0, self.morning)
+        row, event = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3)
+        )
+        self.assertIsNone(event.within_geofence)
+        self.assertFalse(row.off_site)
+        self.assertFalse(row.needs_review)
+        self.assertEqual(row.work_mode, "remote")
+
+    def test_an_office_punch_from_far_away_is_flagged_not_lost(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning, mode=self.WorkMode.OFFICE)
+        row, event = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3),
+            latitude=Decimal("30.100000"), longitude=Decimal("31.235700"),
+        )
+        self.assertFalse(event.within_geofence)
+        self.assertTrue(row.off_site)
+        self.assertTrue(row.needs_review)
+        # The person still arrived at work - the day is recorded.
+        self.assertIsNotNone(row.check_in)
+
+    def test_reject_policy_refuses_the_off_site_punch(self):
+        from . import attendance
+        from .models import OffSitePolicy, PunchKind, WorkDay
+
+        self.conf.off_site_policy = OffSitePolicy.REJECT
+        self.conf.save()
+        self.roster(self.person, 0, self.morning, mode=self.WorkMode.OFFICE)
+        with self.assertRaises(attendance.PunchRefused):
+            attendance.punch(
+                self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3),
+                latitude=Decimal("30.100000"), longitude=Decimal("31.235700"),
+            )
+        self.assertFalse(
+            WorkDay.objects.filter(user=self.person).exclude(check_in=None).exists()
+        )
+
+    def test_gps_error_is_added_to_the_radius(self):
+        """A 250 m reading with a 100 m error bar is not proof of absence."""
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning, mode=self.WorkMode.OFFICE)
+        row, event = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3),
+            latitude=Decimal("30.046650"), longitude=Decimal("31.235700"),
+            accuracy_m=120,
+        )
+        self.assertGreater(event.distance_m, 200)
+        self.assertTrue(event.within_geofence)
+        self.assertFalse(row.off_site)
+
+    # -- the overnight shift ----------------------------------------------
+    def test_a_checkout_after_midnight_belongs_to_the_shift_that_started(self):
+        from . import attendance
+        from .models import PunchKind
+
+        # Monday 17:00 -> Tuesday 01:00.
+        self.roster(self.person, 0, self.night)
+        opened, _ = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 17, 2)
+        )
+        closed, _ = attendance.punch(
+            self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 22, 0, 55)
+        )
+        # Same row - the day is Monday's, even though the clock says Tuesday.
+        self.assertEqual(opened.pk, closed.pk)
+        self.assertEqual(closed.date.day, 21)
+        self.assertEqual(closed.work_minutes, 473)
+        self.assertEqual(closed.late_minutes, 0)
+        self.assertEqual(closed.short_minutes, 7)
+
+    # -- breaks ------------------------------------------------------------
+    def test_hours_are_out_minus_in_minus_break(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        attendance.punch(self.person, PunchKind.BREAK_START, at=self.at(2026, 9, 21, 13, 0))
+        attendance.punch(self.person, PunchKind.BREAK_END, at=self.at(2026, 9, 21, 13, 30))
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 17, 0)
+        )
+        self.assertEqual(row.break_minutes, 30)
+        self.assertEqual(row.work_minutes, 450)   # 480 - 30
+        self.assertEqual(row.short_minutes, 30)
+
+    def test_a_day_cannot_be_closed_with_a_break_still_running(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        attendance.punch(self.person, PunchKind.BREAK_START, at=self.at(2026, 9, 21, 13, 0))
+        with self.assertRaises(attendance.PunchRefused):
+            attendance.punch(
+                self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 17, 0)
+            )
+
+    def test_you_cannot_check_in_twice(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        with self.assertRaises(attendance.PunchRefused):
+            attendance.punch(
+                self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 30)
+            )
+
+    # -- part-time ---------------------------------------------------------
+    def test_a_part_timer_is_measured_against_their_own_hours(self):
+        """Four scheduled hours worked in full is a complete day, not half of one."""
+        from . import attendance
+        from .models import EmploymentType, PunchKind, Shift
+
+        person = User.objects.create_user(
+            "sara", password="x", role=Role.TRANSLATOR,
+            employment_type=EmploymentType.PART_TIME,
+        )
+        Shift.objects.create(
+            user=person, weekday=0, start_time=self.time(10, 0), end_time=self.time(14, 0)
+        )
+        attendance.punch(person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 10, 0))
+        row, _ = attendance.punch(
+            person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 14, 0)
+        )
+        self.assertEqual(row.scheduled_minutes, 240)
+        self.assertEqual(row.work_minutes, 240)
+        self.assertEqual(row.short_minutes, 0)
+        self.assertEqual(row.overtime_minutes, 0)
+
+    # -- the frozen schedule ----------------------------------------------
+    def test_moving_the_roster_does_not_rewrite_a_recorded_day(self):
+        from . import attendance
+        from .models import PunchKind, WorkDay
+
+        shift = self.roster(self.person, 0, self.morning)
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 30)
+        )
+        self.assertEqual(row.late_minutes, 30)
+
+        # HR moves this person to the night shift from now on.
+        shift.template = self.night
+        shift.save()
+
+        # The recorded day keeps the shift it was worked under.
+        again = WorkDay.objects.get(pk=row.pk)
+        attendance.recompute(again)
+        self.assertEqual(again.late_minutes, 30)
+        self.assertEqual(again.schedule_label, self.morning.label)
+
+    # -- corrections -------------------------------------------------------
+    def test_an_edit_without_a_reason_is_refused(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 40)
+        )
+        with self.assertRaises(attendance.PunchRefused):
+            attendance.apply_edit(
+                row, self.hr, {"check_in": self.at(2026, 9, 21, 9, 0)}, ""
+            )
+
+    def test_an_edit_writes_the_trail_and_recomputes(self):
+        from . import attendance
+        from .models import AttendanceEdit, PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 40)
+        )
+        self.assertEqual(row.late_minutes, 40)
+
+        attendance.apply_edit(
+            row, self.hr, {"check_in": self.at(2026, 9, 21, 9, 0)},
+            "بصمة الباب بتقول 09:00",
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.late_minutes, 0)
+        trail = AttendanceEdit.objects.get(work_day=row, field="check_in")
+        self.assertEqual(trail.actor, self.hr)
+        self.assertIn("09:40", trail.old_value)
+        self.assertIn("09:00", trail.new_value)
+        # The punch itself is untouched - the evidence survives the correction.
+        self.assertEqual(
+            timezone.localtime(row.events.first().at).strftime("%H:%M"), "09:40"
+        )
+
+    # -- devices -----------------------------------------------------------
+    def test_the_first_browser_is_trusted_and_the_second_waits(self):
+        from . import attendance
+        from .models import ApprovalStatus, AuthorizedDevice, PunchKind
+
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0),
+            fingerprint="aaaa1111",
+        )
+        first = AuthorizedDevice.objects.get(user=self.person, fingerprint="aaaa1111")
+        self.assertEqual(first.status, ApprovalStatus.APPROVED)
+
+        self.roster(self.person, 1, self.morning)
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 22, 9, 0),
+            fingerprint="bbbb2222",
+        )
+        second = AuthorizedDevice.objects.get(user=self.person, fingerprint="bbbb2222")
+        self.assertEqual(second.status, ApprovalStatus.PENDING)
+        self.assertTrue(row.needs_review)
+
+    # -- overtime ----------------------------------------------------------
+    def test_overtime_becomes_a_claim_and_pays_only_once_approved(self):
+        from datetime import date
+
+        from . import attendance, payroll
+        from .models import OvertimeClaim, PunchKind, SalaryRecord
+
+        SalaryRecord.objects.create(
+            user=self.person, amount=Decimal("5200.00"), effective_from=date(2026, 1, 1)
+        )
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        row, _ = attendance.punch(
+            self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 19, 0)
+        )
+        self.assertEqual(row.overtime_minutes, 120)
+
+        line = payroll.compute_line(self.person, 2026, 9)
+        claim = OvertimeClaim.objects.get(user=self.person, date=row.date)
+        self.assertEqual(claim.status, "pending")
+        self.assertEqual(line.overtime_bonus, Decimal("0.00"))
+        self.assertEqual(line.overtime_minutes, 120)
+
+        claim.approve(self.hr)
+        line = payroll.compute_line(self.person, 2026, 9)
+        # 5200 / 26 = 200 a day, / 8 hours = 25 an hour, two hours = 50.
+        self.assertEqual(line.overtime_bonus, Decimal("50.00"))
+        self.assertEqual(line.gross, line.base_salary + Decimal("50.00"))
+
+    def test_recomputing_does_not_resurrect_a_rejected_claim(self):
+        from datetime import date
+
+        from . import attendance, payroll
+        from .models import OvertimeClaim, PunchKind, SalaryRecord
+
+        SalaryRecord.objects.create(
+            user=self.person, amount=Decimal("5200.00"), effective_from=date(2026, 1, 1)
+        )
+        self.roster(self.person, 0, self.morning)
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 19, 0))
+
+        payroll.compute_line(self.person, 2026, 9)
+        OvertimeClaim.objects.filter(user=self.person).first().reject(self.hr)
+        payroll.compute_line(self.person, 2026, 9)
+        self.assertEqual(
+            OvertimeClaim.objects.get(user=self.person).status, "rejected"
+        )
+
+    # -- the report --------------------------------------------------------
+    def test_the_month_counts_office_and_remote_days_apart(self):
+        from datetime import date
+
+        from . import attendance
+        from .models import PunchKind, WorkMode
+
+        self.person.work_mode = WorkMode.HYBRID
+        self.person.save()
+        self.roster(self.person, 0, self.morning, mode=WorkMode.OFFICE)   # Monday
+        self.roster(self.person, 1, self.morning, mode=WorkMode.REMOTE)   # Tuesday
+
+        attendance.punch(
+            self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0),
+            latitude=Decimal("30.044400"), longitude=Decimal("31.235700"),
+        )
+        attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 17, 0))
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 22, 9, 0))
+        attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 22, 17, 0))
+
+        summary = attendance.month_summary(
+            self.person, date(2026, 9, 1), date(2026, 9, 30)
+        )
+        self.assertEqual(summary["office_days"], 1)
+        self.assertEqual(summary["remote_days"], 1)
+        self.assertEqual(summary["present_days"], 2)
+        self.assertEqual(summary["work_minutes"], 960)
+
+
+class AttendancePageTests(TestCase):
+    """The screens exist, and only the right people reach them."""
+
+    def setUp(self):
+        self.person = User.objects.create_user("kareem", password="x", role=Role.TRANSLATOR)
+        self.hr = User.objects.create_user(
+            "hrm", password="x", role=Role.OPERATION, attendance_manager=True
+        )
+
+    def test_everybody_gets_their_own_card(self):
+        self.client.force_login(self.person)
+        self.assertEqual(self.client.get("/attendance/").status_code, 200)
+
+    def test_a_translator_cannot_open_the_board(self):
+        self.client.force_login(self.person)
+        self.assertEqual(self.client.get("/hr/attendance/").status_code, 403)
+
+    def test_the_hr_flag_opens_the_board_without_being_an_admin(self):
+        self.client.force_login(self.hr)
+        for path in (
+            "/hr/attendance/", "/hr/schedules/", "/hr/report/",
+            "/hr/offices/", "/hr/devices/", "/hr/overtime/",
+        ):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_a_punch_with_no_roster_still_answers(self):
+        from .models import WorkDay
+
+        self.client.force_login(self.person)
+        response = self.client.post("/api/attendance/punch/", {"action": "check_in"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertTrue(WorkDay.objects.filter(user=self.person).exists())
+
+    def test_a_bad_action_is_rejected(self):
+        self.client.force_login(self.person)
+        response = self.client.post("/api/attendance/punch/", {"action": "teleport"})
+        self.assertEqual(response.status_code, 400)

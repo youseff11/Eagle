@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% load static eagle_tags %}
+{% block title %}Attendance{% endblock %}
+{% block page_title %}<span data-ar="حضوري" data-en="My attendance">حضوري</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="حضوري" data-en="My attendance">حضوري</h1>
+  <div class="page-head__sub mono">{{ work_date }}</div>
+</div>
+
+<div class="grid grid--main">
+  <div class="stack">
+
+    {# ---- the punch card ------------------------------------------------ #}
+    <div class="card punch" id="punchCard"
+         data-state="{% if row.check_out %}closed{% elif row.check_in %}open{% else %}none{% endif %}"
+         data-needs-location="{% if needs_location %}1{% else %}0{% endif %}"
+         data-on-break="{% if row.on_break %}1{% else %}0{% endif %}">
+      <div class="card__head">
+        {% icon "timer" %}
+        <h3 data-ar="اليوم" data-en="Today">اليوم</h3>
+        <div class="grow"></div>
+        {% if plan.working %}
+          <span class="chip mono">{{ plan.label }}</span>
+          {% if plan.mode == 'remote' %}
+            <span class="badge badge--info" data-ar="عن بُعد" data-en="Remote">عن بُعد</span>
+          {% else %}
+            <span class="badge badge--info" data-ar="من المكتب" data-en="Office">من المكتب</span>
+          {% endif %}
+        {% else %}
+          <span class="badge" data-ar="مفيش شيفت النهارده" data-en="Not rostered today">مفيش شيفت النهارده</span>
+        {% endif %}
+      </div>
+
+      <div class="punch__clock">
+        <div class="punch__now mono" id="punchClock">--:--</div>
+        <div class="punch__meta muted">
+          {% if plan.working %}
+            <span data-ar="الشيفت" data-en="Shift">الشيفت</span>
+            <span class="mono">{{ plan.start|date:"H:i" }} – {{ plan.end|date:"H:i" }}</span>
+          {% else %}
+            <span data-ar="تقدر تسجل برضه، والـHR هتراجعه."
+                  data-en="You can still punch; HR will review it.">تقدر تسجل برضه، والـHR هتراجعه.</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="punch__grid">
+        <div class="punch__cell">
+          <div class="punch__label" data-ar="حضور" data-en="In">حضور</div>
+          <div class="punch__value mono" data-field="check_in">{{ row.check_in|date:"H:i"|default:"—" }}</div>
+        </div>
+        <div class="punch__cell">
+          <div class="punch__label" data-ar="انصراف" data-en="Out">انصراف</div>
+          <div class="punch__value mono" data-field="check_out">{{ row.check_out|date:"H:i"|default:"—" }}</div>
+        </div>
+        <div class="punch__cell">
+          <div class="punch__label" data-ar="بريك" data-en="Break">بريك</div>
+          <div class="punch__value mono" data-field="break_minutes">{{ row.break_minutes|default:0 }}د</div>
+        </div>
+        <div class="punch__cell">
+          <div class="punch__label" data-ar="ساعات" data-en="Hours">ساعات</div>
+          <div class="punch__value mono" data-field="hours">{{ row.hours_display|default:"0:00" }}</div>
+        </div>
+      </div>
+
+      <div class="punch__actions">
+        <button class="btn btn--primary btn--block" type="button" data-punch="check_in">
+          {% icon "play" "ic--sm" %}<span data-ar="تسجيل حضور" data-en="Check in">تسجيل حضور</span>
+        </button>
+        <button class="btn btn--block" type="button" data-punch="break_start">
+          {% icon "pause" "ic--sm" %}<span data-ar="ابدأ بريك" data-en="Start break">ابدأ بريك</span>
+        </button>
+        <button class="btn btn--block" type="button" data-punch="break_end">
+          {% icon "play" "ic--sm" %}<span data-ar="إنهاء البريك" data-en="End break">إنهاء البريك</span>
+        </button>
+        <button class="btn btn--danger btn--block" type="button" data-punch="check_out">
+          {% icon "stop" "ic--sm" %}<span data-ar="تسجيل انصراف" data-en="Check out">تسجيل انصراف</span>
+        </button>
+      </div>
+
+      <div class="punch__status muted" id="punchStatus" aria-live="polite"></div>
+
+      {% if row.needs_review %}
+        <div class="note note--warn">
+          {% icon "alert" %}
+          <div>
+            <span data-ar="اليوم ده متعلّم للمراجعة:" data-en="This day is flagged for review:">اليوم ده متعلّم للمراجعة:</span>
+            <span class="mono">{{ row.review_reason }}</span>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    {# ---- the last fortnight -------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "history" %}
+        <h3 data-ar="آخر أسبوعين" data-en="The last fortnight">آخر أسبوعين</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="النظام" data-en="Mode">النظام</th>
+              <th data-ar="الشيفت" data-en="Shift">الشيفت</th>
+              <th data-ar="حضور" data-en="In">حضور</th>
+              <th data-ar="انصراف" data-en="Out">انصراف</th>
+              <th data-ar="ساعات" data-en="Hours">ساعات</th>
+              <th data-ar="الحالة" data-en="Status">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for day in recent %}
+            <tr>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
+              <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge day.work_mode %}</td>
+              <td data-ar-label="الشيفت" data-en-label="Shift" class="mono muted">{{ day.schedule_label|default:"—" }}</td>
+              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ day.hours_display }}</td>
+              <td data-ar-label="الحالة" data-en-label="Status">
+                {% day_status_badge day.status %}
+                {% if day.late_minutes %}
+                  <span class="badge badge--wait mono">+{{ day.late_minutes }}د</span>
+                {% endif %}
+                {% if day.overtime_minutes %}
+                  <span class="badge badge--ok mono">OT {{ day.overtime_minutes }}د</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7" class="empty"
+                    data-ar="مفيش أيام مسجلة لسه."
+                    data-en="Nothing recorded yet.">مفيش أيام مسجلة لسه.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "chart" %}
+        <h3 data-ar="الشهر ده" data-en="This month">الشهر ده</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام مجدولة" data-en="Scheduled days">أيام مجدولة</span>
+        <b class="mono">{{ summary.scheduled_days }}</b>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام حضور" data-en="Days present">أيام حضور</span>
+        <b class="mono">{{ summary.present_days }}</b>
+      </div>
+      <div class="kv">
+        <span data-ar="من المكتب" data-en="Office">من المكتب</span>
+        <b class="mono">{{ summary.office_days }}</b>
+      </div>
+      <div class="kv">
+        <span data-ar="عن بُعد" data-en="Remote">عن بُعد</span>
+        <b class="mono">{{ summary.remote_days }}</b>
+      </div>
+      <div class="kv">
+        <span data-ar="مرات التأخير" data-en="Late">مرات التأخير</span>
+        <b class="mono">{{ summary.late_days }} · {{ summary.late_minutes }}د</b>
+      </div>
+      <div class="kv">
+        <span data-ar="نقص ساعات" data-en="Short">نقص ساعات</span>
+        <b class="mono">{{ summary.short_minutes }}د</b>
+      </div>
+      <div class="kv">
+        <span data-ar="أوفرتايم" data-en="Overtime">أوفرتايم</span>
+        <b class="mono">{{ summary.overtime_minutes }}د</b>
+      </div>
+    </div>
+
+    <div class="note note--info">
+      {% icon "shield" %}
+      <div data-ar="الموقع بيتقرا لحظة الضغط على الزرار بس. مفيش تتبع مستمر ولا كاميرا ولا لقطات شاشة."
+           data-en="Your location is read at the moment you press the button, and at no other moment. No continuous tracking, no camera, no screenshots.">
+        الموقع بيتقرا لحظة الضغط على الزرار بس. مفيش تتبع مستمر ولا كاميرا ولا لقطات شاشة.
+      </div>
+    </div>
+
+    {% if devices %}
+      <div class="card card--flat">
+        <div class="card__head">
+          {% icon "shield-check" %}
+          <h3 data-ar="أجهزتي" data-en="My devices">أجهزتي</h3>
+        </div>
+        {% for device in devices %}
+          <div class="kv">
+            <span class="mono muted">{{ device.label|default:device.fingerprint|slice:":10" }}</span>
+            {% if device.status == 'approved' %}
+              <span class="badge badge--ok" data-ar="معتمد" data-en="Approved">معتمد</span>
+            {% elif device.status == 'pending' %}
+              <span class="badge badge--wait" data-ar="مستني موافقة" data-en="Pending">مستني موافقة</span>
+            {% else %}
+              <span class="badge badge--dead" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.EAGLE_ATTENDANCE = {
+    punchUrl: "{% url 'dashboard:api_attendance_punch' %}",
+    stateUrl: "{% url 'dashboard:api_attendance_state' %}"
+  };
+</script>
+<script src="{% static 'js/attendance.js' %}"></script>
+{% endblock %}

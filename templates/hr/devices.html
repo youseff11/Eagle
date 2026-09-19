@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Devices{% endblock %}
+{% block page_title %}<span data-ar="أجهزة الحضور" data-en="Attendance devices">أجهزة الحضور</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="أجهزة الحضور" data-en="Attendance devices">أجهزة الحضور</h1>
+</div>
+
+<div class="note note--info">
+  {% icon "shield" %}
+  <div data-ar="البصمة دي رقم عشوائي المتصفح بيحتفظ بيه — مش بيقول حاجة عن الجهاز ولا عن صاحبه. أول متصفح لأي موظف بيتعتمد تلقائي عشان الجديد ميتقفلش بره."
+       data-en="The fingerprint is a random token the browser keeps - it says nothing about the machine or its owner. Somebody's very first browser is approved automatically, so a new joiner is never locked out.">
+    البصمة دي رقم عشوائي المتصفح بيحتفظ بيه — مش بيقول حاجة عن الجهاز ولا عن صاحبه. أول متصفح لأي موظف بيتعتمد تلقائي عشان الجديد ميتقفلش بره.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "user-check" %}
+    <h3 data-ar="مستنية موافقة" data-en="Waiting for approval">مستنية موافقة</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="البصمة" data-en="Fingerprint">البصمة</th>
+          <th data-ar="المتصفح" data-en="Browser">المتصفح</th>
+          <th data-ar="أول ظهور" data-en="First seen">أول ظهور</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for device in pending %}
+        <tr>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ device.user.short_name }}</td>
+          <td data-ar-label="البصمة" data-en-label="Fingerprint" class="mono muted">{{ device.fingerprint|slice:":12" }}</td>
+          <td data-ar-label="المتصفح" data-en-label="Browser" class="muted">{{ device.user_agent|truncatechars:60 }}</td>
+          <td data-ar-label="أول ظهور" data-en-label="First seen" class="mono">{{ device.first_seen|date:"Y-m-d H:i" }}</td>
+          <td>
+            <div class="row row--tight">
+              <form method="post" action="{% url 'dashboard:hr_device_decide' device.pk 'approve' %}">
+                {% csrf_token %}
+                <button class="btn btn--ok btn--sm" type="submit">
+                  {% icon "check" "ic--sm" %}<span data-ar="اعتمد" data-en="Approve">اعتمد</span>
+                </button>
+              </form>
+              <form method="post" action="{% url 'dashboard:hr_device_decide' device.pk 'reject' %}">
+                {% csrf_token %}
+                <button class="btn btn--danger btn--sm" type="submit">
+                  {% icon "x" "ic--sm" %}<span data-ar="ارفض" data-en="Reject">ارفض</span>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty"
+                data-ar="مفيش أجهزة مستنية."
+                data-en="Nothing waiting.">مفيش أجهزة مستنية.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "history" %}
+    <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="البصمة" data-en="Fingerprint">البصمة</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="مين" data-en="By">مين</th>
+          <th data-ar="آخر استخدام" data-en="Last used">آخر استخدام</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for device in decided %}
+        <tr>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ device.user.short_name }}</td>
+          <td data-ar-label="البصمة" data-en-label="Fingerprint" class="mono muted">
+            {{ device.label|default:device.fingerprint|slice:":12" }}
+          </td>
+          <td data-ar-label="الحالة" data-en-label="Status">
+            {% if device.status == 'approved' %}
+              <span class="badge badge--ok" data-ar="معتمد" data-en="Approved">معتمد</span>
+            {% else %}
+              <span class="badge badge--dead" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
+            {% endif %}
+          </td>
+          <td data-ar-label="مين" data-en-label="By">{{ device.approved_by.short_name|default:"—" }}</td>
+          <td data-ar-label="آخر استخدام" data-en-label="Last used" class="mono muted">{{ device.last_seen|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

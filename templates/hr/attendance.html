@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}HR attendance{% endblock %}
+{% block page_title %}<span data-ar="لوحة الحضور" data-en="Attendance board">لوحة الحضور</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="لوحة الحضور" data-en="Attendance board">لوحة الحضور</h1>
+  <div class="page-head__sub mono">{{ first_day }} → {{ last_day }}</div>
+  <div class="grow"></div>
+  {% if flagged_count %}
+    <a class="btn btn--sm" href="?view={{ mode }}&date={{ anchor|date:'Y-m-d' }}&flagged=1">
+      {% icon "alert" "ic--sm" %}
+      <span data-ar="محتاج مراجعة" data-en="Needs review">محتاج مراجعة</span>
+      <span class="mono">{{ flagged_count }}</span>
+    </a>
+  {% endif %}
+</div>
+
+<div class="grid grid--4">
+  <div class="kpi">
+    <div class="kpi__label" data-ar="حاضر" data-en="Present">حاضر</div>
+    <div class="kpi__value mono">{{ totals.present }}</div>
+  </div>
+  <div class="kpi {% if totals.late %}kpi--warn{% endif %}">
+    <div class="kpi__label" data-ar="تأخير" data-en="Late">تأخير</div>
+    <div class="kpi__value mono">{{ totals.late }}</div>
+  </div>
+  <div class="kpi {% if totals.off_site %}kpi--danger{% endif %}">
+    <div class="kpi__label" data-ar="بره النطاق" data-en="Off site">بره النطاق</div>
+    <div class="kpi__value mono">{{ totals.off_site }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="ساعات" data-en="Hours">ساعات</div>
+    <div class="kpi__value mono">{{ totals.minutes|minutes_hm }}</div>
+  </div>
+</div>
+
+{# ---- filters -------------------------------------------------------- #}
+<div class="card card--flat">
+  <form method="get" class="picker">
+    <div class="picker__row">
+      <div class="tabs">
+        <a class="tab {% if mode == 'day' %}is-active{% endif %}"
+           href="?view=day&date={{ anchor|date:'Y-m-d' }}"
+           data-ar="يومي" data-en="Day">يومي</a>
+        <a class="tab {% if mode == 'week' %}is-active{% endif %}"
+           href="?view=week&date={{ anchor|date:'Y-m-d' }}"
+           data-ar="أسبوعي" data-en="Week">أسبوعي</a>
+        <a class="tab {% if mode == 'month' %}is-active{% endif %}"
+           href="?view=month&date={{ anchor|date:'Y-m-d' }}"
+           data-ar="شهري" data-en="Month">شهري</a>
+      </div>
+      <input type="hidden" name="view" value="{{ mode }}">
+      <input class="input" type="date" name="date" value="{{ anchor|date:'Y-m-d' }}">
+
+      <select class="input" name="user">
+        <option value="" data-ar="كل الموظفين" data-en="Everyone">كل الموظفين</option>
+        {% for candidate in people %}
+          <option value="{{ candidate.pk }}"
+                  {% if selected.user == candidate.pk|stringformat:"s" %}selected{% endif %}>
+            {{ candidate.short_name }}
+          </option>
+        {% endfor %}
+      </select>
+
+      <select class="input" name="role">
+        <option value="" data-ar="كل الأدوار" data-en="All roles">كل الأدوار</option>
+        {% for value, label in roles %}
+          <option value="{{ value }}" {% if selected.role == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <select class="input" name="day_mode">
+        <option value="" data-ar="كل الأنظمة" data-en="All modes">كل الأنظمة</option>
+        {% for value, label in day_modes %}
+          <option value="{{ value }}" {% if selected.day_mode == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <select class="input" name="shift">
+        <option value="" data-ar="كل الشيفتات" data-en="All shifts">كل الشيفتات</option>
+        {% for template in shifts %}
+          <option value="{{ template.label }}"
+                  {% if selected.shift == template.label %}selected{% endif %}>{{ template.label }}</option>
+        {% endfor %}
+      </select>
+
+      <select class="input" name="status">
+        <option value="" data-ar="كل الحالات" data-en="All statuses">كل الحالات</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if selected.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <button class="btn btn--primary btn--sm" type="submit">
+        {% icon "search" "ic--sm" %}<span data-ar="اعرض" data-en="Show">اعرض</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+{# ---- rostered but absent from the table ----------------------------- #}
+{% if missing %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div>
+      <b data-ar="مسجلوش حضور النهارده" data-en="No check-in today">مسجلوش حضور النهارده</b>
+      <div class="row row--tight mt">
+        {% for item in missing %}
+          <span class="chip">{{ item.user.short_name }} <span class="mono muted">{{ item.plan.label }}</span></span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card__head">
+    {% icon "users" %}
+    <h3 data-ar="السجل" data-en="The record">السجل</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="اليوم" data-en="Date">اليوم</th>
+          <th data-ar="النظام" data-en="Mode">النظام</th>
+          <th data-ar="الشيفت" data-en="Shift">الشيفت</th>
+          <th data-ar="حضور" data-en="In">حضور</th>
+          <th data-ar="انصراف" data-en="Out">انصراف</th>
+          <th data-ar="ساعات" data-en="Hours">ساعات</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr id="attendance.late:{{ row.user_id }}:{{ row.date|date:'Y-m-d' }}">
+          <td data-ar-label="الموظف" data-en-label="Employee">
+            {{ row.user.short_name }}
+            {% if row.needs_review %}
+              <span class="badge badge--wait" data-ar="مراجعة" data-en="Review">مراجعة</span>
+            {% endif %}
+          </td>
+          <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ row.date }}</td>
+          <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge row.work_mode %}</td>
+          <td data-ar-label="الشيفت" data-en-label="Shift" class="mono muted">{{ row.schedule_label|default:"—" }}</td>
+          <td data-ar-label="حضور" data-en-label="In" class="mono {% if row.late_minutes %}deadline--late{% endif %}">
+            {{ row.check_in|date:"H:i"|default:"—" }}
+          </td>
+          <td data-ar-label="انصراف" data-en-label="Out" class="mono">
+            {% if row.is_open %}
+              <span class="badge badge--work" data-ar="لسه شغال" data-en="Still open">لسه شغال</span>
+            {% else %}
+              {{ row.check_out|date:"H:i"|default:"—" }}
+            {% endif %}
+          </td>
+          <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ row.work_minutes|minutes_hm }}</td>
+          <td data-ar-label="الحالة" data-en-label="Status">
+            {% day_status_badge row.status %}
+            {% if row.late_minutes %}<span class="badge badge--wait mono">تأخير {{ row.late_minutes }}د</span>{% endif %}
+            {% if row.early_leave_minutes %}<span class="badge badge--wait mono">مبكر {{ row.early_leave_minutes }}د</span>{% endif %}
+            {% if row.short_minutes %}<span class="badge badge--dead mono">ناقص {{ row.short_minutes }}د</span>{% endif %}
+            {% if row.overtime_minutes %}<span class="badge badge--ok mono">OT {{ row.overtime_minutes }}د</span>{% endif %}
+            {% if row.off_site %}<span class="badge badge--dead" data-ar="بره النطاق" data-en="Off site">بره النطاق</span>{% endif %}
+          </td>
+          <td>
+            <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_attendance_day' row.pk %}">
+              {% icon "pen" "ic--sm" %}<span data-ar="عدّل" data-en="Edit">عدّل</span>
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="9" class="empty"
+                data-ar="مفيش سجلات في المدى ده."
+                data-en="Nothing recorded in this range.">مفيش سجلات في المدى ده.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,5 +1,7 @@
 """Page views for the Eagle dashboard."""
 
+from datetime import datetime, timedelta
+
 from django.contrib import messages as flash
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
@@ -12,16 +14,20 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import payroll, services, wordcount
+from . import attendance, payroll, services, wordcount
 from .forms import (
     AICheckForm,
+    AttendanceEditForm,
     ClientForm,
+    OfficeLocationForm,
     PayrollSettingsForm,
     ProductionTierForm,
     RequirementForm,
     SalaryRecordForm,
+    ScheduleOverrideForm,
     SettingsForm,
     ShiftForm,
+    ShiftTemplateForm,
     SimulateMessageForm,
     StaffCreateForm,
     StaffEditForm,
@@ -31,22 +37,29 @@ from .forms import (
 )
 from .models import (
     ACTIVE_TASK_STATUSES,
+    DAY_WORK_MODES,
     LEAVE_STATUSES,
     ApprovalStatus,
     AppSettings,
     AssignmentStatus,
+    AuthorizedDevice,
     ChatAttachment,
     ChatRoom,
     Client,
+    DayStatus,
     InboundMessage,
     Notification,
+    OfficeLocation,
+    OvertimeClaim,
     PayrollLine,
     PayrollPeriod,
     PayrollSettings,
     ProductionTier,
     Role,
     RoomKind,
+    ScheduleOverride,
     Shift,
+    ShiftTemplate,
     Task,
     TaskStatus,
     TierScale,
@@ -54,8 +67,9 @@ from .models import (
     Violation,
     WordCountState,
     WorkDay,
+    WorkMode,
 )
-from .permissions import admin_only, role_required
+from .permissions import admin_only, hr_required, role_required
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +924,9 @@ def accounts_attendance(request):
         day = form.save(commit=False)
         day.user = person
         day.save()
+        # Hours typed here still have to agree with the attendance engine, or
+        # the payroll sheet and the monthly report would tell two stories.
+        attendance.recompute(day)
         services.log(request.user, "workday.save", f"{person.username} {day.date}")
         flash.success(request, "اتسجل")
         return redirect(
@@ -1063,3 +1080,373 @@ def translator_payroll(request):
             user=request.user, date__range=(first_day, last_day)
         ),
     })
+
+
+# ---------------------------------------------------------------------------
+# Attendance - the person's own card
+# ---------------------------------------------------------------------------
+
+@login_required
+def my_attendance(request):
+    """Check in, break, check out - and the last fortnight, read only.
+
+    Nothing on this page can be edited. A punch that came out wrong is fixed
+    by HR with a reason attached, which is the whole point of section 9.
+    """
+    user = request.user
+    today = timezone.localdate()
+    plan = attendance.plan_for(user, today)
+    day, _resolved = attendance.resolve_work_date(user)
+    row = WorkDay.objects.filter(user=user, date=day).first()
+
+    recent = (
+        WorkDay.objects.filter(user=user, date__lte=today)
+        .order_by("-date")[:14]
+    )
+    conf = PayrollSettings.load()
+    return render(request, "attendance/mine.html", {
+        "conf": conf,
+        "plan": plan,
+        "row": row,
+        "work_date": day,
+        "recent": recent,
+        "needs_location": (
+            row.is_office_day if row is not None
+            else plan.mode == WorkMode.OFFICE
+        ),
+        "summary": attendance.month_summary(
+            user, *payroll.month_bounds(today.year, today.month)
+        ),
+        "devices": user.devices.all()[:6],
+    })
+
+
+# ---------------------------------------------------------------------------
+# Attendance - the HR board
+# ---------------------------------------------------------------------------
+
+def _range_for(request):
+    """Read ``?view=day|week|month`` and ``?date=`` into a real date range."""
+    mode = request.GET.get("view") or "day"
+    raw = request.GET.get("date") or ""
+    try:
+        anchor = datetime.strptime(raw, "%Y-%m-%d").date() if raw else timezone.localdate()
+    except ValueError:
+        anchor = timezone.localdate()
+
+    if mode == "week":
+        # Saturday-first, because the Egyptian working week is.
+        start = anchor - timedelta(days=(anchor.weekday() + 2) % 7)
+        return mode, anchor, start, start + timedelta(days=6)
+    if mode == "month":
+        return (mode, anchor) + payroll.month_bounds(anchor.year, anchor.month)
+    return mode, anchor, anchor, anchor
+
+
+@hr_required
+def hr_attendance(request):
+    """Everybody's attendance for a day, a week or a month, with filters."""
+    mode, anchor, first_day, last_day = _range_for(request)
+
+    people = User.objects.filter(is_active=True, attendance_enabled=True)
+    if request.GET.get("role"):
+        people = people.filter(role=request.GET["role"])
+    if request.GET.get("user"):
+        people = people.filter(pk=request.GET["user"])
+    if request.GET.get("mode"):
+        people = people.filter(work_mode=request.GET["mode"])
+
+    rows = (
+        WorkDay.objects.filter(user__in=people, date__range=(first_day, last_day))
+        .select_related("user").order_by("-date", "user__username")
+    )
+    if request.GET.get("status"):
+        rows = rows.filter(status=request.GET["status"])
+    if request.GET.get("day_mode"):
+        rows = rows.filter(work_mode=request.GET["day_mode"])
+    if request.GET.get("shift"):
+        rows = rows.filter(schedule_label=request.GET["shift"])
+    if request.GET.get("flagged") == "1":
+        rows = rows.filter(needs_review=True)
+
+    rows = list(rows[:600])
+
+    # Who was rostered today and has no row at all - the people a status
+    # table would otherwise render invisible.
+    missing = []
+    if mode == "day":
+        recorded = {r.user_id for r in rows}
+        for person in people:
+            if person.pk in recorded:
+                continue
+            plan = attendance.plan_for(person, anchor)
+            if plan.working:
+                missing.append({"user": person, "plan": plan})
+
+    return render(request, "hr/attendance.html", {
+        "conf": PayrollSettings.load(),
+        "rows": rows,
+        "missing": missing,
+        "people": User.objects.filter(is_active=True, attendance_enabled=True),
+        "mode": mode,
+        "anchor": anchor,
+        "first_day": first_day,
+        "last_day": last_day,
+        "roles": Role.choices,
+        "statuses": DayStatus.choices,
+        "day_modes": DAY_WORK_MODES,
+        "shifts": ShiftTemplate.objects.all(),
+        "flagged_count": WorkDay.objects.filter(needs_review=True).count(),
+        "selected": request.GET,
+        "totals": {
+            "present": sum(1 for r in rows if r.status == DayStatus.PRESENT),
+            "late": sum(1 for r in rows if r.late_minutes),
+            "off_site": sum(1 for r in rows if r.off_site),
+            "open": sum(1 for r in rows if r.is_open),
+            "minutes": sum(r.work_minutes for r in rows),
+            "overtime": sum(r.overtime_minutes for r in rows),
+        },
+    })
+
+
+@hr_required
+def hr_attendance_day(request, pk):
+    """One day, its punches, its corrections - and the form that adds more."""
+    row = get_object_or_404(WorkDay.objects.select_related("user"), pk=pk)
+    form = AttendanceEditForm(request.POST or None, instance=row)
+
+    if request.method == "POST" and form.is_valid():
+        # The form's instance is already mutated by ModelForm, so the "before"
+        # values have to come from a clean read of the row.
+        fresh = WorkDay.objects.get(pk=row.pk)
+        changes = {name: form.cleaned_data[name] for name in form.Meta.fields}
+        try:
+            written = attendance.apply_edit(
+                fresh, request.user, changes, form.cleaned_data["reason"]
+            )
+        except attendance.PunchRefused as refused:
+            flash.error(request, refused.ar)
+        else:
+            flash.success(
+                request, f"{len(written)} تعديل" if written else "مفيش حاجة اتغيرت"
+            )
+            return redirect("dashboard:hr_attendance_day", pk=pk)
+
+    return render(request, "hr/attendance_day.html", {
+        "row": row,
+        "form": form,
+        "events": row.events.select_related("office", "device").all(),
+        "edits": row.edits.select_related("actor").all(),
+        "conf": PayrollSettings.load(),
+    })
+
+
+@hr_required
+@require_POST
+def hr_attendance_clear(request, pk):
+    row = get_object_or_404(WorkDay, pk=pk)
+    attendance.clear_review(row, request.user, request.POST.get("reason", ""))
+    flash.success(request, "اتراجع")
+    return redirect(request.POST.get("next") or "dashboard:hr_attendance")
+
+
+@hr_required
+def hr_report(request):
+    """Section 12, for one person and one month."""
+    year, month = _requested_month(request)
+    first_day, last_day = payroll.month_bounds(year, month)
+    people = User.objects.filter(is_active=True, attendance_enabled=True)
+    person_id = request.GET.get("user")
+    person = people.filter(pk=person_id).first() if person_id else people.first()
+
+    summary = (
+        attendance.month_summary(person, first_day, last_day) if person else None
+    )
+    return render(request, "hr/report.html", {
+        "people": people,
+        "person": person,
+        "summary": summary,
+        "year": year,
+        "month": month,
+        "periods": _period_choices(),
+        "conf": PayrollSettings.load(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Attendance - schedules, offices, devices, overtime
+# ---------------------------------------------------------------------------
+
+@hr_required
+def hr_schedules(request):
+    """A person's standing roster, plus the one-off days that override it."""
+    people = User.objects.filter(is_active=True)
+    person_id = request.GET.get("user") or request.POST.get("user")
+    person = people.filter(pk=person_id).first() if person_id else people.first()
+
+    shift_form = ShiftForm()
+    override_form = ScheduleOverrideForm()
+    action = request.POST.get("action") if request.method == "POST" else ""
+
+    if action == "shift" and person is not None:
+        shift_form = ShiftForm(request.POST)
+        if shift_form.is_valid():
+            row = shift_form.save(commit=False)
+            row.user = person
+            row.save()
+            services.log(request.user, "schedule.shift.add", f"{person.username} {row.weekday}")
+            flash.success(request, "اتسجل")
+            return redirect(f"{reverse('dashboard:hr_schedules')}?user={person.pk}")
+
+    if action == "override" and person is not None:
+        override_form = ScheduleOverrideForm(request.POST)
+        if override_form.is_valid():
+            row = override_form.save(commit=False)
+            row.user = person
+            row.created_by = request.user
+            # One override per date: saving the same day twice edits it.
+            ScheduleOverride.objects.filter(user=person, date=row.date).delete()
+            row.save()
+            services.log(request.user, "schedule.override", f"{person.username} {row.date}")
+            flash.success(request, "اتسجل")
+            return redirect(f"{reverse('dashboard:hr_schedules')}?user={person.pk}")
+
+    # The coming fortnight, resolved - so HR sees what the rules actually say
+    # rather than having to replay the roster in their head.
+    preview = []
+    if person is not None:
+        today = timezone.localdate()
+        for offset in range(14):
+            day = today + timedelta(days=offset)
+            preview.append(attendance.plan_for(person, day))
+
+    return render(request, "hr/schedules.html", {
+        "people": people,
+        "person": person,
+        "shift_form": shift_form,
+        "override_form": override_form,
+        "shifts": person.shifts.select_related("template").all() if person else [],
+        "overrides": (
+            person.schedule_overrides.select_related("template")
+            .filter(date__gte=timezone.localdate() - timedelta(days=30))
+            if person else []
+        ),
+        "templates": ShiftTemplate.objects.all(),
+        "template_form": ShiftTemplateForm(),
+        "preview": preview,
+    })
+
+
+@hr_required
+@require_POST
+def hr_shift_delete(request, pk):
+    row = get_object_or_404(Shift, pk=pk)
+    person_id = row.user_id
+    row.delete()
+    services.log(request.user, "schedule.shift.delete", str(pk))
+    return redirect(f"{reverse('dashboard:hr_schedules')}?user={person_id}")
+
+
+@hr_required
+@require_POST
+def hr_override_delete(request, pk):
+    row = get_object_or_404(ScheduleOverride, pk=pk)
+    person_id = row.user_id
+    row.delete()
+    services.log(request.user, "schedule.override.delete", str(pk))
+    return redirect(f"{reverse('dashboard:hr_schedules')}?user={person_id}")
+
+
+@hr_required
+@require_POST
+def hr_template_add(request):
+    form = ShiftTemplateForm(request.POST)
+    if form.is_valid():
+        form.save()
+        services.log(request.user, "schedule.template.add")
+        flash.success(request, "اتسجل")
+    else:
+        flash.error(request, "الشيفت مش مظبوط.")
+    return redirect(request.POST.get("next") or "dashboard:hr_schedules")
+
+
+@hr_required
+def hr_offices(request):
+    """Where a punch may be made from. Empty means no location check at all."""
+    form = OfficeLocationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        services.log(request.user, "attendance.office.add", form.cleaned_data["name"])
+        flash.success(request, "اتسجل")
+        return redirect("dashboard:hr_offices")
+
+    return render(request, "hr/offices.html", {
+        "form": form,
+        "offices": OfficeLocation.objects.all(),
+        "conf": PayrollSettings.load(),
+    })
+
+
+@hr_required
+@require_POST
+def hr_office_delete(request, pk):
+    OfficeLocation.objects.filter(pk=pk).delete()
+    services.log(request.user, "attendance.office.delete", str(pk))
+    return redirect("dashboard:hr_offices")
+
+
+@hr_required
+def hr_devices(request):
+    return render(request, "hr/devices.html", {
+        "pending": AuthorizedDevice.objects.filter(
+            status=ApprovalStatus.PENDING
+        ).select_related("user"),
+        "decided": AuthorizedDevice.objects.exclude(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "approved_by")[:60],
+        "conf": PayrollSettings.load(),
+    })
+
+
+@hr_required
+@require_POST
+def hr_device_decide(request, pk, action):
+    device = get_object_or_404(AuthorizedDevice, pk=pk)
+    if action == "approve":
+        device.approve(request.user)
+    elif action == "reject":
+        device.reject(request.user)
+    else:
+        raise Http404
+    services.log(request.user, f"attendance.device.{action}", device.user.username)
+    return redirect("dashboard:hr_devices")
+
+
+@hr_required
+def hr_overtime(request):
+    """Extra hours waiting on a decision - the mirror of the violations page."""
+    return render(request, "hr/overtime.html", {
+        "pending": OvertimeClaim.objects.filter(
+            status=ApprovalStatus.PENDING
+        ).select_related("user"),
+        "decided": OvertimeClaim.objects.exclude(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "approved_by")[:60],
+        "conf": PayrollSettings.load(),
+    })
+
+
+@hr_required
+@require_POST
+def hr_overtime_decide(request, pk, action):
+    claim = get_object_or_404(OvertimeClaim, pk=pk)
+    if action == "approve":
+        claim.approve(request.user)
+    elif action == "reject":
+        claim.reject(request.user)
+    else:
+        raise Http404
+    services.log(
+        request.user, f"attendance.overtime.{action}", f"{claim.user.username} {claim.date}"
+    )
+    return redirect(request.POST.get("next") or "dashboard:hr_overtime")

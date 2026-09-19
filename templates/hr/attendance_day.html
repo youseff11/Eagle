@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Attendance day{% endblock %}
+{% block page_title %}<span data-ar="يوم حضور" data-en="Attendance day">يوم حضور</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ row.user.short_name }} <span class="mono muted">{{ row.date }}</span></h1>
+  <div class="grow"></div>
+  {% if row.needs_review %}
+    <form method="post" action="{% url 'dashboard:hr_attendance_clear' row.pk %}" class="row row--tight">
+      {% csrf_token %}
+      <input class="input" type="text" name="reason" placeholder="ملاحظة المراجعة">
+      <button class="btn btn--ok btn--sm" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="راجعته" data-en="Reviewed">راجعته</span>
+      </button>
+    </form>
+  {% endif %}
+</div>
+
+{% if row.needs_review %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div><b data-ar="متعلّم للمراجعة" data-en="Flagged for review">متعلّم للمراجعة</b>
+      <span class="mono">{{ row.review_reason }}</span></div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="stack">
+
+    {# ---- the punches, exactly as they arrived ------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "history" %}
+        <h3 data-ar="التسجيلات" data-en="The punches">التسجيلات</h3>
+        <div class="grow"></div>
+        <span class="muted" data-ar="مبتتعدلش — بتتكتب وخلاص"
+              data-en="Append-only: never edited">مبتتعدلش — بتتكتب وخلاص</span>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="الحدث" data-en="Event">الحدث</th>
+              <th data-ar="الوقت" data-en="Time">الوقت</th>
+              <th data-ar="الموقع" data-en="Location">الموقع</th>
+              <th data-ar="الجهاز" data-en="Device">الجهاز</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for event in events %}
+            <tr>
+              <td data-ar-label="الحدث" data-en-label="Event">
+                {% if event.kind == 'check_in' %}
+                  <span class="badge badge--ok" data-ar="حضور" data-en="Check in">حضور</span>
+                {% elif event.kind == 'check_out' %}
+                  <span class="badge badge--info" data-ar="انصراف" data-en="Check out">انصراف</span>
+                {% elif event.kind == 'break_start' %}
+                  <span class="badge badge--wait" data-ar="بداية بريك" data-en="Break start">بداية بريك</span>
+                {% else %}
+                  <span class="badge" data-ar="نهاية بريك" data-en="Break end">نهاية بريك</span>
+                {% endif %}
+              </td>
+              <td data-ar-label="الوقت" data-en-label="Time" class="mono">{{ event.at|date:"Y-m-d H:i" }}</td>
+              <td data-ar-label="الموقع" data-en-label="Location" class="mono">
+                {% if event.within_geofence is None %}
+                  <span class="muted" data-ar="مااتفحصش" data-en="Not checked">مااتفحصش</span>
+                {% elif event.within_geofence %}
+                  <span class="badge badge--ok">{{ event.distance_m }}م · {{ event.office.label }}</span>
+                {% else %}
+                  <span class="badge badge--dead">{{ event.distance_m }}م · بره النطاق</span>
+                {% endif %}
+                {% if event.accuracy_m %}<span class="muted">±{{ event.accuracy_m }}م</span>{% endif %}
+              </td>
+              <td data-ar-label="الجهاز" data-en-label="Device" class="mono muted">
+                {{ event.device.label|default:"—" }}
+              </td>
+              <td class="mono muted">{{ event.ip|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="اليوم ده متكتب بالإيد — مفيش تسجيلات."
+                    data-en="This day was entered by hand - there are no punches.">اليوم ده متكتب بالإيد — مفيش تسجيلات.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---- the audit trail --------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "shield" %}
+        <h3 data-ar="سجل التعديلات" data-en="Audit trail">سجل التعديلات</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="مين" data-en="Who">مين</th>
+              <th data-ar="الحقل" data-en="Field">الحقل</th>
+              <th data-ar="قبل" data-en="Before">قبل</th>
+              <th data-ar="بعد" data-en="After">بعد</th>
+              <th data-ar="السبب" data-en="Reason">السبب</th>
+              <th data-ar="الوقت" data-en="When">الوقت</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for edit in edits %}
+            <tr>
+              <td data-ar-label="مين" data-en-label="Who">{{ edit.actor.short_name|default:"—" }}</td>
+              <td data-ar-label="الحقل" data-en-label="Field" class="mono">{{ edit.field }}</td>
+              <td data-ar-label="قبل" data-en-label="Before" class="mono muted">{{ edit.old_value|default:"—" }}</td>
+              <td data-ar-label="بعد" data-en-label="After" class="mono">{{ edit.new_value|default:"—" }}</td>
+              <td data-ar-label="السبب" data-en-label="Reason">{{ edit.reason }}</td>
+              <td data-ar-label="الوقت" data-en-label="When" class="mono muted">{{ edit.created_at|date:"Y-m-d H:i" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" class="empty"
+                    data-ar="اليوم ده مااتعدلش."
+                    data-en="This day has never been changed.">اليوم ده مااتعدلش.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "pen" %}
+        <h3 data-ar="عدّل اليوم" data-en="Correct the day">عدّل اليوم</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label data-ar="الحالة" data-en="Status">الحالة</label>
+          {{ form.status }}{{ form.status.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="نظام العمل" data-en="Work mode">نظام العمل</label>
+          {{ form.work_mode }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="حضور" data-en="Check in">حضور</label>
+            {{ form.check_in }}
+          </div>
+          <div class="field">
+            <label data-ar="انصراف" data-en="Check out">انصراف</label>
+            {{ form.check_out }}{{ form.check_out.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="بريك (دقيقة)" data-en="Break (minutes)">بريك (دقيقة)</label>
+            {{ form.break_minutes }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="سبب الغياب" data-en="Absence reason">سبب الغياب</label>
+          {{ form.absence_reason }}{{ form.absence_reason.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="ملاحظة" data-en="Note">ملاحظة</label>
+          {{ form.note }}
+        </div>
+        <div class="field">
+          <label data-ar="سبب التعديل (مطلوب)" data-en="Reason for the change (required)">سبب التعديل (مطلوب)</label>
+          {{ form.reason }}{{ form.reason.errors }}
+          <small class="muted"
+                 data-ar="التعديل من غير سبب مش بيتحفظ — السبب هو اللي بيخلي الرقم دليل."
+                 data-en="A change with no reason is not saved: the reason is what makes the figure evidence.">
+            التعديل من غير سبب مش بيتحفظ — السبب هو اللي بيخلي الرقم دليل.
+          </small>
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "clock" %}
+        <h3 data-ar="الجدول المجمّد" data-en="The frozen schedule">الجدول المجمّد</h3>
+      </div>
+      <div class="kv"><span data-ar="الشيفت" data-en="Shift">الشيفت</span>
+        <b class="mono">{{ row.schedule_label|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="من" data-en="From">من</span>
+        <b class="mono">{{ row.scheduled_start|date:"H:i"|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="إلى" data-en="To">إلى</span>
+        <b class="mono">{{ row.scheduled_end|date:"H:i"|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="المطلوب" data-en="Required">المطلوب</span>
+        <b class="mono">{{ row.scheduled_minutes|minutes_hm }}</b></div>
+      <div class="kv"><span data-ar="فترة السماح" data-en="Grace">فترة السماح</span>
+        <b class="mono">{{ row.grace_minutes }}د</b></div>
+      <div class="kv"><span data-ar="اتحسب" data-en="Worked">اتحسب</span>
+        <b class="mono">{{ row.work_minutes|minutes_hm }}</b></div>
+      <small class="muted"
+             data-ar="دي نسخة الجدول وقت ما اليوم حصل. تغيير الجدول دلوقتي مش بيلمسها."
+             data-en="This is the schedule as it stood when the day happened. Changing the roster now does not touch it.">
+        دي نسخة الجدول وقت ما اليوم حصل. تغيير الجدول دلوقتي مش بيلمسها.
+      </small>
+    </div>
+  </div>
+</div>
+{% endblock %}

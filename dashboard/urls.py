@@ -61,6 +61,37 @@ urlpatterns = [
     ),
     path("accounts/salary/<int:pk>/", views.accounts_salary, name="accounts_salary"),
 
+    # -- attendance: the person's own card ----------------------------------
+    path("attendance/", views.my_attendance, name="my_attendance"),
+
+    # -- attendance: HR -----------------------------------------------------
+    path("hr/attendance/", views.hr_attendance, name="hr_attendance"),
+    path("hr/attendance/<int:pk>/", views.hr_attendance_day, name="hr_attendance_day"),
+    path(
+        "hr/attendance/<int:pk>/clear/",
+        views.hr_attendance_clear,
+        name="hr_attendance_clear",
+    ),
+    path("hr/report/", views.hr_report, name="hr_report"),
+    path("hr/schedules/", views.hr_schedules, name="hr_schedules"),
+    path("hr/schedules/shift/<int:pk>/delete/", views.hr_shift_delete, name="hr_shift_delete"),
+    path(
+        "hr/schedules/override/<int:pk>/delete/",
+        views.hr_override_delete,
+        name="hr_override_delete",
+    ),
+    path("hr/schedules/template/", views.hr_template_add, name="hr_template_add"),
+    path("hr/offices/", views.hr_offices, name="hr_offices"),
+    path("hr/offices/<int:pk>/delete/", views.hr_office_delete, name="hr_office_delete"),
+    path("hr/devices/", views.hr_devices, name="hr_devices"),
+    path("hr/devices/<int:pk>/<str:action>/", views.hr_device_decide, name="hr_device_decide"),
+    path("hr/overtime/", views.hr_overtime, name="hr_overtime"),
+    path(
+        "hr/overtime/<int:pk>/<str:action>/",
+        views.hr_overtime_decide,
+        name="hr_overtime_decide",
+    ),
+
     # -- tasks --------------------------------------------------------------
     path("tasks/<str:code>/", views.task_detail, name="task_detail"),
     path("tasks/<str:code>/requirement/", views.task_add_requirement, name="task_requirement"),
@@ -93,6 +124,8 @@ urlpatterns = [
 
     # -- json api -----------------------------------------------------------
     path("api/heartbeat/", api.heartbeat, name="api_heartbeat"),
+    path("api/attendance/state/", api.attendance_state, name="api_attendance_state"),
+    path("api/attendance/punch/", api.attendance_punch, name="api_attendance_punch"),
     path("api/notifications/read/", api.mark_notifications_read, name="api_notifications_read"),
     path("api/prefs/", api.set_prefs, name="api_prefs"),
     path("api/assignments/<int:pk>/accept/", api.accept_assignment, name="api_accept"),

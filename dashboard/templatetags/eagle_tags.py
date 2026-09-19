@@ -57,6 +57,27 @@ KIND_MAP = {
     "rule": ("قاعدة", "Rule"),
 }
 
+DAY_STATUS_MAP = {
+    "present": ("ok", "حاضر", "Present"),
+    "leave": ("info", "إجازة", "Leave"),
+    "excused": ("wait", "غياب بعذر", "Excused"),
+    "unexcused": ("dead", "غياب بدون إذن", "Unexcused"),
+    "weekly_off": ("", "راحة أسبوعية", "Weekly off"),
+    "holiday": ("", "أجازة رسمية", "Public holiday"),
+}
+
+WORK_MODE_MAP = {
+    "office": ("من المكتب", "Office"),
+    "remote": ("عن بُعد", "Remote"),
+    "hybrid": ("هجين", "Hybrid"),
+}
+
+EMPLOYMENT_MAP = {
+    "full_time": ("دوام كامل", "Full time"),
+    "part_time": ("دوام جزئي", "Part time"),
+    "freelance": ("مستقل", "Freelancer"),
+}
+
 
 @register.simple_tag
 def status_badge(status):
@@ -74,6 +95,47 @@ def priority_badge(priority):
         f'<span class="badge badge--prio-{escape(priority)}" '
         f'data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span>'
     )
+
+
+@register.simple_tag
+def day_status_badge(status):
+    css, ar, en = DAY_STATUS_MAP.get(status, ("", status, status))
+    modifier = f" badge--{css}" if css else ""
+    return mark_safe(
+        f'<span class="badge{modifier}" data-ar="{escape(ar)}" '
+        f'data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+@register.simple_tag
+def work_mode_badge(mode):
+    """Blank is a real answer here: a day nobody has assigned a mode to."""
+    if not mode:
+        return mark_safe('<span class="muted">—</span>')
+    ar, en = WORK_MODE_MAP.get(mode, (mode, mode))
+    return mark_safe(
+        f'<span class="chip" data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+@register.simple_tag
+def employment_badge(kind):
+    ar, en = EMPLOYMENT_MAP.get(kind, (kind, kind))
+    return mark_safe(
+        f'<span class="chip" data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+@register.filter
+def minutes_hm(value):
+    """126 -> ``2:06``. Templates keep asking for it, so it lives here once."""
+    try:
+        total = int(value or 0)
+    except (TypeError, ValueError):
+        return "0:00"
+    sign = "-" if total < 0 else ""
+    total = abs(total)
+    return f"{sign}{total // 60}:{total % 60:02d}"
 
 
 @register.simple_tag

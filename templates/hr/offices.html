@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Offices{% endblock %}
+{% block page_title %}<span data-ar="مواقع المكاتب" data-en="Office locations">مواقع المكاتب</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="مواقع المكاتب" data-en="Office locations">مواقع المكاتب</h1>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "map-pin" %}
+      <h3 data-ar="المواقع" data-en="Locations">المواقع</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="المكتب" data-en="Office">المكتب</th>
+            <th data-ar="الإحداثيات" data-en="Coordinates">الإحداثيات</th>
+            <th data-ar="النطاق" data-en="Radius">النطاق</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for office in offices %}
+          <tr>
+            <td data-ar-label="المكتب" data-en-label="Office">{{ office.label }}</td>
+            <td data-ar-label="الإحداثيات" data-en-label="Coordinates" class="mono" dir="ltr">
+              {{ office.latitude }}, {{ office.longitude }}
+            </td>
+            <td data-ar-label="النطاق" data-en-label="Radius" class="mono">{{ office.radius_meters }}م</td>
+            <td data-ar-label="الحالة" data-en-label="Status">
+              {% if office.is_active %}
+                <span class="badge badge--ok" data-ar="شغال" data-en="Active">شغال</span>
+              {% else %}
+                <span class="badge" data-ar="مقفول" data-en="Off">مقفول</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="{% url 'dashboard:hr_office_delete' office.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--sm btn--ghost" type="submit">{% icon "trash" "ic--sm" %}</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="empty"
+                  data-ar="مفيش مواقع — يعني مفيش فحص موقع على أي حضور."
+                  data-en="No locations, which means no punch is location-checked at all.">مفيش مواقع — يعني مفيش فحص موقع على أي حضور.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="ضيف مكتب" data-en="Add an office">ضيف مكتب</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الاسم" data-en="Name">الاسم</label>
+            {{ form.name }}{{ form.name.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="بالعربي" data-en="Arabic">بالعربي</label>
+            {{ form.name_ar }}
+          </div>
+          <div class="field">
+            <label>Latitude</label>
+            {{ form.latitude }}{{ form.latitude.errors }}
+          </div>
+          <div class="field">
+            <label>Longitude</label>
+            {{ form.longitude }}{{ form.longitude.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="النطاق بالمتر" data-en="Radius (metres)">النطاق بالمتر</label>
+            {{ form.radius_meters }}{{ form.radius_meters.errors }}
+          </div>
+        </div>
+        <label class="switch">
+          {{ form.is_active }}
+          <span data-ar="شغال" data-en="Active">شغال</span>
+        </label>
+        <button class="btn btn--primary btn--block mt" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="note note--info">
+      {% icon "info" %}
+      <div>
+        <div data-ar="السياسة دلوقتي:" data-en="The current policy:">السياسة دلوقتي:</div>
+        <b>
+          {% if conf.off_site_policy == 'reject' %}
+            <span data-ar="رفض الحضور من بره النطاق" data-en="Refuse off-site punches">رفض الحضور من بره النطاق</span>
+          {% else %}
+            <span data-ar="تسجيله وتعليمه للمراجعة" data-en="Record and flag for review">تسجيله وتعليمه للمراجعة</span>
+          {% endif %}
+        </b>
+        <div class="muted mt"
+             data-ar="بتتغير من صفحة قواعد الحساب. دقة الـGPS بتتضاف على النطاق تلقائيًا، فالتسجيل بدقة ±80م بيعدي جوه نطاق 200م."
+             data-en="Changed from the payroll rules page. The phone's own accuracy is added to the radius, so a punch reported at ±80 m still passes a 200 m radius.">
+          بتتغير من صفحة قواعد الحساب. دقة الـGPS بتتضاف على النطاق تلقائيًا، فالتسجيل بدقة ±80م بيعدي جوه نطاق 200م.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

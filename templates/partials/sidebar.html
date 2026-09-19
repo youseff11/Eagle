@@ -63,6 +63,37 @@
       </a>
     {% endif %}
 
+    {# Attendance is everybody's — the only page in the app that is. #}
+    {% if user.attendance_enabled %}
+      <div class="nav__label" data-ar="الحضور" data-en="Attendance">الحضور</div>
+      <a class="nav__item {% if url_name == 'my_attendance' %}is-active{% endif %}" href="{% url 'dashboard:my_attendance' %}">
+        {% icon "timer" %}
+        <span data-ar="حضوري" data-en="My attendance">حضوري</span>
+      </a>
+    {% endif %}
+
+    {% if user.can_manage_attendance %}
+      <div class="nav__label" data-ar="إدارة الحضور" data-en="Workforce">إدارة الحضور</div>
+      <a class="nav__item {% if url_name == 'hr_attendance' or url_name == 'hr_attendance_day' %}is-active{% endif %}" href="{% url 'dashboard:hr_attendance' %}">
+        {% icon "users" %}<span data-ar="لوحة الحضور" data-en="Attendance board">لوحة الحضور</span>
+      </a>
+      <a class="nav__item {% if url_name == 'hr_schedules' %}is-active{% endif %}" href="{% url 'dashboard:hr_schedules' %}">
+        {% icon "calendar" %}<span data-ar="جداول العمل" data-en="Schedules">جداول العمل</span>
+      </a>
+      <a class="nav__item {% if url_name == 'hr_report' %}is-active{% endif %}" href="{% url 'dashboard:hr_report' %}">
+        {% icon "chart" %}<span data-ar="التقرير الشهري" data-en="Monthly report">التقرير الشهري</span>
+      </a>
+      <a class="nav__item {% if url_name == 'hr_overtime' %}is-active{% endif %}" href="{% url 'dashboard:hr_overtime' %}">
+        {% icon "clock" %}<span data-ar="الأوفرتايم" data-en="Overtime">الأوفرتايم</span>
+      </a>
+      <a class="nav__item {% if url_name == 'hr_offices' %}is-active{% endif %}" href="{% url 'dashboard:hr_offices' %}">
+        {% icon "map-pin" %}<span data-ar="مواقع المكاتب" data-en="Offices">مواقع المكاتب</span>
+      </a>
+      <a class="nav__item {% if url_name == 'hr_devices' %}is-active{% endif %}" href="{% url 'dashboard:hr_devices' %}">
+        {% icon "shield-check" %}<span data-ar="أجهزة الحضور" data-en="Devices">أجهزة الحضور</span>
+      </a>
+    {% endif %}
+
     {% if not user.is_translator %}
       <div class="nav__label" data-ar="العملاء" data-en="Clients">العملاء</div>
       <a class="nav__item {% if url_name == 'client_list' or url_name == 'client_detail' %}is-active{% endif %}" href="{% url 'dashboard:client_list' %}">

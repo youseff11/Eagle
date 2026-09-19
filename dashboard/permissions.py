@@ -45,6 +45,22 @@ def api_role_required(*roles):
     return decorator
 
 
+def hr_required(view):
+    """Attendance rights. Eagle has no HR *role* - it is a flag on the person,
+    so an operations lead can be given the board without being made an admin."""
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        user = request.user
+        if not user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if user.can_manage_attendance:
+            return view(request, *args, **kwargs)
+        raise PermissionDenied("Your role cannot open the attendance board.")
+
+    return wrapper
+
+
 admin_only = role_required(Role.ADMIN)
 operation_only = role_required(Role.OPERATION)
 lead_only = role_required(Role.TEAM_LEAD)

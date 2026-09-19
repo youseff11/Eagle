@@ -25,11 +25,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from django.utils import timezone
 
+from . import attendance
 from .models import (
     ApprovalStatus,
     AuditLog,
     DayStatus,
     LEAVE_STATUSES,
+    OvertimeClaim,
     PayrollLine,
     PayrollPeriod,
     PayrollSettings,
@@ -238,6 +240,28 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
     total_words = sum(d.words for d in worked)
     under_target = [d for d in worked if d.is_under_target(conf)]
 
+    # -- what attendance says about the month -------------------------------
+    # Read off the day rows, which carry the shift they were *worked under*.
+    # Nothing here re-reads today's roster, so a schedule change next month
+    # cannot rewrite a month already recorded.
+    summary = attendance.month_summary(user, first_day, last_day)
+
+    # Overtime is the mirror image of a deduction: the engine works out that
+    # the time was worked, and the manager's approval is what pays for it.
+    attendance.raise_overtime(user, first_day, last_day, conf=conf, day_value=day_value)
+    overtime_rows = []
+    overtime_bonus = Decimal("0.00")
+    for claim in OvertimeClaim.objects.filter(user=user, date__range=(first_day, last_day)):
+        if claim.status == ApprovalStatus.APPROVED:
+            overtime_bonus += Decimal(claim.amount)
+        overtime_rows.append({
+            "date": claim.date.isoformat(),
+            "minutes": claim.minutes,
+            "rate": str(claim.hourly_rate),
+            "amount": str(money(claim.amount)),
+            "status": claim.status,
+        })
+
     # -- the daily production bonus ----------------------------------------
     production_bonus = Decimal("0.00")
     day_rows = []
@@ -302,7 +326,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
     discipline_bonus = conf.discipline_bonus if (discipline_earned and approved_bonuses) else Decimal("0.00")
     target_bonus = conf.target_bonus if (target_earned and approved_bonuses) else Decimal("0.00")
 
-    gross = money(base + production_bonus + discipline_bonus + target_bonus)
+    gross = money(base + production_bonus + overtime_bonus + discipline_bonus + target_bonus)
     net = money(gross - deductions)
 
     line = PayrollLine(
@@ -317,7 +341,17 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         total_words=total_words,
         target_words=conf.monthly_target_words,
         under_target_days=len(under_target),
+        scheduled_days=summary["scheduled_days"],
+        office_days=summary["office_days"],
+        remote_days=summary["remote_days"],
+        late_days=summary["late_days"],
+        late_minutes=summary["late_minutes"],
+        early_leave_minutes=summary["early_leave_minutes"],
+        short_minutes=summary["short_minutes"],
+        work_minutes=summary["work_minutes"],
+        overtime_minutes=summary["overtime_minutes"],
         production_bonus=money(production_bonus),
+        overtime_bonus=money(overtime_bonus),
         discipline_bonus=money(discipline_bonus),
         target_bonus=money(target_bonus),
         deductions=money(deductions),
@@ -331,6 +365,16 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
             "days": day_rows,
             "deductions": deduction_rows,
             "pending": pending_rows,
+            "overtime": overtime_rows,
+            "attendance": {
+                key: summary[key] for key in (
+                    "scheduled_days", "present_days", "office_days", "remote_days",
+                    "leave_days", "excused_days", "absent_days", "late_days",
+                    "late_minutes", "early_leave_minutes", "short_minutes",
+                    "work_minutes", "break_minutes", "overtime_minutes",
+                    "needs_review",
+                )
+            },
             "rules": {
                 "daily_target": conf.daily_target_words,
                 "secondary_daily_target": conf.secondary_daily_target_words,

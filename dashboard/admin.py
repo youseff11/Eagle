@@ -7,8 +7,13 @@ from .models import (
     AICheckResult,
     AppSettings,
     Assignment,
+    AttendanceEdit,
+    AttendanceEvent,
     AuditLog,
+    AuthorizedDevice,
+    OfficeLocation,
     OutboundMessage,
+    OvertimeClaim,
     ChatAttachment,
     ChatMessage,
     ChatRoom,
@@ -24,7 +29,9 @@ from .models import (
     ProductionTier,
     RatingEvent,
     SalaryRecord,
+    ScheduleOverride,
     Shift,
+    ShiftTemplate,
     Task,
     User,
     Violation,
@@ -34,14 +41,22 @@ from .models import (
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ("username", "get_full_name", "role", "team_lead", "rating", "is_active")
-    list_filter = ("role", "is_active", "force_offline")
+    list_display = (
+        "username", "get_full_name", "role", "employment_type", "work_mode", "is_active"
+    )
+    list_filter = ("role", "is_active", "force_offline", "employment_type", "work_mode")
     fieldsets = BaseUserAdmin.fieldsets + (
         ("Eagle", {
             "fields": (
                 "role", "team_lead", "phone", "languages", "rating",
                 "force_offline", "last_seen", "display_name_ar",
                 "ui_lang", "ui_theme",
+            )
+        }),
+        ("Workforce", {
+            "fields": (
+                "employment_type", "work_mode", "schedule_kind",
+                "attendance_enabled", "attendance_manager",
             )
         }),
     )
@@ -130,10 +145,70 @@ class ProductionTierAdmin(admin.ModelAdmin):
 
 @admin.register(WorkDay)
 class WorkDayAdmin(admin.ModelAdmin):
-    list_display = ("user", "date", "status", "words", "is_secondary_language", "difficult_file")
-    list_filter = ("status", "is_secondary_language", "difficult_file")
+    list_display = (
+        "user", "date", "status", "work_mode", "check_in", "check_out",
+        "late_minutes", "work_minutes", "words", "needs_review",
+    )
+    list_filter = ("status", "work_mode", "needs_review", "off_site")
     search_fields = ("user__username",)
     date_hierarchy = "date"
+
+
+@admin.register(AttendanceEvent)
+class AttendanceEventAdmin(admin.ModelAdmin):
+    """Read-only on purpose: punches are evidence, not editable records."""
+
+    list_display = ("user", "kind", "at", "within_geofence", "distance_m", "ip")
+    list_filter = ("kind", "within_geofence", "source")
+    search_fields = ("user__username",)
+    date_hierarchy = "at"
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AttendanceEdit)
+class AttendanceEditAdmin(admin.ModelAdmin):
+    """The trail that makes a corrected day trustworthy. Nobody edits it."""
+
+    list_display = ("work_day", "actor", "field", "old_value", "new_value", "created_at")
+    search_fields = ("work_day__user__username", "reason")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ShiftTemplate)
+class ShiftTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "name_ar", "start_time", "end_time", "break_minutes", "is_active")
+
+
+@admin.register(OfficeLocation)
+class OfficeLocationAdmin(admin.ModelAdmin):
+    list_display = ("name", "latitude", "longitude", "radius_meters", "is_active")
+
+
+@admin.register(AuthorizedDevice)
+class AuthorizedDeviceAdmin(admin.ModelAdmin):
+    list_display = ("user", "label", "status", "first_seen", "last_seen")
+    list_filter = ("status",)
+    search_fields = ("user__username", "fingerprint")
+
+
+@admin.register(OvertimeClaim)
+class OvertimeClaimAdmin(admin.ModelAdmin):
+    list_display = ("user", "date", "minutes", "hourly_rate", "amount", "status")
+    list_filter = ("status",)
+    search_fields = ("user__username",)
 
 
 @admin.register(Violation)
@@ -169,7 +244,7 @@ class PayrollSettingsAdmin(admin.ModelAdmin):
 
 admin.site.register([
     Shift, ClientRequirement, Assignment, ChatRoom, Notification,
-    RatingEvent, AICheckResult, AuditLog, SalaryRecord,
+    RatingEvent, AICheckResult, AuditLog, SalaryRecord, ScheduleOverride,
 ])
 
 admin.site.site_header = "Eagle administration"

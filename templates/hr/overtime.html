@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Overtime{% endblock %}
+{% block page_title %}<span data-ar="الأوفرتايم" data-en="Overtime">الأوفرتايم</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الأوفرتايم" data-en="Overtime claims">الأوفرتايم</h1>
+</div>
+
+<div class="note note--info">
+  {% icon "info" %}
+  <div data-ar="النظام بيحسب إن الوقت اتشُغل فعلًا، والاعتماد هو اللي بيصرفه — بالظبط زي الخصومات بالعكس. سعر الساعة بيتاخد من قواعد الحساب، وصفر معناه قيمة اليوم ÷ ساعات اليوم."
+       data-en="The engine works out that the time was worked; approval is what pays for it - the exact mirror of a deduction. The hourly rate comes from the payroll rules, and zero means the day's value divided by the daily hours.">
+    النظام بيحسب إن الوقت اتشُغل فعلًا، والاعتماد هو اللي بيصرفه — بالظبط زي الخصومات بالعكس.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "clock" %}
+    <h3 data-ar="مستنية اعتماد" data-en="Waiting for approval">مستنية اعتماد</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="اليوم" data-en="Date">اليوم</th>
+          <th data-ar="الوقت الإضافي" data-en="Extra time">الوقت الإضافي</th>
+          <th data-ar="سعر الساعة" data-en="Rate">سعر الساعة</th>
+          <th data-ar="المبلغ" data-en="Amount">المبلغ</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for claim in pending %}
+        <tr>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ claim.user.short_name }}</td>
+          <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ claim.date }}</td>
+          <td data-ar-label="الوقت الإضافي" data-en-label="Extra time" class="mono">{{ claim.hours_display }}</td>
+          <td data-ar-label="سعر الساعة" data-en-label="Rate" class="mono">{{ claim.hourly_rate }}</td>
+          <td data-ar-label="المبلغ" data-en-label="Amount" class="mono">{{ claim.amount }}</td>
+          <td>
+            <div class="row row--tight">
+              <form method="post" action="{% url 'dashboard:hr_overtime_decide' claim.pk 'approve' %}">
+                {% csrf_token %}
+                <button class="btn btn--ok btn--sm" type="submit">
+                  {% icon "check" "ic--sm" %}<span data-ar="اعتمد" data-en="Approve">اعتمد</span>
+                </button>
+              </form>
+              <form method="post" action="{% url 'dashboard:hr_overtime_decide' claim.pk 'reject' %}">
+                {% csrf_token %}
+                <button class="btn btn--danger btn--sm" type="submit">
+                  {% icon "x" "ic--sm" %}<span data-ar="ارفض" data-en="Reject">ارفض</span>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty"
+                data-ar="مفيش أوفرتايم مستني."
+                data-en="Nothing waiting.">مفيش أوفرتايم مستني.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "history" %}
+    <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="اليوم" data-en="Date">اليوم</th>
+          <th data-ar="الوقت" data-en="Time">الوقت</th>
+          <th data-ar="المبلغ" data-en="Amount">المبلغ</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="مين" data-en="By">مين</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for claim in decided %}
+        <tr>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ claim.user.short_name }}</td>
+          <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ claim.date }}</td>
+          <td data-ar-label="الوقت" data-en-label="Time" class="mono">{{ claim.hours_display }}</td>
+          <td data-ar-label="المبلغ" data-en-label="Amount" class="mono">{{ claim.amount }}</td>
+          <td data-ar-label="الحالة" data-en-label="Status">
+            {% if claim.is_approved %}
+              <span class="badge badge--ok" data-ar="معتمد" data-en="Approved">معتمد</span>
+            {% else %}
+              <span class="badge badge--dead" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
+            {% endif %}
+          </td>
+          <td data-ar-label="مين" data-en-label="By">{{ claim.approved_by.short_name|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

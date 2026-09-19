@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Schedules{% endblock %}
+{% block page_title %}<span data-ar="جداول العمل" data-en="Schedules">جداول العمل</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="جداول العمل" data-en="Work schedules">جداول العمل</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <select class="input" name="user" onchange="this.form.submit()">
+      {% for candidate in people %}
+        <option value="{{ candidate.pk }}" {% if person and candidate.pk == person.pk %}selected{% endif %}>
+          {{ candidate.short_name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if person %}
+  <div class="card card--flat">
+    <div class="row row--tight">
+      {% employment_badge person.employment_type %}
+      {% work_mode_badge person.work_mode %}
+      <span class="chip mono">{{ person.get_schedule_kind_display }}</span>
+      <div class="grow"></div>
+      <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:admin_user_edit' person.pk %}">
+        {% icon "user" "ic--sm" %}<span data-ar="ملف الموظف" data-en="Profile">ملف الموظف</span>
+      </a>
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="stack">
+
+    {# ---- the standing roster ----------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="الجدول الأسبوعي" data-en="Weekly roster">الجدول الأسبوعي</h3>
+        <div class="grow"></div>
+        <span class="muted"
+              data-ar="اليوم اللي مالوش سطر = أجازة"
+              data-en="A day with no row is a day off">اليوم اللي مالوش سطر = أجازة</span>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Day">اليوم</th>
+              <th data-ar="الشيفت" data-en="Shift">الشيفت</th>
+              <th data-ar="الوقت" data-en="Hours">الوقت</th>
+              <th data-ar="المطلوب" data-en="Required">المطلوب</th>
+              <th data-ar="النظام" data-en="Mode">النظام</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for shift in shifts %}
+            <tr>
+              <td data-ar-label="اليوم" data-en-label="Day">{{ shift.get_weekday_display }}</td>
+              <td data-ar-label="الشيفت" data-en-label="Shift">{{ shift.template.label|default:"—" }}</td>
+              <td data-ar-label="الوقت" data-en-label="Hours" class="mono">
+                {{ shift.start|time:"H:i" }} – {{ shift.end|time:"H:i" }}
+                {% if shift.crosses_midnight %}
+                  <span class="badge badge--info" data-ar="لليوم التالي" data-en="Overnight">لليوم التالي</span>
+                {% endif %}
+              </td>
+              <td data-ar-label="المطلوب" data-en-label="Required" class="mono">{{ shift.minutes|minutes_hm }}</td>
+              <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge shift.work_mode %}</td>
+              <td>
+                <form method="post" action="{% url 'dashboard:hr_shift_delete' shift.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--sm btn--ghost" type="submit">{% icon "trash" "ic--sm" %}</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" class="empty"
+                    data-ar="مفيش جدول للموظف ده لسه."
+                    data-en="No roster for this person yet.">مفيش جدول للموظف ده لسه.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---- one-off changes --------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "pin" %}
+        <h3 data-ar="تعديلات يوم واحد" data-en="One-off days">تعديلات يوم واحد</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="التعديل" data-en="Change">التعديل</th>
+              <th data-ar="النظام" data-en="Mode">النظام</th>
+              <th data-ar="السبب" data-en="Reason">السبب</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in overrides %}
+            <tr>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ row.date }}</td>
+              <td data-ar-label="التعديل" data-en-label="Change">
+                {% if row.is_day_off %}
+                  <span class="badge badge--info" data-ar="أجازة" data-en="Day off">أجازة</span>
+                {% else %}
+                  <span class="mono">{{ row.label }}</span>
+                {% endif %}
+              </td>
+              <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge row.work_mode %}</td>
+              <td data-ar-label="السبب" data-en-label="Reason" class="muted">{{ row.reason|default:"—" }}</td>
+              <td>
+                <form method="post" action="{% url 'dashboard:hr_override_delete' row.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--sm btn--ghost" type="submit">{% icon "trash" "ic--sm" %}</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="مفيش تعديلات."
+                    data-en="Nothing overridden.">مفيش تعديلات.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---- what the rules actually say for the next fortnight ---------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "eye" %}
+        <h3 data-ar="الأسبوعين الجايين" data-en="The next fortnight">الأسبوعين الجايين</h3>
+        <div class="grow"></div>
+        <span class="muted"
+              data-ar="بعد تطبيق التعديلات"
+              data-en="After the overrides are applied">بعد تطبيق التعديلات</span>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="الشيفت" data-en="Shift">الشيفت</th>
+              <th data-ar="الوقت" data-en="Hours">الوقت</th>
+              <th data-ar="النظام" data-en="Mode">النظام</th>
+              <th data-ar="المصدر" data-en="From">المصدر</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for plan in preview %}
+            <tr>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ plan.date }}</td>
+              <td data-ar-label="الشيفت" data-en-label="Shift">
+                {% if plan.working %}{{ plan.label }}
+                {% else %}<span class="muted" data-ar="أجازة" data-en="Off">أجازة</span>{% endif %}
+              </td>
+              <td data-ar-label="الوقت" data-en-label="Hours" class="mono">
+                {% if plan.working %}{{ plan.start|date:"H:i" }} – {{ plan.end|date:"H:i" }}{% else %}—{% endif %}
+              </td>
+              <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge plan.mode %}</td>
+              <td data-ar-label="المصدر" data-en-label="From" class="muted mono">{{ plan.source }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="ضيف يوم للجدول" data-en="Add a roster day">ضيف يوم للجدول</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="shift">
+        <input type="hidden" name="user" value="{{ person.pk }}">
+        {{ shift_form.non_field_errors }}
+        <div class="field">
+          <label data-ar="اليوم" data-en="Weekday">اليوم</label>
+          {{ shift_form.weekday }}
+        </div>
+        <div class="field">
+          <label data-ar="شيفت جاهز" data-en="Shift template">شيفت جاهز</label>
+          {{ shift_form.template }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="من" data-en="From">من</label>
+            {{ shift_form.start_time }}
+          </div>
+          <div class="field">
+            <label data-ar="إلى" data-en="To">إلى</label>
+            {{ shift_form.end_time }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="نظام العمل" data-en="Work mode">نظام العمل</label>
+          {{ shift_form.work_mode }}
+        </div>
+        <div class="field">
+          <label data-ar="ساعات مطلوبة (دقيقة)" data-en="Required minutes">ساعات مطلوبة (دقيقة)</label>
+          {{ shift_form.required_minutes }}
+          <small class="muted"
+                 data-ar="سيبها صفر عشان تاخد طول الشيفت. الـPart-Time بيتحسب من هنا، مش من افتراض 8 ساعات."
+                 data-en="Leave at zero to use the shift's own length. A part-timer is measured from here, not from an assumed eight hours.">
+            سيبها صفر عشان تاخد طول الشيفت. الـPart-Time بيتحسب من هنا، مش من افتراض 8 ساعات.
+          </small>
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "pin" %}
+        <h3 data-ar="عدّل يوم واحد" data-en="Override one day">عدّل يوم واحد</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="override">
+        <input type="hidden" name="user" value="{{ person.pk }}">
+        {{ override_form.non_field_errors }}
+        <div class="field">
+          <label data-ar="اليوم" data-en="Date">اليوم</label>
+          {{ override_form.date }}
+        </div>
+        <label class="switch">
+          {{ override_form.is_day_off }}
+          <span data-ar="أجازة" data-en="Day off">أجازة</span>
+        </label>
+        <div class="field">
+          <label data-ar="شيفت جاهز" data-en="Shift template">شيفت جاهز</label>
+          {{ override_form.template }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="من" data-en="From">من</label>
+            {{ override_form.start_time }}
+          </div>
+          <div class="field">
+            <label data-ar="إلى" data-en="To">إلى</label>
+            {{ override_form.end_time }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="نظام العمل" data-en="Work mode">نظام العمل</label>
+          {{ override_form.work_mode }}
+        </div>
+        <div class="field">
+          <label data-ar="السبب" data-en="Reason">السبب</label>
+          {{ override_form.reason }}
+        </div>
+        <button class="btn btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "layers" %}
+        <h3 data-ar="شيفتات الشركة" data-en="Company shifts">شيفتات الشركة</h3>
+      </div>
+      {% for template in templates %}
+        <div class="kv">
+          <span>{{ template.label }} {% if not template.is_active %}<span class="badge">مقفول</span>{% endif %}</span>
+          <b class="mono">{{ template.start_time|time:"H:i" }}–{{ template.end_time|time:"H:i" }}</b>
+        </div>
+      {% endfor %}
+      <form method="post" action="{% url 'dashboard:hr_template_add' %}" class="mt">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الاسم" data-en="Name">الاسم</label>
+            {{ template_form.name }}
+          </div>
+          <div class="field">
+            <label data-ar="بالعربي" data-en="Arabic">بالعربي</label>
+            {{ template_form.name_ar }}
+          </div>
+          <div class="field">
+            <label data-ar="من" data-en="From">من</label>
+            {{ template_form.start_time }}
+          </div>
+          <div class="field">
+            <label data-ar="إلى" data-en="To">إلى</label>
+            {{ template_form.end_time }}
+          </div>
+        </div>
+        <button class="btn btn--sm btn--block" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف شيفت" data-en="Add shift">ضيف شيفت</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

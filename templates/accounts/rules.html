@@ -117,6 +117,122 @@
         </label>
       </div>
 
+      {# ---- attendance ------------------------------------------------- #}
+      <div class="card">
+        <div class="card__head">
+          {% icon "timer" %}
+          <h3 data-ar="الحضور والانصراف" data-en="Attendance">الحضور والانصراف</h3>
+        </div>
+        <div class="note note--info">
+          {% icon "info" %}
+          <div data-ar="فترة السماح شغالة كلها أو ولا حاجة: جوه الفترة = حاضر من غير تأخير، وبرّاها بدقيقة = التأخير كله بيتحسب مش الزيادة بس. مثال العقد: بداية 09:00 وسماح 10 دقايق — 09:06 حاضر، و09:14 تأخير 14 دقيقة."
+               data-en="The grace window is all or nothing: inside it the day is simply present, and one minute past it the whole delay counts, not the excess. The contract's example: a 09:00 start with ten minutes of grace makes 09:06 present and 09:14 late by fourteen minutes.">
+            فترة السماح شغالة كلها أو ولا حاجة: 09:06 حاضر، و09:14 تأخير 14 دقيقة كاملة.
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="فترة السماح (دقيقة)" data-en="Grace period (minutes)">فترة السماح (دقيقة)</label>
+            {{ form.grace_minutes }}{{ form.grace_minutes.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="سماح الانصراف المبكر (دقيقة)" data-en="Early-leave grace (minutes)">سماح الانصراف المبكر</label>
+            {{ form.early_leave_grace_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="البريك المسموح (دقيقة)" data-en="Break allowance (minutes)">البريك المسموح</label>
+            {{ form.break_minutes_allowed }}
+            <small class="muted"
+                   data-ar="الشيفت ممكن يكون ليه بريك مختلف، وساعتها بتاعه هو اللي بيتطبق."
+                   data-en="A shift may grant its own allowance, and then that one applies.">
+              الشيفت ممكن يكون ليه بريك مختلف، وساعتها بتاعه هو اللي بيتطبق.
+            </small>
+          </div>
+          <div class="field">
+            <label data-ar="نطاق المكتب الافتراضي (متر)" data-en="Default office radius (m)">نطاق المكتب (متر)</label>
+            {{ form.geofence_radius_m }}{{ form.geofence_radius_m.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="لو سجّل من بره النطاق" data-en="If punched off site">لو سجّل من بره النطاق</label>
+            {{ form.off_site_policy }}
+          </div>
+          <div class="field">
+            <label data-ar="لو الجهاز مش معتمد" data-en="If the device is unknown">لو الجهاز مش معتمد</label>
+            {{ form.unknown_device_policy }}
+          </div>
+        </div>
+        <label class="switch mt">
+          {{ form.break_counts_as_work }}
+          <span data-ar="البريك بيتحسب من ساعات العمل"
+                data-en="The break counts as worked time">البريك بيتحسب من ساعات العمل</span>
+        </label>
+        <label class="switch">
+          {{ form.checkout_needs_location }}
+          <span data-ar="اطلب الموقع عند الانصراف كمان"
+                data-en="Ask for the location at check-out too">اطلب الموقع عند الانصراف كمان</span>
+        </label>
+        <label class="switch">
+          {{ form.device_check_enabled }}
+          <span data-ar="فحص الجهاز شغال" data-en="Device check is on">فحص الجهاز شغال</span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "clock" %}
+          <h3 data-ar="الأوفرتايم" data-en="Overtime">الأوفرتايم</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="أقل مدة تتحسب (دقيقة)" data-en="Minimum that counts (minutes)">أقل مدة تتحسب</label>
+            {{ form.overtime_min_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="سعر الساعة" data-en="Hourly rate">سعر الساعة</label>
+            {{ form.overtime_hourly_rate }}
+            <small class="muted"
+                   data-ar="صفر = قيمة اليوم ÷ ساعات اليوم."
+                   data-en="Zero derives it from the day value divided by the daily hours.">
+              صفر = قيمة اليوم ÷ ساعات اليوم.
+            </small>
+          </div>
+          <div class="field">
+            <label data-ar="المضاعف" data-en="Multiplier">المضاعف</label>
+            {{ form.overtime_multiplier }}
+          </div>
+        </div>
+        <label class="switch mt">
+          {{ form.overtime_enabled }}
+          <span data-ar="الأوفرتايم شغال" data-en="Overtime is on">الأوفرتايم شغال</span>
+        </label>
+        <label class="switch">
+          {{ form.overtime_needs_approval }}
+          <span data-ar="محتاج اعتماد المدير قبل الصرف"
+                data-en="Needs the manager to release it">محتاج اعتماد المدير قبل الصرف</span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "bell" %}
+          <h3 data-ar="التنبيهات" data-en="Alerts">التنبيهات</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="تنبيه عدم تسجيل حضور بعد (دقيقة)" data-en="No check-in after (minutes)">مفيش حضور بعد</label>
+            {{ form.missing_checkin_after_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="تنبيه عدم تسجيل انصراف بعد (دقيقة)" data-en="No check-out after (minutes)">مفيش انصراف بعد</label>
+            {{ form.missing_checkout_after_minutes }}
+          </div>
+          <div class="field">
+            <label data-ar="نقص الساعات يبدأ من (دقيقة)" data-en="Short hours from (minutes)">نقص الساعات من</label>
+            {{ form.short_hours_alert_minutes }}
+          </div>
+        </div>
+      </div>
+
       <button class="btn btn--primary" type="submit">
         {% icon "check" "ic--sm" %}<span data-ar="احفظ القواعد" data-en="Save the rules">احفظ القواعد</span>
       </button>

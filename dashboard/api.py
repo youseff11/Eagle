@@ -1,12 +1,14 @@
 """JSON endpoints powering the live parts of the dashboard (polling based)."""
 
+from decimal import Decimal, InvalidOperation
+
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, services
+from . import ai, attendance, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -19,11 +21,13 @@ from .models import (
     ClientRequirement,
     InboundMessage,
     Notification,
+    PunchKind,
     Role,
     RoomKind,
     Task,
     TaskStatus,
     User,
+    WorkDay,
 )
 from .permissions import api_role_required
 
@@ -977,4 +981,113 @@ def ai_check(request, code):
         "issues": result.issues,
         "error": result.error_message,
         "count": result.issue_count,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Attendance
+#
+# The location in these payloads is read by the browser at the instant the
+# person presses the button and is sent with that one request. Nothing polls a
+# position, and the server stores what arrived on the punch and nothing else.
+# ---------------------------------------------------------------------------
+
+def _client_ip(request):
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR") or None
+
+
+def _decimal(value):
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.000001"))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _day_json(row, plan=None):
+    if row is None:
+        return {
+            "state": "none",
+            "check_in": None,
+            "check_out": None,
+            "break_minutes": 0,
+            "on_break": False,
+            "late_minutes": 0,
+            "work_minutes": 0,
+            "needs_review": False,
+        }
+    return {
+        "state": "closed" if row.check_out else ("open" if row.check_in else "none"),
+        "date": row.date.isoformat(),
+        "check_in": timezone.localtime(row.check_in).strftime("%H:%M") if row.check_in else None,
+        "check_out": timezone.localtime(row.check_out).strftime("%H:%M") if row.check_out else None,
+        "break_minutes": row.break_minutes,
+        "on_break": row.on_break,
+        "late_minutes": row.late_minutes,
+        "work_minutes": row.work_minutes,
+        "overtime_minutes": row.overtime_minutes,
+        "hours": row.hours_display,
+        "work_mode": row.work_mode,
+        "needs_review": row.needs_review,
+        "review_reason": row.review_reason,
+        "schedule": row.schedule_label,
+    }
+
+
+@login_required
+@require_GET
+def attendance_state(request):
+    """What the buttons should look like right now."""
+    user = request.user
+    day, plan = attendance.resolve_work_date(user)
+    row = WorkDay.objects.filter(user=user, date=day).first()
+    return JsonResponse({
+        "ok": True,
+        "enabled": user.attendance_enabled,
+        "work_date": day.isoformat(),
+        "planned": plan.working,
+        "schedule": plan.label,
+        "work_mode": row.work_mode if row is not None else plan.mode,
+        "needs_location": (row.is_office_day if row is not None else plan.mode == "office"),
+        "day": _day_json(row, plan),
+    })
+
+
+@login_required
+@require_POST
+def attendance_punch(request):
+    """Check in, start or end a break, check out.
+
+    A refusal comes back as ``ok: false`` with a bilingual reason rather than
+    an HTTP error, because every one of them is a thing the person can act on:
+    check in first, close the break, move closer to the office.
+    """
+    kind = request.POST.get("action", "")
+    if kind not in PunchKind.values:
+        return JsonResponse({"ok": False, "error": "bad_action"}, status=400)
+
+    try:
+        row, event = attendance.punch(
+            request.user, kind,
+            latitude=_decimal(request.POST.get("lat")),
+            longitude=_decimal(request.POST.get("lng")),
+            accuracy_m=_int(request.POST.get("accuracy"), 0) or None,
+            fingerprint=(request.POST.get("device") or "").strip()[:64],
+            ip=_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            note=(request.POST.get("note") or "")[:160],
+        )
+    except attendance.PunchRefused as refused:
+        return JsonResponse(
+            {"ok": False, "error": refused.code, "ar": refused.ar, "en": refused.en},
+            status=200,
+        )
+
+    return JsonResponse({
+        "ok": True,
+        "action": kind,
+        "at": timezone.localtime(event.at).strftime("%H:%M"),
+        "day": _day_json(row),
     })

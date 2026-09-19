@@ -1,6 +1,6 @@
 """Data model for the Eagle translation-workflow dashboard (Phase 1)."""
 
-from datetime import timedelta
+from datetime import time, timedelta
 from decimal import Decimal
 
 from django.conf import settings as dj_settings
@@ -86,6 +86,47 @@ class RoomKind(models.TextChoices):
     CLIENT = "client", "Team + Client (relayed to WhatsApp)"
 
 
+class EmploymentType(models.TextChoices):
+    FULL_TIME = "full_time", "Full time"
+    PART_TIME = "part_time", "Part time"
+    FREELANCE = "freelance", "Freelancer / contractor"
+
+
+class WorkMode(models.TextChoices):
+    OFFICE = "office", "From the office"
+    REMOTE = "remote", "Remote"
+    HYBRID = "hybrid", "Hybrid"
+
+
+#: A *day* is worked either at a desk or away from one. "Hybrid" describes the
+#: contract, never a single day - which is why the roster carries the day's
+#: mode and the profile only carries the default.
+DAY_WORK_MODES = (
+    (WorkMode.OFFICE, "From the office"),
+    (WorkMode.REMOTE, "Remote"),
+)
+
+
+class ScheduleKind(models.TextChoices):
+    FIXED = "fixed", "Fixed shift"
+    FLEXIBLE = "flexible", "Flexible shift"
+    CUSTOM = "custom", "Custom schedule"
+
+
+class PunchKind(models.TextChoices):
+    CHECK_IN = "check_in", "Check in"
+    CHECK_OUT = "check_out", "Check out"
+    BREAK_START = "break_start", "Break start"
+    BREAK_END = "break_end", "Break end"
+
+
+class OffSitePolicy(models.TextChoices):
+    """What happens when a punch fails a check it was supposed to pass."""
+
+    REVIEW = "review", "Record it and flag it for review"
+    REJECT = "reject", "Refuse the punch"
+
+
 WEEKDAYS = (
     (0, "Monday"),
     (1, "Tuesday"),
@@ -100,6 +141,17 @@ WEEKDAYS = (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def span_minutes(start, end):
+    """Minutes from ``start`` to ``end``, counting midnight as a crossing.
+
+    A shift that ends at or before it starts - 17:00 to 01:00 - is one shift
+    running into the next day, so it is 480 minutes and not a negative number.
+    This single line is why the overnight shift works everywhere downstream.
+    """
+    minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+    return minutes if minutes > 0 else minutes + 24 * 60
+
 
 def next_code(model, field, prefix, width=4):
     """Return the next sequential human code, e.g. ``CL-0007``."""
@@ -153,6 +205,28 @@ class User(AbstractUser):
     ui_lang = models.CharField(max_length=5, default="ar")
     ui_theme = models.CharField(max_length=10, default="dark")
 
+    # -- workforce ---------------------------------------------------------
+    # These three describe the contract, not any one day. The day's own shape
+    # comes from the roster (`Shift`) and, when somebody moved a single day,
+    # from `ScheduleOverride`.
+    employment_type = models.CharField(
+        max_length=12, choices=EmploymentType.choices, default=EmploymentType.FULL_TIME
+    )
+    work_mode = models.CharField(
+        max_length=8, choices=WorkMode.choices, default=WorkMode.OFFICE,
+        help_text="Hybrid means the roster decides each day.",
+    )
+    schedule_kind = models.CharField(
+        max_length=10, choices=ScheduleKind.choices, default=ScheduleKind.FIXED
+    )
+    attendance_enabled = models.BooleanField(
+        default=True, help_text="Turn off for somebody who does not clock in at all."
+    )
+    attendance_manager = models.BooleanField(
+        default=False,
+        help_text="May run the attendance board and correct other people's days (HR).",
+    )
+
     class Meta:
         ordering = ("role", "username")
 
@@ -187,6 +261,15 @@ class User(AbstractUser):
     def can_see_client_identity(self):
         """Only the admin ever sees the real client name / phone / email."""
         return self.is_admin_role
+
+    @property
+    def can_manage_attendance(self):
+        """HR rights. Eagle has no HR *role*, so it is a flag on the person."""
+        return self.is_admin_role or self.attendance_manager
+
+    @property
+    def is_hybrid(self):
+        return self.work_mode == WorkMode.HYBRID
 
     @property
     def short_name(self):
@@ -281,30 +364,141 @@ class User(AbstractUser):
         return new_value
 
 
-class Shift(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shifts")
-    weekday = models.IntegerField(choices=WEEKDAYS)
+class ShiftTemplate(models.Model):
+    """A named shift the company runs - editable, and never hard-coded.
+
+    The contract's three shifts are seeded once as data. HR can change their
+    hours, retire them, or add a fourth, and nothing in the code has to move.
+    A template that people are rostered on cannot be deleted (``PROTECT``);
+    clearing ``is_active`` takes it out of the pickers instead.
+    """
+
+    name = models.CharField(max_length=60)
+    name_ar = models.CharField(max_length=60, blank=True)
     start_time = models.TimeField()
     end_time = models.TimeField()
+    break_minutes = models.PositiveSmallIntegerField(
+        default=0, help_text="Unpaid break this shift grants. 0 uses the company default."
+    )
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ("sort_order", "start_time")
+
+    def __str__(self):
+        return f"{self.label} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
+
+    @property
+    def label(self):
+        return self.name_ar or self.name
+
+    @property
+    def crosses_midnight(self):
+        """17:00 -> 01:00 is one shift, not two. Everything downstream cares."""
+        return self.end_time <= self.start_time
+
+    @property
+    def minutes(self):
+        return span_minutes(self.start_time, self.end_time)
+
+    #: The contract's table, as data. Seeded once; edited from the panel after.
+    DEFAULTS = (
+        ("Shift 1", "الشيفت 1", time(9, 0), time(17, 0)),
+        ("Shift 2", "الشيفت 2", time(12, 0), time(20, 0)),
+        ("Shift 3", "الشيفت 3", time(17, 0), time(1, 0)),
+    )
+
+    @classmethod
+    def seed_defaults(cls):
+        if cls.objects.exists():
+            return
+        cls.objects.bulk_create([
+            cls(name=name, name_ar=name_ar, start_time=start, end_time=end, sort_order=order)
+            for order, (name, name_ar, start, end) in enumerate(cls.DEFAULTS, start=1)
+        ])
+
+
+class Shift(models.Model):
+    """One person's roster for one weekday.
+
+    A row means "this person works that day". No row means the day is off, so
+    a part-timer simply has fewer rows - nothing anywhere assumes eight hours.
+    The hours come either from a shift template (so editing the template moves
+    everybody on it) or from times typed on the row itself, which is what a
+    custom schedule uses.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shifts")
+    weekday = models.IntegerField(choices=WEEKDAYS)
+    template = models.ForeignKey(
+        ShiftTemplate, null=True, blank=True, on_delete=models.PROTECT, related_name="shifts"
+    )
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    work_mode = models.CharField(
+        max_length=8, choices=DAY_WORK_MODES, blank=True,
+        help_text="Blank follows the person's own work mode.",
+    )
+    required_minutes = models.PositiveSmallIntegerField(
+        default=0, help_text="0 means the shift's own length.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ("weekday", "start_time")
 
     def __str__(self):
-        return f"{self.user} · {self.get_weekday_display()} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
+        start, end = self.start, self.end
+        window = f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+        return f"{self.user} · {self.get_weekday_display()} {window}"
+
+    # -- resolved hours ----------------------------------------------------
+    @property
+    def start(self):
+        return self.template.start_time if self.template_id else self.start_time
+
+    @property
+    def end(self):
+        return self.template.end_time if self.template_id else self.end_time
+
+    @property
+    def label(self):
+        if self.template_id:
+            return self.template.label
+        start, end = self.start, self.end
+        return f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+
+    @property
+    def minutes(self):
+        """What the day is *worth*, which a part-timer sets independently."""
+        if self.required_minutes:
+            return self.required_minutes
+        start, end = self.start, self.end
+        return span_minutes(start, end) if start and end else 0
 
     @property
     def crosses_midnight(self):
-        return self.end_time <= self.start_time
+        start, end = self.start, self.end
+        return bool(start and end) and end <= start
+
+    def mode_for(self, user=None):
+        """The day's work mode: the row's own, else the person's default."""
+        if self.work_mode:
+            return self.work_mode
+        owner = user or self.user
+        return WorkMode.OFFICE if owner.is_hybrid else owner.work_mode
 
     def covers(self, now_time, today, yesterday):
+        start, end = self.start, self.end
+        if not (start and end):
+            return False
         if not self.crosses_midnight:
-            return self.weekday == today and self.start_time <= now_time < self.end_time
+            return self.weekday == today and start <= now_time < end
         # Overnight shift: it belongs to `weekday` but spills into the next day.
-        if self.weekday == today and now_time >= self.start_time:
+        if self.weekday == today and now_time >= start:
             return True
-        if self.weekday == yesterday and now_time < self.end_time:
+        if self.weekday == yesterday and now_time < end:
             return True
         return False
 
@@ -1181,6 +1375,57 @@ class PayrollSettings(models.Model):
     #: The two bonuses are computed by the system but paid only once approved.
     bonuses_need_approval = models.BooleanField(default=True)
 
+    # -- attendance --------------------------------------------------------
+    # Section 7 of the spec is explicit that none of this may be hard-coded,
+    # so every threshold below is a column HR edits from /accounts/rules/.
+
+    #: Arrive inside the grace window and the day is simply Present. Step past
+    #: it and the *whole* delay counts, not the part beyond the window - the
+    #: contract's own example: 09:06 is Present, 09:14 is 14 minutes late.
+    grace_minutes = models.PositiveSmallIntegerField(default=10)
+    early_leave_grace_minutes = models.PositiveSmallIntegerField(default=10)
+
+    #: Break policy. A shift template may grant its own allowance instead.
+    break_minutes_allowed = models.PositiveSmallIntegerField(default=60)
+    break_counts_as_work = models.BooleanField(
+        default=False, help_text="Off: hours = out - in - break, which is the contract.",
+    )
+
+    #: How far from an office a punch still counts as "at the office". Phone
+    #: GPS is routinely 50-100 m out, so a tight radius punishes accuracy, not
+    #: absence.
+    geofence_radius_m = models.PositiveIntegerField(default=200)
+    off_site_policy = models.CharField(
+        max_length=8, choices=OffSitePolicy.choices, default=OffSitePolicy.REVIEW
+    )
+    checkout_needs_location = models.BooleanField(
+        default=False, help_text="Section 14: location is read at the punch, never between them.",
+    )
+    unknown_device_policy = models.CharField(
+        max_length=8, choices=OffSitePolicy.choices, default=OffSitePolicy.REVIEW
+    )
+    device_check_enabled = models.BooleanField(default=True)
+
+    #: Overtime. Priced per hour; blank rate falls back to the day's own value
+    #: divided by the contractual daily hours.
+    overtime_enabled = models.BooleanField(default=True)
+    overtime_min_minutes = models.PositiveSmallIntegerField(
+        default=30, help_text="Below this, staying a little late is not overtime.",
+    )
+    overtime_hourly_rate = models.DecimalField(
+        max_digits=9, decimal_places=2, default=Decimal("0.00"),
+        help_text="0 derives the rate from the salary: day value / daily hours.",
+    )
+    overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("1.00"))
+    overtime_needs_approval = models.BooleanField(default=True)
+
+    #: Alerts (section 10). Minutes after the scheduled edge before the nudge.
+    missing_checkin_after_minutes = models.PositiveSmallIntegerField(default=30)
+    missing_checkout_after_minutes = models.PositiveSmallIntegerField(default=60)
+    short_hours_alert_minutes = models.PositiveSmallIntegerField(
+        default=60, help_text="Missing this much of the scheduled day raises an alert.",
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -1202,10 +1447,27 @@ class PayrollSettings(models.Model):
         obj, created = cls.objects.get_or_create(singleton=1)
         if created:
             ProductionTier.seed_defaults()
+            ShiftTemplate.seed_defaults()
         return obj
 
     def target_for(self, secondary=False):
         return self.secondary_daily_target_words if secondary else self.daily_target_words
+
+    def break_allowance(self, shift=None):
+        """A shift's own allowance wins; otherwise the company default."""
+        template = getattr(shift, "template", None)
+        if template is not None and template.break_minutes:
+            return template.break_minutes
+        return self.break_minutes_allowed
+
+    def overtime_rate(self, day_value):
+        """Price of one overtime hour for somebody on ``day_value`` a day."""
+        if self.overtime_hourly_rate:
+            base = Decimal(self.overtime_hourly_rate)
+        else:
+            hours = Decimal(self.daily_hours or 8)
+            base = Decimal(day_value) / hours
+        return base * Decimal(self.overtime_multiplier)
 
 
 class ProductionTier(models.Model):
@@ -1319,6 +1581,36 @@ class WorkDay(models.Model):
     late_minutes = models.PositiveIntegerField(default=0)
     early_leave_minutes = models.PositiveIntegerField(default=0)
 
+    # -- attendance --------------------------------------------------------
+    #: Where the day was worked. Set from the roster, so a hybrid week reads
+    #: office on some rows and remote on others.
+    work_mode = models.CharField(max_length=8, choices=DAY_WORK_MODES, blank=True)
+
+    #: The roster as it stood *when the day happened*, frozen onto the row.
+    #: Moving somebody to a later shift next month must not turn last week
+    #: into lateness, so nothing downstream ever re-reads today's roster for
+    #: a past day - it reads these four fields.
+    scheduled_start = models.DateTimeField(null=True, blank=True)
+    scheduled_end = models.DateTimeField(null=True, blank=True)
+    scheduled_minutes = models.PositiveSmallIntegerField(default=0)
+    grace_minutes = models.PositiveSmallIntegerField(default=0)
+    schedule_label = models.CharField(max_length=60, blank=True)
+
+    break_minutes = models.PositiveSmallIntegerField(default=0)
+    #: Check-out minus check-in minus break. Stored, because it is what the
+    #: month is reported on and the punches can be corrected afterwards.
+    work_minutes = models.PositiveSmallIntegerField(default=0)
+    short_minutes = models.PositiveSmallIntegerField(default=0)
+    overtime_minutes = models.PositiveSmallIntegerField(default=0)
+
+    off_site = models.BooleanField(
+        default=False, help_text="An office day punched from outside the allowed radius."
+    )
+    needs_review = models.BooleanField(default=False, db_index=True)
+    review_reason = models.CharField(max_length=160, blank=True)
+    #: True when the person punched it themselves; False when HR typed it in.
+    self_recorded = models.BooleanField(default=False)
+
     words = models.PositiveIntegerField(default=0)
     #: True once the refresh has written this day's count from the job log. A
     #: day the admin filled in by hand stays False and the refresh leaves it
@@ -1351,9 +1643,37 @@ class WorkDay(models.Model):
 
     @property
     def worked_minutes(self):
+        """Net minutes: the stored figure, or the raw span before one exists."""
+        if self.work_minutes:
+            return self.work_minutes
         if not (self.check_in and self.check_out):
             return 0
-        return max(0, int((self.check_out - self.check_in).total_seconds() // 60))
+        span = int((self.check_out - self.check_in).total_seconds() // 60)
+        return max(0, span - self.break_minutes)
+
+    @property
+    def is_open(self):
+        """Checked in and not out yet - the shift is still running."""
+        return bool(self.check_in) and not self.check_out
+
+    @property
+    def on_break(self):
+        last = self.events.filter(
+            kind__in=(PunchKind.BREAK_START, PunchKind.BREAK_END)
+        ).order_by("-at", "-id").first()
+        return bool(last) and last.kind == PunchKind.BREAK_START
+
+    @property
+    def hours_display(self):
+        return f"{self.worked_minutes // 60}:{self.worked_minutes % 60:02d}"
+
+    @property
+    def is_office_day(self):
+        return self.work_mode == WorkMode.OFFICE
+
+    @property
+    def is_remote_day(self):
+        return self.work_mode == WorkMode.REMOTE
 
     def target(self, conf=None):
         conf = conf or PayrollSettings.load()
@@ -1485,7 +1805,21 @@ class PayrollLine(models.Model):
     target_words = models.PositiveIntegerField(default=0)
     under_target_days = models.PositiveSmallIntegerField(default=0)
 
+    #: The month's attendance, frozen beside the money it produced. Section 12
+    #: asks for exactly these, and a payslip that stores them can be reread
+    #: years later without the roster still existing.
+    scheduled_days = models.PositiveSmallIntegerField(default=0)
+    office_days = models.PositiveSmallIntegerField(default=0)
+    remote_days = models.PositiveSmallIntegerField(default=0)
+    late_days = models.PositiveSmallIntegerField(default=0)
+    late_minutes = models.PositiveIntegerField(default=0)
+    early_leave_minutes = models.PositiveIntegerField(default=0)
+    short_minutes = models.PositiveIntegerField(default=0)
+    work_minutes = models.PositiveIntegerField(default=0)
+    overtime_minutes = models.PositiveIntegerField(default=0)
+
     production_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    overtime_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     discipline_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     target_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     deductions = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
@@ -1518,6 +1852,14 @@ class PayrollLine(models.Model):
         return self.discipline_bonus + self.target_bonus
 
     @property
+    def work_hours_display(self):
+        return f"{self.work_minutes // 60}:{self.work_minutes % 60:02d}"
+
+    @property
+    def overtime_hours_display(self):
+        return f"{self.overtime_minutes // 60}:{self.overtime_minutes % 60:02d}"
+
+    @property
     def pending_bonus(self):
         """Money the translator has earned that approval is still holding."""
         if self.bonuses_approved:
@@ -1529,3 +1871,263 @@ class PayrollLine(models.Model):
         if self.target_bonus_earned:
             total += conf.target_bonus
         return total
+
+
+# ---------------------------------------------------------------------------
+# Attendance
+#
+# The point of this module is to prove that somebody started and finished a
+# day - not to watch them through it. Location is read at a punch and nowhere
+# else; there is no continuous GPS, no camera, no screenshots. Whatever a
+# person actually produced belongs to the operations side, and the two are
+# deliberately kept apart (section 14 of the spec).
+#
+# Two rules run through everything below:
+#
+# * **The roster is read once, then frozen.** A day carries the shift it was
+#   worked under. Changing somebody's schedule tomorrow cannot rewrite what
+#   yesterday counted as late.
+# * **Nothing is silently overwritten.** Punches are append-only rows; HR's
+#   corrections land on the day *and* in `AttendanceEdit`, with a reason.
+# ---------------------------------------------------------------------------
+
+class OfficeLocation(models.Model):
+    """A place a punch may be made from, and how close is close enough."""
+
+    name = models.CharField(max_length=80)
+    name_ar = models.CharField(max_length=80, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    radius_meters = models.PositiveIntegerField(
+        default=200, help_text="Phone GPS is routinely 50-100 m out - leave room."
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self):
+        return self.label
+
+    @property
+    def label(self):
+        return self.name_ar or self.name
+
+
+class AuthorizedDevice(models.Model):
+    """A browser somebody punches from.
+
+    The fingerprint is a random token the browser keeps and sends back - it
+    identifies the browser, and nothing about the person or the hardware. A
+    token nobody has seen before arrives as ``pending``: HR either recognises
+    the new phone or does not, which is what stops one colleague punching in
+    for another from their own machine.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")
+    fingerprint = models.CharField(max_length=64, db_index=True)
+    label = models.CharField(max_length=80, blank=True)
+    user_agent = models.CharField(max_length=250, blank=True)
+    status = models.CharField(
+        max_length=10, choices=ApprovalStatus.choices,
+        default=ApprovalStatus.PENDING, db_index=True,
+    )
+    first_seen = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-last_seen",)
+        unique_together = (("user", "fingerprint"),)
+
+    def __str__(self):
+        return f"{self.user} · {self.label or self.fingerprint[:8]} ({self.status})"
+
+    @property
+    def is_approved(self):
+        return self.status == ApprovalStatus.APPROVED
+
+    def approve(self, by):
+        self.status = ApprovalStatus.APPROVED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])
+
+    def reject(self, by):
+        self.status = ApprovalStatus.REJECTED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])
+
+
+class ScheduleOverride(models.Model):
+    """One day moved, without touching the person's standing roster.
+
+    "Ahmed works 16:00-20:00 on the 20th" is this row. Next Tuesday goes back
+    to whatever the roster says, because the roster was never edited.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="schedule_overrides")
+    date = models.DateField(db_index=True)
+    is_day_off = models.BooleanField(default=False)
+    template = models.ForeignKey(
+        ShiftTemplate, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    work_mode = models.CharField(max_length=8, choices=DAY_WORK_MODES, blank=True)
+    required_minutes = models.PositiveSmallIntegerField(default=0)
+    reason = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-date",)
+        unique_together = (("user", "date"),)
+
+    def __str__(self):
+        return f"{self.user} {self.date} {'off' if self.is_day_off else self.label}"
+
+    @property
+    def start(self):
+        return self.template.start_time if self.template_id else self.start_time
+
+    @property
+    def end(self):
+        return self.template.end_time if self.template_id else self.end_time
+
+    @property
+    def label(self):
+        if self.template_id:
+            return self.template.label
+        start, end = self.start, self.end
+        return f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+
+    @property
+    def minutes(self):
+        if self.required_minutes:
+            return self.required_minutes
+        start, end = self.start, self.end
+        return span_minutes(start, end) if start and end else 0
+
+    def mode_for(self, user=None):
+        if self.work_mode:
+            return self.work_mode
+        owner = user or self.user
+        return WorkMode.OFFICE if owner.is_hybrid else owner.work_mode
+
+
+class AttendanceEvent(models.Model):
+    """One punch. Append-only: rows are written, never edited.
+
+    Everything a punch knows about where and how it happened lives here, so a
+    corrected day still carries the evidence of what was originally recorded.
+    """
+
+    work_day = models.ForeignKey(
+        WorkDay, null=True, blank=True, on_delete=models.CASCADE, related_name="events"
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="attendance_events")
+    kind = models.CharField(max_length=12, choices=PunchKind.choices)
+    at = models.DateTimeField(db_index=True)
+
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    accuracy_m = models.PositiveIntegerField(null=True, blank=True)
+    distance_m = models.PositiveIntegerField(null=True, blank=True)
+    office = models.ForeignKey(
+        OfficeLocation, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    #: None means the punch was never location-checked (a remote day, or a
+    #: policy that does not ask for it) - which is not the same as "failed".
+    within_geofence = models.BooleanField(null=True, blank=True)
+
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=250, blank=True)
+    device = models.ForeignKey(
+        AuthorizedDevice, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    source = models.CharField(max_length=10, default="web")
+    note = models.CharField(max_length=160, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("at", "id")
+        indexes = [models.Index(fields=["user", "at"], name="dash_att_user_at_idx")]
+
+    def __str__(self):
+        return f"{self.user} {self.kind} {self.at:%Y-%m-%d %H:%M}"
+
+
+class AttendanceEdit(models.Model):
+    """Section 9: no attendance is changed without a trace of who and why.
+
+    One row per field changed. There is no update or delete path anywhere in
+    the app - the admin registration is read-only too.
+    """
+
+    work_day = models.ForeignKey(WorkDay, on_delete=models.CASCADE, related_name="edits")
+    actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    field = models.CharField(max_length=40)
+    old_value = models.CharField(max_length=160, blank=True)
+    new_value = models.CharField(max_length=160, blank=True)
+    reason = models.CharField(max_length=250)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"{self.work_day} · {self.field}: {self.old_value} -> {self.new_value}"
+
+
+class OvertimeClaim(models.Model):
+    """Extra minutes, priced, waiting for a decision.
+
+    The mirror image of a `Violation`: the engine works out that the time was
+    worked, and approval is what releases the money. Nothing reaches a payslip
+    on the engine's word alone, in either direction.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="overtime_claims")
+    date = models.DateField(db_index=True)
+    minutes = models.PositiveIntegerField(default=0)
+    hourly_rate = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("0.00"))
+    amount = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("0.00"))
+    status = models.CharField(
+        max_length=10, choices=ApprovalStatus.choices,
+        default=ApprovalStatus.PENDING, db_index=True,
+    )
+    reason = models.CharField(max_length=250, blank=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-date", "-id")
+        unique_together = (("user", "date"),)
+
+    def __str__(self):
+        return f"{self.user} {self.date} +{self.minutes}m ({self.status})"
+
+    @property
+    def is_approved(self):
+        return self.status == ApprovalStatus.APPROVED
+
+    @property
+    def hours_display(self):
+        return f"{self.minutes // 60}:{self.minutes % 60:02d}"
+
+    def approve(self, by):
+        self.status = ApprovalStatus.APPROVED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])
+
+    def reject(self, by):
+        self.status = ApprovalStatus.REJECTED
+        self.approved_by = by
+        self.approved_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "approved_at"])

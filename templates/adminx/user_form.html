@@ -47,7 +47,7 @@
           {% for shift in shifts %}
             <li>
               <span class="grow">{{ shift.get_weekday_display }}</span>
-              <span class="mono">{{ shift.start_time|time:"H:i" }} → {{ shift.end_time|time:"H:i" }}</span>
+              <span class="mono">{{ shift.start|time:"H:i" }} → {{ shift.end|time:"H:i" }}</span>
               <form method="post" action="{% url 'dashboard:admin_shift_delete' obj.pk shift.pk %}">
                 {% csrf_token %}
                 <button class="icon-btn" type="submit" style="width:28px;height:28px">
@@ -72,6 +72,11 @@
             {% icon "plus" "ic--sm" %}<span data-ar="ضيف شيفت" data-en="Add shift">ضيف شيفت</span>
           </button>
         </form>
+
+        <a class="btn btn--sm btn--ghost btn--block mt" href="{% url 'dashboard:hr_schedules' %}?user={{ obj.pk }}">
+          {% icon "calendar" "ic--sm" %}
+          <span data-ar="الجدول الكامل ونظام العمل" data-en="Full schedule and work mode">الجدول الكامل ونظام العمل</span>
+        </a>
       </div>
 
       <div class="card">

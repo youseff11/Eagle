@@ -168,6 +168,17 @@
         <span class="mono">+ {{ line.production_bonus }}</span>
       </div>
       <div class="kv">
+        <span data-ar="الأوفرتايم" data-en="Overtime">الأوفرتايم</span>
+        <span class="mono">
+          {% if line.overtime_bonus %}+ {{ line.overtime_bonus }}
+            <span class="muted">({{ line.overtime_hours_display }})</span>
+          {% elif line.overtime_minutes %}
+            <span class="badge badge--wait">{{ line.overtime_hours_display }}
+              <span data-ar="مستني اعتماد" data-en="pending">مستني اعتماد</span></span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </span>
+      </div>
+      <div class="kv">
         <span data-ar="مكافأة الانضباط" data-en="Discipline bonus">مكافأة الانضباط</span>
         <span class="mono">
           {% if line.discipline_bonus %}+ {{ line.discipline_bonus }}
@@ -224,6 +235,41 @@
         <span class="mono {% if line.below_alert_threshold %}deadline--late{% endif %}">
           {{ line.total_words }} / {{ line.target_words }}
         </span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "timer" %}
+        <h3 data-ar="الحضور" data-en="Attendance">الحضور</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="أيام مجدولة" data-en="Scheduled days">أيام مجدولة</span>
+        <span class="mono">{{ line.scheduled_days }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="Office / Remote" data-en="Office / Remote">Office / Remote</span>
+        <span class="mono">{{ line.office_days }} / {{ line.remote_days }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="مرات التأخير" data-en="Times late">مرات التأخير</span>
+        <span class="mono">{{ line.late_days }} <span class="muted">({{ line.late_minutes }}د)</span></span>
+      </div>
+      <div class="kv">
+        <span data-ar="خروج مبكر" data-en="Early leave">خروج مبكر</span>
+        <span class="mono">{{ line.early_leave_minutes }}د</span>
+      </div>
+      <div class="kv">
+        <span data-ar="نقص الساعات" data-en="Short hours">نقص الساعات</span>
+        <span class="mono">{{ line.short_minutes|minutes_hm }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="إجمالي ساعات العمل" data-en="Total hours worked">إجمالي ساعات العمل</span>
+        <span class="mono">{{ line.work_hours_display }}</span>
+      </div>
+      <div class="kv">
+        <span data-ar="إجمالي الأوفرتايم" data-en="Total overtime">إجمالي الأوفرتايم</span>
+        <span class="mono">{{ line.overtime_hours_display }}</span>
       </div>
     </div>
 

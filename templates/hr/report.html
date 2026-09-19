@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Monthly report{% endblock %}
+{% block page_title %}<span data-ar="التقرير الشهري" data-en="Monthly report">التقرير الشهري</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="التقرير الشهري" data-en="Monthly attendance report">التقرير الشهري</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <input type="hidden" name="period" value="{{ year }}-{{ month }}">
+    <select class="input" name="user" onchange="this.form.submit()">
+      {% for candidate in people %}
+        <option value="{{ candidate.pk }}" {% if person and candidate.pk == person.pk %}selected{% endif %}>
+          {{ candidate.short_name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% include "accounts/_month_picker.html" with picker_user=person.pk %}
+</div>
+
+{% if summary %}
+  <div class="grid grid--4">
+    <div class="kpi">
+      <div class="kpi__label" data-ar="أيام مجدولة" data-en="Scheduled">أيام مجدولة</div>
+      <div class="kpi__value mono">{{ summary.scheduled_days }}</div>
+    </div>
+    <div class="kpi kpi--ok">
+      <div class="kpi__label" data-ar="أيام حضور" data-en="Present">أيام حضور</div>
+      <div class="kpi__value mono">{{ summary.present_days }}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi__label" data-ar="إجمالي الساعات" data-en="Total hours">إجمالي الساعات</div>
+      <div class="kpi__value mono">{{ summary.work_minutes|minutes_hm }}</div>
+    </div>
+    <div class="kpi {% if summary.overtime_minutes %}kpi--ok{% endif %}">
+      <div class="kpi__label" data-ar="أوفرتايم" data-en="Overtime">أوفرتايم</div>
+      <div class="kpi__value mono">{{ summary.overtime_minutes|minutes_hm }}</div>
+    </div>
+  </div>
+
+  <div class="grid grid--main">
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="يوم بيوم" data-en="Day by day">يوم بيوم</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="اليوم" data-en="Date">اليوم</th>
+              <th data-ar="الحالة" data-en="Status">الحالة</th>
+              <th data-ar="النظام" data-en="Mode">النظام</th>
+              <th data-ar="حضور" data-en="In">حضور</th>
+              <th data-ar="انصراف" data-en="Out">انصراف</th>
+              <th data-ar="بريك" data-en="Break">بريك</th>
+              <th data-ar="ساعات" data-en="Hours">ساعات</th>
+              <th data-ar="تأخير" data-en="Late">تأخير</th>
+              <th data-ar="نقص" data-en="Short">نقص</th>
+              <th>OT</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for day in summary.days %}
+            <tr>
+              <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
+              <td data-ar-label="الحالة" data-en-label="Status">{% day_status_badge day.status %}</td>
+              <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge day.work_mode %}</td>
+              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="بريك" data-en-label="Break" class="mono">{{ day.break_minutes }}د</td>
+              <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ day.work_minutes|minutes_hm }}</td>
+              <td data-ar-label="تأخير" data-en-label="Late" class="mono {% if day.late_minutes %}deadline--late{% endif %}">{{ day.late_minutes }}</td>
+              <td data-ar-label="نقص" data-en-label="Short" class="mono">{{ day.short_minutes }}</td>
+              <td class="mono">{{ day.overtime_minutes }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="10" class="empty"
+                    data-ar="مفيش أيام في الشهر ده."
+                    data-en="Nothing recorded this month.">مفيش أيام في الشهر ده.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sticky-side">
+      <div class="card">
+        <div class="card__head">
+          {% icon "list-checks" %}
+          <h3 data-ar="الملخص" data-en="Summary">الملخص</h3>
+        </div>
+        <div class="kv"><span data-ar="أيام العمل المجدولة" data-en="Scheduled days">أيام العمل المجدولة</span>
+          <b class="mono">{{ summary.scheduled_days }}</b></div>
+        <div class="kv"><span data-ar="أيام الحضور" data-en="Days present">أيام الحضور</span>
+          <b class="mono">{{ summary.present_days }}</b></div>
+        <div class="kv"><span data-ar="أيام Office" data-en="Office days">أيام Office</span>
+          <b class="mono">{{ summary.office_days }}</b></div>
+        <div class="kv"><span data-ar="أيام Remote" data-en="Remote days">أيام Remote</span>
+          <b class="mono">{{ summary.remote_days }}</b></div>
+        <div class="kv"><span data-ar="الإجازات" data-en="Leave">الإجازات</span>
+          <b class="mono">{{ summary.leave_days }}</b></div>
+        <div class="kv"><span data-ar="غياب بعذر" data-en="Excused">غياب بعذر</span>
+          <b class="mono">{{ summary.excused_days }}</b></div>
+        <div class="kv"><span data-ar="الغياب" data-en="Absent">الغياب</span>
+          <b class="mono">{{ summary.absent_days }}</b></div>
+        <div class="kv"><span data-ar="مرات التأخير" data-en="Times late">مرات التأخير</span>
+          <b class="mono">{{ summary.late_days }}</b></div>
+        <div class="kv"><span data-ar="إجمالي دقائق التأخير" data-en="Total late minutes">إجمالي دقائق التأخير</span>
+          <b class="mono">{{ summary.late_minutes }}</b></div>
+        <div class="kv"><span data-ar="الخروج المبكر" data-en="Early leave">الخروج المبكر</span>
+          <b class="mono">{{ summary.early_leave_minutes }}د</b></div>
+        <div class="kv"><span data-ar="نقص الساعات" data-en="Short hours">نقص الساعات</span>
+          <b class="mono">{{ summary.short_minutes|minutes_hm }}</b></div>
+        <div class="kv"><span data-ar="إجمالي ساعات العمل" data-en="Total worked">إجمالي ساعات العمل</span>
+          <b class="mono">{{ summary.work_minutes|minutes_hm }}</b></div>
+        <div class="kv"><span data-ar="إجمالي الأوفرتايم" data-en="Total overtime">إجمالي الأوفرتايم</span>
+          <b class="mono">{{ summary.overtime_minutes|minutes_hm }}</b></div>
+      </div>
+
+      {% if summary.needs_review %}
+        <div class="note note--warn">
+          {% icon "alert" %}
+          <div>
+            <span data-ar="فيه أيام لسه محتاجة مراجعة:" data-en="Some days still need review:">فيه أيام لسه محتاجة مراجعة:</span>
+            <b class="mono">{{ summary.needs_review }}</b>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+  <div class="empty" data-ar="اختار موظف." data-en="Pick somebody.">اختار موظف.</div>
+{% endif %}
+{% endblock %}

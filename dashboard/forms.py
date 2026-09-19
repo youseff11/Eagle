@@ -7,11 +7,14 @@ from .models import (
     AppSettings,
     Client,
     ClientRequirement,
+    OfficeLocation,
     PayrollSettings,
     ProductionTier,
     Role,
     SalaryRecord,
+    ScheduleOverride,
     Shift,
+    ShiftTemplate,
     Task,
     User,
     Violation,
@@ -108,6 +111,7 @@ class StaffCreateForm(UserCreationForm):
         fields = (
             "username", "first_name", "last_name", "email", "phone",
             "role", "team_lead", "languages",
+            "employment_type", "work_mode", "schedule_kind",
         )
         widgets = {
             "username": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
@@ -118,6 +122,9 @@ class StaffCreateForm(UserCreationForm):
             "role": forms.Select(attrs={"class": "input"}),
             "team_lead": forms.Select(attrs={"class": "input"}),
             "languages": forms.TextInput(attrs={"class": "input"}),
+            "employment_type": forms.Select(attrs={"class": "input"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "schedule_kind": forms.Select(attrs={"class": "input"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -135,6 +142,8 @@ class StaffEditForm(forms.ModelForm):
         fields = (
             "first_name", "last_name", "email", "phone", "role",
             "team_lead", "languages", "is_active", "force_offline", "rating",
+            "employment_type", "work_mode", "schedule_kind",
+            "attendance_enabled", "attendance_manager",
         )
         widgets = {
             "first_name": forms.TextInput(attrs={"class": "input"}),
@@ -145,6 +154,9 @@ class StaffEditForm(forms.ModelForm):
             "team_lead": forms.Select(attrs={"class": "input"}),
             "languages": forms.TextInput(attrs={"class": "input"}),
             "rating": forms.NumberInput(attrs={"class": "input", "step": "0.125", "dir": "ltr"}),
+            "employment_type": forms.Select(attrs={"class": "input"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "schedule_kind": forms.Select(attrs={"class": "input"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -154,14 +166,151 @@ class StaffEditForm(forms.ModelForm):
 
 
 class ShiftForm(forms.ModelForm):
+    """One roster row: which day, which shift, and where it is worked.
+
+    Either a template or a pair of times - the template is the normal path, so
+    editing "Shift 1" moves everybody on it; typed times are what a custom
+    schedule needs.
+    """
+
     class Meta:
         model = Shift
-        fields = ("weekday", "start_time", "end_time", "is_active")
+        fields = (
+            "weekday", "template", "start_time", "end_time",
+            "work_mode", "required_minutes", "is_active",
+        )
         widgets = {
             "weekday": forms.Select(attrs={"class": "input"}),
+            "template": forms.Select(attrs={"class": "input"}),
             "start_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
             "end_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "required_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["template"].queryset = ShiftTemplate.objects.filter(is_active=True)
+        self.fields["template"].required = False
+        self.fields["template"].empty_label = "— جدول مخصص —"
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("template") and not (data.get("start_time") and data.get("end_time")):
+            raise forms.ValidationError("اختار شيفت جاهز، أو اكتب وقت البداية والنهاية.")
+        return data
+
+
+class ShiftTemplateForm(forms.ModelForm):
+    class Meta:
+        model = ShiftTemplate
+        fields = (
+            "name", "name_ar", "start_time", "end_time",
+            "break_minutes", "sort_order", "is_active",
+        )
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "name_ar": forms.TextInput(attrs={"class": "input"}),
+            "start_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "end_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "break_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+            "sort_order": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+        }
+
+
+class ScheduleOverrideForm(forms.ModelForm):
+    """Move one date without touching the standing roster."""
+
+    class Meta:
+        model = ScheduleOverride
+        fields = (
+            "date", "is_day_off", "template", "start_time", "end_time",
+            "work_mode", "required_minutes", "reason",
+        )
+        widgets = {
+            "date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "template": forms.Select(attrs={"class": "input"}),
+            "start_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "end_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "required_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+            "reason": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["template"].queryset = ShiftTemplate.objects.filter(is_active=True)
+        self.fields["template"].required = False
+        self.fields["template"].empty_label = "— وقت مخصص —"
+
+    def clean(self):
+        data = super().clean()
+        if data.get("is_day_off"):
+            return data
+        if not data.get("template") and not (data.get("start_time") and data.get("end_time")):
+            raise forms.ValidationError("اختار شيفت، أو اكتب الوقت، أو علّم إن اليوم أجازة.")
+        return data
+
+
+class OfficeLocationForm(forms.ModelForm):
+    class Meta:
+        model = OfficeLocation
+        fields = ("name", "name_ar", "latitude", "longitude", "radius_meters", "is_active")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "name_ar": forms.TextInput(attrs={"class": "input"}),
+            "latitude": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.000001"}),
+            "longitude": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.000001"}),
+            "radius_meters": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 20}),
+        }
+
+    def clean_radius_meters(self):
+        radius = self.cleaned_data["radius_meters"]
+        if radius < 20:
+            raise forms.ValidationError("أقل من 20 متر هيرفض حضور سليم — دقة الـGPS نفسها أوسع من كده.")
+        return radius
+
+
+class AttendanceEditForm(forms.ModelForm):
+    """HR's correction of one day. The reason is not optional (section 9)."""
+
+    reason = forms.CharField(
+        max_length=250,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "سبب التعديل"}),
+        label="سبب التعديل",
+    )
+
+    class Meta:
+        model = WorkDay
+        fields = (
+            "status", "work_mode", "check_in", "check_out",
+            "break_minutes", "absence_reason", "note",
+        )
+        widgets = {
+            "status": forms.Select(attrs={"class": "input"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "check_in": forms.DateTimeInput(attrs={"class": "input", "type": "datetime-local"}),
+            "check_out": forms.DateTimeInput(attrs={"class": "input", "type": "datetime-local"}),
+            "break_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+            "absence_reason": forms.TextInput(attrs={"class": "input"}),
+            "note": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["check_in"].input_formats = DATETIME_INPUT_FORMATS
+        self.fields["check_out"].input_formats = DATETIME_INPUT_FORMATS
+        self.fields["check_in"].required = False
+        self.fields["check_out"].required = False
+
+    def clean(self):
+        data = super().clean()
+        start, end = data.get("check_in"), data.get("check_out")
+        if start and end and end <= start:
+            self.add_error("check_out", "الانصراف لازم يكون بعد الحضور.")
+        if data.get("status") in ("unexcused", "excused") and not data.get("absence_reason"):
+            self.add_error("absence_reason", "سبب الغياب مطلوب.")
+        return data
 
 
 class SettingsForm(forms.ModelForm):
@@ -282,7 +431,20 @@ class PayrollSettingsForm(forms.ModelForm):
             "unexcused_escalation_count",
             "target_miss_penalty", "discipline_bonus", "target_bonus",
             "bonuses_need_approval",
+            # -- attendance (section 7: none of this may be hard-coded) -----
+            "grace_minutes", "early_leave_grace_minutes",
+            "break_minutes_allowed", "break_counts_as_work",
+            "geofence_radius_m", "off_site_policy", "checkout_needs_location",
+            "device_check_enabled", "unknown_device_policy",
+            "overtime_enabled", "overtime_min_minutes", "overtime_hourly_rate",
+            "overtime_multiplier", "overtime_needs_approval",
+            "missing_checkin_after_minutes", "missing_checkout_after_minutes",
+            "short_hours_alert_minutes",
         )
+        widgets = {
+            "off_site_policy": forms.Select(attrs={"class": "input"}),
+            "unknown_device_policy": forms.Select(attrs={"class": "input"}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -306,6 +468,17 @@ class PayrollSettingsForm(forms.ModelForm):
             ))
         if monthly and alert and alert > monthly:
             self.add_error("monthly_alert_words", "حد التنبيه لازم يكون أقل من التارجت.")
+
+        # A grace window as long as the shift would mean nobody is ever late.
+        grace = data.get("grace_minutes")
+        if grace is not None and grace > 120:
+            self.add_error("grace_minutes", "فترة سماح أكبر من ساعتين معناها مفيش تأخير أصلًا.")
+        radius = data.get("geofence_radius_m")
+        if radius is not None and radius < 20:
+            self.add_error(
+                "geofence_radius_m",
+                "أقل من 20 متر هيرفض حضور سليم — دقة الـGPS نفسها أوسع من كده.",
+            )
         return data
 
 
