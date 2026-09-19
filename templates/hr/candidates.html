@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Candidates{% endblock %}
+{% block page_title %}<span data-ar="المرشحين" data-en="Candidates">المرشحين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="المرشحين" data-en="Candidates">المرشحين</h1>
+  <div class="grow"></div>
+  <span class="chip mono">{{ counts.total_applicants }}</span>
+</div>
+
+<div class="card card--flat">
+  <form method="get" class="picker">
+    <div class="picker__row">
+      <input class="input" type="search" name="q" value="{{ selected.q|default:'' }}"
+             placeholder="اسم أو رقم أو كود">
+      <select class="input" name="status">
+        <option value="" data-ar="كل الحالات" data-en="All statuses">كل الحالات</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if selected.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="input" name="vacancy">
+        <option value="" data-ar="كل الوظائف" data-en="All vacancies">كل الوظائف</option>
+        {% for row in vacancies %}
+          <option value="{{ row.code }}" {% if selected.vacancy == row.code %}selected{% endif %}>{{ row.title }}</option>
+        {% endfor %}
+      </select>
+      <select class="input" name="source">
+        <option value="" data-ar="كل المصادر" data-en="All sources">كل المصادر</option>
+        {% for value, label in sources %}
+          <option value="{{ value }}" {% if selected.source == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn--primary btn--sm" type="submit">
+        {% icon "search" "ic--sm" %}<span data-ar="اعرض" data-en="Show">اعرض</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "contact" %}
+    <h3 data-ar="النتائج" data-en="Results">النتائج</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الكود" data-en="Code">الكود</th>
+          <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+          <th data-ar="الوظيفة" data-en="Vacancy">الوظيفة</th>
+          <th data-ar="الموبايل" data-en="Phone">الموبايل</th>
+          <th data-ar="المصدر" data-en="Source">المصدر</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="التاريخ" data-en="Applied">التاريخ</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-ar-label="الكود" data-en-label="Code" class="mono">
+            <a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.code }}</a>
+          </td>
+          <td data-ar-label="المرشح" data-en-label="Candidate">
+            {{ row.display_name }}
+            {% if not row.identity_revealed %}
+              <span class="badge" data-ar="مجهول الجهة" data-en="Anonymous">مجهول الجهة</span>
+            {% endif %}
+          </td>
+          <td data-ar-label="الوظيفة" data-en-label="Vacancy" class="muted">{{ row.vacancy.title|default:"—" }}</td>
+          <td data-ar-label="الموبايل" data-en-label="Phone" class="mono" dir="ltr">{{ row.phone|default:"—" }}</td>
+          <td data-ar-label="المصدر" data-en-label="Source" class="muted">{{ row.get_source_display }}</td>
+          <td data-ar-label="الحالة" data-en-label="Status">{% candidate_badge row.status %}</td>
+          <td data-ar-label="التاريخ" data-en-label="Applied" class="mono muted">{{ row.applied_at|date:"Y-m-d" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="empty"
+                data-ar="مفيش نتائج."
+                data-en="Nothing found.">مفيش نتائج.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

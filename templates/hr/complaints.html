@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Complaints{% endblock %}
+{% block page_title %}<span data-ar="شكاوى العملاء" data-en="Client complaints">شكاوى العملاء</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="شكاوى العملاء" data-en="Client complaints">شكاوى العملاء</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <select class="input" name="translator" onchange="this.form.submit()">
+      <option value="" data-ar="كل المترجمين" data-en="Everyone">كل المترجمين</option>
+      {% for candidate in people %}
+        <option value="{{ candidate.pk }}"
+                {% if selected.translator == candidate.pk|stringformat:"s" %}selected{% endif %}>
+          {{ candidate.short_name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "thumbs-down" %}
+      <h3 data-ar="المسجّل" data-en="Logged">المسجّل</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="اليوم" data-en="Date">اليوم</th>
+            <th data-ar="الشكوى" data-en="Complaint">الشكوى</th>
+            <th data-ar="المترجم" data-en="Translator">المترجم</th>
+            <th data-ar="التاسك" data-en="Task">التاسك</th>
+            <th data-ar="الدرجة" data-en="Severity">الدرجة</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ row.happened_on }}</td>
+            <td data-ar-label="الشكوى" data-en-label="Complaint">
+              {{ row.summary }}
+              {% if row.detail %}<div class="muted">{{ row.detail|truncatechars:90 }}</div>{% endif %}
+            </td>
+            <td data-ar-label="المترجم" data-en-label="Translator">{{ row.translator.short_name|default:"—" }}</td>
+            <td data-ar-label="التاسك" data-en-label="Task" class="mono muted">
+              {% if row.task %}<a href="{% url 'dashboard:task_detail' row.task.code %}">{{ row.task.code }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td data-ar-label="الدرجة" data-en-label="Severity">
+              {% if row.severity == 'high' %}
+                <span class="badge badge--dead" data-ar="خطيرة" data-en="Serious">خطيرة</span>
+              {% elif row.severity == 'medium' %}
+                <span class="badge badge--wait" data-ar="محتاجة انتباه" data-en="Attention">محتاجة انتباه</span>
+              {% else %}
+                <span class="badge" data-ar="بسيطة" data-en="Minor">بسيطة</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="{% url 'dashboard:complaint_resolve' row.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--sm btn--ghost" type="submit">
+                  {% if row.resolved %}
+                    {% icon "check-circle" "ic--sm" %}<span data-ar="اتقفلت" data-en="Resolved">اتقفلت</span>
+                  {% else %}
+                    {% icon "check" "ic--sm" %}<span data-ar="اقفلها" data-en="Resolve">اقفلها</span>
+                  {% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش شكاوى — وده خبر كويس."
+                  data-en="No complaints, which is good news.">مفيش شكاوى — وده خبر كويس.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="سجّل شكوى" data-en="Log a complaint">سجّل شكوى</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="الملخص" data-en="Summary">الملخص</label>
+          {{ form.summary }}{{ form.summary.errors }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="العميل" data-en="Client">العميل</label>
+            {{ form.client }}
+          </div>
+          <div class="field">
+            <label data-ar="التاسك" data-en="Task">التاسك</label>
+            {{ form.task }}
+          </div>
+          <div class="field">
+            <label data-ar="المترجم" data-en="Translator">المترجم</label>
+            {{ form.translator }}
+          </div>
+          <div class="field">
+            <label data-ar="الدرجة" data-en="Severity">الدرجة</label>
+            {{ form.severity }}
+          </div>
+          <div class="field">
+            <label data-ar="اليوم" data-en="Date">اليوم</label>
+            {{ form.happened_on }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="التفاصيل" data-en="Detail">التفاصيل</label>
+          {{ form.detail }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="سجّل" data-en="Log">سجّل</span>
+        </button>
+        <small class="muted mt"
+               data-ar="اختار التاسك والمترجم يتحط لوحده. الشكوى بتأثر على مؤشر الجودة في صفحة الأداء."
+               data-en="Pick the task and the translator fills itself in. A complaint moves the quality indicator on the performance page.">
+          اختار التاسك والمترجم يتحط لوحده. بتأثر على مؤشر الجودة.
+        </small>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

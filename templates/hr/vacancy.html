@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}{{ vacancy.code }}{% endblock %}
+{% block page_title %}<span class="mono">{{ vacancy.code }}</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ vacancy.title }}</h1>
+  {% if vacancy.status == 'open' %}
+    <span class="badge badge--ok" data-ar="مفتوحة" data-en="Open">مفتوحة</span>
+  {% elif vacancy.status == 'draft' %}
+    <span class="badge badge--wait" data-ar="مسودة" data-en="Draft">مسودة</span>
+  {% else %}
+    <span class="badge badge--dead" data-ar="مقفولة" data-en="Closed">مقفولة</span>
+  {% endif %}
+  <div class="grow"></div>
+  <span class="chip mono">{{ vacancy.applicant_count }}
+    <span data-ar="متقدم" data-en="applicants">متقدم</span></span>
+</div>
+
+<div class="grid grid--main">
+  <div class="stack">
+
+    {# ---- the questions the bot will ask ------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "list-checks" %}
+        <h3 data-ar="أسئلة البوت للوظيفة دي" data-en="The bot's questions">أسئلة البوت للوظيفة دي</h3>
+        <div class="grow"></div>
+        <span class="muted"
+              data-ar="بالترتيب ده بالظبط"
+              data-en="In exactly this order">بالترتيب ده بالظبط</span>
+      </div>
+
+      {% if not links %}
+        <div class="note note--warn">
+          {% icon "alert" %}
+          <div data-ar="مفيش أسئلة متختارة — البوت هيسأل عن الشيفت بس ويحوّل للـHR."
+               data-en="No questions selected: the bot will only ask about the shift and hand over.">
+            مفيش أسئلة متختارة — البوت هيسأل عن الشيفت بس ويحوّل للـHR.
+          </div>
+        </div>
+      {% endif %}
+
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="order">
+        <div class="table-wrap table-wrap--cards">
+          <table class="table table--cards">
+            <thead>
+              <tr>
+                <th data-ar="الترتيب" data-en="Order">الترتيب</th>
+                <th data-ar="السؤال" data-en="Question">السؤال</th>
+                <th data-ar="النوع" data-en="Type">النوع</th>
+                <th data-ar="بيملا" data-en="Fills">بيملا</th>
+                <th data-ar="إجباري" data-en="Required">إجباري</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for link in links %}
+              <tr>
+                <td data-ar-label="الترتيب" data-en-label="Order">
+                  <input class="input" type="number" min="1" style="width:5rem"
+                         name="order_{{ link.pk }}" value="{{ link.order }}">
+                </td>
+                <td data-ar-label="السؤال" data-en-label="Question">{{ link.question.text }}</td>
+                <td data-ar-label="النوع" data-en-label="Type" class="muted">{{ link.question.get_kind_display }}</td>
+                <td data-ar-label="بيملا" data-en-label="Fills" class="muted mono">
+                  {{ link.question.get_maps_to_display|default:"—" }}
+                </td>
+                <td data-ar-label="إجباري" data-en-label="Required">
+                  <label class="switch">
+                    <input type="checkbox" name="required_{{ link.pk }}" value="1"
+                           {% if link.is_required %}checked{% endif %}>
+                  </label>
+                </td>
+                <td>
+                  <button class="btn btn--sm btn--ghost" type="submit"
+                          formaction="{% url 'dashboard:hr_vacancy_question_delete' link.pk %}">
+                    {% icon "trash" "ic--sm" %}
+                  </button>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" class="empty"
+                      data-ar="ضيف أسئلة من القايمة على اليمين."
+                      data-en="Add questions from the list beside this.">ضيف أسئلة من القايمة جنبها.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if links %}
+          <button class="btn btn--primary mt" type="submit">
+            {% icon "check" "ic--sm" %}<span data-ar="احفظ الترتيب" data-en="Save the order">احفظ الترتيب</span>
+          </button>
+        {% endif %}
+      </form>
+    </div>
+
+    {# ---- applicants --------------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "contact" %}
+        <h3 data-ar="المتقدمين" data-en="Applicants">المتقدمين</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="الكود" data-en="Code">الكود</th>
+              <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+              <th data-ar="الشيفت" data-en="Shift">الشيفت</th>
+              <th data-ar="الحالة" data-en="Status">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in candidates %}
+            <tr>
+              <td data-ar-label="الكود" data-en-label="Code" class="mono">
+                <a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.code }}</a>
+              </td>
+              <td data-ar-label="المرشح" data-en-label="Candidate">{{ row.display_name }}</td>
+              <td data-ar-label="الشيفت" data-en-label="Shift" class="mono muted">{{ row.shift_choice|default:"—" }}</td>
+              <td data-ar-label="الحالة" data-en-label="Status">{% candidate_badge row.status %}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="empty"
+                    data-ar="مفيش متقدمين لسه."
+                    data-en="No applicants yet.">مفيش متقدمين لسه.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="ضيف سؤال" data-en="Add a question">ضيف سؤال</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_question">
+        <div class="field">
+          <select class="input" name="question">
+            {% for row in pool %}
+              <option value="{{ row.pk }}">
+                [{{ row.department.label|default:"عام" }}] {{ row.text|truncatechars:60 }}
+              </option>
+            {% empty %}
+              <option value="" disabled>مفيش أسئلة متاحة</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn--block" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف" data-en="Add">ضيف</span>
+        </button>
+        <a class="btn btn--sm btn--ghost btn--block mt" href="{% url 'dashboard:hr_questions' %}">
+          {% icon "list-checks" "ic--sm" %}
+          <span data-ar="بنك الأسئلة" data-en="Question bank">بنك الأسئلة</span>
+        </a>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "sliders" %}
+        <h3 data-ar="بيانات الوظيفة" data-en="Vacancy details">بيانات الوظيفة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save">
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="المسمى" data-en="Title">المسمى</label>
+          {{ form.title }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="القسم" data-en="Department">القسم</label>
+            {{ form.department }}
+          </div>
+          <div class="field">
+            <label data-ar="الحالة" data-en="Status">الحالة</label>
+            {{ form.status }}
+          </div>
+          <div class="field">
+            <label data-ar="نوع التوظيف" data-en="Type">نوع التوظيف</label>
+            {{ form.employment_type }}
+          </div>
+          <div class="field">
+            <label data-ar="نظام العمل" data-en="Mode">نظام العمل</label>
+            {{ form.work_mode }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="الشيفتات" data-en="Shifts">الشيفتات</label>
+          {{ form.shifts }}
+        </div>
+        <div class="field">
+          <label data-ar="الوصف" data-en="Description">الوصف</label>
+          {{ form.job_description }}
+        </div>
+        <div class="field">
+          <label data-ar="المطلوب" data-en="Requirements">المطلوب</label>
+          {{ form.requirements }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

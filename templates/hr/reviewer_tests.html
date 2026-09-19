@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Tests{% endblock %}
+{% block page_title %}<span data-ar="اختبارات المرشحين" data-en="Candidate tests">اختبارات المرشحين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="اختبارات المرشحين" data-en="Candidate tests">اختبارات المرشحين</h1>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "check-circle" %}
+    <h3 data-ar="مستنية تصحيح" data-en="Waiting to be marked">مستنية تصحيح</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+          <th data-ar="الاختبار" data-en="Test">الاختبار</th>
+          <th data-ar="القسم" data-en="Department">القسم</th>
+          <th data-ar="التسليم" data-en="Submitted">التسليم</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in pending %}
+        <tr>
+          <td data-ar-label="المرشح" data-en-label="Candidate" class="mono">{{ row.candidate.code }}</td>
+          <td data-ar-label="الاختبار" data-en-label="Test">
+            {{ row.title|default:"—" }}
+            {% if row.is_overdue %}
+              <span class="badge badge--dead" data-ar="فات الموعد" data-en="Overdue">فات الموعد</span>
+            {% endif %}
+          </td>
+          <td data-ar-label="القسم" data-en-label="Department" class="muted">{{ row.department.label|default:"—" }}</td>
+          <td data-ar-label="التسليم" data-en-label="Submitted" class="mono muted">
+            {% if row.is_submitted %}{{ row.submitted_at|date:"m-d H:i" }}
+            {% else %}<span data-ar="لسه" data-en="not yet">لسه</span>{% endif %}
+          </td>
+          <td>
+            <a class="btn btn--sm btn--primary" href="{% url 'dashboard:hr_test_score' row.pk %}">
+              {% icon "pen" "ic--sm" %}<span data-ar="صحّح" data-en="Mark">صحّح</span>
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty" data-ar="مفيش اختبارات مستنية." data-en="Nothing waiting.">مفيش اختبارات مستنية.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "history" %}
+    <h3 data-ar="اتصححت" data-en="Marked">اتصححت</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+          <th data-ar="الاختبار" data-en="Test">الاختبار</th>
+          <th data-ar="الدرجة" data-en="Score">الدرجة</th>
+          <th data-ar="الوقت" data-en="When">الوقت</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in done %}
+        <tr>
+          <td data-ar-label="المرشح" data-en-label="Candidate" class="mono">{{ row.candidate.code }}</td>
+          <td data-ar-label="الاختبار" data-en-label="Test">{{ row.title|default:"—" }}</td>
+          <td data-ar-label="الدرجة" data-en-label="Score" class="mono">{{ row.total_score }} / {{ row.max_score }}</td>
+          <td data-ar-label="الوقت" data-en-label="When" class="mono muted">{{ row.marked_at|date:"Y-m-d" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4" class="empty" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

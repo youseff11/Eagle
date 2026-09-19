@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Hire{% endblock %}
+{% block page_title %}<span data-ar="تحويل لموظف" data-en="Make an employee">تحويل لموظف</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ candidate.display_name }}</h1>
+  {% candidate_badge candidate.status %}
+</div>
+
+<div class="note note--info">
+  {% icon "info" %}
+  <div data-ar="البيانات اللي البوت جمعها بتتنقل زي ما هي — مفيش إعادة إدخال. اللي محتاجينه هنا هو بيانات التعاقد بس."
+       data-en="Everything the bot collected carries over. All this form needs is the contract side.">
+    البيانات اللي البوت جمعها بتتنقل زي ما هي — اللي هنا هو بيانات التعاقد بس.
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "user-check" %}
+      <h3 data-ar="بيانات التعاقد" data-en="Contract details">بيانات التعاقد</h3>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for field in form %}
+          <div class="field">
+            <label>{{ field.label }}</label>
+            {{ field }}{{ field.errors }}
+            {% if field.help_text %}<small class="muted">{{ field.help_text }}</small>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <button class="btn btn--primary btn--block mt" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="عيّنه" data-en="Hire">عيّنه</span>
+      </button>
+    </form>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "contact" %}
+        <h3 data-ar="اللي هيتنقل" data-en="What carries over">اللي هيتنقل</h3>
+      </div>
+      <div class="kv"><span data-ar="الاسم" data-en="Name">الاسم</span><b>{{ candidate.full_name|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="الموبايل" data-en="Phone">الموبايل</span><b class="mono" dir="ltr">{{ candidate.phone|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="الإيميل" data-en="E-mail">الإيميل</span><b class="mono" dir="ltr">{{ candidate.email|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="اللغات" data-en="Languages">اللغات</span><b>{{ candidate.languages|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="القسم" data-en="Department">القسم</span><b>{{ candidate.department.label|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="الشيفت" data-en="Shift">الشيفت</span><b class="mono">{{ candidate.shift_choice|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="الـCV" data-en="CV">الـCV</span>
+        <b>{% if candidate.cv %}<a href="{{ candidate.cv.url }}" target="_blank" rel="noopener">فتح</a>{% else %}—{% endif %}</b></div>
+    </div>
+
+    <div class="note note--warn">
+      {% icon "alert" %}
+      <div data-ar="هيبدأ تحت الاختبار، ومدة الاختبار بتتحسب من إعدادات التوظيف. لازم تضيفله جدول من صفحة جداول العمل عشان الحضور يشتغل."
+           data-en="They start on probation, its length taken from the recruitment settings. Give them a roster on the schedules page or attendance has nothing to measure.">
+        هيبدأ تحت الاختبار. متنساش تضيفله جدول من صفحة جداول العمل، وإلا الحضور مش هيلاقي حاجة يقيس عليها.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

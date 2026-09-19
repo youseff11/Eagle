@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Recruitment settings{% endblock %}
+{% block page_title %}<span data-ar="إعدادات التوظيف" data-en="Recruitment settings">إعدادات التوظيف</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="إعدادات التوظيف" data-en="Recruitment settings">إعدادات التوظيف</h1>
+</div>
+
+{% if not privacy_armed %}
+  <div class="note note--high">
+    {% icon "alert" %}
+    <div data-ar="مفيش كلمات متسجلة للإخفاء، يعني اسم الشركة ممكن يوصل للمرشح. اكتب اسم الشركة والدومين والعنوان تحت."
+         data-en="Nothing is configured to redact, so the company name can reach a candidate. Add the names, domain and address below.">
+      مفيش كلمات متسجلة للإخفاء — اكتب اسم الشركة والدومين والعنوان تحت.
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div>
+    <form method="post">
+      {% csrf_token %}
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "shield" %}
+          <h3 data-ar="إخفاء هوية الشركة" data-en="The identity rule">إخفاء هوية الشركة</h3>
+        </div>
+        <div class="note note--info">
+          {% icon "info" %}
+          <div data-ar="الكلمات دي بتتشال من أي رسالة بتروح لمرشح لسه مجهول الجهة — سواء من البوت أو من الـHR نفسها. مش تعليمات، ده فلتر في الكود."
+               data-en="These are stripped from anything sent to a candidate who is still anonymous, whether the bot wrote it or HR did. Not an instruction: a filter in the code.">
+            الكلمات دي بتتشال من أي رسالة بتروح لمرشح مجهول الجهة — من البوت ومن الـHR. مش تعليمات، ده فلتر في الكود.
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="الكلمات (واحدة في كل سطر)" data-en="Terms (one per line)">الكلمات (واحدة في كل سطر)</label>
+          {{ form.redact_terms }}{{ form.redact_terms.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="البديل اللي بيتحط مكانها" data-en="Replacement">البديل اللي بيتحط مكانها</label>
+          {{ form.redact_placeholder }}
+        </div>
+        {% if privacy_armed %}
+          <div class="note note--ok">
+            {% icon "check-circle" %}
+            <div>
+              <span data-ar="مثال على النتيجة:" data-en="What that looks like:">مثال على النتيجة:</span>
+              <span class="mono">{{ sample }}</span>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "message" %}
+          <h3 data-ar="البوت" data-en="The bot">البوت</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الاسم اللي المرشح بيشوفه" data-en="Name the candidate sees">الاسم اللي المرشح بيشوفه</label>
+            {{ form.bot_name_ar }}
+          </div>
+          <div class="field">
+            <label data-ar="بالإنجليزي" data-en="English">بالإنجليزي</label>
+            {{ form.bot_name }}
+          </div>
+          <div class="field">
+            <label data-ar="مهلة المحادثة (ساعة)" data-en="Session timeout (hours)">مهلة المحادثة (ساعة)</label>
+            {{ form.session_timeout_hours }}
+          </div>
+          <div class="field">
+            <label data-ar="مدة فترة الاختبار (يوم)" data-en="Probation (days)">مدة فترة الاختبار (يوم)</label>
+            {{ form.probation_days }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="رسالة الترحيب" data-en="Greeting">رسالة الترحيب</label>
+          {{ form.greeting_ar }}
+          <small class="muted" data-ar="سيبها فاضية والنظام هيستخدم الصيغة الافتراضية."
+                 data-en="Leave it empty for the built-in wording.">سيبها فاضية والنظام هيستخدم الصيغة الافتراضية.</small>
+        </div>
+        <div class="field">
+          <label data-ar="رسالة الختام" data-en="Closing">رسالة الختام</label>
+          {{ form.closing_ar }}
+        </div>
+        <label class="switch">
+          {{ form.bot_enabled }}
+          <span data-ar="البوت شغال" data-en="The bot is on">البوت شغال</span>
+        </label>
+      </div>
+
+      <button class="btn btn--primary" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+      </button>
+    </form>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "phone" %}
+        <h3 data-ar="رقم التوظيف" data-en="The recruitment line">رقم التوظيف</h3>
+      </div>
+      <div class="kv">
+        <span data-ar="الرقم" data-en="Number">الرقم</span>
+        <b class="mono" dir="ltr">{{ app.recruit_number_display|default:"—" }}</b>
+      </div>
+      <div class="kv">
+        <span data-ar="Phone number ID" data-en="Phone number ID">Phone number ID</span>
+        <b class="mono" dir="ltr">{{ app.recruit_phone_number_id|default:"—" }}</b>
+      </div>
+      {% if not app.recruit_phone_number_id %}
+        <div class="note note--warn mt">
+          {% icon "alert" %}
+          <div data-ar="من غير الرقم ده البوت مش هيستقبل حاجة. حطه من صفحة الإعدادات و AI."
+               data-en="Without this, the bot receives nothing. Set it on the settings page.">
+            من غير الرقم ده البوت مش هيستقبل حاجة —
+            <a href="{% url 'dashboard:admin_settings' %}">حطه من الإعدادات</a>.
+          </div>
+        </div>
+      {% endif %}
+      <small class="muted mt"
+             data-ar="نفس الويب هوك ونفس التوكن بيخدموا الرقمين. اللي بيفرّق بينهم هو الـID ده، فرسالة العميل ورسالة المرشح مستحيل يتلخبطوا."
+             data-en="One webhook and one token serve both lines. This ID is the only thing that separates them, so a client and a candidate can never be confused.">
+        نفس الويب هوك ونفس التوكن بيخدموا الرقمين — الـID ده هو اللي بيفرّق بينهم.
+      </small>
+    </div>
+  </div>
+</div>
+{% endblock %}

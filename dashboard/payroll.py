@@ -28,6 +28,7 @@ from django.utils import timezone
 from . import attendance
 from .models import (
     ApprovalStatus,
+    SalaryPlan,
     AuditLog,
     DayStatus,
     LEAVE_STATUSES,
@@ -48,6 +49,93 @@ from .models import (
 )
 
 MONEY = Decimal("0.01")
+
+
+class EffectiveRules:
+    """The company's rules, with one person's plan laid over the top.
+
+    Section 23 wants per-employee pay rules without throwing away the company
+    ones, so this reads every number off the plan when the plan sets it and
+    off ``PayrollSettings`` when it does not. A person with no plan gets an
+    object that is the settings in every respect, which is why adding plans
+    changed nobody's pay by a piastre.
+
+    It forwards anything it does not know about, so the attendance rules,
+    the grace window and the overtime policy keep coming from one place and
+    only the money a plan is allowed to move actually moves.
+    """
+
+    def __init__(self, conf, plan=None):
+        self._conf = conf
+        self._plan = plan if (plan is not None and plan.is_active) else None
+
+    def __getattr__(self, name):
+        plan = self.__dict__.get("_plan")
+        conf = self.__dict__["_conf"]
+        if plan is not None and name in SalaryPlan.OVERRIDABLE:
+            value = getattr(plan, name, None)
+            if value is not None:
+                return value
+        return getattr(conf, name)
+
+    @property
+    def plan(self):
+        return self._plan
+
+    @property
+    def uses_tiers(self):
+        return self._plan is None or self._plan.uses_tiers
+
+    @property
+    def extra_word_rate(self):
+        return None if self._plan is None else self._plan.extra_word_rate
+
+    @property
+    def fixed_allowance(self):
+        return Decimal("0.00") if self._plan is None else Decimal(self._plan.fixed_allowance)
+
+    def target_for(self, secondary=False):
+        return (
+            self.secondary_daily_target_words if secondary else self.daily_target_words
+        )
+
+    def break_allowance(self, shift=None):
+        return self._conf.break_allowance(shift)
+
+    def overtime_rate(self, day_value):
+        """The plan may set its own hourly rate; the multiplier stays global."""
+        if self._plan is not None and self._plan.overtime_hourly_rate is not None:
+            base = Decimal(self._plan.overtime_hourly_rate)
+        elif self._conf.overtime_hourly_rate:
+            base = Decimal(self._conf.overtime_hourly_rate)
+        else:
+            base = Decimal(day_value) / Decimal(self._conf.daily_hours or 8)
+        return base * Decimal(self._conf.overtime_multiplier)
+
+
+def rules_for(user, conf=None):
+    """The effective rules for one person."""
+    conf = conf or PayrollSettings.load()
+    return EffectiveRules(conf, getattr(user, "salary_plan", None))
+
+
+def day_bonus(day, rules, tiers=None):
+    """What one day's production pays.
+
+    Two shapes: the company's bonus bands, or - when the person's plan sets a
+    per-word rate - everything above their own daily quota, priced per word.
+    A day at or under the quota pays nothing either way, which is the rule
+    the translators' contract already had.
+    """
+    if not day.is_working_day:
+        return Decimal("0.00")
+    if rules.uses_tiers:
+        return ProductionTier.bonus_for(
+            day.words, secondary=day.is_secondary_language, tiers=tiers
+        )
+    quota = rules.target_for(day.is_secondary_language)
+    extra = max(0, day.words - quota)
+    return money(Decimal(extra) * Decimal(rules.extra_word_rate))
 
 
 def money(value):
@@ -159,7 +247,7 @@ def _draft(user, day, kind, key, reason, days=Decimal("0.00"), amount=Decimal("0
     )
 
 
-def raise_drafts(user, year, month, days, conf, actor=None):
+def raise_drafts(user, year, month, days, rules, actor=None):
     """Turn what the month shows into deductions waiting for a decision."""
     first_day, last_day = month_bounds(year, month)
     stamp = f"{year}-{month:02d}"
@@ -168,42 +256,44 @@ def raise_drafts(user, year, month, days, conf, actor=None):
     # 1. Absence without permission. The escalation count is per month.
     unexcused = [d for d in days if d.status == DayStatus.UNEXCUSED]
     for index, day in enumerate(sorted(unexcused, key=lambda d: d.date), start=1):
-        escalated = index >= conf.unexcused_escalation_count
+        escalated = index >= rules.unexcused_escalation_count
         reason = f"absence without permission ({index})"
         if escalated:
             reason += " - escalated to the owner"
         drafts.append(_draft(
             user, day.date, ViolationKind.UNEXCUSED, f"unexcused:{day.date:%Y-%m-%d}",
-            reason, days=conf.unexcused_penalty_days, escalated=escalated, actor=actor,
+            reason, days=rules.unexcused_penalty_days, escalated=escalated, actor=actor,
         ))
 
     # 2. Leave beyond the monthly balance: a day plus a quarter, each.
     leave_days = [d for d in days if d.status in LEAVE_STATUSES]
-    extra = max(0, len(leave_days) - conf.monthly_leave_allowance)
+    extra = max(0, len(leave_days) - rules.monthly_leave_allowance)
     for day in sorted(leave_days, key=lambda d: d.date)[len(leave_days) - extra:]:
         drafts.append(_draft(
             user, day.date, ViolationKind.EXTRA_LEAVE, f"extra_leave:{day.date:%Y-%m-%d}",
             "leave day beyond the monthly balance",
-            days=conf.extra_leave_penalty_days, actor=actor,
+            days=rules.extra_leave_penalty_days, actor=actor,
         ))
 
     # 3. Low productivity on an ordinary file. A difficult file is exempt, and
     #    that exemption is the project manager's call, not the engine's.
     for day in days:
-        if day.is_under_target(conf):
+        # ``rules`` and not the raw settings: a plan is allowed to move the
+        # daily floor, so the floor somebody is judged against has to be theirs.
+        if day.is_under_target(rules):
             drafts.append(_draft(
                 user, day.date, ViolationKind.LOW_OUTPUT, f"low_output:{day.date:%Y-%m-%d}",
-                f"{day.words} words against a floor of {day.target(conf)}",
-                days=conf.low_output_penalty_days, actor=actor,
+                f"{day.words} words against a floor of {day.target(rules)}",
+                days=rules.low_output_penalty_days, actor=actor,
             ))
 
     # 4. The month as a whole falling under the alert line.
     total_words = sum(d.words for d in days if d.is_working_day)
-    if total_words < conf.monthly_alert_words:
+    if total_words < rules.monthly_alert_words:
         drafts.append(_draft(
             user, last_day, ViolationKind.TARGET_MISS, f"target_miss:{stamp}",
-            f"{total_words} words against an alert line of {conf.monthly_alert_words}",
-            amount=conf.target_miss_penalty, actor=actor,
+            f"{total_words} words against an alert line of {rules.monthly_alert_words}",
+            amount=rules.target_miss_penalty, actor=actor,
         ))
     else:
         # The month recovered on a later recalculation - drop the stale draft.
@@ -221,6 +311,10 @@ def raise_drafts(user, year, month, days, conf, actor=None):
 def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=None):
     """Work out one translator's month and, when given a period, store it."""
     conf = conf or PayrollSettings.load()
+    # Everything below reads `rules`, not `conf`: the person's salary plan
+    # laid over the company's settings. With no plan the two are identical,
+    # which is why plans could be added without moving anybody's pay.
+    rules = rules_for(user, conf)
     tiers = tiers if tiers is not None else list(ProductionTier.objects.all())
     first_day, last_day = month_bounds(year, month)
 
@@ -229,16 +323,16 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
 
     # The salary in force during the month, not today's salary.
     base = SalaryRecord.amount_on(user, last_day)
-    working_days = conf.working_days_per_month or 1
+    working_days = rules.working_days_per_month or 1
     day_value = money(base / Decimal(working_days))
 
     worked = [d for d in days if d.is_working_day]
     leave_days = [d for d in days if d.status in LEAVE_STATUSES]
     unexcused_days = [d for d in days if d.status == DayStatus.UNEXCUSED]
-    extra_leave = max(0, len(leave_days) - conf.monthly_leave_allowance)
+    extra_leave = max(0, len(leave_days) - rules.monthly_leave_allowance)
 
     total_words = sum(d.words for d in worked)
-    under_target = [d for d in worked if d.is_under_target(conf)]
+    under_target = [d for d in worked if d.is_under_target(rules)]
 
     # -- what attendance says about the month -------------------------------
     # Read off the day rows, which carry the shift they were *worked under*.
@@ -248,7 +342,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
 
     # Overtime is the mirror image of a deduction: the engine works out that
     # the time was worked, and the manager's approval is what pays for it.
-    attendance.raise_overtime(user, first_day, last_day, conf=conf, day_value=day_value)
+    attendance.raise_overtime(user, first_day, last_day, conf=rules, day_value=day_value)
     overtime_rows = []
     overtime_bonus = Decimal("0.00")
     for claim in OvertimeClaim.objects.filter(user=user, date__range=(first_day, last_day)):
@@ -266,19 +360,19 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
     production_bonus = Decimal("0.00")
     day_rows = []
     for day in days:
-        bonus = day.bonus(tiers=tiers)
+        bonus = day_bonus(day, rules, tiers=tiers)
         production_bonus += bonus
         day_rows.append({
             "date": day.date.isoformat(),
             "status": day.status,
             "words": day.words,
-            "target": day.target(conf),
+            "target": day.target(rules),
             "secondary": day.is_secondary_language,
             "difficult": day.difficult_file,
             "bonus": str(money(bonus)),
         })
 
-    raise_drafts(user, year, month, days, conf, actor=actor)
+    raise_drafts(user, year, month, days, rules, actor=actor)
 
     # -- deductions: only what a manager has approved ------------------------
     approved = Violation.objects.filter(
@@ -320,13 +414,19 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         kind__in=(ViolationKind.DISCIPLINE, ViolationKind.QUALITY, ViolationKind.UNEXCUSED)
     ).exists()
     discipline_earned = not unexcused_days and extra_leave == 0 and not blocking
-    target_earned = total_words >= conf.monthly_target_words
+    target_earned = total_words >= rules.monthly_target_words
 
     approved_bonuses = not conf.bonuses_need_approval
-    discipline_bonus = conf.discipline_bonus if (discipline_earned and approved_bonuses) else Decimal("0.00")
-    target_bonus = conf.target_bonus if (target_earned and approved_bonuses) else Decimal("0.00")
+    discipline_bonus = rules.discipline_bonus if (discipline_earned and approved_bonuses) else Decimal("0.00")
+    target_bonus = rules.target_bonus if (target_earned and approved_bonuses) else Decimal("0.00")
 
-    gross = money(base + production_bonus + overtime_bonus + discipline_bonus + target_bonus)
+    # A flat monthly addition the plan grants (section 23's "extra payment").
+    allowance = rules.fixed_allowance
+
+    gross = money(
+        base + allowance + production_bonus + overtime_bonus
+        + discipline_bonus + target_bonus
+    )
     net = money(gross - deductions)
 
     line = PayrollLine(
@@ -339,7 +439,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         unexcused_days=len(unexcused_days),
         extra_leave_days=extra_leave,
         total_words=total_words,
-        target_words=conf.monthly_target_words,
+        target_words=rules.monthly_target_words,
         under_target_days=len(under_target),
         scheduled_days=summary["scheduled_days"],
         office_days=summary["office_days"],
@@ -350,6 +450,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         short_minutes=summary["short_minutes"],
         work_minutes=summary["work_minutes"],
         overtime_minutes=summary["overtime_minutes"],
+        allowance=money(allowance),
         production_bonus=money(production_bonus),
         overtime_bonus=money(overtime_bonus),
         discipline_bonus=money(discipline_bonus),
@@ -360,7 +461,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         discipline_bonus_earned=discipline_earned,
         target_bonus_earned=target_earned,
         bonuses_approved=approved_bonuses,
-        below_alert_threshold=total_words < conf.monthly_alert_words,
+        below_alert_threshold=total_words < rules.monthly_alert_words,
         breakdown={
             "days": day_rows,
             "deductions": deduction_rows,
@@ -376,14 +477,19 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
                 )
             },
             "rules": {
-                "daily_target": conf.daily_target_words,
-                "secondary_daily_target": conf.secondary_daily_target_words,
-                "monthly_target": conf.monthly_target_words,
-                "monthly_alert": conf.monthly_alert_words,
-                "leave_allowance": conf.monthly_leave_allowance,
+                "plan": rules.plan.name if rules.plan else "",
+                "daily_target": rules.daily_target_words,
+                "secondary_daily_target": rules.secondary_daily_target_words,
+                "monthly_target": rules.monthly_target_words,
+                "monthly_alert": rules.monthly_alert_words,
+                "leave_allowance": rules.monthly_leave_allowance,
                 "working_days": working_days,
-                "discipline_bonus": str(conf.discipline_bonus),
-                "target_bonus": str(conf.target_bonus),
+                "discipline_bonus": str(rules.discipline_bonus),
+                "target_bonus": str(rules.target_bonus),
+                "extra_word_rate": (
+                    str(rules.extra_word_rate) if rules.extra_word_rate is not None else ""
+                ),
+                "fixed_allowance": str(allowance),
             },
         },
     )
@@ -427,13 +533,20 @@ def compute_period(year, month, actor=None, users=None):
 
 
 def approve_bonuses(line, by):
-    """Release the two monthly bonuses the engine says were earned."""
-    conf = PayrollSettings.load()
-    line.discipline_bonus = conf.discipline_bonus if line.discipline_bonus_earned else Decimal("0.00")
-    line.target_bonus = conf.target_bonus if line.target_bonus_earned else Decimal("0.00")
+    """Release the two monthly bonuses the engine says were earned.
+
+    ``gross`` is rebuilt from every component stored on the line, not from
+    the handful this used to name. Leaving one out silently deleted money
+    that had already been worked for - the overtime did exactly that until
+    it was caught.
+    """
+    rules = rules_for(line.user)
+    line.discipline_bonus = rules.discipline_bonus if line.discipline_bonus_earned else Decimal("0.00")
+    line.target_bonus = rules.target_bonus if line.target_bonus_earned else Decimal("0.00")
     line.bonuses_approved = True
     line.gross = money(
-        line.base_salary + line.production_bonus + line.discipline_bonus + line.target_bonus
+        line.base_salary + line.allowance + line.production_bonus
+        + line.overtime_bonus + line.discipline_bonus + line.target_bonus
     )
     line.net = money(line.gross - line.deductions)
     line.save(update_fields=[

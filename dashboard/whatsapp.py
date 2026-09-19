@@ -63,11 +63,22 @@ def _version(conf):
     return (conf.whatsapp_api_version or DEFAULT_VERSION).strip()
 
 
-def _require(conf):
+def _require(conf, from_id=""):
     if not conf.whatsapp_access_token:
         raise WhatsAppError("مفيش Access token في الإعدادات.", "No access token configured.")
-    if not conf.whatsapp_phone_number_id:
+    if not (from_id or conf.whatsapp_phone_number_id):
         raise WhatsAppError("مفيش Phone number ID في الإعدادات.", "No phone number ID configured.")
+
+
+def sender_id(conf, from_id=""):
+    """Which of our numbers this message goes out on.
+
+    Eagle runs two lines on one WhatsApp business account: the client number
+    and the recruitment number. They share a token and a webhook, so the only
+    thing that separates them is this ID - which is why it is threaded through
+    every send instead of being read from the settings at the bottom.
+    """
+    return (from_id or conf.whatsapp_phone_number_id or "").strip()
 
 
 def _raise_from_body(status, body):
@@ -197,10 +208,10 @@ def fetch_media(media_id):
 # Outbound: send text and files to the client
 # ---------------------------------------------------------------------------
 
-def _send(payload):
+def _send(payload, from_id=""):
     conf = _conf()
-    _require(conf)
-    url = f"{GRAPH_HOST}/{_version(conf)}/{conf.whatsapp_phone_number_id}/messages"
+    _require(conf, from_id)
+    url = f"{GRAPH_HOST}/{_version(conf)}/{sender_id(conf, from_id)}/messages"
     body = json.dumps(payload).encode("utf-8")
     result = _call(
         url, token=conf.whatsapp_access_token, data=body,
@@ -217,21 +228,21 @@ def _with_context(payload, context_id):
     return payload
 
 
-def send_text(to, body, context_id=""):
+def send_text(to, body, context_id="", from_id=""):
     return _send(_with_context({
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": normalize_number(to),
         "type": "text",
         "text": {"preview_url": False, "body": body[:4000]},
-    }, context_id))
+    }, context_id), from_id=from_id)
 
 
-def upload_media(content, filename, mime):
+def upload_media(content, filename, mime, from_id=""):
     """Upload bytes to Meta and return the media id used when sending."""
     conf = _conf()
-    _require(conf)
-    url = f"{GRAPH_HOST}/{_version(conf)}/{conf.whatsapp_phone_number_id}/media"
+    _require(conf, from_id)
+    url = f"{GRAPH_HOST}/{_version(conf)}/{sender_id(conf, from_id)}/media"
     data, content_type = _multipart(
         {"messaging_product": "whatsapp", "type": mime}, filename, content, mime
     )
@@ -245,11 +256,11 @@ def upload_media(content, filename, mime):
     return media_id
 
 
-def send_file(to, content, filename, mime=None, caption="", context_id=""):
+def send_file(to, content, filename, mime=None, caption="", context_id="", from_id=""):
     """Upload then send one file. Returns the WhatsApp message id."""
     mime = mime or guess_mime(filename)
     kind = media_kind(mime)
-    media_id = upload_media(content, filename, mime)
+    media_id = upload_media(content, filename, mime, from_id=from_id)
 
     block = {"id": media_id}
     if kind == "document":
@@ -263,7 +274,7 @@ def send_file(to, content, filename, mime=None, caption="", context_id=""):
         "to": normalize_number(to),
         "type": kind,
         kind: block,
-    }, context_id))
+    }, context_id), from_id=from_id)
 
 
 def mark_read(message_id):

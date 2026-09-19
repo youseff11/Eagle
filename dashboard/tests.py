@@ -1073,3 +1073,1253 @@ class AttendancePageTests(TestCase):
         self.client.force_login(self.person)
         response = self.client.post("/api/attendance/punch/", {"action": "teleport"})
         self.assertEqual(response.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# HR / recruitment
+# ---------------------------------------------------------------------------
+
+class RecruitmentPrivacyTests(TestCase):
+    """Section 3 as code: the candidate does not learn who we are."""
+
+    def setUp(self):
+        from .models import Candidate, RecruitmentSettings
+
+        self.conf = RecruitmentSettings.load()
+        self.conf.redact_terms = "EagleLingua\nالنسر للتوريدات العامه\neagel-operation.com"
+        self.conf.save()
+        self.candidate = Candidate.objects.create(full_name="مرشح", phone="201000000001")
+
+    def test_the_company_name_is_stripped_while_anonymous(self):
+        from . import recruitment
+
+        out = recruitment.outbound_text(
+            self.candidate, "أهلًا بيك في EagleLingua، شوف eagel-operation.com",
+            conf=self.conf,
+        )
+        self.assertNotIn("EagleLingua", out)
+        self.assertNotIn("eagel-operation.com", out)
+        self.assertIn("أهلًا بيك", out)
+
+    def test_matching_ignores_case_and_spacing(self):
+        """"Eagle  Lingua" across a line break is the same leak."""
+        from . import recruitment
+
+        out = recruitment.outbound_text(
+            self.candidate, "welcome to eagle   lingua today", conf=self.conf
+        )
+        self.assertNotIn("lingua", out.lower())
+
+    def test_revealing_lets_the_name_through_and_is_logged(self):
+        from . import recruitment
+        from .models import AuditLog
+
+        hr = User.objects.create_user("hr1", password="x", role=Role.HR)
+        recruitment.reveal_identity(self.candidate, hr, "اتقبل للمقابلة")
+        self.candidate.refresh_from_db()
+
+        self.assertTrue(self.candidate.identity_revealed)
+        self.assertEqual(self.candidate.identity_revealed_by, hr)
+        out = recruitment.outbound_text(self.candidate, "EagleLingua", conf=self.conf)
+        self.assertEqual(out, "EagleLingua")
+        self.assertTrue(
+            AuditLog.objects.filter(action="recruitment.identity.reveal").exists()
+        )
+
+    def test_an_unknown_contact_is_still_scrubbed(self):
+        """No candidate row yet is not a reason to leak the name."""
+        from . import recruitment
+
+        out = recruitment.outbound_text(None, "من EagleLingua", conf=self.conf)
+        self.assertNotIn("EagleLingua", out)
+
+    def test_a_name_split_across_a_line_is_still_caught(self):
+        """The term is stored as one word; the leak arrives as two."""
+        from . import recruitment
+
+        out = recruitment.outbound_text(
+            self.candidate, "welcome to Eagle\nLingua", conf=self.conf
+        )
+        self.assertNotIn("Lingua", out)
+
+    def test_ordinary_words_survive(self):
+        """A filter that eats normal sentences would just be switched off."""
+        from . import recruitment
+
+        for kept in ("نتشرف بترشيحك للوظيفة", "a sentence about eagles and lingo"):
+            self.assertEqual(
+                recruitment.outbound_text(self.candidate, kept, conf=self.conf), kept
+            )
+
+    def test_the_rule_is_armed_out_of_the_box(self):
+        """Section 3 is a system rule, so it cannot wait to be switched on."""
+        from .models import RecruitmentSettings
+
+        RecruitmentSettings.objects.all().delete()
+        conf = RecruitmentSettings.load()
+        self.assertTrue(conf.term_list)
+
+
+class RecruitmentBotTests(TestCase):
+    """The bot collects and hands over. It never decides (section 28)."""
+
+    def setUp(self):
+        from datetime import time
+        from unittest import mock
+
+        from .models import (
+            AnswerTarget, Department, QuestionKind, RecruitmentQuestion,
+            RecruitmentSettings, ShiftTemplate, Vacancy, VacancyQuestion,
+            VacancyStatus,
+        )
+
+        self.conf = RecruitmentSettings.load()
+        ShiftTemplate.seed_defaults()
+        Department.seed_defaults()
+        self.department = Department.objects.get(name="Translation")
+        self.shift = ShiftTemplate.objects.get(name="Shift 2")   # 12:00-20:00
+
+        self.vacancy = Vacancy.objects.create(
+            title="Arabic Translator", department=self.department,
+            status=VacancyStatus.OPEN, job_description="ترجمة عربي-إنجليزي",
+        )
+        self.vacancy.shifts.add(self.shift)
+
+        self.name_q = RecruitmentQuestion.objects.create(
+            text="اسمك إيه؟", kind=QuestionKind.TEXT, maps_to=AnswerTarget.FULL_NAME,
+        )
+        self.tools_q = RecruitmentQuestion.objects.create(
+            text="بتستخدم أنهي CAT tools؟", kind=QuestionKind.MULTI,
+            options=["Trados", "memoQ", "Phrase"], department=self.department,
+        )
+        self.salary_q = RecruitmentQuestion.objects.create(
+            text="الراتب المتوقع؟", kind=QuestionKind.TEXT,
+            maps_to=AnswerTarget.EXPECTED_SALARY,
+        )
+        for order, question in enumerate(
+            (self.name_q, self.tools_q, self.salary_q), start=1
+        ):
+            VacancyQuestion.objects.create(
+                vacancy=self.vacancy, question=question, order=order
+            )
+
+        self.hr = User.objects.create_user("hr2", password="x", role=Role.HR)
+        self.owner = User.objects.create_user("owner", password="x", role=Role.ADMIN)
+        self.contact = "201111111111"
+        self.mock = mock
+        # Nothing in these tests should reach Meta.
+        self.patcher = mock.patch("dashboard.whatsapp.send_text", return_value="wamid.x")
+        self.sent = self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def say(self, text="", attachments=None):
+        from . import recruitment
+
+        return recruitment.handle_inbound(
+            contact=self.contact, body=text, display_name="نهى",
+            attachments=attachments or [],
+        )
+
+    def replies(self):
+        return [call.args[1] for call in self.sent.call_args_list]
+
+    # -- the walk-through ---------------------------------------------------
+    def test_a_full_application_lands_in_hr_screening(self):
+        from .models import Candidate, CandidateStatus, SessionState
+
+        self.say("السلام عليكم")          # greeting, then straight in (one vacancy)
+        self.say("نعم")                    # the shift question
+        self.say("نهى محمد")               # name
+        self.say("1,3")                    # CAT tools, by number
+        session = self.say("6000")         # expected salary -> finishes
+
+        candidate = Candidate.objects.get(phone=self.contact)
+        self.assertEqual(session.state, SessionState.DONE)
+        # The furthest the bot may ever move somebody.
+        self.assertEqual(candidate.status, CandidateStatus.SCREENING)
+        self.assertEqual(candidate.full_name, "نهى محمد")
+        self.assertEqual(candidate.expected_salary, "6000")
+        self.assertEqual(candidate.shift_choice, "12:00 PM - 08:00 PM")
+        self.assertEqual(candidate.answers.count(), 3)
+        self.assertEqual(
+            candidate.answers.get(question=self.tools_q).value, "Trados، Phrase"
+        )
+
+    def test_the_bot_never_names_the_company(self):
+        self.conf.redact_terms = "EagleLingua"
+        self.conf.save()
+        self.vacancy.job_description = "ترجمة في EagleLingua"
+        self.vacancy.save()
+
+        self.say("اهلا")
+        self.say("نعم")
+        for reply in self.replies():
+            self.assertNotIn("EagleLingua", reply)
+
+    def test_hr_is_told_when_an_application_completes(self):
+        from .models import Notification
+
+        self.say("اهلا")
+        self.say("نعم")
+        self.say("نهى")
+        self.say("1")
+        self.say("5500")
+        self.assertTrue(
+            Notification.objects.filter(user=self.hr, title_en="New application").exists()
+        )
+
+    # -- the shift question --------------------------------------------------
+    def test_one_shift_is_asked_as_a_yes_or_no(self):
+        self.say("اهلا")
+        prompt = self.replies()[-1]
+        self.assertIn("12:00 PM - 08:00 PM", prompt)
+        self.assertIn("نعم", prompt)
+
+    def test_several_shifts_are_offered_as_a_numbered_list(self):
+        from .models import Candidate, ShiftTemplate
+
+        self.vacancy.shifts.add(ShiftTemplate.objects.get(name="Shift 1"))
+        self.say("اهلا")
+        prompt = self.replies()[-1]
+        self.assertIn("1.", prompt)
+        self.assertIn("2.", prompt)
+
+        self.say("2")
+        candidate = Candidate.objects.get(phone=self.contact)
+        self.assertTrue(candidate.shift_choice)
+
+    def test_saying_no_to_the_only_shift_still_continues(self):
+        """Not available is an answer HR should see, not a dead end."""
+        from .models import Candidate
+
+        self.say("اهلا")
+        self.say("لا")
+        self.say("نهى")
+        candidate = Candidate.objects.get(phone=self.contact)
+        self.assertEqual(candidate.shift_choice, "")
+        self.assertEqual(candidate.full_name, "نهى")
+
+    # -- validation ----------------------------------------------------------
+    def test_a_nonsense_choice_is_asked_again_not_stored(self):
+        self.say("اهلا")
+        self.say("نعم")
+        self.say("نهى")
+        before = self.sent.call_count
+        self.say("بلاش")           # not a number, not an option
+        self.assertGreater(self.sent.call_count, before)
+        self.assertIn("القايمة", self.replies()[-1])
+
+    def test_a_file_question_insists_on_a_file(self):
+        from django.core.files.base import ContentFile
+
+        from .models import Candidate, QuestionKind, RecruitmentQuestion, VacancyQuestion
+        from .models import AnswerTarget
+
+        cv_q = RecruitmentQuestion.objects.create(
+            text="ابعت الـCV", kind=QuestionKind.FILE, maps_to=AnswerTarget.CV
+        )
+        VacancyQuestion.objects.create(vacancy=self.vacancy, question=cv_q, order=4)
+
+        self.say("اهلا")
+        self.say("نعم")
+        self.say("نهى")
+        self.say("1")
+        self.say("5000")
+        # Now on the CV question: text alone is refused.
+        self.say("هبعته بعدين")
+        self.assertIn("مرفق", self.replies()[-1])
+
+        self.say("", attachments=[{
+            "file": ContentFile(b"%PDF-1.4 cv", name="cv.pdf"), "name": "cv.pdf", "size": 10,
+        }])
+        candidate = Candidate.objects.get(phone=self.contact)
+        self.assertTrue(candidate.cv)
+        self.assertEqual(candidate.cv_name, "cv.pdf")
+
+    def test_with_no_open_vacancy_the_bot_says_so_politely(self):
+        from .models import Candidate, VacancyStatus
+
+        self.vacancy.status = VacancyStatus.CLOSED
+        self.vacancy.save()
+        self.say("اهلا")
+        self.assertIn("مفيش وظايف", self.replies()[-1])
+        self.assertFalse(Candidate.objects.filter(phone=self.contact).exists())
+
+    def test_a_switched_off_bot_answers_nothing(self):
+        self.conf.bot_enabled = False
+        self.conf.save()
+        self.assertIsNone(self.say("اهلا"))
+        self.assertEqual(self.sent.call_count, 0)
+
+
+class RecruitmentPipelineTests(TestCase):
+    """Who may move a candidate where, and who alone may hire."""
+
+    def setUp(self):
+        from .models import Candidate, CandidateStatus, Department, Vacancy, VacancyStatus
+
+        Department.seed_defaults()
+        self.department = Department.objects.get(name="Translation")
+        self.vacancy = Vacancy.objects.create(
+            title="Translator", department=self.department, status=VacancyStatus.OPEN
+        )
+        self.candidate = Candidate.objects.create(
+            full_name="سارة", phone="201222222222", vacancy=self.vacancy,
+            status=CandidateStatus.SCREENING, expected_salary="6000",
+        )
+        self.hr = User.objects.create_user("hr3", password="x", role=Role.HR)
+        self.owner = User.objects.create_user("owner2", password="x", role=Role.ADMIN)
+        self.CandidateStatus = CandidateStatus
+
+    def test_the_pipeline_refuses_to_skip_its_own_steps(self):
+        from . import recruitment
+
+        with self.assertRaises(recruitment.PipelineError):
+            recruitment.move_status(
+                self.candidate, self.CandidateStatus.HIRED, self.hr
+            )
+
+    def test_hr_cannot_approve_a_hire(self):
+        from . import recruitment
+
+        self.candidate.status = self.CandidateStatus.OWNER_APPROVAL
+        self.candidate.save()
+        with self.assertRaises(recruitment.PipelineError):
+            recruitment.decide_hiring(self.candidate, self.hr, approve=True)
+
+    def test_reaching_the_owner_notifies_them(self):
+        from . import recruitment
+        from .models import Notification
+
+        recruitment.move_status(self.candidate, self.CandidateStatus.INTERVIEW, self.hr)
+        recruitment.move_status(self.candidate, self.CandidateStatus.FINAL_REVIEW, self.hr)
+        recruitment.move_status(
+            self.candidate, self.CandidateStatus.OWNER_APPROVAL, self.hr
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.owner, title_en="Candidate approval required"
+            ).exists()
+        )
+
+    def test_hiring_carries_the_application_across(self):
+        """Section 17: nothing is retyped, and the two stay linked."""
+        from datetime import date
+        from decimal import Decimal
+
+        from . import recruitment
+        from .models import EmploymentStatus, SalaryRecord
+
+        self.candidate.email = "sara@example.com"
+        self.candidate.languages = "AR, EN"
+        self.candidate.status = self.CandidateStatus.OWNER_APPROVAL
+        self.candidate.save()
+        recruitment.decide_hiring(self.candidate, self.owner, approve=True)
+
+        person = recruitment.hire(
+            self.candidate, self.hr, role=Role.TRANSLATOR,
+            job_title="Arabic Translator", joining_date=date(2026, 10, 1),
+            salary=Decimal("5500.00"),
+        )
+        self.candidate.refresh_from_db()
+
+        self.assertEqual(self.candidate.status, self.CandidateStatus.HIRED)
+        self.assertEqual(self.candidate.hired_user, person)
+        self.assertEqual(person.email, "sara@example.com")
+        self.assertEqual(person.languages, "AR, EN")
+        self.assertEqual(person.department, self.department)
+        self.assertEqual(person.employment_status, EmploymentStatus.PROBATION)
+        self.assertEqual(person.probation_start, date(2026, 10, 1))
+        self.assertTrue(person.employee_code.startswith("EMP-"))
+        self.assertEqual(
+            SalaryRecord.objects.get(user=person).amount, Decimal("5500.00")
+        )
+        # The employee can be read back to the application that produced them.
+        self.assertEqual(person.candidate_record, self.candidate)
+
+    def test_nobody_is_hired_twice(self):
+        from . import recruitment
+
+        self.candidate.status = self.CandidateStatus.APPROVED
+        self.candidate.save()
+        recruitment.hire(self.candidate, self.hr)
+        with self.assertRaises(recruitment.PipelineError):
+            recruitment.hire(self.candidate, self.hr)
+
+    def test_hiring_before_approval_is_refused(self):
+        from . import recruitment
+
+        with self.assertRaises(recruitment.PipelineError):
+            recruitment.hire(self.candidate, self.hr)
+
+
+class RecruitmentRoutingTests(TestCase):
+    """One webhook, two lines: a client and a candidate never collide."""
+
+    def setUp(self):
+        from .models import AppSettings, RecruitmentSettings, Vacancy, VacancyStatus
+
+        self.app = AppSettings.load()
+        self.app.whatsapp_phone_number_id = "111client"
+        self.app.recruit_phone_number_id = "222recruit"
+        self.app.save()
+        RecruitmentSettings.load()
+        Vacancy.objects.create(title="Translator", status=VacancyStatus.OPEN)
+
+    def post(self, number_id, body="اهلا"):
+        import json
+        from unittest import mock
+
+        payload = {
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "metadata": {"phone_number_id": number_id},
+                        "contacts": [{"wa_id": "201333333333", "profile": {"name": "خالد"}}],
+                        "messages": [{
+                            "from": "201333333333", "id": "wamid.1",
+                            "type": "text", "text": {"body": body},
+                        }],
+                    }
+                }]
+            }]
+        }
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.x"):
+            return self.client.post(
+                "/webhooks/whatsapp/", data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+    def test_the_client_number_still_reaches_the_ops_inbox(self):
+        from .models import Candidate, InboundMessage
+
+        response = self.post("111client")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(InboundMessage.objects.count(), 1)
+        self.assertEqual(Candidate.objects.count(), 0)
+
+    def test_the_recruitment_number_reaches_the_bot_instead(self):
+        from .models import CandidateSession, InboundMessage
+
+        response = self.post("222recruit")
+        self.assertEqual(response.status_code, 200)
+        # Nothing landed in the client inbox.
+        self.assertEqual(InboundMessage.objects.count(), 0)
+        self.assertTrue(CandidateSession.objects.filter(contact="201333333333").exists())
+
+    def test_with_no_recruitment_number_everything_is_a_client(self):
+        from .models import CandidateSession, InboundMessage
+
+        self.app.recruit_phone_number_id = ""
+        self.app.save()
+        self.post("222recruit")
+        self.assertEqual(InboundMessage.objects.count(), 1)
+        self.assertFalse(CandidateSession.objects.exists())
+
+
+class RecruitmentPageTests(TestCase):
+    """Section 24: each role reaches its own screens and no others."""
+
+    def setUp(self):
+        from .models import Candidate, RecruitmentSettings
+
+        RecruitmentSettings.load()
+        self.hr = User.objects.create_user("hr4", password="x", role=Role.HR)
+        self.reviewer = User.objects.create_user("rev", password="x", role=Role.REVIEWER)
+        self.owner = User.objects.create_user("owner3", password="x", role=Role.ADMIN)
+        self.translator = User.objects.create_user("tr9", password="x", role=Role.TRANSLATOR)
+        self.candidate = Candidate.objects.create(full_name="عمر", phone="201444444444")
+
+    def test_hr_opens_the_recruitment_screens(self):
+        self.client.force_login(self.hr)
+        for path in (
+            "/hr/recruitment/", "/hr/vacancies/", "/hr/questions/",
+            "/hr/candidates/", "/hr/employees/", "/hr/recruitment/settings/",
+            f"/hr/candidates/{self.candidate.code}/",
+        ):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_a_translator_reaches_none_of_them(self):
+        self.client.force_login(self.translator)
+        for path in ("/hr/recruitment/", "/hr/candidates/", "/hr/approvals/"):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
+
+    def test_hr_cannot_open_the_owner_queue(self):
+        self.client.force_login(self.hr)
+        self.assertEqual(self.client.get("/hr/approvals/").status_code, 403)
+
+    def test_the_reviewer_gets_tests_and_nothing_else(self):
+        self.client.force_login(self.reviewer)
+        self.assertEqual(self.client.get("/reviewer/tests/").status_code, 200)
+        self.assertEqual(self.client.get("/hr/candidates/").status_code, 403)
+
+    def test_the_owner_reaches_everything(self):
+        self.client.force_login(self.owner)
+        for path in ("/hr/recruitment/", "/hr/approvals/", "/reviewer/tests/"):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+
+class InterviewScoreTests(TestCase):
+    def test_the_total_is_computed_not_typed(self):
+        from .models import Candidate, Interview
+
+        candidate = Candidate.objects.create(full_name="ليلى", phone="201555555555")
+        interview = Interview.objects.create(
+            candidate=candidate, scheduled_at=timezone.now(),
+            communication=8, experience=7, technical=9, computer_skills=6, attitude=10,
+        )
+        self.assertEqual(interview.total_score, 40)
+        self.assertEqual(interview.max_score, 50)
+        self.assertTrue(interview.is_evaluated)
+
+    def test_an_unmarked_interview_is_not_a_zero(self):
+        from .models import Candidate, Interview
+
+        candidate = Candidate.objects.create(full_name="ليلى", phone="201555555556")
+        interview = Interview.objects.create(
+            candidate=candidate, scheduled_at=timezone.now()
+        )
+        self.assertFalse(interview.is_evaluated)
+
+
+# ---------------------------------------------------------------------------
+# Probation, leave, performance and per-person pay
+# ---------------------------------------------------------------------------
+
+class ProbationTests(TestCase):
+    def setUp(self):
+        from datetime import date
+
+        from .models import EmploymentStatus, RecruitmentSettings
+
+        RecruitmentSettings.load()
+        self.hr = User.objects.create_user("hr5", password="x", role=Role.HR)
+        self.person = User.objects.create_user(
+            "newbie", password="x", role=Role.TRANSLATOR,
+            joining_date=date(2026, 9, 1), probation_start=date(2026, 9, 1),
+            probation_end=date(2026, 11, 30),
+            employment_status=EmploymentStatus.PROBATION,
+        )
+        self.date = date
+        self.EmploymentStatus = EmploymentStatus
+
+    def test_hiring_opens_three_dated_reviews(self):
+        from . import employees
+        from .models import ProbationStage
+
+        employees.open_probation(self.person, actor=self.hr)
+        rows = {r.stage: r for r in self.person.probation_reviews.all()}
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[ProbationStage.DAY_30].due_date, self.date(2026, 10, 1))
+        self.assertEqual(rows[ProbationStage.DAY_60].due_date, self.date(2026, 10, 31))
+        self.assertEqual(rows[ProbationStage.FINAL].due_date, self.date(2026, 11, 30))
+
+    def test_opening_twice_does_not_duplicate(self):
+        from . import employees
+
+        employees.open_probation(self.person, actor=self.hr)
+        employees.open_probation(self.person, actor=self.hr)
+        self.assertEqual(self.person.probation_reviews.count(), 3)
+
+    def test_only_the_final_review_confirms_somebody(self):
+        from . import employees
+        from .models import ProbationOutcome, ProbationStage
+
+        employees.open_probation(self.person, actor=self.hr)
+        day30 = self.person.probation_reviews.get(stage=ProbationStage.DAY_30)
+        employees.decide_probation(
+            day30, self.hr, ProbationOutcome.CONFIRMED, score=8, notes="بداية كويسة"
+        )
+        self.person.refresh_from_db()
+        # A thirty-day review is not a confirmation of employment.
+        self.assertEqual(self.person.employment_status, self.EmploymentStatus.PROBATION)
+
+        final = self.person.probation_reviews.get(stage=ProbationStage.FINAL)
+        employees.decide_probation(final, self.hr, ProbationOutcome.CONFIRMED, score=9)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.employment_status, self.EmploymentStatus.ACTIVE)
+
+    def test_extending_moves_the_end_and_the_final_review_with_it(self):
+        from . import employees
+        from .models import ProbationOutcome, ProbationStage
+
+        employees.open_probation(self.person, actor=self.hr)
+        day60 = self.person.probation_reviews.get(stage=ProbationStage.DAY_60)
+        employees.decide_probation(
+            day60, self.hr, ProbationOutcome.EXTENDED, extend_days=30
+        )
+        self.person.refresh_from_db()
+        final = self.person.probation_reviews.get(stage=ProbationStage.FINAL)
+        self.assertEqual(self.person.probation_end, self.date(2026, 12, 30))
+        self.assertEqual(final.due_date, self.date(2026, 12, 30))
+
+    def test_terminating_closes_the_account_without_deleting_it(self):
+        from . import employees
+        from .models import ProbationOutcome, ProbationStage
+
+        employees.open_probation(self.person, actor=self.hr)
+        final = self.person.probation_reviews.get(stage=ProbationStage.FINAL)
+        employees.decide_probation(final, self.hr, ProbationOutcome.TERMINATED)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.employment_status, self.EmploymentStatus.LEFT)
+        self.assertFalse(self.person.is_active)
+        # The record survives, because their months still have to be readable.
+        self.assertTrue(User.objects.filter(pk=self.person.pk).exists())
+
+    def test_a_decided_review_cannot_be_decided_again(self):
+        from . import employees
+        from .models import ProbationOutcome, ProbationStage
+
+        employees.open_probation(self.person, actor=self.hr)
+        final = self.person.probation_reviews.get(stage=ProbationStage.FINAL)
+        employees.decide_probation(final, self.hr, ProbationOutcome.CONFIRMED)
+        with self.assertRaises(employees.LifecycleError):
+            employees.decide_probation(final, self.hr, ProbationOutcome.TERMINATED)
+
+
+class LeaveTests(TestCase):
+    """The integration that matters: an approved leave reaches attendance."""
+
+    def setUp(self):
+        from datetime import date, time
+
+        from .models import PayrollSettings, Shift, ShiftTemplate
+
+        self.conf = PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        self.morning = ShiftTemplate.objects.get(name="Shift 1")   # 09:00-17:00
+
+        self.lead = User.objects.create_user("lead9", password="x", role=Role.TEAM_LEAD)
+        self.hr = User.objects.create_user("hr6", password="x", role=Role.HR)
+        self.person = User.objects.create_user(
+            "mona", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        # Rostered every day, so no test date lands on a day off.
+        for weekday in range(7):
+            Shift.objects.create(user=self.person, weekday=weekday, template=self.morning)
+        self.date = date
+        self.time = time
+
+    def test_an_approved_leave_is_written_onto_the_attendance_sheet(self):
+        from . import employees
+        from .models import DayStatus, LeaveKind, WorkDay
+
+        row = employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL,
+            start_date=self.date(2026, 10, 5), end_date=self.date(2026, 10, 7),
+            reason="سفر",
+        )
+        employees.decide_leave(row, self.hr, approve=True)
+        row.refresh_from_db()
+
+        self.assertTrue(row.is_approved)
+        self.assertIsNotNone(row.applied_at)
+        days = WorkDay.objects.filter(
+            user=self.person, date__range=(self.date(2026, 10, 5), self.date(2026, 10, 7))
+        )
+        self.assertEqual(days.count(), 3)
+        for day in days:
+            self.assertEqual(day.status, DayStatus.LEAVE)
+
+    def test_a_day_the_person_actually_worked_is_never_overwritten(self):
+        """The punch is evidence. Leave does not get to erase it."""
+        from . import attendance, employees
+        from .models import LeaveKind, PunchKind, WorkDay
+
+        attendance.punch(
+            self.person, PunchKind.CHECK_IN,
+            at=timezone.make_aware(
+                timezone.datetime.combine(self.date(2026, 10, 5), self.time(9, 0))
+            ),
+        )
+        row = employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL,
+            start_date=self.date(2026, 10, 5), end_date=self.date(2026, 10, 6),
+        )
+        employees.decide_leave(row, self.hr, approve=True)
+
+        worked = WorkDay.objects.get(user=self.person, date=self.date(2026, 10, 5))
+        self.assertIsNotNone(worked.check_in)
+        self.assertEqual(worked.status, "present")
+        # The other day was still written.
+        self.assertEqual(
+            WorkDay.objects.get(user=self.person, date=self.date(2026, 10, 6)).status,
+            "leave",
+        )
+
+    def test_a_permission_stops_the_day_reading_as_short(self):
+        from . import attendance, employees
+        from .models import LeaveKind, PunchKind, WorkDay
+
+        day = self.date(2026, 10, 5)
+
+        def at(hour, minute=0):
+            return timezone.make_aware(
+                timezone.datetime.combine(day, self.time(hour, minute))
+            )
+
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=at(9, 0))
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_OUT, at=at(15, 0))
+        # Six hours of an eight-hour shift: two hours short.
+        self.assertEqual(row.short_minutes, 120)
+
+        leave = employees.request_leave(
+            self.person, kind=LeaveKind.PERMISSION, start_date=day,
+            start_time=self.time(15, 0), end_time=self.time(17, 0), reason="ظرف",
+        )
+        employees.decide_leave(leave, self.hr, approve=True)
+
+        row = WorkDay.objects.get(user=self.person, date=day)
+        self.assertEqual(row.excused_minutes, 120)
+        self.assertEqual(row.short_minutes, 0)
+
+    def test_the_manager_step_exists_only_when_the_setting_says_so(self):
+        from . import employees
+        from .models import LeaveKind, LeaveStatus
+
+        self.conf.leave_needs_manager = True
+        self.conf.save()
+        row = employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL, start_date=self.date(2026, 10, 12)
+        )
+        self.assertEqual(row.status, LeaveStatus.PENDING)
+
+        employees.decide_leave(row, self.lead, approve=True)
+        row.refresh_from_db()
+        self.assertEqual(row.status, LeaveStatus.MANAGER_OK)
+        # Still nothing on the attendance sheet - HR has not signed.
+        self.assertIsNone(row.applied_at)
+
+        employees.decide_leave(row, self.hr, approve=True)
+        row.refresh_from_db()
+        self.assertEqual(row.status, LeaveStatus.APPROVED)
+        self.assertIsNotNone(row.applied_at)
+
+    def test_with_the_setting_off_hr_alone_is_enough(self):
+        from . import employees
+        from .models import LeaveKind, LeaveStatus
+
+        row = employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL, start_date=self.date(2026, 10, 12)
+        )
+        self.assertEqual(row.status, LeaveStatus.MANAGER_OK)
+        employees.decide_leave(row, self.hr, approve=True)
+        row.refresh_from_db()
+        self.assertEqual(row.status, LeaveStatus.APPROVED)
+
+    def test_overlapping_leave_is_refused(self):
+        from . import employees
+        from .models import LeaveKind
+
+        employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL,
+            start_date=self.date(2026, 10, 5), end_date=self.date(2026, 10, 8),
+        )
+        with self.assertRaises(employees.LifecycleError):
+            employees.request_leave(
+                self.person, kind=LeaveKind.ANNUAL,
+                start_date=self.date(2026, 10, 7), end_date=self.date(2026, 10, 9),
+            )
+
+    def test_a_permission_longer_than_the_limit_is_refused(self):
+        from . import employees
+        from .models import LeaveKind
+
+        with self.assertRaises(employees.LifecycleError):
+            employees.request_leave(
+                self.person, kind=LeaveKind.PERMISSION,
+                start_date=self.date(2026, 10, 5),
+                start_time=self.time(9, 0), end_time=self.time(17, 0),
+            )
+
+    def test_the_balance_counts_what_is_still_waiting(self):
+        """Two requests must not both be approved into one empty allowance."""
+        from . import employees
+        from .models import LeaveKind
+
+        employees.request_leave(
+            self.person, kind=LeaveKind.ANNUAL,
+            start_date=self.date(2026, 10, 5), end_date=self.date(2026, 10, 7),
+        )
+        balance = employees.leave_balance(self.person, 2026, 10)
+        self.assertEqual(balance["pending"], 3)
+        self.assertEqual(balance["left"], balance["allowance"] - 3)
+
+
+class SalaryPlanTests(TestCase):
+    """The rule that made plans safe: a blank falls back to the company."""
+
+    def setUp(self):
+        from datetime import date
+        from decimal import Decimal as D
+
+        from .models import PayrollSettings, ProductionTier, SalaryRecord
+
+        self.conf = PayrollSettings.load()
+        ProductionTier.seed_defaults()
+        self.person = User.objects.create_user("plan1", password="x", role=Role.TRANSLATOR)
+        SalaryRecord.objects.create(
+            user=self.person, amount=D("5200.00"), effective_from=date(2026, 1, 1)
+        )
+        self.D = D
+        self.date = date
+
+    def test_somebody_with_no_plan_reads_the_company_rules(self):
+        from . import payroll
+
+        rules = payroll.rules_for(self.person)
+        self.assertIsNone(rules.plan)
+        self.assertEqual(rules.daily_target_words, self.conf.daily_target_words)
+        self.assertEqual(rules.monthly_target_words, self.conf.monthly_target_words)
+        self.assertEqual(rules.working_days_per_month, self.conf.working_days_per_month)
+        self.assertTrue(rules.uses_tiers)
+        self.assertEqual(rules.fixed_allowance, self.D("0.00"))
+
+    def test_a_plan_overrides_only_what_it_sets(self):
+        from . import payroll
+        from .models import SalaryPlan
+
+        plan = SalaryPlan.objects.create(name="Senior", daily_target_words=2000)
+        self.person.salary_plan = plan
+        self.person.save()
+
+        rules = payroll.rules_for(self.person)
+        self.assertEqual(rules.daily_target_words, 2000)
+        # Everything it left blank still comes from the company.
+        self.assertEqual(rules.monthly_target_words, self.conf.monthly_target_words)
+        self.assertEqual(rules.discipline_bonus, self.conf.discipline_bonus)
+
+    def test_an_inactive_plan_is_ignored(self):
+        from . import payroll
+        from .models import SalaryPlan
+
+        plan = SalaryPlan.objects.create(
+            name="Old", daily_target_words=1000, is_active=False
+        )
+        self.person.salary_plan = plan
+        self.person.save()
+        self.assertEqual(
+            payroll.rules_for(self.person).daily_target_words,
+            self.conf.daily_target_words,
+        )
+
+    def test_a_per_word_rate_replaces_the_bonus_bands(self):
+        from . import payroll
+        from .models import DayStatus, SalaryPlan, WorkDay
+
+        plan = SalaryPlan.objects.create(
+            name="Per word", daily_target_words=3000, extra_word_rate=self.D("0.0500")
+        )
+        self.person.salary_plan = plan
+        self.person.save()
+
+        day = WorkDay.objects.create(
+            user=self.person, date=self.date(2026, 10, 5),
+            status=DayStatus.PRESENT, words=3500,
+        )
+        rules = payroll.rules_for(self.person)
+        self.assertFalse(rules.uses_tiers)
+        # 500 words over the quota at 0.05 each.
+        self.assertEqual(payroll.day_bonus(day, rules), self.D("25.00"))
+
+    def test_a_fixed_allowance_reaches_the_gross(self):
+        from . import payroll
+        from .models import SalaryPlan
+
+        plan = SalaryPlan.objects.create(name="With allowance", fixed_allowance=self.D("300.00"))
+        self.person.salary_plan = plan
+        self.person.save()
+
+        line = payroll.compute_line(self.person, 2026, 10)
+        self.assertEqual(line.allowance, self.D("300.00"))
+        self.assertEqual(line.gross, line.base_salary + self.D("300.00"))
+
+    def test_the_low_output_floor_is_the_plan_s_and_not_the_company_s(self):
+        """A plan that lowers the daily target has to lower the penalty too.
+
+        Otherwise somebody is held to a floor nobody agreed with them - which
+        is the one thing per-person pay rules must never do.
+        """
+        from . import payroll
+        from .models import (
+            ApprovalStatus, DayStatus, SalaryPlan, Violation, ViolationKind, WorkDay,
+        )
+
+        plan = SalaryPlan.objects.create(name="Technical", daily_target_words=2000)
+        self.person.salary_plan = plan
+        self.person.save()
+
+        # 2,500 is under the company's 3,000 and over the plan's 2,000.
+        WorkDay.objects.create(
+            user=self.person, date=self.date(2026, 10, 5),
+            status=DayStatus.PRESENT, words=2500,
+        )
+        payroll.compute_line(self.person, 2026, 10)
+        self.assertFalse(
+            Violation.objects.filter(
+                user=self.person, kind=ViolationKind.LOW_OUTPUT,
+                status=ApprovalStatus.PENDING,
+            ).exists()
+        )
+
+        # Under the plan's own floor, it is a draft like any other.
+        WorkDay.objects.create(
+            user=self.person, date=self.date(2026, 10, 6),
+            status=DayStatus.PRESENT, words=1500,
+        )
+        payroll.compute_line(self.person, 2026, 10)
+        draft = Violation.objects.get(
+            user=self.person, kind=ViolationKind.LOW_OUTPUT, date=self.date(2026, 10, 6)
+        )
+        self.assertIn("2000", draft.reason)
+
+
+class ApproveBonusesTests(TestCase):
+    """The bug this caught: releasing bonuses used to delete the overtime."""
+
+    def test_releasing_the_bonuses_keeps_every_other_component(self):
+        from datetime import date
+        from decimal import Decimal as D
+
+        from . import payroll
+        from .models import (
+            ApprovalStatus, PayrollPeriod, PayrollLine, PayrollSettings, SalaryRecord,
+        )
+
+        conf = PayrollSettings.load()
+        person = User.objects.create_user("bonus1", password="x", role=Role.TRANSLATOR)
+        SalaryRecord.objects.create(
+            user=person, amount=D("5000.00"), effective_from=date(2026, 1, 1)
+        )
+        period = PayrollPeriod.objects.create(year=2026, month=10)
+        line = PayrollLine.objects.create(
+            period=period, user=person,
+            base_salary=D("5000.00"), allowance=D("200.00"),
+            production_bonus=D("150.00"), overtime_bonus=D("75.00"),
+            deductions=D("0.00"),
+            discipline_bonus_earned=True, target_bonus_earned=False,
+        )
+        owner = User.objects.create_user("owner9", password="x", role=Role.ADMIN)
+        payroll.approve_bonuses(line, owner)
+        line.refresh_from_db()
+
+        expected = (
+            D("5000.00") + D("200.00") + D("150.00") + D("75.00") + conf.discipline_bonus
+        )
+        self.assertEqual(line.gross, expected)
+        self.assertEqual(line.net, expected)
+
+
+class SalaryChangeTests(TestCase):
+    def setUp(self):
+        from datetime import date
+        from decimal import Decimal as D
+
+        from .models import SalaryRecord
+
+        self.hr = User.objects.create_user("hr7", password="x", role=Role.HR)
+        self.owner = User.objects.create_user("owner10", password="x", role=Role.ADMIN)
+        self.person = User.objects.create_user("payme", password="x", role=Role.TRANSLATOR)
+        SalaryRecord.objects.create(
+            user=self.person, amount=D("5000.00"), effective_from=date(2026, 1, 1)
+        )
+        self.D = D
+        self.date = date
+
+    def test_hr_asks_and_only_the_owner_decides(self):
+        from . import employees
+
+        row = employees.request_salary_change(
+            self.person, new_amount=self.D("6000.00"),
+            effective_from=self.date(2026, 11, 1), reason="ترقية", actor=self.hr,
+        )
+        self.assertEqual(row.current_amount, self.D("5000.00"))
+        with self.assertRaises(employees.LifecycleError):
+            employees.decide_salary_change(row, self.hr, approve=True)
+
+    def test_approval_is_what_writes_the_salary_record(self):
+        from . import employees
+        from .models import SalaryRecord
+
+        row = employees.request_salary_change(
+            self.person, new_amount=self.D("6000.00"),
+            effective_from=self.date(2026, 11, 1), actor=self.hr,
+        )
+        self.assertEqual(
+            SalaryRecord.amount_on(self.person, self.date(2026, 11, 1)), self.D("5000.00")
+        )
+        employees.decide_salary_change(row, self.owner, approve=True)
+        row.refresh_from_db()
+        self.assertIsNotNone(row.salary_record)
+        self.assertEqual(
+            SalaryRecord.amount_on(self.person, self.date(2026, 11, 1)), self.D("6000.00")
+        )
+
+    def test_a_rejected_request_changes_nothing(self):
+        from . import employees
+        from .models import SalaryRecord
+
+        row = employees.request_salary_change(
+            self.person, new_amount=self.D("9000.00"),
+            effective_from=self.date(2026, 11, 1), actor=self.hr,
+        )
+        employees.decide_salary_change(row, self.owner, approve=False, note="بدري")
+        self.assertEqual(
+            SalaryRecord.amount_on(self.person, self.date(2026, 11, 1)), self.D("5000.00")
+        )
+
+    def test_two_requests_cannot_queue_for_one_person(self):
+        from . import employees
+
+        employees.request_salary_change(
+            self.person, new_amount=self.D("6000.00"),
+            effective_from=self.date(2026, 11, 1), actor=self.hr,
+        )
+        with self.assertRaises(employees.LifecycleError):
+            employees.request_salary_change(
+                self.person, new_amount=self.D("7000.00"),
+                effective_from=self.date(2026, 11, 1), actor=self.hr,
+            )
+
+
+class PerformanceTests(TestCase):
+    def setUp(self):
+        from datetime import date
+
+        from .models import Client, PayrollSettings
+
+        self.conf = PayrollSettings.load()
+        self.lead = User.objects.create_user("lead8", password="x", role=Role.TEAM_LEAD)
+        self.person = User.objects.create_user(
+            "perf1", password="x", role=Role.TRANSLATOR, team_lead=self.lead,
+            attendance_enabled=False,
+        )
+        self.client_obj = Client.objects.create(name="ACME")
+        self.date = date
+
+    def make_task(self, *, translated, deadline=None, score=None, words=1000):
+        from .models import Task, TaskStatus
+
+        task = Task.objects.create(
+            client=self.client_obj, title="Doc", translator=self.person,
+            team_lead=self.lead, status=TaskStatus.DELIVERED,
+            word_count=words, deadline=deadline, review_score=score,
+        )
+        Task.objects.filter(pk=task.pk).update(translated_at=translated)
+        task.refresh_from_db()
+        return task
+
+    def test_an_indicator_with_no_data_is_none_not_zero(self):
+        from . import performance
+
+        report = performance.for_month(self.person, 2026, 10)
+        self.assertIsNone(report["parts"]["deadline"]["score"])
+        self.assertIsNone(report["parts"]["quality"]["score"])
+        self.assertIsNone(report["parts"]["attendance"]["score"])
+
+    def test_the_overall_ignores_the_indicators_it_cannot_measure(self):
+        """A missing indicator must not drag the average toward zero."""
+        from . import performance
+        from .models import DayStatus, WorkDay
+
+        WorkDay.objects.create(
+            user=self.person, date=self.date(2026, 10, 5),
+            status=DayStatus.PRESENT, words=self.conf.monthly_target_words,
+        )
+        report = performance.for_month(self.person, 2026, 10)
+        self.assertEqual(report["parts"]["productivity"]["score"], 100)
+        # Productivity is the only reading, so it is the whole overall.
+        self.assertEqual(report["overall"], 100)
+
+    def test_deadlines_count_the_translation_not_the_delivery(self):
+        from . import performance
+
+        on_time = timezone.make_aware(timezone.datetime(2026, 10, 5, 12, 0))
+        late = timezone.make_aware(timezone.datetime(2026, 10, 6, 12, 0))
+        self.make_task(translated=on_time, deadline=on_time + timedelta(hours=2))
+        self.make_task(translated=late, deadline=late - timedelta(hours=2))
+
+        part = performance.deadlines(
+            self.person, self.date(2026, 10, 1), self.date(2026, 10, 31)
+        )
+        self.assertEqual(part["total"], 2)
+        self.assertEqual(part["late"], 1)
+        self.assertEqual(part["score"], 50)
+
+    def test_a_complaint_moves_the_quality_score(self):
+        from . import performance
+        from .models import ClientComplaint, ComplaintSeverity
+
+        translated = timezone.make_aware(timezone.datetime(2026, 10, 5, 12, 0))
+        self.make_task(translated=translated, score=9)
+        clean = performance.quality(
+            self.person, self.date(2026, 10, 1), self.date(2026, 10, 31)
+        )
+        self.assertEqual(clean["score"], 90)
+
+        ClientComplaint.objects.create(
+            translator=self.person, severity=ComplaintSeverity.HIGH,
+            summary="ترجمة ناقصة", happened_on=self.date(2026, 10, 6),
+        )
+        after = performance.quality(
+            self.person, self.date(2026, 10, 1), self.date(2026, 10, 31)
+        )
+        self.assertEqual(after["score"], 65)
+        self.assertEqual(after["complaints"], 1)
+
+    def test_sending_a_job_back_is_what_records_a_revision(self):
+        from . import performance, services
+        from .models import TaskStatus
+
+        translated = timezone.make_aware(timezone.datetime(2026, 10, 5, 12, 0))
+        task = self.make_task(translated=translated)
+        task.status = TaskStatus.UNDER_REVIEW
+        task.save()
+
+        self.assertTrue(services.send_back_for_revision(task, self.lead, "الصياغة"))
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.IN_PROGRESS)
+        self.assertEqual(task.revision_count, 1)
+        self.assertIsNone(task.reviewed_at)
+
+        report = performance.for_month(self.person, 2026, 10)
+        self.assertEqual(report["returned_projects"], 1)
+        self.assertEqual(report["revision_rate"], 100)
+
+    def test_only_the_team_leader_scores_a_review(self):
+        from . import services
+
+        translated = timezone.make_aware(timezone.datetime(2026, 10, 5, 12, 0))
+        task = self.make_task(translated=translated)
+        self.assertFalse(services.score_review(task, self.person, 9))
+        self.assertTrue(services.score_review(task, self.lead, 9, "كويس"))
+        task.refresh_from_db()
+        self.assertEqual(task.review_score, 9)
+
+    def test_a_score_outside_ten_is_refused(self):
+        from . import services
+
+        translated = timezone.make_aware(timezone.datetime(2026, 10, 5, 12, 0))
+        task = self.make_task(translated=translated)
+        self.assertFalse(services.score_review(task, self.lead, 11))
+        self.assertFalse(services.score_review(task, self.lead, "high"))
+
+    def test_a_weight_of_zero_drops_its_indicator_from_the_overall(self):
+        """The settings are what decide the mix - nothing here is hard-coded."""
+        from . import performance
+        from .models import DayStatus, WorkDay
+
+        WorkDay.objects.create(
+            user=self.person, date=self.date(2026, 10, 5),
+            status=DayStatus.PRESENT, words=self.conf.monthly_target_words,
+        )
+        translated = timezone.make_aware(timezone.datetime(2026, 10, 6, 12, 0))
+        self.make_task(translated=translated, score=5)  # quality = 50%
+
+        both = performance.for_month(self.person, 2026, 10)["overall"]
+        self.conf.weight_quality = 0
+        self.conf.save()
+        from .models import PayrollSettings
+        PayrollSettings._cached = None
+
+        only_productivity = performance.for_month(self.person, 2026, 10)["overall"]
+        self.assertLess(both, 100)
+        self.assertEqual(only_productivity, 100)
+
+
+class PayrollSettingsFormTests(TestCase):
+    """The six settings part 2 added are editable, and refuse the nonsense."""
+
+    def setUp(self):
+        from .models import PayrollSettings
+
+        self.conf = PayrollSettings.load()
+
+    def bound(self, **overrides):
+        """The settings form filled with the row as it stands, plus overrides."""
+        from .forms import PayrollSettingsForm
+
+        data = {}
+        for name in PayrollSettingsForm.Meta.fields:
+            value = getattr(self.conf, name)
+            if value is True:
+                data[name] = "on"
+            elif value is False:
+                continue  # an unticked checkbox is simply absent
+            else:
+                data[name] = value
+        data.update(overrides)
+        return PayrollSettingsForm(data, instance=self.conf)
+
+    def test_the_new_settings_are_on_the_form(self):
+        from .forms import PayrollSettingsForm
+
+        for name in (
+            "leave_needs_manager", "permission_max_minutes",
+            "weight_productivity", "weight_quality",
+            "weight_deadline", "weight_attendance",
+        ):
+            self.assertIn(name, PayrollSettingsForm(instance=self.conf).fields)
+
+    def test_an_unchanged_form_is_valid(self):
+        """The guard against a test that passes because everything fails."""
+        self.assertTrue(self.bound().is_valid(), self.bound().errors.as_text())
+
+    def test_a_permission_longer_than_the_working_day_is_refused(self):
+        form = self.bound(daily_hours=8, permission_max_minutes=600)
+        self.assertFalse(form.is_valid())
+        self.assertIn("permission_max_minutes", form.errors)
+
+    def test_every_weight_at_zero_is_refused(self):
+        form = self.bound(
+            weight_productivity=0, weight_quality=0,
+            weight_deadline=0, weight_attendance=0,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("weight_attendance", form.errors)
+
+    def test_a_sane_set_of_weights_saves(self):
+        form = self.bound(
+            weight_productivity=50, weight_quality=50,
+            weight_deadline=0, weight_attendance=0,
+            leave_needs_manager="on", permission_max_minutes=120,
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_text())
+        form.save()
+        self.conf.refresh_from_db()
+        self.assertTrue(self.conf.leave_needs_manager)
+        self.assertEqual(self.conf.weight_deadline, 0)
+
+
+class LifecyclePageTests(TestCase):
+    def setUp(self):
+        from .models import PayrollSettings, RecruitmentSettings
+
+        PayrollSettings.load()
+        RecruitmentSettings.load()
+        self.hr = User.objects.create_user("hr8", password="x", role=Role.HR)
+        self.owner = User.objects.create_user("owner11", password="x", role=Role.ADMIN)
+        self.translator = User.objects.create_user("tr8", password="x", role=Role.TRANSLATOR)
+
+    def test_everybody_reaches_their_own_leave_page(self):
+        self.client.force_login(self.translator)
+        self.assertEqual(self.client.get("/leave/").status_code, 200)
+
+    def test_hr_reaches_the_lifecycle_screens(self):
+        self.client.force_login(self.hr)
+        for path in (
+            "/hr/leave/", "/hr/probation/", "/hr/performance/",
+            "/hr/complaints/", "/hr/salary-requests/",
+        ):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_salary_plans_are_the_owner_s_alone(self):
+        self.client.force_login(self.hr)
+        self.assertEqual(self.client.get("/hr/salary-plans/").status_code, 403)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get("/hr/salary-plans/").status_code, 200)
+
+    def test_a_translator_reaches_none_of_the_hr_screens(self):
+        self.client.force_login(self.translator)
+        for path in ("/hr/leave/", "/hr/probation/", "/hr/performance/"):
+            self.assertEqual(self.client.get(path).status_code, 403, path)

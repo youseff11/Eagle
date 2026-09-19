@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Employees{% endblock %}
+{% block page_title %}<span data-ar="الموظفين" data-en="Employees">الموظفين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الموظفين" data-en="Employees">الموظفين</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <select class="input" name="department" onchange="this.form.submit()">
+      <option value="" data-ar="كل الأقسام" data-en="All departments">كل الأقسام</option>
+      {% for row in departments %}
+        <option value="{{ row.pk }}" {% if selected.department == row.pk|stringformat:"s" %}selected{% endif %}>{{ row.label }}</option>
+      {% endfor %}
+    </select>
+    <select class="input" name="status" onchange="this.form.submit()">
+      <option value="" data-ar="كل الحالات" data-en="All statuses">كل الحالات</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected.status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "users" %}
+    <h3 data-ar="السجل" data-en="The register">السجل</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الكود" data-en="Code">الكود</th>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="الدور" data-en="Role">الدور</th>
+          <th data-ar="القسم" data-en="Department">القسم</th>
+          <th data-ar="نوع التوظيف" data-en="Type">نوع التوظيف</th>
+          <th data-ar="تاريخ الانضمام" data-en="Joined">تاريخ الانضمام</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-ar-label="الكود" data-en-label="Code" class="mono">
+            <a href="{% url 'dashboard:hr_employee' row.pk %}">{{ row.employee_code|default:"—" }}</a>
+          </td>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ row.short_name }}</td>
+          <td data-ar-label="الدور" data-en-label="Role">{% role_badge row.role %}</td>
+          <td data-ar-label="القسم" data-en-label="Department" class="muted">{{ row.department.label|default:"—" }}</td>
+          <td data-ar-label="نوع التوظيف" data-en-label="Type">{% employment_badge row.employment_type %}</td>
+          <td data-ar-label="تاريخ الانضمام" data-en-label="Joined" class="mono muted">{{ row.joining_date|default:"—" }}</td>
+          <td data-ar-label="الحالة" data-en-label="Status">{% employment_status_badge row.employment_status %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="empty" data-ar="مفيش موظفين." data-en="Nobody yet.">مفيش موظفين.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

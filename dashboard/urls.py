@@ -92,6 +92,53 @@ urlpatterns = [
         name="hr_overtime_decide",
     ),
 
+    # -- HR / recruitment ---------------------------------------------------
+    path("hr/recruitment/", views.hr_recruitment, name="hr_recruitment"),
+    path("hr/recruitment/settings/", views.hr_recruitment_settings, name="hr_recruitment_settings"),
+    path("hr/vacancies/", views.hr_vacancies, name="hr_vacancies"),
+    path("hr/vacancies/<str:code>/", views.hr_vacancy, name="hr_vacancy"),
+    path(
+        "hr/vacancies/question/<int:pk>/delete/",
+        views.hr_vacancy_question_delete,
+        name="hr_vacancy_question_delete",
+    ),
+    path("hr/questions/", views.hr_questions, name="hr_questions"),
+    path("hr/departments/", views.hr_department_add, name="hr_department_add"),
+    path("hr/candidates/", views.hr_candidates, name="hr_candidates"),
+    path("hr/candidates/<str:code>/", views.hr_candidate, name="hr_candidate"),
+    path("hr/candidates/<str:code>/hire/", views.hr_hire, name="hr_hire"),
+    path("hr/interviews/<int:pk>/score/", views.hr_interview_score, name="hr_interview_score"),
+    path("hr/tests/<int:pk>/score/", views.hr_test_score, name="hr_test_score"),
+    path("reviewer/tests/", views.reviewer_tests, name="reviewer_tests"),
+    path("hr/approvals/", views.hr_approvals, name="hr_approvals"),
+    path(
+        "hr/approvals/<str:code>/<str:action>/",
+        views.hr_approval_decide,
+        name="hr_approval_decide",
+    ),
+    path("hr/employees/", views.hr_employees, name="hr_employees"),
+    path("hr/employees/<int:pk>/", views.hr_employee, name="hr_employee"),
+
+    # -- leave, probation, performance, pay ---------------------------------
+    path("leave/", views.my_leave, name="my_leave"),
+    path("leave/<int:pk>/cancel/", views.leave_cancel, name="leave_cancel"),
+    path("hr/leave/", views.hr_leave, name="hr_leave"),
+    path("hr/leave/<int:pk>/<str:action>/", views.leave_decide, name="leave_decide"),
+    path("hr/probation/", views.hr_probation, name="hr_probation"),
+    path("hr/probation/<int:pk>/decide/", views.probation_decide, name="probation_decide"),
+    path("hr/probation/open/<int:pk>/", views.probation_open, name="probation_open"),
+    path("hr/performance/", views.hr_performance, name="hr_performance"),
+    path("hr/complaints/", views.hr_complaints, name="hr_complaints"),
+    path("hr/complaints/<int:pk>/resolve/", views.complaint_resolve, name="complaint_resolve"),
+    path("hr/salary-plans/", views.hr_salary_plans, name="hr_salary_plans"),
+    path("hr/salary-plans/assign/<int:pk>/", views.assign_salary_plan, name="assign_salary_plan"),
+    path("hr/salary-requests/", views.hr_salary_requests, name="hr_salary_requests"),
+    path(
+        "hr/salary-requests/<int:pk>/<str:action>/",
+        views.salary_request_decide,
+        name="salary_request_decide",
+    ),
+
     # -- tasks --------------------------------------------------------------
     path("tasks/<str:code>/", views.task_detail, name="task_detail"),
     path("tasks/<str:code>/requirement/", views.task_add_requirement, name="task_requirement"),

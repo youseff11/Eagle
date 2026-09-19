@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Performance{% endblock %}
+{% block page_title %}<span data-ar="الأداء" data-en="Performance">الأداء</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الأداء" data-en="Performance">الأداء</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <input type="hidden" name="period" value="{{ year }}-{{ month }}">
+    <select class="input" name="user" onchange="this.form.submit()">
+      {% for candidate in people %}
+        <option value="{{ candidate.pk }}" {% if person and candidate.pk == person.pk %}selected{% endif %}>
+          {{ candidate.short_name }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% include "accounts/_month_picker.html" with picker_user=person.pk %}
+</div>
+
+{% if report %}
+  <div class="grid grid--main">
+    <div class="stack">
+      <div class="card">
+        <div class="card__head">
+          {% icon "target" %}
+          <h3 data-ar="المؤشرات" data-en="Indicators">المؤشرات</h3>
+          <div class="grow"></div>
+          <span class="muted"
+                data-ar="الأوزان من قواعد الحساب"
+                data-en="Weights come from the payroll rules">الأوزان من قواعد الحساب</span>
+        </div>
+
+        {% with p=report.parts.productivity %}
+          <div class="field">
+            <div class="row row--between">
+              <label data-ar="الإنتاجية" data-en="Productivity">الإنتاجية
+                <span class="muted mono">{{ report.weights.productivity }}%</span></label>
+              {% band_badge p.band %}
+            </div>
+            <div class="score-row">
+              {% score_bar p.score p.band %}
+              <span class="score-row__value mono">
+                {% if p.score is not None %}{{ p.score }}%{% else %}—{% endif %}
+              </span>
+            </div>
+            <small class="muted">
+              {% if p.score is not None %}
+                {{ p.words }} / {{ p.target }} <span data-ar="كلمة" data-en="words">كلمة</span>
+              {% else %}{{ p.reason }}{% endif %}
+            </small>
+          </div>
+        {% endwith %}
+
+        {% with p=report.parts.quality %}
+          <div class="field">
+            <div class="row row--between">
+              <label data-ar="الجودة" data-en="Quality">الجودة
+                <span class="muted mono">{{ report.weights.quality }}%</span></label>
+              {% band_badge p.band %}
+            </div>
+            <div class="score-row">
+              {% score_bar p.score p.band %}
+              <span class="score-row__value mono">
+                {% if p.score is not None %}{{ p.score }}%{% else %}—{% endif %}
+              </span>
+            </div>
+            <small class="muted">
+              {% if p.score is not None %}
+                <span data-ar="متوسط المراجع" data-en="Reviewer average">متوسط المراجع</span>
+                {{ p.reviewer_avg|default:"—" }} ·
+                {{ p.reviewed }} <span data-ar="متقيّم" data-en="marked">متقيّم</span> ·
+                {{ p.complaints }} <span data-ar="شكوى" data-en="complaints">شكوى</span>
+              {% else %}{{ p.reason }}{% endif %}
+            </small>
+          </div>
+        {% endwith %}
+
+        {% with p=report.parts.deadline %}
+          <div class="field">
+            <div class="row row--between">
+              <label data-ar="المواعيد" data-en="Deadlines">المواعيد
+                <span class="muted mono">{{ report.weights.deadline }}%</span></label>
+              {% band_badge p.band %}
+            </div>
+            <div class="score-row">
+              {% score_bar p.score p.band %}
+              <span class="score-row__value mono">
+                {% if p.score is not None %}{{ p.score }}%{% else %}—{% endif %}
+              </span>
+            </div>
+            <small class="muted">
+              {% if p.score is not None %}
+                {{ p.late }} <span data-ar="متأخر من" data-en="late of">متأخر من</span> {{ p.total }}
+              {% else %}{{ p.reason }}{% endif %}
+            </small>
+          </div>
+        {% endwith %}
+
+        {% with p=report.parts.attendance %}
+          <div class="field">
+            <div class="row row--between">
+              <label data-ar="الحضور" data-en="Attendance">الحضور
+                <span class="muted mono">{{ report.weights.attendance }}%</span></label>
+              {% band_badge p.band %}
+            </div>
+            <div class="score-row">
+              {% score_bar p.score p.band %}
+              <span class="score-row__value mono">
+                {% if p.score is not None %}{{ p.score }}%{% else %}—{% endif %}
+              </span>
+            </div>
+            <small class="muted">
+              {% if p.score is not None %}
+                {{ p.present }} / {{ p.scheduled }} <span data-ar="يوم" data-en="days">يوم</span> ·
+                {{ p.late_days }} <span data-ar="تأخير" data-en="late">تأخير</span>
+              {% else %}{{ p.reason }}{% endif %}
+            </small>
+          </div>
+        {% endwith %}
+      </div>
+
+      <div class="note note--info">
+        {% icon "info" %}
+        <div data-ar="المؤشر اللي مالوش بيانات بيقول «مابتتقاسش» ومابيدخلش في الإجمالي — بدل ما يتحسب صفر ويجرّ الرقم تحت."
+             data-en="An indicator with no data reads 'not measured' and stays out of the overall, instead of counting as zero and dragging it down.">
+          المؤشر اللي مالوش بيانات بيقول «مابتتقاسش» ومابيدخلش في الإجمالي — بدل ما يتحسب صفر.
+        </div>
+      </div>
+    </div>
+
+    <div class="sticky-side">
+      <div class="card">
+        <div class="card__head">
+          {% icon "chart" %}
+          <h3 data-ar="الإجمالي" data-en="Overall">الإجمالي</h3>
+        </div>
+        <div class="kpi">
+          <div class="kpi__label" data-ar="الأداء العام" data-en="Overall performance">الأداء العام</div>
+          <div class="kpi__value mono">
+            {% if report.overall is not None %}{{ report.overall }}%{% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="row row--tight mt">{% band_badge report.band %}</div>
+      </div>
+
+      <div class="card card--flat">
+        <div class="card__head">
+          {% icon "layers" %}
+          <h3 data-ar="الشهر في أرقام" data-en="The month">الشهر في أرقام</h3>
+        </div>
+        <div class="kv"><span data-ar="عدد المشاريع" data-en="Projects">عدد المشاريع</span>
+          <b class="mono">{{ report.projects }}</b></div>
+        <div class="kv"><span data-ar="رجعت للتعديل" data-en="Sent back">رجعت للتعديل</span>
+          <b class="mono">{{ report.returned_projects }}</b></div>
+        <div class="kv"><span data-ar="نسبة المراجعة المعادة" data-en="Revision rate">نسبة المراجعة المعادة</span>
+          <b class="mono">
+            {% if report.revision_rate is not None %}{{ report.revision_rate }}%{% else %}—{% endif %}
+          </b></div>
+        <div class="kv"><span data-ar="شكاوى العملاء" data-en="Client complaints">شكاوى العملاء</span>
+          <b class="mono">{{ report.parts.quality.complaints|default:0 }}</b></div>
+        <div class="kv"><span data-ar="مخالفات جودة معتمدة" data-en="Quality violations">مخالفات جودة معتمدة</span>
+          <b class="mono">{{ report.parts.quality.violations|default:0 }}</b></div>
+      </div>
+
+      <a class="btn btn--sm btn--ghost btn--block" href="{% url 'dashboard:hr_employee' person.pk %}">
+        {% icon "user" "ic--sm" %}<span data-ar="ملف الموظف" data-en="Employee file">ملف الموظف</span>
+      </a>
+    </div>
+  </div>
+{% else %}
+  <div class="empty" data-ar="اختار موظف." data-en="Pick somebody.">اختار موظف.</div>
+{% endif %}
+{% endblock %}

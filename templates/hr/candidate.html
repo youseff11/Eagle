@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}{{ candidate.code }}{% endblock %}
+{% block page_title %}<span class="mono">{{ candidate.code }}</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ candidate.display_name }}</h1>
+  {% candidate_badge candidate.status %}
+  {% if candidate.identity_revealed %}
+    <span class="badge badge--info" data-ar="يعرف اسم الشركة" data-en="Knows who we are">يعرف اسم الشركة</span>
+  {% else %}
+    <span class="badge" data-ar="مجهول الجهة" data-en="Anonymous">مجهول الجهة</span>
+  {% endif %}
+  <div class="grow"></div>
+  {% if candidate.status == 'approved' %}
+    <a class="btn btn--primary btn--sm" href="{% url 'dashboard:hr_hire' candidate.code %}">
+      {% icon "user-check" "ic--sm" %}<span data-ar="حوّله لموظف" data-en="Make an employee">حوّله لموظف</span>
+    </a>
+  {% endif %}
+  {% if candidate.hired_user %}
+    <a class="btn btn--sm" href="{% url 'dashboard:hr_employee' candidate.hired_user.pk %}">
+      {% icon "user" "ic--sm" %}<span data-ar="ملف الموظف" data-en="Employee file">ملف الموظف</span>
+    </a>
+  {% endif %}
+</div>
+
+{% if not privacy_armed %}
+  <div class="note note--high">
+    {% icon "alert" %}
+    <div data-ar="قاعدة إخفاء الهوية مش مفعّلة — أي رسالة تبعتها ممكن تكشف اسم الشركة."
+         data-en="The identity rule is not armed, so anything you send could reveal the company.">
+      قاعدة إخفاء الهوية مش مفعّلة — أي رسالة تبعتها ممكن تكشف اسم الشركة.
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="stack">
+
+    {# ---- what the bot collected -------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "message" %}
+        <h3 data-ar="إجابات المرشح" data-en="What the candidate answered">إجابات المرشح</h3>
+        <div class="grow"></div>
+        {% if candidate.vacancy %}
+          <a class="chip mono" href="{% url 'dashboard:hr_vacancy' candidate.vacancy.code %}">
+            {{ candidate.vacancy.code }}
+          </a>
+        {% endif %}
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="السؤال" data-en="Question">السؤال</th>
+              <th data-ar="الإجابة" data-en="Answer">الإجابة</th>
+              <th data-ar="الوقت" data-en="At">الوقت</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in answers %}
+            <tr>
+              <td data-ar-label="السؤال" data-en-label="Question">{{ row.question.text }}</td>
+              <td data-ar-label="الإجابة" data-en-label="Answer">
+                {{ row.value|default:"—" }}
+                {% if row.file %}
+                  <a class="chip" href="{{ row.file.url }}" target="_blank" rel="noopener">
+                    {% icon "paperclip" "ic--sm" %}{{ row.file_name|default:"ملف" }}
+                  </a>
+                {% endif %}
+              </td>
+              <td data-ar-label="الوقت" data-en-label="At" class="mono muted">{{ row.answered_at|date:"m-d H:i" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="empty"
+                    data-ar="المرشح ده اتسجل بالإيد — مفيش إجابات بوت."
+                    data-en="Entered by hand: there are no bot answers.">المرشح ده اتسجل بالإيد.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---- interviews --------------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="المقابلات" data-en="Interviews">المقابلات</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="الموعد" data-en="When">الموعد</th>
+              <th data-ar="النوع" data-en="Type">النوع</th>
+              <th data-ar="المُقابِل" data-en="Interviewer">المُقابِل</th>
+              <th data-ar="الدرجة" data-en="Score">الدرجة</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in interviews %}
+            <tr>
+              <td data-ar-label="الموعد" data-en-label="When" class="mono">{{ row.scheduled_at|date:"Y-m-d H:i" }}</td>
+              <td data-ar-label="النوع" data-en-label="Type" class="muted">{{ row.get_kind_display }}</td>
+              <td data-ar-label="المُقابِل" data-en-label="Interviewer">{{ row.interviewer.short_name|default:"—" }}</td>
+              <td data-ar-label="الدرجة" data-en-label="Score" class="mono">
+                {% if row.is_evaluated %}{{ row.total_score }} / {{ row.max_score }}
+                {% else %}<span class="muted">—</span>{% endif %}
+              </td>
+              <td>
+                <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_interview_score' row.pk %}">
+                  {% icon "star" "ic--sm" %}<span data-ar="قيّم" data-en="Score">قيّم</span>
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="مفيش مقابلات."
+                    data-en="No interviews.">مفيش مقابلات.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---- tests -------------------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "file" %}
+        <h3 data-ar="الاختبارات" data-en="Tests">الاختبارات</h3>
+      </div>
+      <div class="table-wrap table-wrap--cards">
+        <table class="table table--cards">
+          <thead>
+            <tr>
+              <th data-ar="الاختبار" data-en="Test">الاختبار</th>
+              <th data-ar="المراجع" data-en="Reviewer">المراجع</th>
+              <th data-ar="التسليم" data-en="Submitted">التسليم</th>
+              <th data-ar="الدرجة" data-en="Score">الدرجة</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in tests %}
+            <tr>
+              <td data-ar-label="الاختبار" data-en-label="Test">
+                {{ row.title|default:"—" }}
+                {% if row.assignment %}
+                  <a class="chip" href="{{ row.assignment.url }}" target="_blank" rel="noopener">
+                    {% icon "paperclip" "ic--sm" %}<span data-ar="الملف" data-en="File">الملف</span>
+                  </a>
+                {% endif %}
+                {% if row.is_overdue %}
+                  <span class="badge badge--dead" data-ar="فات الموعد" data-en="Overdue">فات الموعد</span>
+                {% endif %}
+              </td>
+              <td data-ar-label="المراجع" data-en-label="Reviewer">{{ row.reviewer.short_name|default:"—" }}</td>
+              <td data-ar-label="التسليم" data-en-label="Submitted" class="mono muted">
+                {{ row.submitted_at|date:"m-d H:i"|default:"—" }}
+              </td>
+              <td data-ar-label="الدرجة" data-en-label="Score" class="mono">
+                {% if row.is_marked %}{{ row.total_score }} / {{ row.max_score }}
+                {% else %}<span class="muted">—</span>{% endif %}
+              </td>
+              <td>
+                {% if user.can_review_tests %}
+                  <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_test_score' row.pk %}">
+                    {% icon "check-circle" "ic--sm" %}<span data-ar="صحّح" data-en="Mark">صحّح</span>
+                  </a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="empty"
+                    data-ar="مفيش اختبارات."
+                    data-en="No tests.">مفيش اختبارات.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+
+    {# ---- move through the pipeline ------------------------------------ #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "arrow-right" %}
+        <h3 data-ar="الحالة" data-en="Status">الحالة</h3>
+      </div>
+      {% if next_statuses %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="status">
+          <div class="field">
+            <select class="input" name="status">
+              {% for value in next_statuses %}
+                <option value="{{ value }}">{{ status_labels|dict_get:value }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <input class="input" type="text" name="reason" placeholder="سبب أو ملاحظة">
+          </div>
+          <button class="btn btn--primary btn--block" type="submit">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="انقل" data-en="Move">انقل</span>
+          </button>
+        </form>
+      {% else %}
+        <div class="muted"
+             data-ar="مفيش نقلة متاحة من الحالة دي."
+             data-en="No move is available from here.">مفيش نقلة متاحة من الحالة دي.</div>
+      {% endif %}
+      {% if candidate.status == 'owner_approval' %}
+        <div class="note note--warn mt">
+          {% icon "user-check" %}
+          <div data-ar="مستني قرار المالك — التعيين مش بيحصل تلقائي."
+               data-en="Waiting for the owner. Hiring is never automatic.">
+            مستني قرار المالك — التعيين مش بيحصل تلقائي.
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    {# ---- the privacy switch ------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "shield" %}
+        <h3 data-ar="هوية الشركة" data-en="Company identity">هوية الشركة</h3>
+      </div>
+      {% if candidate.identity_revealed %}
+        <div class="kv">
+          <span data-ar="اتكشفت" data-en="Revealed">اتكشفت</span>
+          <b class="mono">{{ candidate.identity_revealed_at|date:"Y-m-d H:i" }}</b>
+        </div>
+        <div class="kv">
+          <span data-ar="مين كشفها" data-en="By">مين كشفها</span>
+          <b>{{ candidate.identity_revealed_by.short_name|default:"—" }}</b>
+        </div>
+      {% else %}
+        <p class="muted"
+           data-ar="كل رسالة بتروح للمرشح ده بيتشال منها اسم الشركة تلقائيًا. الزرار ده بيوقف ده — ومتسجل في سجل النشاط."
+           data-en="Every message to this candidate is scrubbed of the company's names. This button stops that, and the change is logged.">
+          كل رسالة بتروح للمرشح ده بيتشال منها اسم الشركة تلقائيًا. الزرار ده بيوقف ده، ومتسجل في سجل النشاط.
+        </p>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reveal">
+          <div class="field">
+            <input class="input" type="text" name="reason" placeholder="السبب (اختياري)">
+          </div>
+          <button class="btn btn--danger btn--block" type="submit">
+            {% icon "eye" "ic--sm" %}<span data-ar="اكشف الهوية" data-en="Reveal">اكشف الهوية</span>
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    {# ---- write to the candidate --------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "send" %}
+        <h3 data-ar="ابعتله رسالة" data-en="Message the candidate">ابعتله رسالة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="message">
+        <div class="field">{{ message_form.body }}{{ message_form.body.errors }}</div>
+        <button class="btn btn--block" type="submit">
+          {% icon "send" "ic--sm" %}<span data-ar="ابعت" data-en="Send">ابعت</span>
+        </button>
+        <small class="muted"
+               data-ar="بتروح من رقم التوظيف، وبتعدي على نفس فلتر إخفاء الهوية."
+               data-en="Goes out from the recruitment number, through the same identity filter.">
+          بتروح من رقم التوظيف وبتعدي على نفس فلتر إخفاء الهوية.
+        </small>
+      </form>
+    </div>
+
+    {# ---- schedule an interview / set a test ---------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="حدّد مقابلة" data-en="Schedule an interview">حدّد مقابلة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="interview">
+        <div class="field">
+          <label data-ar="الموعد" data-en="When">الموعد</label>
+          {{ interview_form.scheduled_at }}{{ interview_form.scheduled_at.errors }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="النوع" data-en="Type">النوع</label>
+            {{ interview_form.kind }}
+          </div>
+          <div class="field">
+            <label data-ar="المُقابِل" data-en="Interviewer">المُقابِل</label>
+            {{ interview_form.interviewer }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="لينك الاجتماع" data-en="Meeting link">لينك الاجتماع</label>
+          {{ interview_form.meeting_link }}
+        </div>
+        <button class="btn btn--block" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="سجّل" data-en="Add">سجّل</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "file" %}
+        <h3 data-ar="اضبط اختبار" data-en="Set a test">اضبط اختبار</h3>
+      </div>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="test">
+        <div class="field">
+          <label data-ar="العنوان" data-en="Title">العنوان</label>
+          {{ test_form.title }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="القسم" data-en="Department">القسم</label>
+            {{ test_form.department }}
+          </div>
+          <div class="field">
+            <label data-ar="زوج اللغات" data-en="Language pair">زوج اللغات</label>
+            {{ test_form.language_pair }}
+          </div>
+          <div class="field">
+            <label data-ar="عدد الكلمات" data-en="Word count">عدد الكلمات</label>
+            {{ test_form.word_count }}
+          </div>
+          <div class="field">
+            <label data-ar="المراجع" data-en="Reviewer">المراجع</label>
+            {{ test_form.reviewer }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="ملف الاختبار" data-en="Test file">ملف الاختبار</label>
+          {{ test_form.assignment }}
+        </div>
+        <div class="field">
+          <label data-ar="آخر موعد" data-en="Deadline">آخر موعد</label>
+          {{ test_form.deadline }}
+        </div>
+        <button class="btn btn--block" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="سجّل" data-en="Add">سجّل</span>
+        </button>
+      </form>
+    </div>
+
+    {# ---- the profile itself -------------------------------------------- #}
+    <div class="card">
+      <div class="card__head">
+        {% icon "contact" %}
+        <h3 data-ar="ملف المرشح" data-en="Candidate profile">ملف المرشح</h3>
+      </div>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save">
+        <div class="field">
+          <label data-ar="الاسم" data-en="Name">الاسم</label>
+          {{ form.full_name }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الموبايل" data-en="Phone">الموبايل</label>
+            {{ form.phone }}
+          </div>
+          <div class="field">
+            <label data-ar="الإيميل" data-en="E-mail">الإيميل</label>
+            {{ form.email }}
+          </div>
+          <div class="field">
+            <label data-ar="الخبرة" data-en="Experience">الخبرة</label>
+            {{ form.experience_years }}
+          </div>
+          <div class="field">
+            <label data-ar="اللغات" data-en="Languages">اللغات</label>
+            {{ form.languages }}
+          </div>
+          <div class="field">
+            <label data-ar="الراتب المتوقع" data-en="Expected salary">الراتب المتوقع</label>
+            {{ form.expected_salary }}
+          </div>
+          <div class="field">
+            <label data-ar="الشيفت" data-en="Shift">الشيفت</label>
+            {{ form.shift_choice }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="الـCV" data-en="CV">الـCV</label>
+          {% if candidate.cv %}
+            <a class="chip" href="{{ candidate.cv.url }}" target="_blank" rel="noopener">
+              {% icon "paperclip" "ic--sm" %}{{ candidate.cv_name|default:"CV" }}
+            </a>
+          {% endif %}
+          {{ form.cv }}
+        </div>
+        <div class="field">
+          <label data-ar="ملاحظات HR" data-en="HR notes">ملاحظات HR</label>
+          {{ form.hr_notes }}
+        </div>
+        <div class="field">
+          <label data-ar="توصية HR" data-en="HR recommendation">توصية HR</label>
+          {{ form.hr_recommendation }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -6,7 +6,7 @@ from django.contrib import messages as flash
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -14,17 +14,32 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import attendance, payroll, services, wordcount
+from . import attendance, employees, payroll, performance, recruitment, services, wordcount
 from .forms import (
     AICheckForm,
     AttendanceEditForm,
+    CandidateForm,
+    ClientComplaintForm,
+    CandidateMessageForm,
+    CandidateTestForm,
     ClientForm,
+    DepartmentForm,
+    HireForm,
+    InterviewForm,
+    InterviewScoreForm,
+    LeaveDecisionForm,
+    LeaveRequestForm,
+    ProbationDecisionForm,
     OfficeLocationForm,
     PayrollSettingsForm,
     ProductionTierForm,
     RequirementForm,
     SalaryRecordForm,
     ScheduleOverrideForm,
+    RecruitmentQuestionForm,
+    RecruitmentSettingsForm,
+    SalaryChangeRequestForm,
+    SalaryPlanForm,
     SettingsForm,
     ShiftForm,
     ShiftTemplateForm,
@@ -32,6 +47,8 @@ from .forms import (
     StaffCreateForm,
     StaffEditForm,
     TaskForm,
+    TestScoreForm,
+    VacancyForm,
     ViolationForm,
     WorkDayForm,
 )
@@ -43,10 +60,20 @@ from .models import (
     AppSettings,
     AssignmentStatus,
     AuthorizedDevice,
+    Candidate,
+    CandidateSource,
+    CandidateStatus,
+    CandidateTest,
     ChatAttachment,
+    ClientComplaint,
     ChatRoom,
     Client,
     DayStatus,
+    Department,
+    EmploymentStatus,
+    Interview,
+    LeaveRequest,
+    LeaveStatus,
     InboundMessage,
     Notification,
     OfficeLocation,
@@ -54,9 +81,16 @@ from .models import (
     PayrollLine,
     PayrollPeriod,
     PayrollSettings,
+    ProbationOutcome,
+    ProbationReview,
     ProductionTier,
+    RecruitmentQuestion,
+    RecruitmentSettings,
     Role,
     RoomKind,
+    SalaryChangeRequest,
+    SalaryPlan,
+    SalaryRecord,
     ScheduleOverride,
     Shift,
     ShiftTemplate,
@@ -64,12 +98,23 @@ from .models import (
     TaskStatus,
     TierScale,
     User,
+    Vacancy,
+    VacancyQuestion,
+    VacancyStatus,
     Violation,
     WordCountState,
     WorkDay,
     WorkMode,
 )
-from .permissions import admin_only, hr_required, role_required
+from .permissions import (
+    accounting_only,
+    admin_only,
+    hr_required,
+    owner_required,
+    recruit_required,
+    reviewer_required,
+    role_required,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +158,12 @@ def home(request):
         return redirect("dashboard:admin_overview")
     if user.is_operation:
         return redirect("dashboard:ops_inbox")
+    if user.is_hr:
+        return redirect("dashboard:hr_recruitment")
+    if user.is_reviewer:
+        return redirect("dashboard:reviewer_tests")
+    if user.is_accounting:
+        return redirect("dashboard:accounts_overview")
     if user.is_team_lead:
         return redirect("dashboard:lead_home")
     return redirect("dashboard:translator_home")
@@ -813,7 +864,7 @@ def _requested_month(request):
     return year, month
 
 
-@admin_only
+@accounting_only
 def accounts_overview(request):
     year, month = _requested_month(request)
     period = PayrollPeriod.objects.filter(year=year, month=month).first()
@@ -847,7 +898,7 @@ def accounts_overview(request):
     })
 
 
-@admin_only
+@accounting_only
 @require_POST
 def accounts_recalculate(request):
     year, month = _requested_month(request)
@@ -859,7 +910,7 @@ def accounts_recalculate(request):
     return redirect(f"{reverse('dashboard:accounts_overview')}?year={year}&month={month}")
 
 
-@admin_only
+@accounting_only
 @require_POST
 def accounts_period_approve(request, pk):
     period = get_object_or_404(PayrollPeriod, pk=pk)
@@ -890,7 +941,7 @@ def accounts_line(request, pk):
     })
 
 
-@admin_only
+@accounting_only
 @require_POST
 def accounts_line_bonus(request, pk):
     line = get_object_or_404(PayrollLine.objects.select_related("period"), pk=pk)
@@ -902,7 +953,7 @@ def accounts_line_bonus(request, pk):
     return redirect("dashboard:accounts_line", pk=pk)
 
 
-@admin_only
+@accounting_only
 def accounts_attendance(request):
     year, month = _requested_month(request)
     first_day, last_day = payroll.month_bounds(year, month)
@@ -959,7 +1010,7 @@ def accounts_attendance(request):
     })
 
 
-@admin_only
+@accounting_only
 def accounts_violations(request):
     form = ViolationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -982,7 +1033,7 @@ def accounts_violations(request):
     })
 
 
-@admin_only
+@accounting_only
 @require_POST
 def accounts_violation_decide(request, pk, action):
     row = get_object_or_404(Violation, pk=pk)
@@ -1037,7 +1088,7 @@ def accounts_tier_delete(request, pk):
     return redirect("dashboard:accounts_rules")
 
 
-@admin_only
+@accounting_only
 def accounts_salary(request, pk):
     person = get_object_or_404(User, pk=pk)
     form = SalaryRecordForm(request.POST or None)
@@ -1450,3 +1501,769 @@ def hr_overtime_decide(request, pk, action):
         request.user, f"attendance.overtime.{action}", f"{claim.user.username} {claim.date}"
     )
     return redirect(request.POST.get("next") or "dashboard:hr_overtime")
+
+
+# ---------------------------------------------------------------------------
+# HR / recruitment
+#
+# Every screen here obeys one rule the spec insists on: nothing the candidate
+# reads carries the company's name until HR has deliberately revealed it. The
+# enforcement is in `recruitment.outbound_text`, not in these views - a rule
+# that lives in a template is a rule with a hole in it.
+# ---------------------------------------------------------------------------
+
+@recruit_required
+def hr_recruitment(request):
+    """Section 26, the pipeline at a glance."""
+    conf = RecruitmentSettings.load()
+    return render(request, "hr/recruitment.html", {
+        "conf": conf,
+        "counts": recruitment.dashboard_counts(),
+        "recent": Candidate.objects.select_related("vacancy")[:15],
+        "today_interviews": Interview.objects.filter(
+            scheduled_at__date=timezone.localdate()
+        ).select_related("candidate", "interviewer"),
+        "waiting_owner": Candidate.objects.filter(
+            status=CandidateStatus.OWNER_APPROVAL
+        ).select_related("vacancy")[:10],
+        "recruit_number": AppSettings.load().recruit_number_display,
+        # If nothing is configured to redact, section 3 is not being enforced
+        # and the screen should say so rather than imply it is.
+        "privacy_armed": bool(conf.term_list),
+    })
+
+
+@recruit_required
+def hr_vacancies(request):
+    form = VacancyForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        row.created_by = request.user
+        row.save()
+        form.save_m2m()
+        services.log(request.user, "recruitment.vacancy.create", row.code, row.title)
+        flash.success(request, "اتسجلت")
+        return redirect("dashboard:hr_vacancy", code=row.code)
+
+    rows = Vacancy.objects.select_related("department").annotate(
+        applicants=Count("candidates")
+    )
+    status = request.GET.get("status")
+    if status:
+        rows = rows.filter(status=status)
+    return render(request, "hr/vacancies.html", {
+        "form": form,
+        "rows": rows,
+        "statuses": VacancyStatus.choices,
+        "selected": request.GET,
+    })
+
+
+@recruit_required
+def hr_vacancy(request, code):
+    """One vacancy: its details, and the questions the bot will ask for it."""
+    vacancy = get_object_or_404(Vacancy.objects.select_related("department"), code=code)
+    form = VacancyForm(request.POST or None, instance=vacancy)
+    action = request.POST.get("action") if request.method == "POST" else ""
+
+    if action == "save" and form.is_valid():
+        form.save()
+        services.log(request.user, "recruitment.vacancy.update", vacancy.code)
+        flash.success(request, "اتحفظت")
+        return redirect("dashboard:hr_vacancy", code=code)
+
+    if action == "add_question":
+        question = RecruitmentQuestion.objects.filter(
+            pk=request.POST.get("question"), is_active=True
+        ).first()
+        if question is not None:
+            last = vacancy.question_links.count()
+            VacancyQuestion.objects.get_or_create(
+                vacancy=vacancy, question=question,
+                defaults={"order": last + 1, "is_required": True},
+            )
+            services.log(request.user, "recruitment.vacancy.question", vacancy.code)
+        return redirect("dashboard:hr_vacancy", code=code)
+
+    if action == "order":
+        # One POST carries the whole list, so a reorder is a single save.
+        for link in vacancy.question_links.all():
+            raw = request.POST.get(f"order_{link.pk}")
+            if raw and raw.isdigit():
+                link.order = int(raw)
+            link.is_required = request.POST.get(f"required_{link.pk}") == "1"
+            link.save(update_fields=["order", "is_required"])
+        flash.success(request, "اتحفظ الترتيب")
+        return redirect("dashboard:hr_vacancy", code=code)
+
+    chosen = vacancy.question_links.values_list("question_id", flat=True)
+    pool = RecruitmentQuestion.objects.filter(is_active=True).exclude(pk__in=chosen)
+    if vacancy.department_id:
+        # The department narrows the list; it never dictates it (section 11).
+        pool = pool.filter(
+            Q(department_id=vacancy.department_id) | Q(department__isnull=True)
+        )
+    return render(request, "hr/vacancy.html", {
+        "vacancy": vacancy,
+        "form": form,
+        "links": vacancy.questions_in_order(),
+        "pool": pool.select_related("department"),
+        "candidates": vacancy.candidates.all()[:30],
+    })
+
+
+@recruit_required
+@require_POST
+def hr_vacancy_question_delete(request, pk):
+    link = get_object_or_404(VacancyQuestion.objects.select_related("vacancy"), pk=pk)
+    code = link.vacancy.code
+    link.delete()
+    services.log(request.user, "recruitment.vacancy.question.remove", code)
+    return redirect("dashboard:hr_vacancy", code=code)
+
+
+@recruit_required
+def hr_questions(request):
+    """The central bank. HR writes the questions; the code never does."""
+    editing = RecruitmentQuestion.objects.filter(pk=request.GET.get("edit")).first()
+    form = RecruitmentQuestionForm(request.POST or None, instance=editing)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        if not row.pk:
+            row.created_by = request.user
+        row.save()
+        services.log(request.user, "recruitment.question.save", str(row.pk), row.text[:80])
+        flash.success(request, "اتحفظ")
+        return redirect("dashboard:hr_questions")
+
+    rows = RecruitmentQuestion.objects.select_related("department")
+    if request.GET.get("department"):
+        rows = rows.filter(department_id=request.GET["department"])
+    return render(request, "hr/questions.html", {
+        "form": form,
+        "editing": editing,
+        "rows": rows,
+        "departments": Department.objects.filter(is_active=True),
+        "department_form": DepartmentForm(),
+        "selected": request.GET,
+    })
+
+
+@recruit_required
+@require_POST
+def hr_department_add(request):
+    form = DepartmentForm(request.POST)
+    if form.is_valid():
+        form.save()
+        services.log(request.user, "recruitment.department.add", form.cleaned_data["name"])
+        flash.success(request, "اتسجل")
+    else:
+        flash.error(request, "القسم مش مظبوط.")
+    return redirect("dashboard:hr_questions")
+
+
+@recruit_required
+def hr_candidates(request):
+    rows = Candidate.objects.select_related("vacancy", "department")
+    for field in ("status", "source"):
+        if request.GET.get(field):
+            rows = rows.filter(**{field: request.GET[field]})
+    if request.GET.get("vacancy"):
+        rows = rows.filter(vacancy__code=request.GET["vacancy"])
+    query = (request.GET.get("q") or "").strip()
+    if query:
+        rows = rows.filter(
+            Q(full_name__icontains=query) | Q(phone__icontains=query)
+            | Q(code__icontains=query) | Q(email__icontains=query)
+        )
+    return render(request, "hr/candidates.html", {
+        "rows": rows[:300],
+        "statuses": CandidateStatus.choices,
+        "sources": CandidateSource.choices,
+        "vacancies": Vacancy.objects.all(),
+        "selected": request.GET,
+        "counts": recruitment.dashboard_counts(),
+    })
+
+
+@recruit_required
+def hr_candidate(request, code):
+    """The whole application on one page, plus every action HR can take."""
+    candidate = get_object_or_404(
+        Candidate.objects.select_related("vacancy", "department", "hired_user"), code=code
+    )
+    form = CandidateForm(request.POST or None, request.FILES or None, instance=candidate)
+    interview_form = InterviewForm()
+    test_form = CandidateTestForm()
+    message_form = CandidateMessageForm()
+    action = request.POST.get("action") if request.method == "POST" else ""
+
+    if action == "save" and form.is_valid():
+        form.save()
+        services.log(request.user, "recruitment.candidate.update", candidate.code)
+        flash.success(request, "اتحفظ")
+        return redirect("dashboard:hr_candidate", code=code)
+
+    if action == "status":
+        try:
+            recruitment.move_status(
+                candidate, request.POST.get("status", ""), request.user,
+                request.POST.get("reason", ""),
+            )
+        except recruitment.PipelineError as refused:
+            flash.error(request, refused.ar)
+        else:
+            flash.success(request, "اتغيرت الحالة")
+        return redirect("dashboard:hr_candidate", code=code)
+
+    if action == "reveal":
+        recruitment.reveal_identity(
+            candidate, request.user, request.POST.get("reason", "")
+        )
+        flash.success(request, "الهوية اتكشفت للمرشح ده")
+        return redirect("dashboard:hr_candidate", code=code)
+
+    if action == "interview":
+        interview_form = InterviewForm(request.POST)
+        if interview_form.is_valid():
+            row = interview_form.save(commit=False)
+            row.candidate = candidate
+            row.created_by = request.user
+            row.save()
+            services.log(request.user, "recruitment.interview.schedule", candidate.code)
+            flash.success(request, "المقابلة اتسجلت")
+            return redirect("dashboard:hr_candidate", code=code)
+
+    if action == "test":
+        test_form = CandidateTestForm(request.POST, request.FILES)
+        if test_form.is_valid():
+            row = test_form.save(commit=False)
+            row.candidate = candidate
+            row.department = row.department or candidate.department
+            row.created_by = request.user
+            if row.assignment:
+                row.assignment_name = row.assignment.name[:200]
+            row.save()
+            services.log(request.user, "recruitment.test.assign", candidate.code)
+            flash.success(request, "الاختبار اتسجل")
+            return redirect("dashboard:hr_candidate", code=code)
+
+    if action == "message":
+        message_form = CandidateMessageForm(request.POST)
+        if message_form.is_valid():
+            ok, error = recruitment.send_to_candidate(
+                candidate, message_form.cleaned_data["body"]
+            )
+            if ok:
+                services.log(request.user, "recruitment.message", candidate.code)
+                flash.success(request, "الرسالة اتبعتت")
+            else:
+                flash.error(request, f"مابعتتش: {error}")
+            return redirect("dashboard:hr_candidate", code=code)
+
+    conf = RecruitmentSettings.load()
+    return render(request, "hr/candidate.html", {
+        "candidate": candidate,
+        "form": form,
+        "interview_form": interview_form,
+        "test_form": test_form,
+        "message_form": message_form,
+        "answers": candidate.answers.select_related("question").all(),
+        "interviews": candidate.interviews.select_related("interviewer").all(),
+        "tests": candidate.tests.select_related("reviewer").all(),
+        "sessions": candidate.sessions.all()[:3],
+        "next_statuses": recruitment.ALLOWED_MOVES.get(candidate.status, ()),
+        "status_labels": dict(CandidateStatus.choices),
+        "conf": conf,
+        "privacy_armed": bool(conf.term_list),
+    })
+
+
+@recruit_required
+def hr_interview_score(request, pk):
+    interview = get_object_or_404(
+        Interview.objects.select_related("candidate"), pk=pk
+    )
+    form = InterviewScoreForm(request.POST or None, instance=interview)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        row.evaluated_at = timezone.now()
+        row.evaluated_by = request.user
+        row.save()
+        services.log(
+            request.user, "recruitment.interview.score",
+            interview.candidate.code, f"{row.total_score}/{row.max_score}",
+        )
+        flash.success(request, "التقييم اتسجل")
+        return redirect("dashboard:hr_candidate", code=interview.candidate.code)
+
+    return render(request, "hr/interview_score.html", {
+        "interview": interview,
+        "form": form,
+        "fields": [(name, form[name]) for name in Interview.SCORE_FIELDS],
+    })
+
+
+@reviewer_required
+def reviewer_tests(request):
+    """The reviewer's own queue - tests and nothing else (section 24)."""
+    mine = CandidateTest.objects.select_related("candidate", "department")
+    if not request.user.is_admin_role:
+        mine = mine.filter(Q(reviewer=request.user) | Q(reviewer__isnull=True))
+    return render(request, "hr/reviewer_tests.html", {
+        "pending": mine.filter(marked_at__isnull=True),
+        "done": mine.filter(marked_at__isnull=False)[:40],
+    })
+
+
+@reviewer_required
+def hr_test_score(request, pk):
+    test = get_object_or_404(CandidateTest.objects.select_related("candidate"), pk=pk)
+    form = TestScoreForm(request.POST or None, request.FILES or None, instance=test)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        if row.submission and not row.submitted_at:
+            row.submitted_at = timezone.now()
+            row.submission_name = row.submission.name[:200]
+        row.marked_at = timezone.now()
+        row.reviewer = row.reviewer or request.user
+        row.save()
+        services.log(
+            request.user, "recruitment.test.score", test.candidate.code,
+            f"{row.total_score}/{row.max_score}",
+        )
+        flash.success(request, "التقييم اتسجل")
+        return redirect("dashboard:reviewer_tests")
+
+    return render(request, "hr/test_score.html", {
+        "test": test,
+        "form": form,
+        "fields": [(name, form[name]) for name in CandidateTest.SCORE_FIELDS],
+        # The reviewer sees the work, not who the person is or what they want
+        # to be paid. Section 24 keeps recruitment data away from this role.
+        "blind": not request.user.is_admin_role,
+    })
+
+
+@owner_required
+def hr_approvals(request):
+    """Section 16. The owner's queue, and the only place a hire is decided."""
+    return render(request, "hr/approvals.html", {
+        "waiting": Candidate.objects.filter(
+            status=CandidateStatus.OWNER_APPROVAL
+        ).select_related("vacancy", "department"),
+        "decided": Candidate.objects.filter(
+            status__in=(CandidateStatus.APPROVED, CandidateStatus.HIRED)
+        ).select_related("vacancy")[:30],
+    })
+
+
+@owner_required
+@require_POST
+def hr_approval_decide(request, code, action):
+    candidate = get_object_or_404(Candidate, code=code)
+    try:
+        recruitment.decide_hiring(
+            candidate, request.user, approve=(action == "approve"),
+            reason=request.POST.get("reason", ""),
+        )
+    except recruitment.PipelineError as refused:
+        flash.error(request, refused.ar)
+    else:
+        flash.success(request, "اتسجل القرار")
+    return redirect(request.POST.get("next") or "dashboard:hr_approvals")
+
+
+@recruit_required
+def hr_hire(request, code):
+    """Section 17: the approved candidate becomes an employee, once."""
+    candidate = get_object_or_404(
+        Candidate.objects.select_related("vacancy", "department"), code=code
+    )
+    form = HireForm(request.POST or None, initial={
+        "job_title": candidate.vacancy.title if candidate.vacancy else "",
+        "joining_date": timezone.localdate(),
+    })
+    if request.method == "POST" and form.is_valid():
+        try:
+            person = recruitment.hire(
+                candidate, request.user,
+                role=form.cleaned_data["role"],
+                job_title=form.cleaned_data["job_title"],
+                joining_date=form.cleaned_data["joining_date"],
+                salary=form.cleaned_data["salary"],
+                team_lead=form.cleaned_data["team_lead"],
+                username=form.cleaned_data["username"],
+                password=form.cleaned_data["password"],
+            )
+        except recruitment.PipelineError as refused:
+            flash.error(request, refused.ar)
+        else:
+            flash.success(request, f"اتعيّن: {person.username}")
+            return redirect("dashboard:hr_employee", pk=person.pk)
+
+    return render(request, "hr/hire.html", {"candidate": candidate, "form": form})
+
+
+@recruit_required
+def hr_employees(request):
+    rows = User.objects.filter(is_active=True).select_related("department", "team_lead")
+    if request.GET.get("department"):
+        rows = rows.filter(department_id=request.GET["department"])
+    if request.GET.get("status"):
+        rows = rows.filter(employment_status=request.GET["status"])
+    return render(request, "hr/employees.html", {
+        "rows": rows,
+        "departments": Department.objects.filter(is_active=True),
+        "statuses": EmploymentStatus.choices,
+        "selected": request.GET,
+    })
+
+
+@recruit_required
+def hr_employee(request, pk):
+    """Section 18, with section 21's attendance read straight off the module."""
+    person = get_object_or_404(
+        User.objects.select_related("department", "team_lead"), pk=pk
+    )
+    today = timezone.localdate()
+    first_day, last_day = payroll.month_bounds(today.year, today.month)
+    return render(request, "hr/employee.html", {
+        "person": person,
+        "summary": (
+            attendance.month_summary(person, first_day, last_day)
+            if person.attendance_enabled else None
+        ),
+        "shifts": person.shifts.select_related("template").all(),
+        "application": getattr(person, "candidate_record", None),
+        "salary_records": person.salary_records.all()[:6],
+        "probation_reviews": person.probation_reviews.all(),
+        "leave_rows": person.leave_requests.all()[:6],
+        "plans": SalaryPlan.objects.filter(is_active=True),
+    })
+
+
+@recruit_required
+def hr_recruitment_settings(request):
+    conf = RecruitmentSettings.load()
+    form = RecruitmentSettingsForm(request.POST or None, instance=conf)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        services.log(request.user, "recruitment.settings.update")
+        flash.success(request, "اتحفظ")
+        return redirect("dashboard:hr_recruitment_settings")
+
+    return render(request, "hr/recruitment_settings.html", {
+        "form": form,
+        "conf": conf,
+        "app": AppSettings.load(),
+        "sample": recruitment.outbound_text(
+            None, "مرحبًا من " + (conf.term_list[0] if conf.term_list else "—"), conf=conf
+        ),
+        "privacy_armed": bool(conf.term_list),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Leave, probation, performance, pay - sections 19, 20, 22, 23
+# ---------------------------------------------------------------------------
+
+@login_required
+def my_leave(request):
+    """Anybody's own leave: the balance, the history, and the form to ask."""
+    person = request.user
+    today = timezone.localdate()
+    form = LeaveRequestForm(request.POST or None)
+
+    if request.method == "POST" and form.is_valid():
+        try:
+            employees.request_leave(
+                person,
+                kind=form.cleaned_data["kind"],
+                start_date=form.cleaned_data["start_date"],
+                end_date=form.cleaned_data["end_date"],
+                start_time=form.cleaned_data.get("start_time"),
+                end_time=form.cleaned_data.get("end_time"),
+                reason=form.cleaned_data.get("reason", ""),
+                actor=person,
+            )
+        except employees.LifecycleError as refused:
+            flash.error(request, refused.ar)
+        else:
+            flash.success(request, "الطلب اتبعت")
+            return redirect("dashboard:my_leave")
+
+    return render(request, "hr/my_leave.html", {
+        "form": form,
+        "balance": employees.leave_balance(person, today.year, today.month),
+        "rows": person.leave_requests.all()[:40],
+        "conf": PayrollSettings.load(),
+    })
+
+
+@hr_required
+def hr_leave(request):
+    """The queue. What somebody can do to a row depends on where it is."""
+    rows = LeaveRequest.objects.select_related("user", "manager", "hr_decision_by")
+    if request.GET.get("status"):
+        rows = rows.filter(status=request.GET["status"])
+    if request.GET.get("user"):
+        rows = rows.filter(user_id=request.GET["user"])
+
+    waiting = LeaveRequest.objects.filter(
+        status__in=(LeaveStatus.PENDING, LeaveStatus.MANAGER_OK)
+    ).select_related("user", "manager")
+    return render(request, "hr/leave.html", {
+        "waiting": waiting,
+        "rows": rows[:200],
+        "statuses": LeaveStatus.choices,
+        "people": User.objects.filter(is_active=True),
+        "selected": request.GET,
+        "conf": PayrollSettings.load(),
+        "form": LeaveDecisionForm(),
+    })
+
+
+@login_required
+@require_POST
+def leave_decide(request, pk, action):
+    """Approve or reject. The manager's step and HR's step both land here."""
+    row = get_object_or_404(LeaveRequest.objects.select_related("user"), pk=pk)
+    try:
+        employees.decide_leave(
+            row, request.user, approve=(action == "approve"),
+            note=request.POST.get("note", ""),
+        )
+    except employees.LifecycleError as refused:
+        flash.error(request, refused.ar)
+    else:
+        flash.success(request, "اتسجل")
+    return redirect(request.POST.get("next") or "dashboard:hr_leave")
+
+
+@login_required
+@require_POST
+def leave_cancel(request, pk):
+    """Withdrawing your own request, while nobody has acted on it."""
+    row = get_object_or_404(LeaveRequest, pk=pk, user=request.user)
+    if not row.is_open:
+        flash.error(request, "الطلب اتقرر فيه بالفعل.")
+    else:
+        row.status = LeaveStatus.CANCELLED
+        row.save(update_fields=["status"])
+        services.log(request.user, "leave.cancel", str(pk))
+        flash.success(request, "اتسحب")
+    return redirect("dashboard:my_leave")
+
+
+@hr_required
+def hr_probation(request):
+    """Section 19: who is on probation and which reviews have come due."""
+    rows = ProbationReview.objects.select_related("user", "reviewer").filter(
+        user__is_active=True
+    )
+    if request.GET.get("state") == "due":
+        rows = rows.filter(
+            outcome=ProbationOutcome.PENDING, due_date__lte=timezone.localdate()
+        )
+    elif request.GET.get("state") != "all":
+        rows = rows.filter(outcome=ProbationOutcome.PENDING)
+
+    return render(request, "hr/probation.html", {
+        "rows": rows[:200],
+        "form": ProbationDecisionForm(),
+        "on_probation": User.objects.filter(
+            is_active=True, employment_status=EmploymentStatus.PROBATION
+        ).select_related("department"),
+        "due_count": ProbationReview.objects.filter(
+            outcome=ProbationOutcome.PENDING, due_date__lte=timezone.localdate(),
+            user__is_active=True,
+        ).count(),
+        "selected": request.GET,
+    })
+
+
+@hr_required
+@require_POST
+def probation_decide(request, pk):
+    review = get_object_or_404(ProbationReview.objects.select_related("user"), pk=pk)
+    form = ProbationDecisionForm(request.POST)
+    if not form.is_valid():
+        flash.error(request, "الفورم مش مظبوط.")
+        return redirect("dashboard:hr_probation")
+    try:
+        employees.decide_probation(
+            review, request.user,
+            outcome=form.cleaned_data["outcome"],
+            score=form.cleaned_data.get("score"),
+            notes=form.cleaned_data.get("notes", ""),
+            extend_days=form.cleaned_data.get("extend_days") or 0,
+        )
+    except employees.LifecycleError as refused:
+        flash.error(request, refused.ar)
+    else:
+        flash.success(request, "اتسجل")
+    return redirect("dashboard:hr_probation")
+
+
+@hr_required
+@require_POST
+def probation_open(request, pk):
+    """Start the three reviews for somebody hired before this existed."""
+    person = get_object_or_404(User, pk=pk)
+    created = employees.open_probation(person, actor=request.user)
+    flash.success(request, f"{len(created)} مراجعة اتفتحت")
+    return redirect(request.POST.get("next") or "dashboard:hr_probation")
+
+
+@recruit_required
+def hr_performance(request):
+    """Section 20, for one person and one month."""
+    year, month = _requested_month(request)
+    people = User.objects.filter(is_active=True, role=Role.TRANSLATOR)
+    person_id = request.GET.get("user")
+    person = people.filter(pk=person_id).first() if person_id else people.first()
+
+    report = performance.for_month(person, year, month) if person else None
+    if report:
+        for key, part in report["parts"].items():
+            part["band"] = performance.band(part.get("score"))
+        report["band"] = performance.band(report["overall"])
+
+    return render(request, "hr/performance.html", {
+        "people": people,
+        "person": person,
+        "report": report,
+        "year": year,
+        "month": month,
+        "periods": _period_choices(),
+    })
+
+
+@recruit_required
+def hr_complaints(request):
+    form = ClientComplaintForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        row.logged_by = request.user
+        row.save()
+        services.log(
+            request.user, "complaint.log",
+            row.translator.username if row.translator else "", row.summary[:80],
+        )
+        flash.success(request, "اتسجلت")
+        return redirect("dashboard:hr_complaints")
+
+    rows = ClientComplaint.objects.select_related("client", "task", "translator")
+    if request.GET.get("translator"):
+        rows = rows.filter(translator_id=request.GET["translator"])
+    return render(request, "hr/complaints.html", {
+        "form": form,
+        "rows": rows[:150],
+        "people": User.objects.filter(is_active=True, role=Role.TRANSLATOR),
+        "selected": request.GET,
+    })
+
+
+@recruit_required
+@require_POST
+def complaint_resolve(request, pk):
+    row = get_object_or_404(ClientComplaint, pk=pk)
+    row.resolved = not row.resolved
+    row.save(update_fields=["resolved"])
+    services.log(request.user, "complaint.resolve", str(pk))
+    return redirect("dashboard:hr_complaints")
+
+
+@admin_only
+def hr_salary_plans(request):
+    """Section 23's plans. Owner-only: they move money."""
+    editing = SalaryPlan.objects.filter(pk=request.GET.get("edit")).first()
+    form = SalaryPlanForm(request.POST or None, instance=editing)
+    if request.method == "POST" and form.is_valid():
+        row = form.save(commit=False)
+        if not row.pk:
+            row.created_by = request.user
+        row.save()
+        services.log(request.user, "salary.plan.save", row.name)
+        flash.success(request, "اتحفظت")
+        return redirect("dashboard:hr_salary_plans")
+
+    return render(request, "hr/salary_plans.html", {
+        "form": form,
+        "editing": editing,
+        "rows": SalaryPlan.objects.all(),
+        "conf": PayrollSettings.load(),
+        "unassigned": User.objects.filter(
+            is_active=True, role=Role.TRANSLATOR, salary_plan__isnull=True
+        ).count(),
+    })
+
+
+@admin_only
+@require_POST
+def assign_salary_plan(request, pk):
+    person = get_object_or_404(User, pk=pk)
+    raw = request.POST.get("plan") or ""
+    person.salary_plan = SalaryPlan.objects.filter(pk=raw).first() if raw else None
+    person.save(update_fields=["salary_plan"])
+    services.log(
+        request.user, "salary.plan.assign", person.username,
+        person.salary_plan.name if person.salary_plan else "company rules",
+    )
+    flash.success(request, "اتسجل")
+    return redirect(request.POST.get("next") or "dashboard:hr_salary_plans")
+
+
+@recruit_required
+def hr_salary_requests(request):
+    """HR asks here; the owner decides here. Nobody edits a salary directly."""
+    people = User.objects.filter(is_active=True)
+    person = people.filter(pk=request.GET.get("user")).first()
+    form = SalaryChangeRequestForm(request.POST or None, initial={
+        "effective_from": timezone.localdate(),
+    })
+
+    if request.method == "POST" and person is not None and form.is_valid():
+        try:
+            employees.request_salary_change(
+                person,
+                new_amount=form.cleaned_data["new_amount"],
+                effective_from=form.cleaned_data["effective_from"],
+                reason=form.cleaned_data.get("reason", ""),
+                actor=request.user,
+            )
+        except employees.LifecycleError as refused:
+            flash.error(request, refused.ar)
+        else:
+            flash.success(request, "الطلب اتبعت للمالك")
+            return redirect("dashboard:hr_salary_requests")
+
+    return render(request, "hr/salary_requests.html", {
+        "form": form,
+        "people": people,
+        "person": person,
+        "current": SalaryRecord.amount_on(person, timezone.localdate()) if person else None,
+        "pending": SalaryChangeRequest.objects.filter(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "requested_by"),
+        "decided": SalaryChangeRequest.objects.exclude(
+            status=ApprovalStatus.PENDING
+        ).select_related("user", "decided_by")[:40],
+    })
+
+
+@owner_required
+@require_POST
+def salary_request_decide(request, pk, action):
+    row = get_object_or_404(SalaryChangeRequest.objects.select_related("user"), pk=pk)
+    try:
+        employees.decide_salary_change(
+            row, request.user, approve=(action == "approve"),
+            note=request.POST.get("note", ""),
+        )
+    except employees.LifecycleError as refused:
+        flash.error(request, refused.ar)
+    else:
+        flash.success(request, "اتسجل القرار")
+    return redirect("dashboard:hr_salary_requests")

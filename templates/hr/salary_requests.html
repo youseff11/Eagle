@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Salary requests{% endblock %}
+{% block page_title %}<span data-ar="طلبات تغيير الراتب" data-en="Salary requests">طلبات تغيير الراتب</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="طلبات تغيير الراتب" data-en="Salary change requests">طلبات تغيير الراتب</h1>
+</div>
+
+<div class="note note--info">
+  {% icon "shield" %}
+  <div data-ar="الـHR مالهاش صلاحية تعدّل راتب مباشرة. الطلب من هنا، والموافقة من المالك، وأول ما يوافق النظام بيكتب سجل الراتب لوحده والحسابات بتشوفه."
+       data-en="HR cannot edit a salary directly. The request starts here, the owner approves, and approval is what writes the salary record that accounting then sees.">
+    الـHR مالهاش صلاحية تعدّل راتب مباشرة — الطلب من هنا والموافقة من المالك.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "hand" %}
+    <h3 data-ar="مستني قرار المالك" data-en="Waiting for the owner">مستني قرار المالك</h3>
+  </div>
+  {% for row in pending %}
+    <div class="card card--flat">
+      <div class="row row--between">
+        <div>
+          <b>{{ row.user.short_name }}</b>
+          <div class="mono">
+            {{ row.current_amount }} →
+            <b>{{ row.new_amount }}</b>
+            <span class="{% if row.delta > 0 %}deadline--ok{% else %}deadline--late{% endif %}">
+              ({{ row.delta }})
+            </span>
+          </div>
+          <div class="muted">
+            <span data-ar="ساري من" data-en="From">ساري من</span>
+            <span class="mono">{{ row.effective_from }}</span>
+            {% if row.requested_by %}
+              · <span data-ar="طلب" data-en="asked by">طلب</span> {{ row.requested_by.short_name }}
+            {% endif %}
+          </div>
+          {% if row.reason %}<div class="muted">{{ row.reason }}</div>{% endif %}
+        </div>
+        {% if user.can_approve_hiring %}
+          <div class="row row--tight">
+            <form method="post" action="{% url 'dashboard:salary_request_decide' row.pk 'approve' %}">
+              {% csrf_token %}
+              <button class="btn btn--ok btn--sm" type="submit">
+                {% icon "check" "ic--sm" %}<span data-ar="وافق" data-en="Approve">وافق</span>
+              </button>
+            </form>
+            <form method="post" action="{% url 'dashboard:salary_request_decide' row.pk 'reject' %}" class="row row--tight">
+              {% csrf_token %}
+              <input class="input" type="text" name="note" placeholder="السبب">
+              <button class="btn btn--danger btn--sm" type="submit">
+                {% icon "x" "ic--sm" %}<span data-ar="ارفض" data-en="Reject">ارفض</span>
+              </button>
+            </form>
+          </div>
+        {% else %}
+          <span class="badge badge--wait" data-ar="مستني المالك" data-en="With the owner">مستني المالك</span>
+        {% endif %}
+      </div>
+    </div>
+  {% empty %}
+    <div class="empty" data-ar="مفيش طلبات مستنية." data-en="Nothing waiting.">مفيش طلبات مستنية.</div>
+  {% endfor %}
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "history" %}
+      <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="الموظف" data-en="Employee">الموظف</th>
+            <th data-ar="من" data-en="From">من</th>
+            <th data-ar="إلى" data-en="To">إلى</th>
+            <th data-ar="ساري من" data-en="Effective">ساري من</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="مين" data-en="By">مين</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in decided %}
+          <tr>
+            <td data-ar-label="الموظف" data-en-label="Employee">{{ row.user.short_name }}</td>
+            <td data-ar-label="من" data-en-label="From" class="mono">{{ row.current_amount }}</td>
+            <td data-ar-label="إلى" data-en-label="To" class="mono">{{ row.new_amount }}</td>
+            <td data-ar-label="ساري من" data-en-label="Effective" class="mono">{{ row.effective_from }}</td>
+            <td data-ar-label="الحالة" data-en-label="Status">
+              {% if row.status == 'approved' %}
+                <span class="badge badge--ok" data-ar="اتوافق عليه" data-en="Approved">اتوافق عليه</span>
+              {% else %}
+                <span class="badge badge--dead" data-ar="مرفوض" data-en="Rejected">مرفوض</span>
+              {% endif %}
+            </td>
+            <td data-ar-label="مين" data-en-label="By">{{ row.decided_by.short_name|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="اطلب تغيير" data-en="Request a change">اطلب تغيير</h3>
+      </div>
+      <form method="get">
+        <div class="field">
+          <label data-ar="الموظف" data-en="Employee">الموظف</label>
+          <select class="input" name="user" onchange="this.form.submit()">
+            <option value="" data-ar="اختار" data-en="Pick">اختار</option>
+            {% for candidate in people %}
+              <option value="{{ candidate.pk }}" {% if person and candidate.pk == person.pk %}selected{% endif %}>
+                {{ candidate.short_name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+      {% if person %}
+        <div class="kv">
+          <span data-ar="الراتب الحالي" data-en="Current salary">الراتب الحالي</span>
+          <b class="mono">{{ current }}</b>
+        </div>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="user" value="{{ person.pk }}">
+          {{ form.non_field_errors }}
+          <div class="field">
+            <label data-ar="الراتب الجديد" data-en="New salary">الراتب الجديد</label>
+            {{ form.new_amount }}{{ form.new_amount.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="ساري من" data-en="Effective from">ساري من</label>
+            {{ form.effective_from }}{{ form.effective_from.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="السبب" data-en="Reason">السبب</label>
+            {{ form.reason }}
+          </div>
+          <button class="btn btn--primary btn--block" type="submit">
+            {% icon "send" "ic--sm" %}<span data-ar="ابعت للمالك" data-en="Send to the owner">ابعت للمالك</span>
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

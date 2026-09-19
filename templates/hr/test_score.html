@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Test{% endblock %}
+{% block page_title %}<span data-ar="تصحيح الاختبار" data-en="Mark the test">تصحيح الاختبار</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>
+    {% if blind %}
+      <span class="mono">{{ test.candidate.code }}</span>
+    {% else %}
+      {{ test.candidate.display_name }}
+    {% endif %}
+  </h1>
+  <div class="page-head__sub">{{ test.title|default:"—" }}</div>
+</div>
+
+{% if blind %}
+  <div class="note note--info">
+    {% icon "shield" %}
+    <div data-ar="بتشوف الشغل بس. اسم المرشح وبياناته وراتبه المتوقع مش من صلاحية المراجع."
+         data-en="You see the work only. The candidate's name, details and expected salary are not a reviewer's business.">
+      بتشوف الشغل بس — بيانات المرشح وراتبه المتوقع مش من صلاحية المراجع.
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "check-circle" %}
+      <h3 data-ar="التقييم" data-en="Evaluation">التقييم</h3>
+      <div class="grow"></div>
+      <span class="muted" data-ar="كل بند من 10" data-en="Each out of 10">كل بند من 10</span>
+    </div>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="field">
+        <label data-ar="ملف تسليم المرشح" data-en="The candidate's submission">ملف تسليم المرشح</label>
+        {% if test.submission %}
+          <a class="chip" href="{{ test.submission.url }}" target="_blank" rel="noopener">
+            {% icon "paperclip" "ic--sm" %}{{ test.submission_name|default:"الملف" }}
+          </a>
+        {% endif %}
+        {{ form.submission }}
+      </div>
+      <div class="form-grid">
+        {% for name, field in fields %}
+          <div class="field">
+            <label>{{ field.label }}</label>
+            {{ field }}{{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="field">
+        <label data-ar="ملاحظات المراجع" data-en="Reviewer comments">ملاحظات المراجع</label>
+        {{ form.comments }}
+      </div>
+      <button class="btn btn--primary btn--block" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="احفظ التقييم" data-en="Save">احفظ التقييم</span>
+      </button>
+    </form>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card card--flat">
+      <div class="card__head">{% icon "file" %}<h3 data-ar="الاختبار" data-en="The test">الاختبار</h3></div>
+      <div class="kv"><span data-ar="زوج اللغات" data-en="Language pair">زوج اللغات</span>
+        <b class="mono">{{ test.language_pair|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="عدد الكلمات" data-en="Word count">عدد الكلمات</span>
+        <b class="mono">{{ test.word_count }}</b></div>
+      <div class="kv"><span data-ar="آخر موعد" data-en="Deadline">آخر موعد</span>
+        <b class="mono">{{ test.deadline|date:"Y-m-d H:i"|default:"—" }}</b></div>
+      {% if test.assignment %}
+        <a class="btn btn--sm btn--block mt" href="{{ test.assignment.url }}" target="_blank" rel="noopener">
+          {% icon "paperclip" "ic--sm" %}<span data-ar="ملف الاختبار" data-en="Assignment">ملف الاختبار</span>
+        </a>
+      {% endif %}
+      {% if test.brief %}<p class="muted mt">{{ test.brief|linebreaksbr }}</p>{% endif %}
+    </div>
+    <div class="card">
+      <div class="kpi">
+        <div class="kpi__label" data-ar="الإجمالي" data-en="Total">الإجمالي</div>
+        <div class="kpi__value mono">{{ test.total_score }} / {{ test.max_score }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

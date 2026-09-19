@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Probation{% endblock %}
+{% block page_title %}<span data-ar="فترة الاختبار" data-en="Probation">فترة الاختبار</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="فترة الاختبار" data-en="Probation">فترة الاختبار</h1>
+  <div class="grow"></div>
+  <div class="tabs">
+    <a class="tab {% if not selected.state %}is-active{% endif %}" href="?"
+       data-ar="المفتوحة" data-en="Open">المفتوحة</a>
+    <a class="tab {% if selected.state == 'due' %}is-active{% endif %}" href="?state=due"
+       data-ar="المستحقة" data-en="Due">المستحقة</a>
+    <a class="tab {% if selected.state == 'all' %}is-active{% endif %}" href="?state=all"
+       data-ar="الكل" data-en="All">الكل</a>
+  </div>
+</div>
+
+{% if due_count %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div>
+      <b class="mono">{{ due_count }}</b>
+      <span data-ar="مراجعة استحقت ولسه مااتقررش فيها."
+            data-en="reviews have come due and are still undecided.">مراجعة استحقت ولسه مااتقررش فيها.</span>
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "hand" %}
+      <h3 data-ar="المراجعات" data-en="Reviews">المراجعات</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="الموظف" data-en="Employee">الموظف</th>
+            <th data-ar="المرحلة" data-en="Stage">المرحلة</th>
+            <th data-ar="الاستحقاق" data-en="Due">الاستحقاق</th>
+            <th data-ar="النتيجة" data-en="Outcome">النتيجة</th>
+            <th data-ar="التقييم" data-en="Score">التقييم</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr id="probation:{{ row.pk }}">
+            <td data-ar-label="الموظف" data-en-label="Employee">
+              <a href="{% url 'dashboard:hr_employee' row.user.pk %}">{{ row.user.short_name }}</a>
+            </td>
+            <td data-ar-label="المرحلة" data-en-label="Stage">{{ row.get_stage_display }}</td>
+            <td data-ar-label="الاستحقاق" data-en-label="Due"
+                class="mono {% if row.is_overdue %}deadline--late{% endif %}">{{ row.due_date }}</td>
+            <td data-ar-label="النتيجة" data-en-label="Outcome">{% probation_badge row.outcome %}</td>
+            <td data-ar-label="التقييم" data-en-label="Score" class="mono">
+              {% if row.score is not None %}{{ row.score }}/10{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if not row.is_decided %}
+                <details>
+                  <summary class="btn btn--sm btn--ghost">
+                    {% icon "pen" "ic--sm" %}<span data-ar="قرّر" data-en="Decide">قرّر</span>
+                  </summary>
+                  <form method="post" action="{% url 'dashboard:probation_decide' row.pk %}" class="mt">
+                    {% csrf_token %}
+                    <div class="form-grid">
+                      <div class="field">
+                        <label data-ar="النتيجة" data-en="Outcome">النتيجة</label>
+                        {{ form.outcome }}
+                      </div>
+                      <div class="field">
+                        <label data-ar="التقييم من 10" data-en="Score">التقييم من 10</label>
+                        {{ form.score }}
+                      </div>
+                      <div class="field">
+                        <label data-ar="تمديد (يوم)" data-en="Extend (days)">تمديد (يوم)</label>
+                        {{ form.extend_days }}
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label data-ar="الملاحظات" data-en="Notes">الملاحظات</label>
+                      {{ form.notes }}
+                    </div>
+                    <button class="btn btn--primary btn--sm" type="submit">
+                      {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+                    </button>
+                  </form>
+                </details>
+              {% else %}
+                <span class="muted">{{ row.reviewer.short_name|default:"—" }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش مراجعات."
+                  data-en="No reviews.">مفيش مراجعات.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "users" %}
+        <h3 data-ar="تحت الاختبار" data-en="On probation">تحت الاختبار</h3>
+      </div>
+      {% for person in on_probation %}
+        <div class="kv">
+          <span>
+            <a href="{% url 'dashboard:hr_employee' person.pk %}">{{ person.short_name }}</a>
+            <span class="muted">{{ person.department.label|default:"" }}</span>
+          </span>
+          <span class="mono muted">{{ person.probation_end|default:"—" }}</span>
+        </div>
+        {% if not person.probation_reviews.exists %}
+          <form method="post" action="{% url 'dashboard:probation_open' person.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--sm btn--block" type="submit">
+              {% icon "plus" "ic--sm" %}<span data-ar="افتح المراجعات" data-en="Open the reviews">افتح المراجعات</span>
+            </button>
+          </form>
+        {% endif %}
+      {% empty %}
+        <div class="muted" data-ar="مفيش حد تحت الاختبار." data-en="Nobody is on probation.">مفيش حد تحت الاختبار.</div>
+      {% endfor %}
+    </div>
+
+    <div class="note note--info">
+      {% icon "info" %}
+      <div data-ar="المراجعات بتتفتح لوحدها وقت التعيين — 30 و60 يوم والنهائية. التثبيت أو الإنهاء بيحصل من المراجعة النهائية بس."
+           data-en="The three reviews open themselves at hire. Only the final one confirms or ends anybody.">
+        المراجعات بتتفتح لوحدها وقت التعيين. التثبيت أو الإنهاء من المراجعة النهائية بس.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

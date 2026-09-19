@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Hiring approvals{% endblock %}
+{% block page_title %}<span data-ar="موافقات التعيين" data-en="Hiring approvals">موافقات التعيين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="موافقات التعيين" data-en="Hiring approvals">موافقات التعيين</h1>
+</div>
+
+<div class="note note--info">
+  {% icon "shield" %}
+  <div data-ar="التعيين مابيحصلش تلقائي مهما كانت الدرجات. الصفحة دي هي المكان الوحيد اللي بيتقرر فيه."
+       data-en="Hiring never happens automatically, whatever the scores say. This page is the only place it is decided.">
+    التعيين مابيحصلش تلقائي مهما كانت الدرجات — ده المكان الوحيد اللي بيتقرر فيه.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "user-check" %}
+    <h3 data-ar="مستني قرارك" data-en="Waiting for you">مستني قرارك</h3>
+  </div>
+  {% for row in waiting %}
+    <div class="card card--flat">
+      <div class="row row--between">
+        <div>
+          <b><a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.display_name }}</a></b>
+          <span class="mono muted">{{ row.code }}</span>
+          <div class="muted">{{ row.vacancy.title|default:"—" }} · {{ row.department.label|default:"—" }}</div>
+        </div>
+        <div class="row row--tight">
+          <form method="post" action="{% url 'dashboard:hr_approval_decide' row.code 'approve' %}">
+            {% csrf_token %}
+            <button class="btn btn--ok btn--sm" type="submit">
+              {% icon "check" "ic--sm" %}<span data-ar="وافق على التعيين" data-en="Approve">وافق على التعيين</span>
+            </button>
+          </form>
+          <form method="post" action="{% url 'dashboard:hr_approval_decide' row.code 'reject' %}" class="row row--tight">
+            {% csrf_token %}
+            <input class="input" type="text" name="reason" placeholder="سبب الرفض">
+            <button class="btn btn--danger btn--sm" type="submit">
+              {% icon "x" "ic--sm" %}<span data-ar="ارفض" data-en="Reject">ارفض</span>
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="grid grid--4 mt">
+        <div class="kv"><span data-ar="درجة المقابلة" data-en="Interview">درجة المقابلة</span>
+          <b class="mono">{{ row.interview_score|default:"—" }}</b></div>
+        <div class="kv"><span data-ar="درجة الاختبار" data-en="Test">درجة الاختبار</span>
+          <b class="mono">{{ row.test_score|default:"—" }}</b></div>
+        <div class="kv"><span data-ar="الراتب المتوقع" data-en="Expected salary">الراتب المتوقع</span>
+          <b class="mono">{{ row.expected_salary|default:"—" }}</b></div>
+        <div class="kv"><span data-ar="الـCV" data-en="CV">الـCV</span>
+          <b>{% if row.cv %}<a href="{{ row.cv.url }}" target="_blank" rel="noopener">فتح</a>{% else %}—{% endif %}</b></div>
+      </div>
+      {% if row.hr_recommendation %}
+        <div class="note note--info mt">
+          {% icon "info" %}
+          <div><b data-ar="توصية HR:" data-en="HR recommendation:">توصية HR:</b> {{ row.hr_recommendation }}</div>
+        </div>
+      {% endif %}
+      {% if row.hr_notes %}<p class="muted">{{ row.hr_notes|linebreaksbr }}</p>{% endif %}
+    </div>
+  {% empty %}
+    <div class="empty" data-ar="مفيش حاجة مستنية." data-en="Nothing waiting.">مفيش حاجة مستنية.</div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "history" %}
+    <h3 data-ar="اتقرر فيها" data-en="Decided">اتقرر فيها</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+          <th data-ar="الوظيفة" data-en="Vacancy">الوظيفة</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="القرار" data-en="Decided">القرار</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in decided %}
+        <tr>
+          <td data-ar-label="المرشح" data-en-label="Candidate">
+            <a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.display_name }}</a>
+          </td>
+          <td data-ar-label="الوظيفة" data-en-label="Vacancy" class="muted">{{ row.vacancy.title|default:"—" }}</td>
+          <td data-ar-label="الحالة" data-en-label="Status">{% candidate_badge row.status %}</td>
+          <td data-ar-label="القرار" data-en-label="Decided" class="mono muted">{{ row.owner_decision_at|date:"Y-m-d" }}</td>
+          <td>
+            {% if row.status == 'approved' %}
+              <a class="btn btn--sm btn--primary" href="{% url 'dashboard:hr_hire' row.code %}">
+                {% icon "user-check" "ic--sm" %}<span data-ar="حوّله لموظف" data-en="Hire">حوّله لموظف</span>
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="empty" data-ar="لسه مفيش." data-en="Nothing yet.">لسه مفيش.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Interview{% endblock %}
+{% block page_title %}<span data-ar="تقييم المقابلة" data-en="Interview evaluation">تقييم المقابلة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ interview.candidate.display_name }}</h1>
+  <div class="page-head__sub mono">{{ interview.scheduled_at|date:"Y-m-d H:i" }} · {{ interview.get_kind_display }}</div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "star" %}
+      <h3 data-ar="الدرجات" data-en="Scores">الدرجات</h3>
+      <div class="grow"></div>
+      <span class="muted" data-ar="كل بند من 10" data-en="Each out of 10">كل بند من 10</span>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <div class="form-grid">
+        {% for name, field in fields %}
+          <div class="field">
+            <label>{{ field.label }}</label>
+            {{ field }}{{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="field">
+        <label data-ar="ملاحظات" data-en="Comments">ملاحظات</label>
+        {{ form.comments }}
+      </div>
+      <button class="btn btn--primary btn--block" type="submit">
+        {% icon "check" "ic--sm" %}<span data-ar="احفظ التقييم" data-en="Save">احفظ التقييم</span>
+      </button>
+      <small class="muted mt"
+             data-ar="الإجمالي بيتحسب من النظام — مفيش خانة تكتبه فيها."
+             data-en="The total is the system's; there is no box to type it in.">
+        الإجمالي بيتحسب من النظام — مفيش خانة تكتبه فيها.
+      </small>
+    </form>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "chart" %}
+        <h3 data-ar="الإجمالي" data-en="Total">الإجمالي</h3>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label" data-ar="الدرجة الحالية" data-en="Current score">الدرجة الحالية</div>
+        <div class="kpi__value mono">{{ interview.total_score }} / {{ interview.max_score }}</div>
+      </div>
+      <a class="btn btn--sm btn--ghost btn--block mt" href="{% url 'dashboard:hr_candidate' interview.candidate.code %}">
+        {% icon "arrow-right" "ic--sm" %}<span data-ar="ارجع للمرشح" data-en="Back to the candidate">ارجع للمرشح</span>
+      </a>
+    </div>
+    {% if interview.meeting_link %}
+      <div class="card card--flat">
+        <div class="card__head">{% icon "globe" %}<h3 data-ar="اللينك" data-en="Link">اللينك</h3></div>
+        <a class="mono" href="{{ interview.meeting_link }}" target="_blank" rel="noopener" dir="ltr">
+          {{ interview.meeting_link|truncatechars:50 }}
+        </a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

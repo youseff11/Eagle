@@ -15,7 +15,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from . import services, whatsapp
+from . import recruitment, services, whatsapp
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,18 @@ MEDIA_TYPES = ("image", "document", "audio", "video", "sticker", "voice")
 #: Types that arrive as sound. A push-to-talk recording comes through as
 #: ``audio`` with ``"voice": true`` on the block; a forwarded mp3 does not.
 AUDIO_TYPES = ("audio", "voice")
+
+
+def _is_recruitment_line(conf, to_number_id):
+    """True when this event arrived on the recruitment number.
+
+    Deliberately strict: with no recruitment number configured, or a blank
+    metadata block, the answer is no and everything keeps going to the client
+    inbox exactly as before. A misrouted candidate is recoverable; a client
+    silently swallowed by the hiring bot is not.
+    """
+    wanted = (conf.recruit_phone_number_id or "").strip()
+    return bool(wanted) and to_number_id == wanted
 
 
 def _guard(request):
@@ -139,8 +151,22 @@ def whatsapp_hook(request):
                 c.get("wa_id"): (c.get("profile", {}) or {}).get("name", "")
                 for c in value.get("contacts", []) or []
             }
+            # Which of our numbers was written to. Eagle runs two lines on one
+            # business account - clients and candidates - and this is the only
+            # thing that tells them apart. One webhook, two queues.
+            to_number_id = str((value.get("metadata") or {}).get("phone_number_id", ""))
+            for_recruitment = _is_recruitment_line(conf, to_number_id)
+
             for message in value.get("messages", []) or []:
                 sender = message.get("from", "")
+                if for_recruitment:
+                    recruitment.handle_inbound(
+                        contact=sender,
+                        body=_body_of(message),
+                        display_name=contacts.get(sender, ""),
+                        attachments=_pull_media(message),
+                    )
+                    continue
                 record = services.ingest_message(
                     channel="whatsapp",
                     body=_body_of(message),
@@ -157,6 +183,14 @@ def whatsapp_hook(request):
     if not is_meta and data.get("from"):
         if not _guard(request):
             return HttpResponseForbidden("bad secret")
+        if _is_recruitment_line(conf, str(data.get("to", ""))) or data.get("recruitment"):
+            recruitment.handle_inbound(
+                contact=str(data.get("from", "")),
+                body=data.get("body", ""),
+                display_name=data.get("name", ""),
+                attachments=_decode_files(data.get("attachments")),
+            )
+            return JsonResponse({"ok": True, "created": [], "routed": "recruitment"})
         record = services.ingest_message(
             channel="whatsapp",
             body=data.get("body", ""),

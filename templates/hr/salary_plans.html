@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Salary plans{% endblock %}
+{% block page_title %}<span data-ar="خطط الرواتب" data-en="Salary plans">خطط الرواتب</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="خطط الرواتب" data-en="Salary plans">خطط الرواتب</h1>
+</div>
+
+<div class="note note--info">
+  {% icon "info" %}
+  <div data-ar="كل رقم في الخطة اختياري. اللي تسيبه فاضي بيرجع لقاعدة الشركة، والموظف اللي مالوش خطة بيتحسب زي ما هو بالظبط."
+       data-en="Every number on a plan is optional. A blank one falls back to the company rule, and somebody with no plan is priced exactly as before.">
+    كل رقم في الخطة اختياري — اللي تسيبه فاضي بيرجع لقاعدة الشركة.
+    و{{ unassigned }} مترجم دلوقتي على قواعد الشركة.
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "sliders" %}
+      <h3 data-ar="الخطط" data-en="Plans">الخطط</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="الخطة" data-en="Plan">الخطة</th>
+            <th data-ar="بتغيّر إيه" data-en="Overrides">بتغيّر إيه</th>
+            <th data-ar="بونص الكلمات" data-en="Extra words">بونص الكلمات</th>
+            <th data-ar="بدل ثابت" data-en="Allowance">بدل ثابت</th>
+            <th data-ar="عليها" data-en="Members">عليها</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-ar-label="الخطة" data-en-label="Plan">
+              {{ row.name }}
+              {% if not row.is_active %}<span class="badge">مقفولة</span>{% endif %}
+              {% if row.note %}<div class="muted">{{ row.note }}</div>{% endif %}
+            </td>
+            <td data-ar-label="بتغيّر إيه" data-en-label="Overrides" class="muted mono">
+              {{ row.overrides|join:" · "|default:"—" }}
+            </td>
+            <td data-ar-label="بونص الكلمات" data-en-label="Extra words" class="mono">
+              {% if row.extra_word_rate is not None %}
+                {{ row.extra_word_rate }} <span class="muted">/ كلمة</span>
+              {% else %}
+                <span class="muted" data-ar="شرائح الشركة" data-en="company bands">شرائح الشركة</span>
+              {% endif %}
+            </td>
+            <td data-ar-label="بدل ثابت" data-en-label="Allowance" class="mono">{{ row.fixed_allowance }}</td>
+            <td data-ar-label="عليها" data-en-label="Members" class="mono">{{ row.members.count }}</td>
+            <td>
+              <a class="btn btn--sm btn--ghost" href="?edit={{ row.pk }}">
+                {% icon "pen" "ic--sm" %}<span data-ar="عدّل" data-en="Edit">عدّل</span>
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش خطط — الكل على قواعد الشركة."
+                  data-en="No plans: everybody is on the company rules.">مفيش خطط — الكل على قواعد الشركة.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "pen" %}
+        <h3>
+          {% if editing %}<span data-ar="تعديل خطة" data-en="Edit plan">تعديل خطة</span>
+          {% else %}<span data-ar="خطة جديدة" data-en="New plan">خطة جديدة</span>{% endif %}
+        </h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="الاسم" data-en="Name">الاسم</label>
+          {{ form.name }}{{ form.name.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="ملاحظة" data-en="Note">ملاحظة</label>
+          {{ form.note }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="التارجت اليومي" data-en="Daily quota">التارجت اليومي</label>
+            {{ form.daily_target_words }}
+            <small class="muted">الشركة: {{ conf.daily_target_words }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="التارجت الشهري" data-en="Monthly quota">التارجت الشهري</label>
+            {{ form.monthly_target_words }}{{ form.monthly_target_words.errors }}
+            <small class="muted">الشركة: {{ conf.monthly_target_words }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="سعر الكلمة الزيادة" data-en="Rate per extra word">سعر الكلمة الزيادة</label>
+            {{ form.extra_word_rate }}
+            <small class="muted"
+                   data-ar="سيبه فاضي عشان يفضل على شرائح البونص."
+                   data-en="Blank keeps the bonus bands.">سيبه فاضي عشان يفضل على الشرائح.</small>
+          </div>
+          <div class="field">
+            <label data-ar="بدل ثابت شهري" data-en="Fixed allowance">بدل ثابت شهري</label>
+            {{ form.fixed_allowance }}
+          </div>
+          <div class="field">
+            <label data-ar="مكافأة الانضباط" data-en="Discipline bonus">مكافأة الانضباط</label>
+            {{ form.discipline_bonus }}
+            <small class="muted">الشركة: {{ conf.discipline_bonus }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="مكافأة التارجت" data-en="Target bonus">مكافأة التارجت</label>
+            {{ form.target_bonus }}
+            <small class="muted">الشركة: {{ conf.target_bonus }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="أيام العمل" data-en="Working days">أيام العمل</label>
+            {{ form.working_days_per_month }}
+            <small class="muted">الشركة: {{ conf.working_days_per_month }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="رصيد الإجازات" data-en="Leave allowance">رصيد الإجازات</label>
+            {{ form.monthly_leave_allowance }}
+            <small class="muted">الشركة: {{ conf.monthly_leave_allowance }}</small>
+          </div>
+          <div class="field">
+            <label data-ar="سعر ساعة الأوفرتايم" data-en="Overtime rate">سعر ساعة الأوفرتايم</label>
+            {{ form.overtime_hourly_rate }}
+          </div>
+        </div>
+        <label class="switch">
+          {{ form.is_active }}
+          <span data-ar="شغالة" data-en="Active">شغالة</span>
+        </label>
+        <button class="btn btn--primary btn--block mt" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

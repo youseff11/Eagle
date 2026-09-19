@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Vacancies{% endblock %}
+{% block page_title %}<span data-ar="الوظائف" data-en="Vacancies">الوظائف</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="الوظائف" data-en="Vacancies">الوظائف</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <select class="input" name="status" onchange="this.form.submit()">
+      <option value="" data-ar="كل الحالات" data-en="All">كل الحالات</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected.status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "layers" %}
+      <h3 data-ar="الوظائف المسجلة" data-en="All vacancies">الوظائف المسجلة</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="الكود" data-en="Code">الكود</th>
+            <th data-ar="المسمى" data-en="Title">المسمى</th>
+            <th data-ar="القسم" data-en="Department">القسم</th>
+            <th data-ar="النظام" data-en="Mode">النظام</th>
+            <th data-ar="متقدمين" data-en="Applicants">متقدمين</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-ar-label="الكود" data-en-label="Code" class="mono">
+              <a href="{% url 'dashboard:hr_vacancy' row.code %}">{{ row.code }}</a>
+            </td>
+            <td data-ar-label="المسمى" data-en-label="Title">{{ row.title }}</td>
+            <td data-ar-label="القسم" data-en-label="Department" class="muted">{{ row.department.label|default:"—" }}</td>
+            <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge row.work_mode %}</td>
+            <td data-ar-label="متقدمين" data-en-label="Applicants" class="mono">{{ row.applicants }}</td>
+            <td data-ar-label="الحالة" data-en-label="Status">
+              {% if row.status == 'open' %}
+                <span class="badge badge--ok" data-ar="مفتوحة" data-en="Open">مفتوحة</span>
+              {% elif row.status == 'draft' %}
+                <span class="badge badge--wait" data-ar="مسودة" data-en="Draft">مسودة</span>
+              {% else %}
+                <span class="badge badge--dead" data-ar="مقفولة" data-en="Closed">مقفولة</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش وظايف لسه."
+                  data-en="No vacancies yet.">مفيش وظايف لسه.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="وظيفة جديدة" data-en="New vacancy">وظيفة جديدة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="المسمى الوظيفي" data-en="Job title">المسمى الوظيفي</label>
+          {{ form.title }}{{ form.title.errors }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="القسم" data-en="Department">القسم</label>
+            {{ form.department }}
+          </div>
+          <div class="field">
+            <label data-ar="عدد الشواغر" data-en="Openings">عدد الشواغر</label>
+            {{ form.openings }}
+          </div>
+          <div class="field">
+            <label data-ar="نوع التوظيف" data-en="Employment type">نوع التوظيف</label>
+            {{ form.employment_type }}
+          </div>
+          <div class="field">
+            <label data-ar="نظام العمل" data-en="Work mode">نظام العمل</label>
+            {{ form.work_mode }}
+          </div>
+          <div class="field">
+            <label data-ar="أقل راتب" data-en="Salary from">أقل راتب</label>
+            {{ form.salary_min }}
+          </div>
+          <div class="field">
+            <label data-ar="أعلى راتب" data-en="Salary to">أعلى راتب</label>
+            {{ form.salary_max }}{{ form.salary_max.errors }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="الشيفتات المتاحة" data-en="Available shifts">الشيفتات المتاحة</label>
+          {{ form.shifts }}
+          <small class="muted"
+                 data-ar="البوت بيعرض دول بس. شيفت واحد = سؤال نعم/لا، وأكتر من واحد = اختيار بالأرقام."
+                 data-en="The bot offers exactly these. One shift becomes a yes/no; several become a numbered choice.">
+            البوت بيعرض دول بس. شيفت واحد = سؤال نعم/لا، وأكتر = اختيار بالأرقام.
+          </small>
+        </div>
+        <div class="field">
+          <label data-ar="وصف الوظيفة" data-en="Job description">وصف الوظيفة</label>
+          {{ form.job_description }}
+        </div>
+        <div class="field">
+          <label data-ar="المطلوب" data-en="Requirements">المطلوب</label>
+          {{ form.requirements }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="آخر موعد" data-en="Deadline">آخر موعد</label>
+            {{ form.deadline }}
+          </div>
+          <div class="field">
+            <label data-ar="الحالة" data-en="Status">الحالة</label>
+            {{ form.status }}
+          </div>
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+        <small class="muted mt"
+               data-ar="بعد الحفظ تقدر تختار أسئلة البوت للوظيفة دي."
+               data-en="After saving you pick the questions the bot will ask for it.">
+          بعد الحفظ تقدر تختار أسئلة البوت للوظيفة دي.
+        </small>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

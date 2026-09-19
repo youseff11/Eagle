@@ -45,6 +45,40 @@ def api_role_required(*roles):
     return decorator
 
 
+def _gate(check, message):
+    """Build a decorator from a predicate on the user.
+
+    The three recruitment gates differ only in which property they read, so
+    they are made here rather than written out three times.
+    """
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(request, *args, **kwargs):
+            user = request.user
+            if not user.is_authenticated:
+                return redirect_to_login(request.get_full_path())
+            if check(user):
+                return view(request, *args, **kwargs)
+            raise PermissionDenied(message)
+
+        return wrapper
+
+    return decorator
+
+
+#: Section 24. The owner passes every one of these; nobody else passes them all.
+recruit_required = _gate(
+    lambda u: u.can_recruit, "Only HR and the owner can open recruitment."
+)
+reviewer_required = _gate(
+    lambda u: u.can_review_tests, "Only a reviewer can mark a candidate's test."
+)
+owner_required = _gate(
+    lambda u: u.can_approve_hiring, "Only the owner decides a hire."
+)
+
+
 def hr_required(view):
     """Attendance rights. Eagle has no HR *role* - it is a flag on the person,
     so an operations lead can be given the board without being made an admin."""
@@ -62,6 +96,8 @@ def hr_required(view):
 
 
 admin_only = role_required(Role.ADMIN)
+#: Section 24: accounting runs the month. The owner still sets the rules.
+accounting_only = role_required(Role.ACCOUNTING)
 operation_only = role_required(Role.OPERATION)
 lead_only = role_required(Role.TEAM_LEAD)
 translator_only = role_required(Role.TRANSLATOR)

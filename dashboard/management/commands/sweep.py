@@ -6,7 +6,7 @@ firing even when nobody has the dashboard open.
 
 from django.core.management.base import BaseCommand
 
-from dashboard import attendance, services
+from dashboard import attendance, employees, services
 
 
 class Command(BaseCommand):
@@ -18,8 +18,12 @@ class Command(BaseCommand):
         # Attendance alerts are time-based, not request-based: a missing
         # check-in is only noticeable when nobody is there to trigger it.
         alerts = attendance.sweep_alerts()
+        # Probation reviews come due on a date, so nothing in a request ever
+        # notices them.
+        lifecycle = employees.sweep()
         self.stdout.write(
             self.style.SUCCESS(
-                f"expired={expired} deadline_warnings={warned} attendance_alerts={alerts}"
+                f"expired={expired} deadline_warnings={warned} "
+                f"attendance_alerts={alerts} probation_due={lifecycle['probation']}"
             )
         )

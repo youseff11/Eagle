@@ -18,6 +18,11 @@ class Role(models.TextChoices):
     OPERATION = "operation", "Operation"
     TEAM_LEAD = "team_lead", "Team Leader"
     TRANSLATOR = "translator", "Translator"
+    #: Added with the HR module. "Manager" in the spec is the team leader we
+    #: already had, so it is not repeated here.
+    HR = "hr", "HR"
+    REVIEWER = "reviewer", "Reviewer"
+    ACCOUNTING = "accounting", "Accounting"
 
 
 class Channel(models.TextChoices):
@@ -127,6 +132,148 @@ class OffSitePolicy(models.TextChoices):
     REJECT = "reject", "Refuse the punch"
 
 
+# ---------------------------------------------------------------------------
+# HR / recruitment choices
+# ---------------------------------------------------------------------------
+
+class EmploymentStatus(models.TextChoices):
+    PROBATION = "probation", "On probation"
+    ACTIVE = "active", "Confirmed"
+    NOTICE = "notice", "Serving notice"
+    LEFT = "left", "Left the company"
+
+
+class VacancyStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    OPEN = "open", "Open"
+    CLOSED = "closed", "Closed"
+
+
+class CandidateStatus(models.TextChoices):
+    """Section 13, in order. ``REJECTED`` can happen from any of them."""
+
+    NEW = "new", "New"
+    SCREENING = "screening", "HR screening"
+    INTERVIEW = "interview", "Interview"
+    TEST = "test", "Test"
+    FINAL_REVIEW = "final_review", "Final review"
+    OWNER_APPROVAL = "owner_approval", "Waiting for the owner"
+    APPROVED = "approved", "Approved"
+    HIRED = "hired", "Hired"
+    REJECTED = "rejected", "Rejected"
+
+
+#: Stages before a person has agreed to work here. Everything the system says
+#: to a candidate in one of these is anonymous unless HR has said otherwise.
+EARLY_CANDIDATE_STAGES = (
+    CandidateStatus.NEW,
+    CandidateStatus.SCREENING,
+    CandidateStatus.INTERVIEW,
+    CandidateStatus.TEST,
+)
+
+
+class CandidateSource(models.TextChoices):
+    WHATSAPP = "whatsapp", "WhatsApp"
+    EMAIL = "email", "Email"
+    WEBSITE = "website", "Website"
+    LINKEDIN = "linkedin", "LinkedIn"
+    ADVERT = "advert", "Job advertisement"
+    REFERRAL = "referral", "Referral"
+    OTHER = "other", "Other"
+
+
+class QuestionKind(models.TextChoices):
+    TEXT = "text", "Text"
+    CHOICE = "choice", "Multiple choice (one)"
+    MULTI = "multi", "Multiple select"
+    YES_NO = "yes_no", "Yes / No"
+    NUMBER = "number", "Number"
+    DATE = "date", "Date"
+    FILE = "file", "File upload"
+    DROPDOWN = "dropdown", "Dropdown"
+
+
+#: Kinds the candidate answers by picking from a list the bot prints.
+CHOICE_KINDS = (QuestionKind.CHOICE, QuestionKind.MULTI, QuestionKind.DROPDOWN)
+
+
+class AnswerTarget(models.TextChoices):
+    """Which profile field an answer fills in, if any.
+
+    Without this the bot would need to know that "What is your name?" is the
+    name question, which is exactly the hard-coding section 11 rules out. HR
+    tags the question instead, and any wording works.
+    """
+
+    NONE = "", "Just an answer"
+    FULL_NAME = "full_name", "Candidate name"
+    EMAIL = "email", "E-mail"
+    EXPERIENCE = "experience_years", "Years of experience"
+    LANGUAGES = "languages", "Languages"
+    SKILLS = "skills", "Skills"
+    EXPECTED_SALARY = "expected_salary", "Expected salary"
+    CV = "cv", "CV"
+
+
+class InterviewKind(models.TextChoices):
+    ONLINE = "online", "Online"
+    OFFICE = "office", "At the office"
+
+
+class ProbationStage(models.TextChoices):
+    DAY_30 = "day_30", "30-day review"
+    DAY_60 = "day_60", "60-day review"
+    FINAL = "final", "Final probation review"
+
+
+class ProbationOutcome(models.TextChoices):
+    PENDING = "pending", "Not decided yet"
+    CONFIRMED = "confirmed", "Confirmed"
+    EXTENDED = "extended", "Probation extended"
+    TERMINATED = "terminated", "Terminated"
+
+
+class LeaveKind(models.TextChoices):
+    ANNUAL = "annual", "Annual leave"
+    EMERGENCY = "emergency", "Emergency leave"
+    PERMISSION = "permission", "Permission (hours)"
+    UNPAID = "unpaid", "Unpaid leave"
+    OTHER = "other", "Other"
+
+
+#: Which attendance status each kind writes onto the days it covers. A leave
+#: nobody records as a day is a leave the payroll cannot see, so approving one
+#: writes real `WorkDay` rows - that is the whole point of the integration.
+LEAVE_DAY_STATUS = {
+    LeaveKind.ANNUAL: "leave",
+    LeaveKind.EMERGENCY: "leave",
+    LeaveKind.UNPAID: "excused",
+    LeaveKind.OTHER: "excused",
+}
+
+
+class LeaveStatus(models.TextChoices):
+    PENDING = "pending", "Waiting"
+    MANAGER_OK = "manager_ok", "Manager approved, waiting for HR"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+    CANCELLED = "cancelled", "Withdrawn"
+
+
+class ComplaintSeverity(models.TextChoices):
+    LOW = "low", "Minor"
+    MEDIUM = "medium", "Needs attention"
+    HIGH = "high", "Serious"
+
+
+class SessionState(models.TextChoices):
+    PICKING = "picking", "Choosing a vacancy"
+    ASKING = "asking", "Answering the questions"
+    DONE = "done", "Handed to HR"
+    ABANDONED = "abandoned", "Went quiet"
+
+
 WEEKDAYS = (
     (0, "Monday"),
     (1, "Tuesday"),
@@ -179,6 +326,19 @@ def upload_outbound(instance, filename):
     return f"outbound/{timezone.now():%Y/%m}/{filename}"
 
 
+def upload_cv(instance, filename):
+    return f"recruitment/cv/{timezone.now():%Y/%m}/{filename}"
+
+
+def upload_test(instance, filename):
+    return f"recruitment/tests/{timezone.now():%Y/%m}/{filename}"
+
+
+def upload_hr_doc(instance, filename):
+    # Contracts and IDs. `media/` is git-ignored, which is where these belong.
+    return f"hr/{timezone.now():%Y/%m}/{filename}"
+
+
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
@@ -227,6 +387,32 @@ class User(AbstractUser):
         help_text="May run the attendance board and correct other people's days (HR).",
     )
 
+    # -- employee profile --------------------------------------------------
+    # Section 18 asks for an "Employee Profile". It is these fields on the
+    # person, not a second table: splitting somebody into a User *and* an
+    # Employee is how the two drift apart and how a hire ends up with two
+    # identities in the same system.
+    employee_code = models.CharField(max_length=20, blank=True, db_index=True)
+    job_title = models.CharField(max_length=120, blank=True)
+    department = models.ForeignKey(
+        "Department", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="members",
+    )
+    joining_date = models.DateField(null=True, blank=True)
+    employment_status = models.CharField(
+        max_length=12, choices=EmploymentStatus.choices,
+        default=EmploymentStatus.ACTIVE, db_index=True,
+    )
+    probation_start = models.DateField(null=True, blank=True)
+    probation_end = models.DateField(null=True, blank=True)
+    contract = models.FileField(upload_to=upload_hr_doc, blank=True, null=True)
+    #: Optional. Nobody needs one: a person without a plan is priced by the
+    #: company rules exactly as before this field existed.
+    salary_plan = models.ForeignKey(
+        "SalaryPlan", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="members",
+    )
+
     class Meta:
         ordering = ("role", "username")
 
@@ -258,14 +444,41 @@ class User(AbstractUser):
         return self.role == Role.TRANSLATOR
 
     @property
+    def is_hr(self):
+        return self.role == Role.HR
+
+    @property
+    def is_reviewer(self):
+        return self.role == Role.REVIEWER
+
+    @property
+    def is_accounting(self):
+        return self.role == Role.ACCOUNTING
+
+    @property
+    def can_recruit(self):
+        """Run the hiring pipeline. The owner can always do everything."""
+        return self.is_admin_role or self.is_hr
+
+    @property
+    def can_review_tests(self):
+        """Mark a candidate's test. A team leader marks their own craft's."""
+        return self.is_admin_role or self.is_reviewer or self.is_team_lead
+
+    @property
+    def can_approve_hiring(self):
+        """Section 16: hiring is never automatic - this is the owner alone."""
+        return self.is_admin_role
+
+    @property
     def can_see_client_identity(self):
         """Only the admin ever sees the real client name / phone / email."""
         return self.is_admin_role
 
     @property
     def can_manage_attendance(self):
-        """HR rights. Eagle has no HR *role*, so it is a flag on the person."""
-        return self.is_admin_role or self.attendance_manager
+        """The HR role carries it; the flag lets anyone else be given it too."""
+        return self.is_admin_role or self.is_hr or self.attendance_manager
 
     @property
     def is_hybrid(self):
@@ -740,6 +953,16 @@ class Task(models.Model):
     deadline_warned_at = models.DateTimeField(null=True, blank=True)
     deadline_missed_notified = models.BooleanField(default=False)
 
+    #: The team leader's mark out of ten, set when they finish reviewing.
+    #: Null means "not marked", which is not a zero - an unscored task must
+    #: not drag an average down.
+    review_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    review_note = models.CharField(max_length=250, blank=True)
+    #: How many times this went back to the translator after review. The
+    #: revision rate in section 20 is this, over the tasks they delivered.
+    revision_count = models.PositiveSmallIntegerField(default=0)
+    returned_at = models.DateTimeField(null=True, blank=True)
+
     lead_accepted_at = models.DateTimeField(null=True, blank=True)
     translator_accepted_at = models.DateTimeField(null=True, blank=True)
     translated_at = models.DateTimeField(null=True, blank=True)
@@ -1103,6 +1326,18 @@ class AppSettings(models.Model):
     whatsapp_api_version = models.CharField(max_length=10, default="v23.0")
     webhook_shared_secret = models.CharField(max_length=120, blank=True)
 
+    #: The recruitment line. A second number on the same WhatsApp business
+    #: account, so the same token and the same webhook serve both - what tells
+    #: them apart is which phone number ID the event arrived for. Leave it
+    #: blank and nothing changes: every message still goes to the client inbox.
+    recruit_phone_number_id = models.CharField(
+        max_length=60, blank=True,
+        help_text="Phone number ID of the dedicated recruitment line.",
+    )
+    recruit_number_display = models.CharField(
+        max_length=32, blank=True, help_text="Shown on the HR screens only."
+    )
+
     imap_host = models.CharField(max_length=120, blank=True)
     imap_port = models.PositiveIntegerField(default=993)
     imap_user = models.CharField(max_length=190, blank=True)
@@ -1426,6 +1661,24 @@ class PayrollSettings(models.Model):
         default=60, help_text="Missing this much of the scheduled day raises an alert.",
     )
 
+    #: Leave (section 22). The approval chain is a setting because the owner
+    #: asked for it to be: off, HR alone decides; on, the team leader has to
+    #: agree first. Nobody is hard-coded into the chain.
+    leave_needs_manager = models.BooleanField(
+        default=False, help_text="Require the team leader's approval before HR sees a leave request.",
+    )
+    permission_max_minutes = models.PositiveSmallIntegerField(
+        default=240, help_text="Longest single permission, in minutes.",
+    )
+
+    #: Performance (section 20). The weighted mean is taken over the indicators
+    #: that actually have data, so these are ratios, not a total that must
+    #: reach a hundred. Setting one to zero drops that indicator entirely.
+    weight_productivity = models.PositiveSmallIntegerField(default=40)
+    weight_quality = models.PositiveSmallIntegerField(default=30)
+    weight_deadline = models.PositiveSmallIntegerField(default=20)
+    weight_attendance = models.PositiveSmallIntegerField(default=10)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -1602,6 +1855,11 @@ class WorkDay(models.Model):
     work_minutes = models.PositiveSmallIntegerField(default=0)
     short_minutes = models.PositiveSmallIntegerField(default=0)
     overtime_minutes = models.PositiveSmallIntegerField(default=0)
+    #: Hours an approved permission covers. Subtracted before the day is
+    #: called short - otherwise a permission HR granted would still read as a
+    #: shortfall and could price a deduction, which is how people stop
+    #: trusting the whole module.
+    excused_minutes = models.PositiveSmallIntegerField(default=0)
 
     off_site = models.BooleanField(
         default=False, help_text="An office day punched from outside the allowed radius."
@@ -1818,6 +2076,10 @@ class PayrollLine(models.Model):
     work_minutes = models.PositiveIntegerField(default=0)
     overtime_minutes = models.PositiveIntegerField(default=0)
 
+    #: A flat monthly addition from the person's salary plan, if they have
+    #: one. Stored on the line so releasing the bonuses can rebuild `gross`
+    #: without going back to today's plan for a month already run.
+    allowance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     production_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     overtime_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     discipline_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
@@ -2131,3 +2393,863 @@ class OvertimeClaim(models.Model):
         self.approved_by = by
         self.approved_at = timezone.now()
         self.save(update_fields=["status", "approved_by", "approved_at"])
+
+
+# ---------------------------------------------------------------------------
+# HR / recruitment
+#
+# Three rules shape this section, and each of them is a column or a method
+# here rather than a line in a manual:
+#
+# * **The candidate does not learn who we are until HR says so** (section 3).
+#   `Candidate.identity_revealed` gates it, and every outbound message runs
+#   through `recruitment.outbound_text`, which redacts the company's names
+#   while the flag is off. It is a system rule because a rule people have to
+#   remember is not a rule.
+# * **The questions are HR's, not the code's** (sections 8-11). There is one
+#   bank of questions and each vacancy picks from it, in its own order. Adding
+#   a department or a whole new kind of role needs no deploy.
+# * **The bot collects; people decide** (section 28). Nothing in here moves a
+#   candidate past HR screening on its own, and only the owner hires.
+# ---------------------------------------------------------------------------
+
+class Department(models.Model):
+    """Translation, Sales, Marketing... Added from the panel, never in code."""
+
+    name = models.CharField(max_length=80, unique=True)
+    name_ar = models.CharField(max_length=80, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self):
+        return self.label
+
+    @property
+    def label(self):
+        return self.name_ar or self.name
+
+    #: Seeded once so the bank is not empty on day one. Section 29's list.
+    DEFAULTS = (
+        ("Translation", "الترجمة"),
+        ("Sales", "المبيعات"),
+        ("Marketing", "التسويق"),
+        ("Operations", "الأوبريشن"),
+        ("HR", "الموارد البشرية"),
+        ("Customer Service", "خدمة العملاء"),
+        ("Finance", "الحسابات"),
+        ("IT", "تكنولوجيا المعلومات"),
+    )
+
+    @classmethod
+    def seed_defaults(cls):
+        if cls.objects.exists():
+            return
+        cls.objects.bulk_create([
+            cls(name=name, name_ar=name_ar) for name, name_ar in cls.DEFAULTS
+        ])
+
+
+class RecruitmentQuestion(models.Model):
+    """One question in the central bank (section 8).
+
+    A question with no department is a general one - it shows up for every
+    vacancy HR builds. Nothing forces a department's questions onto a vacancy;
+    the department only helps HR find them.
+    """
+
+    text = models.CharField(max_length=300)
+    text_en = models.CharField(max_length=300, blank=True)
+    kind = models.CharField(max_length=10, choices=QuestionKind.choices, default=QuestionKind.TEXT)
+    department = models.ForeignKey(
+        Department, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="questions", help_text="Blank means a general question.",
+    )
+    options = models.JSONField(
+        default=list, blank=True,
+        help_text="Choices, for the pick-one / pick-many / dropdown kinds.",
+    )
+    maps_to = models.CharField(
+        max_length=20, choices=AnswerTarget.choices, blank=True,
+        help_text="Fills this field on the candidate's profile.",
+    )
+    help_text = models.CharField(max_length=250, blank=True)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("department__name", "sort_order", "id")
+
+    def __str__(self):
+        return self.text
+
+    @property
+    def option_list(self):
+        return [str(item) for item in (self.options or []) if str(item).strip()]
+
+    @property
+    def wants_options(self):
+        return self.kind in CHOICE_KINDS
+
+
+class Vacancy(models.Model):
+    """A role being hired for, and the questions its applicants are asked."""
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    title = models.CharField(max_length=140)
+    department = models.ForeignKey(
+        Department, null=True, blank=True, on_delete=models.SET_NULL, related_name="vacancies"
+    )
+    openings = models.PositiveSmallIntegerField(default=1)
+
+    required_experience = models.CharField(max_length=140, blank=True)
+    required_languages = models.CharField(max_length=160, blank=True)
+    required_skills = models.CharField(max_length=250, blank=True)
+    salary_min = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    salary_max = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+
+    employment_type = models.CharField(
+        max_length=12, choices=EmploymentType.choices, default=EmploymentType.FULL_TIME
+    )
+    work_mode = models.CharField(
+        max_length=8, choices=WorkMode.choices, default=WorkMode.OFFICE
+    )
+    #: Section 7: the bot offers exactly these and nothing else. One shift and
+    #: it simply asks "can you work these hours?"; several and it lists them.
+    shifts = models.ManyToManyField(ShiftTemplate, blank=True, related_name="vacancies")
+
+    job_description = models.TextField(blank=True)
+    requirements = models.TextField(blank=True)
+    deadline = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=8, choices=VacancyStatus.choices, default=VacancyStatus.DRAFT, db_index=True
+    )
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name_plural = "Vacancies"
+
+    def __str__(self):
+        return f"{self.code} · {self.title}"
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Vacancy, "code", "VAC")
+        super().save(*args, **kwargs)
+
+    @property
+    def is_open(self):
+        return self.status == VacancyStatus.OPEN
+
+    @property
+    def salary_range(self):
+        if self.salary_min and self.salary_max:
+            return f"{self.salary_min:.0f} - {self.salary_max:.0f}"
+        return f"{self.salary_min or self.salary_max or '—'}"
+
+    @property
+    def shift_list(self):
+        return list(self.shifts.all())
+
+    def questions_in_order(self):
+        return list(
+            self.question_links.select_related("question").order_by("order", "id")
+        )
+
+    @property
+    def applicant_count(self):
+        return self.candidates.count()
+
+
+class VacancyQuestion(models.Model):
+    """One question attached to one vacancy, in HR's chosen order."""
+
+    vacancy = models.ForeignKey(Vacancy, on_delete=models.CASCADE, related_name="question_links")
+    question = models.ForeignKey(
+        RecruitmentQuestion, on_delete=models.PROTECT, related_name="vacancy_links"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    is_required = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("order", "id")
+        unique_together = (("vacancy", "question"),)
+
+    def __str__(self):
+        return f"{self.vacancy.code} #{self.order} {self.question.text[:40]}"
+
+
+class Candidate(models.Model):
+    """Somebody applying. Anonymous to themselves until HR lifts the veil."""
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    vacancy = models.ForeignKey(
+        Vacancy, null=True, blank=True, on_delete=models.SET_NULL, related_name="candidates"
+    )
+    department = models.ForeignKey(
+        Department, null=True, blank=True, on_delete=models.SET_NULL, related_name="candidates"
+    )
+
+    full_name = models.CharField(max_length=140, blank=True)
+    phone = models.CharField(max_length=32, blank=True, db_index=True)
+    email = models.EmailField(blank=True)
+    cv = models.FileField(upload_to=upload_cv, blank=True, null=True)
+    cv_name = models.CharField(max_length=200, blank=True)
+
+    experience_years = models.CharField(max_length=60, blank=True)
+    languages = models.CharField(max_length=160, blank=True)
+    skills = models.CharField(max_length=250, blank=True)
+    expected_salary = models.CharField(max_length=60, blank=True)
+    shift_choice = models.CharField(max_length=120, blank=True)
+
+    source = models.CharField(
+        max_length=10, choices=CandidateSource.choices, default=CandidateSource.WHATSAPP
+    )
+    status = models.CharField(
+        max_length=14, choices=CandidateStatus.choices,
+        default=CandidateStatus.NEW, db_index=True,
+    )
+    hr_notes = models.TextField(blank=True)
+    hr_recommendation = models.CharField(max_length=250, blank=True)
+    rejection_reason = models.CharField(max_length=250, blank=True)
+
+    #: Section 3, as state rather than as a promise. While this is False every
+    #: outbound message is scrubbed of the company's names by
+    #: `recruitment.outbound_text`, whatever a screen or a person typed.
+    identity_revealed = models.BooleanField(default=False)
+    identity_revealed_at = models.DateTimeField(null=True, blank=True)
+    identity_revealed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    owner_decision_at = models.DateTimeField(null=True, blank=True)
+    owner_decision_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    hired_user = models.OneToOneField(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="candidate_record"
+    )
+
+    applied_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-applied_at",)
+        indexes = [models.Index(fields=["status", "-applied_at"], name="dash_cand_status_idx")]
+
+    def __str__(self):
+        return f"{self.code} · {self.full_name or self.phone}"
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Candidate, "code", "CAN")
+        if self.vacancy_id and not self.department_id:
+            self.department_id = self.vacancy.department_id
+        super().save(*args, **kwargs)
+
+    @property
+    def display_name(self):
+        return self.full_name or self.phone or self.code
+
+    @property
+    def is_early_stage(self):
+        return self.status in EARLY_CANDIDATE_STAGES
+
+    @property
+    def is_rejected(self):
+        return self.status == CandidateStatus.REJECTED
+
+    @property
+    def is_hired(self):
+        return self.status == CandidateStatus.HIRED
+
+    @property
+    def latest_interview(self):
+        return self.interviews.order_by("-scheduled_at", "-id").first()
+
+    @property
+    def latest_test(self):
+        return self.tests.order_by("-created_at", "-id").first()
+
+    @property
+    def interview_score(self):
+        row = self.latest_interview
+        return row.total_score if row and row.is_evaluated else None
+
+    @property
+    def test_score(self):
+        row = self.latest_test
+        return row.total_score if row and row.is_marked else None
+
+
+class CandidateAnswer(models.Model):
+    """What the applicant said to one question, kept verbatim.
+
+    The answer is stored as the candidate gave it even when it also filled a
+    profile field, so a later correction to the profile never quietly rewrites
+    what somebody actually replied.
+    """
+
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name="answers")
+    question = models.ForeignKey(
+        RecruitmentQuestion, on_delete=models.PROTECT, related_name="answers"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    value = models.TextField(blank=True)
+    file = models.FileField(upload_to=upload_cv, blank=True, null=True)
+    file_name = models.CharField(max_length=200, blank=True)
+    answered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("order", "id")
+        unique_together = (("candidate", "question"),)
+
+    def __str__(self):
+        return f"{self.candidate.code}: {self.value[:40]}"
+
+
+class CandidateSession(models.Model):
+    """The bot's cursor through one conversation.
+
+    Keyed on the phone number, because that is all a first message carries.
+    The candidate row is created as soon as there is a name or a vacancy to
+    hang it on, and the session then points at it.
+    """
+
+    channel = models.CharField(max_length=10, default="whatsapp")
+    contact = models.CharField(max_length=40, db_index=True)
+    display_name = models.CharField(max_length=120, blank=True)
+    candidate = models.ForeignKey(
+        Candidate, null=True, blank=True, on_delete=models.SET_NULL, related_name="sessions"
+    )
+    vacancy = models.ForeignKey(
+        Vacancy, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    state = models.CharField(
+        max_length=10, choices=SessionState.choices, default=SessionState.PICKING
+    )
+    #: Index into the vacancy's question list. Also how a restart is detected.
+    step = models.PositiveSmallIntegerField(default=0)
+    #: The numbered list the bot last printed, so "2" can be resolved back.
+    pending_options = models.JSONField(default=list, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_message_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-last_message_at",)
+        indexes = [models.Index(fields=["contact", "state"], name="dash_sess_contact_idx")]
+
+    def __str__(self):
+        return f"{self.contact} ({self.state})"
+
+    @property
+    def is_live(self):
+        return self.state in (SessionState.PICKING, SessionState.ASKING)
+
+
+class Interview(models.Model):
+    """A meeting, and afterwards the five scores section 14 asks for."""
+
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name="interviews")
+    scheduled_at = models.DateTimeField()
+    interviewer = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="interviews_given"
+    )
+    kind = models.CharField(
+        max_length=8, choices=InterviewKind.choices, default=InterviewKind.ONLINE
+    )
+    meeting_link = models.CharField(max_length=300, blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    notes = models.TextField(blank=True)
+
+    #: Each out of ten. Null means "not marked", which is not the same as zero.
+    communication = models.PositiveSmallIntegerField(null=True, blank=True)
+    experience = models.PositiveSmallIntegerField(null=True, blank=True)
+    technical = models.PositiveSmallIntegerField(null=True, blank=True)
+    computer_skills = models.PositiveSmallIntegerField(null=True, blank=True)
+    attitude = models.PositiveSmallIntegerField(null=True, blank=True)
+    comments = models.TextField(blank=True)
+    evaluated_at = models.DateTimeField(null=True, blank=True)
+    evaluated_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    SCORE_FIELDS = ("communication", "experience", "technical", "computer_skills", "attitude")
+
+    class Meta:
+        ordering = ("-scheduled_at", "-id")
+
+    def __str__(self):
+        return f"{self.candidate.code} {self.scheduled_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_evaluated(self):
+        return any(getattr(self, name) is not None for name in self.SCORE_FIELDS)
+
+    @property
+    def total_score(self):
+        """Out of 50. The system adds it up - section 14 says so explicitly."""
+        marks = [getattr(self, name) for name in self.SCORE_FIELDS]
+        return sum(m for m in marks if m is not None)
+
+    @property
+    def max_score(self):
+        return len(self.SCORE_FIELDS) * 10
+
+
+class CandidateTest(models.Model):
+    """A piece of work set for a candidate, and the reviewer's marks.
+
+    The evaluation columns are the translation ones from section 15, which is
+    what Eagle actually hires for; a test for another department simply leaves
+    the ones that do not apply blank and carries its verdict in the comments.
+    """
+
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name="tests")
+    department = models.ForeignKey(
+        Department, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    title = models.CharField(max_length=160, blank=True)
+    brief = models.TextField(blank=True)
+    language_pair = models.CharField(max_length=80, blank=True)
+    word_count = models.PositiveIntegerField(default=0)
+
+    assignment = models.FileField(upload_to=upload_test, blank=True, null=True)
+    assignment_name = models.CharField(max_length=200, blank=True)
+    submission = models.FileField(upload_to=upload_test, blank=True, null=True)
+    submission_name = models.CharField(max_length=200, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    deadline = models.DateTimeField(null=True, blank=True)
+
+    reviewer = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="tests_reviewed"
+    )
+    accuracy = models.PositiveSmallIntegerField(null=True, blank=True)
+    grammar = models.PositiveSmallIntegerField(null=True, blank=True)
+    terminology = models.PositiveSmallIntegerField(null=True, blank=True)
+    formatting = models.PositiveSmallIntegerField(null=True, blank=True)
+    instructions = models.PositiveSmallIntegerField(null=True, blank=True)
+    comments = models.TextField(blank=True)
+    marked_at = models.DateTimeField(null=True, blank=True)
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    SCORE_FIELDS = ("accuracy", "grammar", "terminology", "formatting", "instructions")
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"{self.candidate.code} test {self.title or self.pk}"
+
+    @property
+    def is_marked(self):
+        return any(getattr(self, name) is not None for name in self.SCORE_FIELDS)
+
+    @property
+    def total_score(self):
+        marks = [getattr(self, name) for name in self.SCORE_FIELDS]
+        return sum(m for m in marks if m is not None)
+
+    @property
+    def max_score(self):
+        return len(self.SCORE_FIELDS) * 10
+
+    @property
+    def is_submitted(self):
+        return bool(self.submission)
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.deadline and not self.is_submitted and timezone.now() > self.deadline
+        )
+
+
+class RecruitmentSettings(models.Model):
+    """The module's own rules. One row, edited from the panel."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    bot_enabled = models.BooleanField(default=True)
+    bot_name = models.CharField(
+        max_length=80, default="Recruitment Team",
+        help_text="What the candidate sees instead of the company name.",
+    )
+    bot_name_ar = models.CharField(max_length=80, default="فريق التوظيف")
+
+    #: The words the privacy rule scrubs while a candidate is anonymous. One
+    #: per line. Seeded with the company's own names on first load - if this
+    #: is empty, section 3 is not being enforced and the screens say so.
+    redact_terms = models.TextField(
+        blank=True,
+        help_text="One per line: company names, domain, address. Removed from anything sent to an anonymous candidate.",
+    )
+    redact_placeholder = models.CharField(max_length=60, default="[—]")
+
+    greeting_ar = models.TextField(
+        blank=True, help_text="Blank uses the built-in wording."
+    )
+    greeting_en = models.TextField(blank=True)
+    closing_ar = models.TextField(blank=True)
+    closing_en = models.TextField(blank=True)
+
+    #: A half-finished chat older than this is not resumed - the next message
+    #: starts a fresh application instead of continuing a stale one.
+    session_timeout_hours = models.PositiveSmallIntegerField(default=48)
+    probation_days = models.PositiveSmallIntegerField(default=90)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Recruitment settings"
+        verbose_name_plural = "Recruitment settings"
+
+    def __str__(self):
+        return "Recruitment rules"
+
+    #: Armed on the first load rather than left to somebody's memory. A rule
+    #: that only works once an admin remembers to switch it on is not the
+    #: system rule section 3 asks for. HR edits the list from the panel.
+    DEFAULT_TERMS = (
+        "EagleLingua",
+        "Eagle Translation",
+        "النسر للتوريدات العامه",
+        "eagel-operation.com",
+    )
+
+    def save(self, *args, **kwargs):
+        self.singleton = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, created = cls.objects.get_or_create(
+            singleton=1,
+            defaults={"redact_terms": "\n".join(cls.DEFAULT_TERMS)},
+        )
+        if created:
+            Department.seed_defaults()
+        return obj
+
+    @property
+    def term_list(self):
+        return [
+            line.strip() for line in (self.redact_terms or "").splitlines() if line.strip()
+        ]
+
+    def display_name(self, lang="ar"):
+        return self.bot_name_ar if lang == "ar" else self.bot_name
+
+
+# ---------------------------------------------------------------------------
+# Employee lifecycle: probation, leave, pay
+#
+# Everything here shares one habit with the rest of Eagle: a decision that
+# costs somebody money or a job is never taken by the engine. Probation is
+# reviewed by a person, leave is approved by a person, and a salary changes
+# only when the owner says so. What the code does is make sure the decision
+# is recorded, priced consistently, and visible afterwards.
+# ---------------------------------------------------------------------------
+
+class ProbationReview(models.Model):
+    """A check-in during someone's first months (section 19).
+
+    Three are created when a person is hired - at thirty days, sixty days,
+    and the end. They exist as rows from day one so the dates are visible and
+    a missed review is a thing you can see rather than a thing nobody
+    remembers.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="probation_reviews")
+    stage = models.CharField(max_length=8, choices=ProbationStage.choices)
+    due_date = models.DateField(db_index=True)
+
+    outcome = models.CharField(
+        max_length=12, choices=ProbationOutcome.choices,
+        default=ProbationOutcome.PENDING, db_index=True,
+    )
+    #: Out of ten, like the interview marks. Null means not scored.
+    score = models.PositiveSmallIntegerField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    extended_to = models.DateField(null=True, blank=True)
+
+    reviewer = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("due_date", "id")
+        unique_together = (("user", "stage"),)
+
+    def __str__(self):
+        return f"{self.user} {self.stage} ({self.outcome})"
+
+    @property
+    def is_decided(self):
+        return self.outcome != ProbationOutcome.PENDING
+
+    @property
+    def is_overdue(self):
+        return not self.is_decided and self.due_date < timezone.localdate()
+
+
+class LeaveRequest(models.Model):
+    """Time off, asked for and signed off (section 22).
+
+    An approved request writes the days onto the attendance sheet itself, so
+    the payroll and the leave log can never tell two different stories about
+    the same absence. Permission - a few hours rather than a day - writes
+    minutes onto the one day instead, which is why it has its own fields.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="leave_requests")
+    kind = models.CharField(max_length=10, choices=LeaveKind.choices, default=LeaveKind.ANNUAL)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    #: Permission only: the window inside the single day.
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    minutes = models.PositiveSmallIntegerField(default=0)
+
+    reason = models.CharField(max_length=250, blank=True)
+    status = models.CharField(
+        max_length=11, choices=LeaveStatus.choices,
+        default=LeaveStatus.PENDING, db_index=True,
+    )
+
+    manager = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    manager_decided_at = models.DateTimeField(null=True, blank=True)
+    hr_decision_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    hr_decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=250, blank=True)
+
+    #: Set once the days have been written onto the attendance sheet, so a
+    #: second approval cannot double-write them.
+    applied_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["user", "status"], name="dash_leave_user_idx")]
+
+    def __str__(self):
+        return f"{self.user} {self.kind} {self.start_date}..{self.end_date}"
+
+    @property
+    def is_permission(self):
+        return self.kind == LeaveKind.PERMISSION
+
+    @property
+    def day_count(self):
+        """Calendar days the request spans. Permission is never a day."""
+        if self.is_permission:
+            return 0
+        return (self.end_date - self.start_date).days + 1
+
+    @property
+    def is_open(self):
+        return self.status in (LeaveStatus.PENDING, LeaveStatus.MANAGER_OK)
+
+    @property
+    def is_approved(self):
+        return self.status == LeaveStatus.APPROVED
+
+    @property
+    def day_status(self):
+        """Which attendance status the approved days carry."""
+        return LEAVE_DAY_STATUS.get(self.kind, DayStatus.EXCUSED)
+
+    def dates(self):
+        cursor = self.start_date
+        while cursor <= self.end_date:
+            yield cursor
+            cursor += timedelta(days=1)
+
+
+class ClientComplaint(models.Model):
+    """A client said something went wrong (section 20).
+
+    Logged by whoever heard it, against the job and the translator. It feeds
+    the quality indicator, so it is deliberately a small, cheap row: a
+    complaint nobody can be bothered to record is a complaint that never
+    reaches the performance page.
+    """
+
+    client = models.ForeignKey(
+        Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="complaints"
+    )
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="complaints"
+    )
+    translator = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="complaints"
+    )
+    severity = models.CharField(
+        max_length=6, choices=ComplaintSeverity.choices, default=ComplaintSeverity.MEDIUM
+    )
+    summary = models.CharField(max_length=250)
+    detail = models.TextField(blank=True)
+    happened_on = models.DateField(default=None, null=True, blank=True)
+    resolved = models.BooleanField(default=False)
+    logged_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    #: What each one costs the quality score, out of a hundred.
+    WEIGHTS = {
+        ComplaintSeverity.LOW: 5,
+        ComplaintSeverity.MEDIUM: 12,
+        ComplaintSeverity.HIGH: 25,
+    }
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.summary[:40]} ({self.severity})"
+
+    def save(self, *args, **kwargs):
+        if self.happened_on is None:
+            self.happened_on = timezone.localdate()
+        if self.task_id and not self.translator_id:
+            self.translator_id = self.task.translator_id
+        super().save(*args, **kwargs)
+
+    @property
+    def weight(self):
+        return self.WEIGHTS.get(self.severity, 12)
+
+
+class SalaryPlan(models.Model):
+    """One person's pay rules, where they differ from the company's.
+
+    Every number here is optional, and a blank one falls back to
+    ``PayrollSettings``. That is the whole design: somebody with no plan - or
+    a plan that only sets one field - is priced exactly as they were before
+    plans existed. A plan can only ever say "except for this".
+    """
+
+    name = models.CharField(max_length=80, unique=True)
+    note = models.CharField(max_length=250, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    #: Word quota (section 23). Blank keeps the company target.
+    daily_target_words = models.PositiveIntegerField(null=True, blank=True)
+    secondary_daily_target_words = models.PositiveIntegerField(null=True, blank=True)
+    monthly_target_words = models.PositiveIntegerField(null=True, blank=True)
+
+    #: Extra words. With a rate set, everything above the daily quota is paid
+    #: per word and the company's tier table is not consulted for this person.
+    #: Blank keeps the tiers, which is what every translator uses today.
+    extra_word_rate = models.DecimalField(
+        max_digits=8, decimal_places=4, null=True, blank=True,
+        help_text="Paid per word above the daily quota. Blank uses the company's bonus bands.",
+    )
+    #: Extra payment: a flat monthly addition (a transport or phone allowance).
+    fixed_allowance = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+
+    discipline_bonus = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True
+    )
+    target_bonus = models.DecimalField(max_digits=9, decimal_places=2, null=True, blank=True)
+    target_miss_penalty = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True
+    )
+    working_days_per_month = models.PositiveSmallIntegerField(null=True, blank=True)
+    monthly_leave_allowance = models.PositiveSmallIntegerField(null=True, blank=True)
+    overtime_hourly_rate = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True
+    )
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    #: The fields the resolver will look for on a plan before the settings.
+    OVERRIDABLE = (
+        "daily_target_words", "secondary_daily_target_words", "monthly_target_words",
+        "discipline_bonus", "target_bonus", "target_miss_penalty",
+        "working_days_per_month", "monthly_leave_allowance", "overtime_hourly_rate",
+    )
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def uses_tiers(self):
+        """Without a per-word rate this plan still pays on the bonus bands."""
+        return self.extra_word_rate is None
+
+    def overrides(self):
+        """The fields this plan actually sets, for the screens to show."""
+        return [
+            name for name in self.OVERRIDABLE if getattr(self, name) is not None
+        ] + (["extra_word_rate"] if self.extra_word_rate is not None else [])
+
+
+class SalaryChangeRequest(models.Model):
+    """HR asks, the owner decides, accounting sees it (section 23).
+
+    HR has no path to `SalaryRecord` at all - the accounts screens are closed
+    to them. This row is the only way a salary moves, and it moves by the
+    owner approving it, which then writes the history record.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="salary_requests")
+    current_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    new_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    effective_from = models.DateField()
+    reason = models.CharField(max_length=250, blank=True)
+    status = models.CharField(
+        max_length=10, choices=ApprovalStatus.choices,
+        default=ApprovalStatus.PENDING, db_index=True,
+    )
+
+    requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    decided_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=250, blank=True)
+    #: The history row this produced, once approved.
+    salary_record = models.ForeignKey(
+        SalaryRecord, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.user} {self.current_amount} -> {self.new_amount} ({self.status})"
+
+    @property
+    def is_pending(self):
+        return self.status == ApprovalStatus.PENDING
+
+    @property
+    def delta(self):
+        return Decimal(self.new_amount) - Decimal(self.current_amount)

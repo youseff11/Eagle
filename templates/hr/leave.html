@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Leave{% endblock %}
+{% block page_title %}<span data-ar="طلبات الإجازة" data-en="Leave requests">طلبات الإجازة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="طلبات الإجازة" data-en="Leave requests">طلبات الإجازة</h1>
+  <div class="grow"></div>
+  <span class="chip mono">{{ waiting|length }}
+    <span data-ar="مستني" data-en="waiting">مستني</span></span>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "hand" %}
+    <h3 data-ar="مستني قرار" data-en="Waiting">مستني قرار</h3>
+  </div>
+  {% for row in waiting %}
+    <div class="card card--flat">
+      <div class="row row--between">
+        <div>
+          <b>{{ row.user.short_name }}</b>
+          {% leave_badge row.status %}
+          <div class="muted">
+            {{ row.get_kind_display }} ·
+            <span class="mono">{{ row.start_date }}</span>
+            {% if not row.is_permission %}
+              → <span class="mono">{{ row.end_date }}</span>
+              <span class="mono">({{ row.day_count }} يوم)</span>
+            {% else %}
+              <span class="mono">{{ row.start_time|time:"H:i" }}–{{ row.end_time|time:"H:i" }}</span>
+            {% endif %}
+          </div>
+          {% if row.reason %}<div class="muted">{{ row.reason }}</div>{% endif %}
+          {% if row.status == 'pending' and row.manager %}
+            <div class="muted"
+                 data-ar="مستني المدير:" data-en="Waiting for the manager:">مستني المدير: {{ row.manager.short_name }}</div>
+          {% endif %}
+        </div>
+        <div class="row row--tight">
+          <form method="post" action="{% url 'dashboard:leave_decide' row.pk 'approve' %}">
+            {% csrf_token %}
+            <button class="btn btn--ok btn--sm" type="submit">
+              {% icon "check" "ic--sm" %}<span data-ar="وافق" data-en="Approve">وافق</span>
+            </button>
+          </form>
+          <form method="post" action="{% url 'dashboard:leave_decide' row.pk 'reject' %}" class="row row--tight">
+            {% csrf_token %}
+            <input class="input" type="text" name="note" placeholder="السبب">
+            <button class="btn btn--danger btn--sm" type="submit">
+              {% icon "x" "ic--sm" %}<span data-ar="ارفض" data-en="Reject">ارفض</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="empty" data-ar="مفيش طلبات مستنية." data-en="Nothing waiting.">مفيش طلبات مستنية.</div>
+  {% endfor %}
+</div>
+
+<div class="card card--flat">
+  <form method="get" class="picker">
+    <div class="picker__row">
+      <select class="input" name="user">
+        <option value="" data-ar="كل الموظفين" data-en="Everyone">كل الموظفين</option>
+        {% for candidate in people %}
+          <option value="{{ candidate.pk }}"
+                  {% if selected.user == candidate.pk|stringformat:"s" %}selected{% endif %}>
+            {{ candidate.short_name }}
+          </option>
+        {% endfor %}
+      </select>
+      <select class="input" name="status">
+        <option value="" data-ar="كل الحالات" data-en="All">كل الحالات</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if selected.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn--primary btn--sm" type="submit">
+        {% icon "search" "ic--sm" %}<span data-ar="اعرض" data-en="Show">اعرض</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    {% icon "history" %}
+    <h3 data-ar="السجل" data-en="The record">السجل</h3>
+  </div>
+  <div class="table-wrap table-wrap--cards">
+    <table class="table table--cards">
+      <thead>
+        <tr>
+          <th data-ar="الموظف" data-en="Employee">الموظف</th>
+          <th data-ar="النوع" data-en="Kind">النوع</th>
+          <th data-ar="الأيام" data-en="Dates">الأيام</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th data-ar="مين قرر" data-en="Decided by">مين قرر</th>
+          <th data-ar="اتكتبت" data-en="Written">اتكتبت</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-ar-label="الموظف" data-en-label="Employee">{{ row.user.short_name }}</td>
+          <td data-ar-label="النوع" data-en-label="Kind" class="muted">{{ row.get_kind_display }}</td>
+          <td data-ar-label="الأيام" data-en-label="Dates" class="mono">
+            {{ row.start_date }}{% if not row.is_permission %} → {{ row.end_date }}{% endif %}
+          </td>
+          <td data-ar-label="الحالة" data-en-label="Status">{% leave_badge row.status %}</td>
+          <td data-ar-label="مين قرر" data-en-label="Decided by">{{ row.hr_decision_by.short_name|default:"—" }}</td>
+          <td data-ar-label="اتكتبت" data-en-label="Written" class="mono muted">
+            {% if row.applied_at %}{% icon "check-circle" "ic--sm" %}{% else %}—{% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty" data-ar="مفيش سجلات." data-en="Nothing.">مفيش سجلات.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

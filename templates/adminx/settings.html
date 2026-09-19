@@ -111,6 +111,23 @@
       <div class="field"><label data-ar="سر الويب هوك (للمحاكاة)" data-en="Webhook secret (simulation)">سر الويب هوك</label>{{ form.webhook_shared_secret }}</div>
     </div>
 
+    <h4 class="mt" data-ar="خط التوظيف" data-en="The recruitment line">خط التوظيف</h4>
+    <div class="form-grid">
+      <div class="field">
+        <label data-ar="Phone number ID للتوظيف" data-en="Recruitment phone number ID">Phone number ID للتوظيف</label>
+        {{ form.recruit_phone_number_id }}
+        <span class="helptext"
+              data-ar="رقم تاني على نفس حساب واتساب الأعمال. نفس التوكن ونفس الويب هوك — الـID ده هو اللي بيوجّه الرسالة لبوت التوظيف بدل إنبوكس العملاء. سيبه فاضي وكل حاجة تفضل زي ما هي."
+              data-en="A second number on the same WhatsApp business account. Same token, same webhook: this ID is what routes a message to the hiring bot instead of the client inbox. Leave it blank and nothing changes.">
+          رقم تاني على نفس حساب واتساب الأعمال — الـID ده هو اللي بيوجّه الرسالة لبوت التوظيف.
+        </span>
+      </div>
+      <div class="field">
+        <label data-ar="الرقم (للعرض)" data-en="Number (display only)">الرقم (للعرض)</label>
+        {{ form.recruit_number_display }}
+      </div>
+    </div>
+
     <div class="row row--tight mt">
       <input class="input" id="waTestTo" style="max-width:240px" dir="ltr"
              data-ar-ph="رقم للتجربة (اختياري) 2010…" data-en-ph="Test number (optional) 2010…"

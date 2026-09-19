@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}My leave{% endblock %}
+{% block page_title %}<span data-ar="إجازاتي" data-en="My leave">إجازاتي</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="إجازاتي" data-en="My leave">إجازاتي</h1>
+</div>
+
+<div class="grid grid--4">
+  <div class="kpi">
+    <div class="kpi__label" data-ar="رصيد الشهر" data-en="This month's allowance">رصيد الشهر</div>
+    <div class="kpi__value mono">{{ balance.allowance }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="مستخدم" data-en="Taken">مستخدم</div>
+    <div class="kpi__value mono">{{ balance.taken }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="مستني موافقة" data-en="Pending">مستني موافقة</div>
+    <div class="kpi__value mono">{{ balance.pending }}</div>
+  </div>
+  <div class="kpi {% if balance.left %}kpi--ok{% else %}kpi--warn{% endif %}">
+    <div class="kpi__label" data-ar="الباقي" data-en="Left">الباقي</div>
+    <div class="kpi__value mono">{{ balance.left }}</div>
+  </div>
+</div>
+
+{% if balance.over %}
+  <div class="note note--warn">
+    {% icon "alert" %}
+    <div data-ar="الأيام دي فوق الرصيد، وبتترجم لخصم لما الشهر يتحسب."
+         data-en="These days are beyond the allowance and price as a deduction when the month runs.">
+      فيه {{ balance.over }} يوم فوق الرصيد — بيترجم لخصم لما الشهر يتحسب.
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "history" %}
+      <h3 data-ar="طلباتي" data-en="My requests">طلباتي</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="النوع" data-en="Kind">النوع</th>
+            <th data-ar="من" data-en="From">من</th>
+            <th data-ar="إلى" data-en="To">إلى</th>
+            <th data-ar="المدة" data-en="Length">المدة</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-ar-label="النوع" data-en-label="Kind">{{ row.get_kind_display }}</td>
+            <td data-ar-label="من" data-en-label="From" class="mono">{{ row.start_date }}</td>
+            <td data-ar-label="إلى" data-en-label="To" class="mono">
+              {% if row.is_permission %}—{% else %}{{ row.end_date }}{% endif %}
+            </td>
+            <td data-ar-label="المدة" data-en-label="Length" class="mono">
+              {% if row.is_permission %}{{ row.minutes|minutes_hm }}
+              {% else %}{{ row.day_count }} <span class="muted">يوم</span>{% endif %}
+            </td>
+            <td data-ar-label="الحالة" data-en-label="Status">{% leave_badge row.status %}</td>
+            <td>
+              {% if row.is_open %}
+                <form method="post" action="{% url 'dashboard:leave_cancel' row.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--sm btn--ghost" type="submit">
+                    {% icon "x" "ic--sm" %}<span data-ar="اسحب" data-en="Withdraw">اسحب</span>
+                  </button>
+                </form>
+              {% elif row.decision_note %}
+                <span class="muted">{{ row.decision_note }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش طلبات لسه."
+                  data-en="Nothing yet.">مفيش طلبات لسه.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "plus" %}
+        <h3 data-ar="اطلب إجازة" data-en="Ask for leave">اطلب إجازة</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="النوع" data-en="Kind">النوع</label>
+          {{ form.kind }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="من" data-en="From">من</label>
+            {{ form.start_date }}{{ form.start_date.errors }}
+          </div>
+          <div class="field">
+            <label data-ar="إلى" data-en="To">إلى</label>
+            {{ form.end_date }}{{ form.end_date.errors }}
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="من الساعة (للإذن)" data-en="From (permission)">من الساعة (للإذن)</label>
+            {{ form.start_time }}
+          </div>
+          <div class="field">
+            <label data-ar="للساعة" data-en="To">للساعة</label>
+            {{ form.end_time }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="السبب" data-en="Reason">السبب</label>
+          {{ form.reason }}
+        </div>
+        <button class="btn btn--primary btn--block" type="submit">
+          {% icon "send" "ic--sm" %}<span data-ar="ابعت الطلب" data-en="Send">ابعت الطلب</span>
+        </button>
+      </form>
+    </div>
+
+    <div class="note note--info">
+      {% icon "info" %}
+      <div>
+        {% if conf.leave_needs_manager %}
+          <span data-ar="الطلب بيروح لمديرك الأول وبعدين للموارد البشرية."
+                data-en="Your manager signs first, then HR.">الطلب بيروح لمديرك الأول وبعدين للموارد البشرية.</span>
+        {% else %}
+          <span data-ar="الطلب بيروح للموارد البشرية مباشرة."
+                data-en="The request goes straight to HR.">الطلب بيروح للموارد البشرية مباشرة.</span>
+        {% endif %}
+        <div class="muted mt"
+             data-ar="أول ما يتوافق عليه، الأيام بتتسجل في كشف حضورك تلقائيًا — فمش هتظهر غياب."
+             data-en="Once approved the days are written onto your attendance sheet, so they never read as absence.">
+          أول ما يتوافق عليه، الأيام بتتسجل في كشف حضورك تلقائيًا — فمش هتظهر غياب.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

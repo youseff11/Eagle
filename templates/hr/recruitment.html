@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Recruitment{% endblock %}
+{% block page_title %}<span data-ar="لوحة التوظيف" data-en="Recruitment">لوحة التوظيف</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="لوحة التوظيف" data-en="Recruitment board">لوحة التوظيف</h1>
+  <div class="grow"></div>
+  <a class="btn btn--primary btn--sm" href="{% url 'dashboard:hr_vacancies' %}">
+    {% icon "plus" "ic--sm" %}<span data-ar="وظيفة جديدة" data-en="New vacancy">وظيفة جديدة</span>
+  </a>
+</div>
+
+{% if not privacy_armed %}
+  <div class="note note--high">
+    {% icon "alert" %}
+    <div>
+      <b data-ar="قاعدة إخفاء الهوية مش مفعّلة"
+         data-en="The identity rule is not armed">قاعدة إخفاء الهوية مش مفعّلة</b>
+      <div data-ar="مفيش كلمات متسجلة عشان تتشال من رسايل المرشحين، يعني اسم الشركة ممكن يعدي. اكتبهم في إعدادات التوظيف."
+           data-en="Nothing is configured to redact, so the company name can reach a candidate. Add the terms in the recruitment settings.">
+        مفيش كلمات متسجلة عشان تتشال من رسايل المرشحين — اكتبهم في
+        <a href="{% url 'dashboard:hr_recruitment_settings' %}">إعدادات التوظيف</a>.
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if not conf.bot_enabled or not recruit_number %}
+  <div class="note note--warn">
+    {% icon "info" %}
+    <div>
+      {% if not recruit_number %}
+        <span data-ar="رقم التوظيف لسه مش متسجل — البوت مش هيستقبل حاجة لحد ما يتحط في الإعدادات."
+              data-en="No recruitment number is configured yet, so the bot receives nothing.">
+          رقم التوظيف لسه مش متسجل — البوت مش هيستقبل حاجة.
+        </span>
+      {% else %}
+        <span data-ar="البوت مقفول من الإعدادات." data-en="The bot is switched off.">البوت مقفول من الإعدادات.</span>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="grid grid--4">
+  <div class="kpi">
+    <div class="kpi__label" data-ar="وظايف مفتوحة" data-en="Open vacancies">وظايف مفتوحة</div>
+    <div class="kpi__value mono">{{ counts.open_vacancies }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="إجمالي المتقدمين" data-en="Total applicants">إجمالي المتقدمين</div>
+    <div class="kpi__value mono">{{ counts.total_applicants }}</div>
+  </div>
+  <div class="kpi {% if counts.screening %}kpi--warn{% endif %}">
+    <div class="kpi__label" data-ar="في الفرز" data-en="Screening">في الفرز</div>
+    <div class="kpi__value mono">{{ counts.screening }}</div>
+  </div>
+  <div class="kpi {% if counts.pending_owner %}kpi--danger{% endif %}">
+    <div class="kpi__label" data-ar="مستني المالك" data-en="Owner approval">مستني المالك</div>
+    <div class="kpi__value mono">{{ counts.pending_owner }}</div>
+  </div>
+</div>
+
+<div class="grid grid--4">
+  <div class="kpi">
+    <div class="kpi__label" data-ar="مقابلات النهارده" data-en="Interviews today">مقابلات النهارده</div>
+    <div class="kpi__value mono">{{ counts.interviews_today }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="اختبارات معلقة" data-en="Pending tests">اختبارات معلقة</div>
+    <div class="kpi__value mono">{{ counts.pending_tests }}</div>
+  </div>
+  <div class="kpi kpi--ok">
+    <div class="kpi__label" data-ar="اتعيّنوا" data-en="Hired">اتعيّنوا</div>
+    <div class="kpi__value mono">{{ counts.hired }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label" data-ar="تحت الاختبار" data-en="On probation">تحت الاختبار</div>
+    <div class="kpi__value mono">{{ counts.on_probation }}</div>
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "contact" %}
+      <h3 data-ar="آخر المتقدمين" data-en="Latest applicants">آخر المتقدمين</h3>
+      <div class="grow"></div>
+      <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_candidates' %}">
+        <span data-ar="الكل" data-en="All">الكل</span>
+      </a>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="الكود" data-en="Code">الكود</th>
+            <th data-ar="المرشح" data-en="Candidate">المرشح</th>
+            <th data-ar="الوظيفة" data-en="Vacancy">الوظيفة</th>
+            <th data-ar="المصدر" data-en="Source">المصدر</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="التاريخ" data-en="Applied">التاريخ</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in recent %}
+          <tr>
+            <td data-ar-label="الكود" data-en-label="Code" class="mono">
+              <a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.code }}</a>
+            </td>
+            <td data-ar-label="المرشح" data-en-label="Candidate">{{ row.display_name }}</td>
+            <td data-ar-label="الوظيفة" data-en-label="Vacancy" class="muted">{{ row.vacancy.title|default:"—" }}</td>
+            <td data-ar-label="المصدر" data-en-label="Source" class="muted">{{ row.get_source_display }}</td>
+            <td data-ar-label="الحالة" data-en-label="Status">{% candidate_badge row.status %}</td>
+            <td data-ar-label="التاريخ" data-en-label="Applied" class="mono muted">{{ row.applied_at|date:"m-d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="مفيش متقدمين لسه."
+                  data-en="No applicants yet.">مفيش متقدمين لسه.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="مقابلات النهارده" data-en="Today">مقابلات النهارده</h3>
+      </div>
+      {% for row in today_interviews %}
+        <div class="kv">
+          <span>
+            <a href="{% url 'dashboard:hr_candidate' row.candidate.code %}">{{ row.candidate.display_name }}</a>
+            <span class="muted">{{ row.get_kind_display }}</span>
+          </span>
+          <b class="mono">{{ row.scheduled_at|date:"H:i" }}</b>
+        </div>
+      {% empty %}
+        <div class="muted" data-ar="مفيش مقابلات النهارده." data-en="Nothing today.">مفيش مقابلات النهارده.</div>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        {% icon "user-check" %}
+        <h3 data-ar="مستني موافقة المالك" data-en="Waiting for the owner">مستني موافقة المالك</h3>
+      </div>
+      {% for row in waiting_owner %}
+        <div class="kv">
+          <a href="{% url 'dashboard:hr_candidate' row.code %}">{{ row.display_name }}</a>
+          <span class="muted">{{ row.vacancy.title|default:"—" }}</span>
+        </div>
+      {% empty %}
+        <div class="muted" data-ar="مفيش حاجة مستنية." data-en="Nothing waiting.">مفيش حاجة مستنية.</div>
+      {% endfor %}
+      {% if user.can_approve_hiring and waiting_owner %}
+        <a class="btn btn--primary btn--block mt" href="{% url 'dashboard:hr_approvals' %}">
+          {% icon "check" "ic--sm" %}<span data-ar="افتح الطابور" data-en="Open the queue">افتح الطابور</span>
+        </a>
+      {% endif %}
+    </div>
+
+    <div class="note note--info">
+      {% icon "shield" %}
+      <div data-ar="البوت بيجمع البيانات ويستلم الـCV ويحوّل للـHR — مش بياخد قرار توظيف. القرار: تقييم HR ثم موافقة المالك."
+           data-en="The bot collects and hands over. It does not screen, score or hire: that is HR's evaluation and then the owner's decision.">
+        البوت بيجمع ويستلم الورق ويحوّل للـHR — مابياخدش قرار توظيف.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

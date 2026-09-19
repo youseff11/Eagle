@@ -5,18 +5,32 @@ from django.contrib.auth.forms import UserCreationForm
 
 from .models import (
     AppSettings,
+    Candidate,
+    CandidateTest,
     Client,
     ClientRequirement,
+    ClientComplaint,
+    Department,
+    Interview,
+    LeaveKind,
+    LeaveRequest,
     OfficeLocation,
     PayrollSettings,
     ProductionTier,
     Role,
+    ProbationOutcome,
+    RecruitmentQuestion,
+    RecruitmentSettings,
+    SalaryChangeRequest,
+    SalaryPlan,
     SalaryRecord,
     ScheduleOverride,
     Shift,
     ShiftTemplate,
     Task,
     User,
+    Vacancy,
+    VacancyStatus,
     Violation,
     WorkDay,
 )
@@ -347,6 +361,7 @@ class SettingsForm(forms.ModelForm):
             "whatsapp_verify_token", "whatsapp_access_token",
             "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_api_version",
             "webhook_shared_secret",
+            "recruit_phone_number_id", "recruit_number_display",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
             "smtp_from", "smtp_use_tls",
@@ -440,6 +455,10 @@ class PayrollSettingsForm(forms.ModelForm):
             "overtime_multiplier", "overtime_needs_approval",
             "missing_checkin_after_minutes", "missing_checkout_after_minutes",
             "short_hours_alert_minutes",
+            # -- leave and performance (sections 20 and 22) -----------------
+            "leave_needs_manager", "permission_max_minutes",
+            "weight_productivity", "weight_quality",
+            "weight_deadline", "weight_attendance",
         )
         widgets = {
             "off_site_policy": forms.Select(attrs={"class": "input"}),
@@ -478,6 +497,28 @@ class PayrollSettingsForm(forms.ModelForm):
             self.add_error(
                 "geofence_radius_m",
                 "أقل من 20 متر هيرفض حضور سليم — دقة الـGPS نفسها أوسع من كده.",
+            )
+
+        # A permission longer than the day is a day off wearing another name,
+        # and it would skip the leave balance entirely.
+        limit = data.get("permission_max_minutes")
+        hours = data.get("daily_hours")
+        if limit and hours and limit >= int(hours * 60):
+            self.add_error(
+                "permission_max_minutes",
+                "الإذن أطول من يوم الشغل نفسه — ده بقى إجازة، مش إذن.",
+            )
+
+        # Every weight at zero leaves nothing to average, so the page would
+        # show "not measured" for everybody, for ever.
+        weights = [
+            data.get("weight_productivity"), data.get("weight_quality"),
+            data.get("weight_deadline"), data.get("weight_attendance"),
+        ]
+        if all(w == 0 for w in weights if w is not None) and any(w is not None for w in weights):
+            self.add_error(
+                "weight_attendance",
+                "كل الأوزان صفر — يبقى مفيش تقييم أصلًا. لازم واحد على الأقل أكبر من صفر.",
             )
         return data
 
@@ -603,3 +644,512 @@ class TaskWordsForm(forms.ModelForm):
         widgets = {
             "word_count": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
         }
+
+
+# ---------------------------------------------------------------------------
+# HR / recruitment
+# ---------------------------------------------------------------------------
+
+class DepartmentForm(forms.ModelForm):
+    class Meta:
+        model = Department
+        fields = ("name", "name_ar", "is_active")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "name_ar": forms.TextInput(attrs={"class": "input"}),
+        }
+
+
+class RecruitmentQuestionForm(forms.ModelForm):
+    """One question for the bank.
+
+    ``options`` is a JSON list in the database but a textarea here - one
+    choice per line, which is how a person thinks about a list.
+    """
+
+    options_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"class": "input", "rows": 4}),
+        label="الاختيارات (واحد في كل سطر)",
+    )
+
+    class Meta:
+        model = RecruitmentQuestion
+        fields = (
+            "text", "text_en", "kind", "department", "maps_to",
+            "help_text", "sort_order", "is_active",
+        )
+        widgets = {
+            "text": forms.TextInput(attrs={"class": "input"}),
+            "text_en": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "kind": forms.Select(attrs={"class": "input"}),
+            "department": forms.Select(attrs={"class": "input"}),
+            "maps_to": forms.Select(attrs={"class": "input"}),
+            "help_text": forms.TextInput(attrs={"class": "input"}),
+            "sort_order": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["department"].queryset = Department.objects.filter(is_active=True)
+        self.fields["department"].required = False
+        self.fields["department"].empty_label = "— سؤال عام —"
+        if self.instance and self.instance.pk:
+            self.fields["options_text"].initial = "\n".join(self.instance.option_list)
+
+    def clean(self):
+        data = super().clean()
+        kind = data.get("kind")
+        lines = [
+            line.strip() for line in (data.get("options_text") or "").splitlines()
+            if line.strip()
+        ]
+        if kind in ("choice", "multi", "dropdown") and len(lines) < 2:
+            self.add_error("options_text", "النوع ده محتاج اختيارين على الأقل.")
+        data["options_list"] = lines
+        return data
+
+    def save(self, commit=True):
+        row = super().save(commit=False)
+        row.options = self.cleaned_data.get("options_list") or []
+        if commit:
+            row.save()
+        return row
+
+
+class VacancyForm(forms.ModelForm):
+    class Meta:
+        model = Vacancy
+        fields = (
+            "title", "department", "openings", "required_experience",
+            "required_languages", "required_skills", "salary_min", "salary_max",
+            "employment_type", "work_mode", "shifts", "job_description",
+            "requirements", "deadline", "status",
+        )
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "input"}),
+            "department": forms.Select(attrs={"class": "input"}),
+            "openings": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 1}),
+            "required_experience": forms.TextInput(attrs={"class": "input"}),
+            "required_languages": forms.TextInput(attrs={"class": "input"}),
+            "required_skills": forms.TextInput(attrs={"class": "input"}),
+            "salary_min": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+            "salary_max": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+            "employment_type": forms.Select(attrs={"class": "input"}),
+            "work_mode": forms.Select(attrs={"class": "input"}),
+            "shifts": forms.CheckboxSelectMultiple(),
+            "job_description": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "requirements": forms.Textarea(attrs={"class": "input", "rows": 3}),
+            "deadline": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "status": forms.Select(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["department"].queryset = Department.objects.filter(is_active=True)
+        self.fields["shifts"].queryset = ShiftTemplate.objects.filter(is_active=True)
+        self.fields["shifts"].required = False
+
+    def clean(self):
+        data = super().clean()
+        low, high = data.get("salary_min"), data.get("salary_max")
+        if low and high and high < low:
+            self.add_error("salary_max", "لازم يكون أكبر من أقل راتب.")
+        return data
+
+
+class CandidateForm(forms.ModelForm):
+    """HR entering or correcting a candidate by hand (a referral, a walk-in)."""
+
+    class Meta:
+        model = Candidate
+        fields = (
+            "full_name", "phone", "email", "vacancy", "department", "cv",
+            "experience_years", "languages", "skills", "expected_salary",
+            "shift_choice", "source", "hr_notes", "hr_recommendation",
+        )
+        widgets = {
+            "full_name": forms.TextInput(attrs={"class": "input"}),
+            "phone": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "email": forms.EmailInput(attrs={"class": "input", "dir": "ltr"}),
+            "vacancy": forms.Select(attrs={"class": "input"}),
+            "department": forms.Select(attrs={"class": "input"}),
+            "cv": forms.ClearableFileInput(attrs={"class": "input"}),
+            "experience_years": forms.TextInput(attrs={"class": "input"}),
+            "languages": forms.TextInput(attrs={"class": "input"}),
+            "skills": forms.TextInput(attrs={"class": "input"}),
+            "expected_salary": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "shift_choice": forms.TextInput(attrs={"class": "input"}),
+            "source": forms.Select(attrs={"class": "input"}),
+            "hr_notes": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "hr_recommendation": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["department"].required = False
+        self.fields["vacancy"].required = False
+        self.fields["vacancy"].queryset = Vacancy.objects.exclude(
+            status=VacancyStatus.CLOSED
+        )
+
+
+class InterviewForm(forms.ModelForm):
+    scheduled_at = DateTimeLocalField()
+
+    class Meta:
+        model = Interview
+        fields = (
+            "scheduled_at", "interviewer", "kind", "meeting_link", "location", "notes",
+        )
+        widgets = {
+            "interviewer": forms.Select(attrs={"class": "input"}),
+            "kind": forms.Select(attrs={"class": "input"}),
+            "meeting_link": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "location": forms.TextInput(attrs={"class": "input"}),
+            "notes": forms.Textarea(attrs={"class": "input", "rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["interviewer"].queryset = User.objects.filter(is_active=True)
+        self.fields["interviewer"].required = False
+
+
+class InterviewScoreForm(forms.ModelForm):
+    """Section 14's five marks. The total is the system's, not a typed number."""
+
+    class Meta:
+        model = Interview
+        fields = (
+            "communication", "experience", "technical", "computer_skills",
+            "attitude", "comments",
+        )
+        widgets = {
+            name: forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "min": 0, "max": 10}
+            )
+            for name in Interview.SCORE_FIELDS
+        } | {"comments": forms.Textarea(attrs={"class": "input", "rows": 3})}
+
+    def clean(self):
+        data = super().clean()
+        for name in Interview.SCORE_FIELDS:
+            value = data.get(name)
+            if value is not None and not 0 <= value <= 10:
+                self.add_error(name, "من 0 لـ 10.")
+        return data
+
+
+class CandidateTestForm(forms.ModelForm):
+    deadline = DateTimeLocalField(required=False)
+
+    class Meta:
+        model = CandidateTest
+        fields = (
+            "title", "department", "brief", "language_pair", "word_count",
+            "assignment", "deadline", "reviewer",
+        )
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "input"}),
+            "department": forms.Select(attrs={"class": "input"}),
+            "brief": forms.Textarea(attrs={"class": "input", "rows": 3}),
+            "language_pair": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "word_count": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
+            "assignment": forms.ClearableFileInput(attrs={"class": "input"}),
+            "reviewer": forms.Select(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["department"].required = False
+        self.fields["reviewer"].required = False
+        self.fields["reviewer"].queryset = User.objects.filter(
+            is_active=True, role__in=(Role.REVIEWER, Role.TEAM_LEAD, Role.ADMIN)
+        )
+
+
+class TestScoreForm(forms.ModelForm):
+    class Meta:
+        model = CandidateTest
+        fields = (
+            "accuracy", "grammar", "terminology", "formatting", "instructions",
+            "comments", "submission",
+        )
+        widgets = {
+            name: forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "min": 0, "max": 10}
+            )
+            for name in CandidateTest.SCORE_FIELDS
+        } | {
+            "comments": forms.Textarea(attrs={"class": "input", "rows": 3}),
+            "submission": forms.ClearableFileInput(attrs={"class": "input"}),
+        }
+
+    def clean(self):
+        data = super().clean()
+        for name in CandidateTest.SCORE_FIELDS:
+            value = data.get(name)
+            if value is not None and not 0 <= value <= 10:
+                self.add_error(name, "من 0 لـ 10.")
+        return data
+
+
+class HireForm(forms.Form):
+    """Section 17: what the system still needs that the application did not."""
+
+    role = forms.ChoiceField(
+        choices=Role.choices, initial=Role.TRANSLATOR,
+        widget=forms.Select(attrs={"class": "input"}), label="الدور",
+    )
+    job_title = forms.CharField(
+        required=False, widget=forms.TextInput(attrs={"class": "input"}),
+        label="المسمى الوظيفي",
+    )
+    joining_date = forms.DateField(
+        widget=forms.DateInput(attrs={"class": "input", "type": "date"}),
+        label="تاريخ الانضمام",
+    )
+    salary = forms.DecimalField(
+        required=False, max_digits=10, decimal_places=2,
+        widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+        label="الراتب الأساسي",
+    )
+    team_lead = forms.ModelChoiceField(
+        queryset=User.objects.none(), required=False,
+        widget=forms.Select(attrs={"class": "input"}), label="المدير المباشر",
+    )
+    username = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+        label="اسم المستخدم", help_text="سيبه فاضي والنظام هيولّده.",
+    )
+    password = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(attrs={"class": "input", "dir": "ltr"}),
+        label="الباسورد", help_text="سيبه فاضي والحساب يتقفل لحد ما تحطه.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["team_lead"].queryset = User.objects.filter(
+            is_active=True, role=Role.TEAM_LEAD
+        )
+
+    def clean_username(self):
+        name = (self.cleaned_data.get("username") or "").strip()
+        if name and User.objects.filter(username=name).exists():
+            raise forms.ValidationError("الاسم ده مستخدم بالفعل.")
+        return name
+
+
+class RecruitmentSettingsForm(forms.ModelForm):
+    class Meta:
+        model = RecruitmentSettings
+        fields = (
+            "bot_enabled", "bot_name", "bot_name_ar", "redact_terms",
+            "redact_placeholder", "greeting_ar", "closing_ar",
+            "session_timeout_hours", "probation_days",
+        )
+        widgets = {
+            "bot_name": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "bot_name_ar": forms.TextInput(attrs={"class": "input"}),
+            "redact_terms": forms.Textarea(attrs={"class": "input", "rows": 6}),
+            "redact_placeholder": forms.TextInput(attrs={"class": "input"}),
+            "greeting_ar": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "closing_ar": forms.Textarea(attrs={"class": "input", "rows": 3}),
+            "session_timeout_hours": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "min": 1}
+            ),
+            "probation_days": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "min": 0}
+            ),
+        }
+
+
+class CandidateMessageForm(forms.Form):
+    """HR writing to a candidate. The privacy rule applies to this too."""
+
+    body = forms.CharField(
+        widget=forms.Textarea(attrs={"class": "input", "rows": 3}), label="الرسالة"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Employee lifecycle - probation, leave, pay
+# ---------------------------------------------------------------------------
+
+class LeaveRequestForm(forms.ModelForm):
+    """What somebody fills in to ask for time off.
+
+    Permission is the odd one: it is hours inside a single day, so the two
+    time fields appear and the end date is forced to match the start.
+    """
+
+    class Meta:
+        model = LeaveRequest
+        fields = ("kind", "start_date", "end_date", "start_time", "end_time", "reason")
+        widgets = {
+            "kind": forms.Select(attrs={"class": "input"}),
+            "start_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "end_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "start_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "end_time": forms.TimeInput(attrs={"class": "input", "type": "time"}),
+            "reason": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("end_date", "start_time", "end_time", "reason"):
+            self.fields[name].required = False
+
+    def clean(self):
+        data = super().clean()
+        kind = data.get("kind")
+        start = data.get("start_date")
+        end = data.get("end_date") or start
+        if kind == LeaveKind.PERMISSION:
+            if not (data.get("start_time") and data.get("end_time")):
+                raise forms.ValidationError("الإذن محتاج وقت بداية ونهاية.")
+            data["end_date"] = start
+        elif start and end and end < start:
+            self.add_error("end_date", "لازم يكون بعد تاريخ البداية.")
+        else:
+            data["end_date"] = end
+        return data
+
+
+class LeaveDecisionForm(forms.Form):
+    note = forms.CharField(
+        required=False, max_length=250,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "ملاحظة"}),
+    )
+
+
+class ProbationDecisionForm(forms.Form):
+    outcome = forms.ChoiceField(
+        choices=[
+            (value, label) for value, label in ProbationOutcome.choices
+            if value != ProbationOutcome.PENDING
+        ],
+        widget=forms.Select(attrs={"class": "input"}), label="النتيجة",
+    )
+    score = forms.IntegerField(
+        required=False, min_value=0, max_value=10,
+        widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0, "max": 10}),
+        label="التقييم من 10",
+    )
+    extend_days = forms.IntegerField(
+        required=False, min_value=1, max_value=365, initial=30,
+        widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr"}),
+        label="تمديد كام يوم",
+    )
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"class": "input", "rows": 3}), label="الملاحظات",
+    )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("outcome") == ProbationOutcome.EXTENDED and not data.get("extend_days"):
+            self.add_error("extend_days", "اكتب مدة التمديد.")
+        return data
+
+
+class ClientComplaintForm(forms.ModelForm):
+    class Meta:
+        model = ClientComplaint
+        fields = ("client", "task", "translator", "severity", "summary", "detail", "happened_on")
+        widgets = {
+            "client": forms.Select(attrs={"class": "input"}),
+            "task": forms.Select(attrs={"class": "input"}),
+            "translator": forms.Select(attrs={"class": "input"}),
+            "severity": forms.Select(attrs={"class": "input"}),
+            "summary": forms.TextInput(attrs={"class": "input"}),
+            "detail": forms.Textarea(attrs={"class": "input", "rows": 3}),
+            "happened_on": forms.DateInput(attrs={"class": "input", "type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("client", "task", "translator", "happened_on", "detail"):
+            self.fields[name].required = False
+        self.fields["translator"].queryset = User.objects.filter(
+            is_active=True, role=Role.TRANSLATOR
+        )
+        # A complaint is about recent work, so the picker is not the whole
+        # history of the company.
+        self.fields["task"].queryset = Task.objects.order_by("-created_at")[:200]
+
+
+class SalaryPlanForm(forms.ModelForm):
+    """Every number optional. A blank one keeps the company's."""
+
+    class Meta:
+        model = SalaryPlan
+        fields = (
+            "name", "note", "daily_target_words", "secondary_daily_target_words",
+            "monthly_target_words", "extra_word_rate", "fixed_allowance",
+            "discipline_bonus", "target_bonus", "target_miss_penalty",
+            "working_days_per_month", "monthly_leave_allowance",
+            "overtime_hourly_rate", "is_active",
+        )
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input"}),
+            "note": forms.TextInput(attrs={"class": "input"}),
+            "extra_word_rate": forms.NumberInput(
+                attrs={"class": "input", "dir": "ltr", "step": "0.0001"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name, field in self.fields.items():
+            if isinstance(field.widget, forms.NumberInput):
+                field.widget.attrs.setdefault("class", "input")
+                field.widget.attrs.setdefault("dir", "ltr")
+            if name not in ("name", "is_active", "fixed_allowance"):
+                field.required = False
+
+    def clean(self):
+        data = super().clean()
+        days = data.get("working_days_per_month")
+        daily = data.get("daily_target_words")
+        monthly = data.get("monthly_target_words")
+        # The same arithmetic trap the company rules guard against: a monthly
+        # target above what the days can hold is unreachable by construction.
+        if days and daily and monthly and monthly > days * daily:
+            self.add_error("monthly_target_words", (
+                f"أكبر من {days} يوم × {daily} كلمة = {days * daily}."
+            ))
+        return data
+
+
+class SalaryChangeRequestForm(forms.Form):
+    new_amount = forms.DecimalField(
+        max_digits=10, decimal_places=2, min_value=0,
+        widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
+        label="الراتب الجديد",
+    )
+    effective_from = forms.DateField(
+        widget=forms.DateInput(attrs={"class": "input", "type": "date"}),
+        label="ساري من",
+    )
+    reason = forms.CharField(
+        required=False, max_length=250,
+        widget=forms.TextInput(attrs={"class": "input"}), label="السبب",
+    )
+
+
+class ReviewScoreForm(forms.Form):
+    """The team leader's mark on a finished translation."""
+
+    score = forms.IntegerField(
+        min_value=0, max_value=10,
+        widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0, "max": 10}),
+        label="تقييم المراجعة من 10",
+    )
+    note = forms.CharField(
+        required=False, max_length=250,
+        widget=forms.TextInput(attrs={"class": "input"}), label="ملاحظة",
+    )

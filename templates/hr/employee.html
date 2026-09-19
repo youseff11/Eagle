@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Employee{% endblock %}
+{% block page_title %}<span data-ar="ملف الموظف" data-en="Employee file">ملف الموظف</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ person.short_name }}</h1>
+  {% role_badge person.role %}
+  {% employment_status_badge person.employment_status %}
+  <div class="grow"></div>
+  <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:admin_user_edit' person.pk %}">
+    {% icon "pen" "ic--sm" %}<span data-ar="عدّل" data-en="Edit">عدّل</span>
+  </a>
+</div>
+
+<div class="grid grid--main">
+  <div class="stack">
+    <div class="card">
+      <div class="card__head">
+        {% icon "contact" %}
+        <h3 data-ar="البيانات" data-en="Details">البيانات</h3>
+      </div>
+      <div class="grid grid--2">
+        <div>
+          <div class="kv"><span data-ar="كود الموظف" data-en="Employee ID">كود الموظف</span><b class="mono">{{ person.employee_code|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="المسمى" data-en="Position">المسمى</span><b>{{ person.job_title|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="القسم" data-en="Department">القسم</span><b>{{ person.department.label|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="المدير المباشر" data-en="Manager">المدير المباشر</span><b>{{ person.team_lead.short_name|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="اللغات" data-en="Languages">اللغات</span><b>{{ person.languages|default:"—" }}</b></div>
+        </div>
+        <div>
+          <div class="kv"><span data-ar="تاريخ الانضمام" data-en="Joining date">تاريخ الانضمام</span><b class="mono">{{ person.joining_date|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="نوع التوظيف" data-en="Employment type">نوع التوظيف</span><b>{% employment_badge person.employment_type %}</b></div>
+          <div class="kv"><span data-ar="نظام العمل" data-en="Work mode">نظام العمل</span><b>{% work_mode_badge person.work_mode %}</b></div>
+          <div class="kv"><span data-ar="فترة الاختبار" data-en="Probation">فترة الاختبار</span>
+            <b class="mono">{{ person.probation_start|default:"—" }} → {{ person.probation_end|default:"—" }}</b></div>
+          <div class="kv"><span data-ar="الموبايل" data-en="Phone">الموبايل</span><b class="mono" dir="ltr">{{ person.phone|default:"—" }}</b></div>
+        </div>
+      </div>
+    </div>
+
+    {% if summary %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "timer" %}
+          <h3 data-ar="حضور الشهر ده" data-en="Attendance this month">حضور الشهر ده</h3>
+          <div class="grow"></div>
+          <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_report' %}?user={{ person.pk }}">
+            <span data-ar="التقرير الكامل" data-en="Full report">التقرير الكامل</span>
+          </a>
+        </div>
+        <div class="grid grid--4">
+          <div class="kpi">
+            <div class="kpi__label" data-ar="أيام حضور" data-en="Present">أيام حضور</div>
+            <div class="kpi__value mono">{{ summary.present_days }} / {{ summary.scheduled_days }}</div>
+          </div>
+          <div class="kpi {% if summary.late_days %}kpi--warn{% endif %}">
+            <div class="kpi__label" data-ar="تأخير" data-en="Late">تأخير</div>
+            <div class="kpi__value mono">{{ summary.late_days }}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label" data-ar="ساعات" data-en="Hours">ساعات</div>
+            <div class="kpi__value mono">{{ summary.work_minutes|minutes_hm }}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label" data-ar="أوفرتايم" data-en="Overtime">أوفرتايم</div>
+            <div class="kpi__value mono">{{ summary.overtime_minutes|minutes_hm }}</div>
+          </div>
+        </div>
+        <div class="row row--tight mt">
+          <span class="chip">Office <b class="mono">{{ summary.office_days }}</b></span>
+          <span class="chip">Remote <b class="mono">{{ summary.remote_days }}</b></span>
+          <span class="chip">إجازات <b class="mono">{{ summary.leave_days }}</b></span>
+          <span class="chip">غياب <b class="mono">{{ summary.absent_days }}</b></span>
+        </div>
+      </div>
+    {% else %}
+      <div class="note note--info">
+        {% icon "info" %}
+        <div data-ar="الحضور مقفول للحساب ده." data-en="Attendance is off for this account.">الحضور مقفول للحساب ده.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "calendar" %}
+        <h3 data-ar="الجدول" data-en="Roster">الجدول</h3>
+      </div>
+      {% for shift in shifts %}
+        <div class="kv">
+          <span>{{ shift.get_weekday_display }}</span>
+          <b class="mono">{{ shift.start|time:"H:i" }}–{{ shift.end|time:"H:i" }}</b>
+        </div>
+      {% empty %}
+        <div class="muted" data-ar="مفيش جدول لسه." data-en="No roster yet.">مفيش جدول لسه.</div>
+      {% endfor %}
+      <a class="btn btn--sm btn--block mt" href="{% url 'dashboard:hr_schedules' %}?user={{ person.pk }}">
+        {% icon "pen" "ic--sm" %}<span data-ar="عدّل الجدول" data-en="Edit the roster">عدّل الجدول</span>
+      </a>
+    </div>
+
+    {% if probation_reviews %}
+      <div class="card">
+        <div class="card__head">
+          {% icon "hand" %}
+          <h3 data-ar="فترة الاختبار" data-en="Probation">فترة الاختبار</h3>
+        </div>
+        {% for row in probation_reviews %}
+          <div class="kv">
+            <span>{{ row.get_stage_display }}
+              <span class="muted mono">{{ row.due_date }}</span></span>
+            {% probation_badge row.outcome %}
+          </div>
+        {% endfor %}
+        <a class="btn btn--sm btn--block mt" href="{% url 'dashboard:hr_probation' %}">
+          {% icon "arrow-right" "ic--sm" %}<span data-ar="لوحة فترة الاختبار" data-en="Probation board">لوحة فترة الاختبار</span>
+        </a>
+      </div>
+    {% endif %}
+
+    {% if leave_rows %}
+      <div class="card card--flat">
+        <div class="card__head">
+          {% icon "calendar" %}
+          <h3 data-ar="آخر الإجازات" data-en="Recent leave">آخر الإجازات</h3>
+        </div>
+        {% for row in leave_rows %}
+          <div class="kv">
+            <span>{{ row.get_kind_display }}
+              <span class="muted mono">{{ row.start_date }}</span></span>
+            {% leave_badge row.status %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "sliders" %}
+        <h3 data-ar="خطة الراتب" data-en="Salary plan">خطة الراتب</h3>
+      </div>
+      {% if person.salary_plan %}
+        <div class="kv">
+          <span>{{ person.salary_plan.name }}</span>
+          <span class="muted mono">{{ person.salary_plan.overrides|join:" · " }}</span>
+        </div>
+      {% else %}
+        <div class="muted"
+             data-ar="على قواعد الشركة."
+             data-en="On the company rules.">على قواعد الشركة.</div>
+      {% endif %}
+      {% if user.can_approve_hiring %}
+        <form method="post" action="{% url 'dashboard:assign_salary_plan' person.pk %}" class="mt">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <select class="input" name="plan">
+            <option value="" data-ar="قواعد الشركة" data-en="Company rules">قواعد الشركة</option>
+            {% for plan in plans %}
+              <option value="{{ plan.pk }}"
+                      {% if person.salary_plan_id == plan.pk %}selected{% endif %}>{{ plan.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn--sm btn--block mt" type="submit">
+            {% icon "check" "ic--sm" %}<span data-ar="اربطه" data-en="Assign">اربطه</span>
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    {% if application %}
+      <div class="card card--flat">
+        <div class="card__head">
+          {% icon "archive" %}
+          <h3 data-ar="طلب التوظيف" data-en="The application">طلب التوظيف</h3>
+        </div>
+        <div class="kv">
+          <a href="{% url 'dashboard:hr_candidate' application.code %}">{{ application.code }}</a>
+          <span class="muted">{{ application.applied_at|date:"Y-m-d" }}</span>
+        </div>
+        <small class="muted"
+               data-ar="الطلب اللي الموظف ده اتعيّن منه — محفوظ كامل بإجاباته."
+               data-en="The application this employee came from, kept whole.">
+          الطلب اللي الموظف ده اتعيّن منه — محفوظ كامل بإجاباته.
+        </small>
+      </div>
+    {% endif %}
+
+    {% if salary_records %}
+      <div class="card card--flat">
+        <div class="card__head">
+          {% icon "archive" %}
+          <h3 data-ar="سجل الراتب" data-en="Salary history">سجل الراتب</h3>
+        </div>
+        {% for row in salary_records %}
+          <div class="kv"><span class="mono muted">{{ row.effective_from }}</span><b class="mono">{{ row.amount }}</b></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

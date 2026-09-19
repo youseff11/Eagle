@@ -233,6 +233,62 @@
         </div>
       </div>
 
+      <div class="card">
+        <div class="card__head">
+          {% icon "calendar" %}
+          <h3 data-ar="الإجازات والأذونات" data-en="Leave and permissions">الإجازات والأذونات</h3>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="أطول إذن مرة واحدة (دقيقة)" data-en="Longest single permission (minutes)">أطول إذن</label>
+            {{ form.permission_max_minutes }}{{ form.permission_max_minutes.errors }}
+          </div>
+        </div>
+        <label class="switch mt">
+          {{ form.leave_needs_manager }}
+          <span data-ar="الطلب يعدّي على التيم ليدر قبل الـHR"
+                data-en="The team leader approves before HR">الطلب يعدّي على التيم ليدر قبل الـHR</span>
+        </label>
+        <small class="muted"
+               data-ar="مقفول = الـHR بتقرر لوحدها."
+               data-en="Off means HR decides alone.">مقفول = الـHR بتقرر لوحدها.</small>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "chart" %}
+          <h3 data-ar="أوزان تقييم الأداء" data-en="Performance weights">أوزان تقييم الأداء</h3>
+        </div>
+
+        <div class="note note--info">
+          {% icon "info" %}
+          <div data-ar="دي نِسَب مش مجموع لازم يوصل 100. المتوسط بيتحسب على المؤشرات اللي ليها بيانات بس، فالمؤشر اللي لسه مفيهوش شغل مبيجرّش التقييم لتحت. وزن بصفر = المؤشر ده مش داخل الحساب خالص."
+               data-en="These are ratios, not a total that must reach 100. The mean is taken over the indicators that have data, so an unmeasured one drags nothing down. A weight of zero drops the indicator entirely.">
+            دي نِسَب مش مجموع لازم يوصل 100. المتوسط بيتحسب على المؤشرات اللي ليها بيانات بس،
+            فالمؤشر اللي لسه مفيهوش شغل مبيجرّش التقييم لتحت. وزن بصفر = المؤشر ده مش داخل الحساب خالص.
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الإنتاجية" data-en="Productivity">الإنتاجية</label>
+            {{ form.weight_productivity }}
+          </div>
+          <div class="field">
+            <label data-ar="الجودة" data-en="Quality">الجودة</label>
+            {{ form.weight_quality }}
+          </div>
+          <div class="field">
+            <label data-ar="المواعيد" data-en="Deadlines">المواعيد</label>
+            {{ form.weight_deadline }}
+          </div>
+          <div class="field">
+            <label data-ar="الحضور" data-en="Attendance">الحضور</label>
+            {{ form.weight_attendance }}{{ form.weight_attendance.errors }}
+          </div>
+        </div>
+      </div>
+
       <button class="btn btn--primary" type="submit">
         {% icon "check" "ic--sm" %}<span data-ar="احفظ القواعد" data-en="Save the rules">احفظ القواعد</span>
       </button>

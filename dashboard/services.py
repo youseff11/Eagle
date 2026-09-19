@@ -896,6 +896,65 @@ def mark_reviewed(task, user):
     return True
 
 
+def send_back_for_revision(task, user, reason=""):
+    """The team leader returns a reviewed translation to the translator.
+
+    This is the missing half of the review loop, and it is also the only
+    source the revision rate in the performance module can have: a job that
+    came back is a job that came back, and nothing else records that.
+    """
+    if task.team_lead_id != user.id and not user.is_admin_role:
+        return False
+    if task.status not in (TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED):
+        return False
+
+    task.status = TaskStatus.IN_PROGRESS
+    task.revision_count += 1
+    task.returned_at = timezone.now()
+    task.reviewed_at = None
+    task.save(update_fields=[
+        "status", "revision_count", "returned_at", "reviewed_at", "updated_at"
+    ])
+    room = ensure_room(task, RoomKind.GROUP)
+    system_message(
+        room, key="returned",
+        body_ar=f"{user.short_name} رجّع الترجمة للتعديل. {reason}".strip(),
+        body_en=f"{user.short_name} sent the translation back. {reason}".strip(),
+    )
+    notify(
+        task.translator,
+        title_ar="الترجمة رجعتلك للتعديل",
+        title_en="Your translation came back",
+        body_ar=reason or f"التيم ليدر رجّع {task.code} للتعديل.",
+        body_en=reason or f"The team leader returned {task.code}.",
+        level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+    )
+    log(user, "task.returned", task.code, reason)
+    return True
+
+
+def score_review(task, user, score, note=""):
+    """The team leader's mark out of ten, recorded with the review.
+
+    Separate from `mark_reviewed` so a leader can go back and score a job
+    they already signed off, and so a review with no mark stays unmarked
+    rather than quietly becoming a zero.
+    """
+    if task.team_lead_id != user.id and not user.is_admin_role:
+        return False
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        return False
+    if not 0 <= score <= 10:
+        return False
+    task.review_score = score
+    task.review_note = (note or "")[:250]
+    task.save(update_fields=["review_score", "review_note", "updated_at"])
+    log(user, "task.review_score", task.code, f"{score}/10")
+    return True
+
+
 def client_channel(client):
     """How we last heard from this client — that's how we answer back."""
     last = client.messages.order_by("-received_at").first()

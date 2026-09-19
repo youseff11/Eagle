@@ -7,6 +7,10 @@ from .models import (
     AICheckResult,
     AppSettings,
     Assignment,
+    Candidate,
+    CandidateAnswer,
+    CandidateSession,
+    CandidateTest,
     AttendanceEdit,
     AttendanceEvent,
     AuditLog,
@@ -18,8 +22,12 @@ from .models import (
     ChatMessage,
     ChatRoom,
     Client,
+    ClientComplaint,
     ClientRequirement,
+    Department,
     InboundMessage,
+    Interview,
+    LeaveRequest,
     MessageAttachment,
     Notification,
     OutboundAttachment,
@@ -27,13 +35,20 @@ from .models import (
     PayrollPeriod,
     PayrollSettings,
     ProductionTier,
+    ProbationReview,
     RatingEvent,
+    RecruitmentQuestion,
+    RecruitmentSettings,
+    SalaryChangeRequest,
+    SalaryPlan,
     SalaryRecord,
     ScheduleOverride,
     Shift,
     ShiftTemplate,
     Task,
     User,
+    Vacancy,
+    VacancyQuestion,
     Violation,
     WorkDay,
 )
@@ -57,6 +72,13 @@ class UserAdmin(BaseUserAdmin):
             "fields": (
                 "employment_type", "work_mode", "schedule_kind",
                 "attendance_enabled", "attendance_manager",
+            )
+        }),
+        ("Employee file", {
+            "fields": (
+                "employee_code", "job_title", "department", "joining_date",
+                "employment_status", "probation_start", "probation_end",
+                "contract", "salary_plan",
             )
         }),
     )
@@ -209,6 +231,126 @@ class OvertimeClaimAdmin(admin.ModelAdmin):
     list_display = ("user", "date", "minutes", "hourly_rate", "amount", "status")
     list_filter = ("status",)
     search_fields = ("user__username",)
+
+
+class VacancyQuestionInline(admin.TabularInline):
+    model = VacancyQuestion
+    extra = 0
+
+
+@admin.register(Vacancy)
+class VacancyAdmin(admin.ModelAdmin):
+    list_display = ("code", "title", "department", "status", "employment_type", "created_at")
+    list_filter = ("status", "department", "employment_type", "work_mode")
+    search_fields = ("code", "title")
+    inlines = [VacancyQuestionInline]
+
+
+@admin.register(RecruitmentQuestion)
+class RecruitmentQuestionAdmin(admin.ModelAdmin):
+    list_display = ("text", "department", "kind", "maps_to", "is_active")
+    list_filter = ("kind", "department", "is_active")
+    search_fields = ("text",)
+
+
+class CandidateAnswerInline(admin.TabularInline):
+    model = CandidateAnswer
+    extra = 0
+    readonly_fields = ("answered_at",)
+
+
+@admin.register(Candidate)
+class CandidateAdmin(admin.ModelAdmin):
+    list_display = (
+        "code", "full_name", "vacancy", "status", "source",
+        "identity_revealed", "applied_at",
+    )
+    list_filter = ("status", "source", "identity_revealed", "department")
+    search_fields = ("code", "full_name", "phone", "email")
+    inlines = [CandidateAnswerInline]
+
+
+@admin.register(Interview)
+class InterviewAdmin(admin.ModelAdmin):
+    list_display = ("candidate", "scheduled_at", "interviewer", "kind", "total_score")
+    list_filter = ("kind",)
+
+
+@admin.register(CandidateTest)
+class CandidateTestAdmin(admin.ModelAdmin):
+    list_display = ("candidate", "title", "department", "reviewer", "total_score", "marked_at")
+    list_filter = ("department",)
+
+
+@admin.register(CandidateSession)
+class CandidateSessionAdmin(admin.ModelAdmin):
+    """The bot's own cursor. Useful when a conversation went sideways."""
+
+    list_display = ("contact", "candidate", "vacancy", "state", "step", "last_message_at")
+    list_filter = ("state", "channel")
+    search_fields = ("contact",)
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ("name", "name_ar", "is_active")
+
+
+@admin.register(RecruitmentSettings)
+class RecruitmentSettingsAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "bot_enabled", "updated_at")
+
+    def has_add_permission(self, request):
+        return not RecruitmentSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProbationReview)
+class ProbationReviewAdmin(admin.ModelAdmin):
+    list_display = ("user", "stage", "due_date", "outcome", "score", "reviewer")
+    list_filter = ("stage", "outcome")
+    search_fields = ("user__username",)
+
+
+@admin.register(LeaveRequest)
+class LeaveRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        "user", "kind", "start_date", "end_date", "status", "applied_at",
+    )
+    list_filter = ("kind", "status")
+    search_fields = ("user__username",)
+    date_hierarchy = "start_date"
+
+
+@admin.register(ClientComplaint)
+class ClientComplaintAdmin(admin.ModelAdmin):
+    list_display = ("summary", "translator", "client", "severity", "happened_on", "resolved")
+    list_filter = ("severity", "resolved")
+    search_fields = ("summary", "translator__username")
+
+
+@admin.register(SalaryPlan)
+class SalaryPlanAdmin(admin.ModelAdmin):
+    list_display = ("name", "extra_word_rate", "fixed_allowance", "is_active")
+    list_filter = ("is_active",)
+
+
+@admin.register(SalaryChangeRequest)
+class SalaryChangeRequestAdmin(admin.ModelAdmin):
+    """Read-only: a salary moves through the request flow, never from here."""
+
+    list_display = (
+        "user", "current_amount", "new_amount", "effective_from", "status", "decided_by",
+    )
+    list_filter = ("status",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Violation)

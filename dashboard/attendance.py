@@ -521,7 +521,12 @@ def recompute(row, conf=None, save=True, keep_break=False):
     row.short_minutes = 0
     row.overtime_minutes = 0
     if row.scheduled_minutes and row.check_out:
-        difference = row.work_minutes - row.scheduled_minutes
+        # An approved permission is time HR agreed the person would be away,
+        # so it is not a shortfall. Without this line a granted permission
+        # still reads as short hours and can price a deduction, which is the
+        # fastest way to make people stop asking for one.
+        owed = max(0, row.scheduled_minutes - row.excused_minutes)
+        difference = row.work_minutes - owed
         if difference < 0:
             row.short_minutes = -difference
         elif conf.overtime_enabled and difference >= conf.overtime_min_minutes:

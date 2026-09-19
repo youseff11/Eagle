@@ -21,6 +21,9 @@ from .models import (
     ClientRequirement,
     InboundMessage,
     Notification,
+    # Used by `_quoted_of` when somebody replies to a message we sent. It was
+    # missing, so quoting an outbound message raised NameError at runtime.
+    OutboundMessage,
     PunchKind,
     Role,
     RoomKind,
@@ -300,6 +303,14 @@ def task_action(request, code, action):
         "reviewed": lambda: services.mark_reviewed(task, user),
         "delivered": lambda: services.mark_delivered(task, user),
         "cancel": lambda: services.cancel_task(task, user, request.POST.get("reason", "")),
+        # The other half of the review loop, and the only thing that can
+        # ever record a revision (section 20's revision rate).
+        "return": lambda: services.send_back_for_revision(
+            task, user, request.POST.get("reason", "")
+        ),
+        "score": lambda: services.score_review(
+            task, user, request.POST.get("score"), request.POST.get("note", "")
+        ),
     }
     handler = handlers.get(action)
     if handler is None:
@@ -310,13 +321,20 @@ def task_action(request, code, action):
         "reviewed": task.team_lead_id == user.id,
         "delivered": user.is_operation,
         "cancel": user.is_operation,
+        "return": task.team_lead_id == user.id,
+        "score": task.team_lead_id == user.id,
     }[action]
     if not (guard or user.is_admin_role):
         return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
 
     ok = handler()
     task.refresh_from_db()
-    return JsonResponse({"ok": bool(ok), "status": task.status})
+    return JsonResponse({
+        "ok": bool(ok),
+        "status": task.status,
+        "review_score": task.review_score,
+        "revision_count": task.revision_count,
+    })
 
 
 @api_role_required(Role.OPERATION)

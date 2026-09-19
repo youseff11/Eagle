@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Question bank{% endblock %}
+{% block page_title %}<span data-ar="بنك الأسئلة" data-en="Question bank">بنك الأسئلة</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="بنك أسئلة التوظيف" data-en="Recruitment question bank">بنك أسئلة التوظيف</h1>
+  <div class="grow"></div>
+  <form method="get" class="row row--tight">
+    <select class="input" name="department" onchange="this.form.submit()">
+      <option value="" data-ar="كل الأقسام" data-en="All departments">كل الأقسام</option>
+      {% for row in departments %}
+        <option value="{{ row.pk }}" {% if selected.department == row.pk|stringformat:"s" %}selected{% endif %}>
+          {{ row.label }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="note note--info">
+  {% icon "info" %}
+  <div data-ar="مفيش مجموعة أسئلة مفروضة على أي قسم. القسم بيساعدك توصل للسؤال بس، واللي بيختار أسئلة كل وظيفة هو إنت."
+       data-en="No set of questions is forced on a department. The department only helps you find a question; you choose each vacancy's list.">
+    مفيش أسئلة مفروضة على أي قسم — القسم بيساعدك توصل للسؤال بس، والاختيار كله بتاعك.
+  </div>
+</div>
+
+<div class="grid grid--main">
+  <div class="card">
+    <div class="card__head">
+      {% icon "list-checks" %}
+      <h3 data-ar="الأسئلة" data-en="Questions">الأسئلة</h3>
+    </div>
+    <div class="table-wrap table-wrap--cards">
+      <table class="table table--cards">
+        <thead>
+          <tr>
+            <th data-ar="السؤال" data-en="Question">السؤال</th>
+            <th data-ar="القسم" data-en="Department">القسم</th>
+            <th data-ar="النوع" data-en="Type">النوع</th>
+            <th data-ar="بيملا حقل" data-en="Fills">بيملا حقل</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-ar-label="السؤال" data-en-label="Question">
+              {{ row.text }}
+              {% if row.option_list %}
+                <div class="muted mono">{{ row.option_list|join:" · " }}</div>
+              {% endif %}
+            </td>
+            <td data-ar-label="القسم" data-en-label="Department" class="muted">
+              {{ row.department.label|default:"عام" }}
+            </td>
+            <td data-ar-label="النوع" data-en-label="Type" class="muted">{{ row.get_kind_display }}</td>
+            <td data-ar-label="بيملا حقل" data-en-label="Fills" class="mono muted">
+              {{ row.get_maps_to_display|default:"—" }}
+            </td>
+            <td data-ar-label="الحالة" data-en-label="Status">
+              {% if row.is_active %}
+                <span class="badge badge--ok" data-ar="شغال" data-en="Active">شغال</span>
+              {% else %}
+                <span class="badge" data-ar="مقفول" data-en="Off">مقفول</span>
+              {% endif %}
+            </td>
+            <td>
+              <a class="btn btn--sm btn--ghost" href="?edit={{ row.pk }}">
+                {% icon "pen" "ic--sm" %}<span data-ar="عدّل" data-en="Edit">عدّل</span>
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty"
+                  data-ar="بنك الأسئلة فاضي — ابدأ بسؤال."
+                  data-en="The bank is empty. Start with one question.">بنك الأسئلة فاضي — ابدأ بسؤال.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card__head">
+        {% icon "pen" %}
+        <h3>
+          {% if editing %}
+            <span data-ar="تعديل سؤال" data-en="Edit a question">تعديل سؤال</span>
+          {% else %}
+            <span data-ar="سؤال جديد" data-en="New question">سؤال جديد</span>
+          {% endif %}
+        </h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+          <label data-ar="السؤال بالعربي" data-en="Question (Arabic)">السؤال بالعربي</label>
+          {{ form.text }}{{ form.text.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="بالإنجليزي" data-en="English">بالإنجليزي</label>
+          {{ form.text_en }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="النوع" data-en="Type">النوع</label>
+            {{ form.kind }}
+          </div>
+          <div class="field">
+            <label data-ar="القسم" data-en="Department">القسم</label>
+            {{ form.department }}
+          </div>
+        </div>
+        <div class="field">
+          <label data-ar="الاختيارات (واحد في كل سطر)" data-en="Options (one per line)">الاختيارات</label>
+          {{ form.options_text }}{{ form.options_text.errors }}
+        </div>
+        <div class="field">
+          <label data-ar="بيملا حقل في ملف المرشح" data-en="Fills a profile field">بيملا حقل في ملف المرشح</label>
+          {{ form.maps_to }}
+          <small class="muted"
+                 data-ar="اختار الحقل هنا والنظام هياخد الإجابة لوحده. من غير كده الإجابة بتتسجل كإجابة بس."
+                 data-en="Tag the field and the answer lands there by itself. Untagged, it is stored as an answer only.">
+            اختار الحقل هنا والنظام هياخد الإجابة لوحده — عشان كده الصياغة حرة تمامًا.
+          </small>
+        </div>
+        <div class="field">
+          <label data-ar="تلميح للمرشح" data-en="Hint for the candidate">تلميح للمرشح</label>
+          {{ form.help_text }}
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الترتيب" data-en="Sort">الترتيب</label>
+            {{ form.sort_order }}
+          </div>
+        </div>
+        <label class="switch">
+          {{ form.is_active }}
+          <span data-ar="شغال" data-en="Active">شغال</span>
+        </label>
+        <button class="btn btn--primary btn--block mt" type="submit">
+          {% icon "check" "ic--sm" %}<span data-ar="احفظ" data-en="Save">احفظ</span>
+        </button>
+        {% if editing %}
+          <a class="btn btn--sm btn--ghost btn--block mt" href="{% url 'dashboard:hr_questions' %}">
+            <span data-ar="سؤال جديد بدل التعديل" data-en="New question instead">سؤال جديد بدل التعديل</span>
+          </a>
+        {% endif %}
+      </form>
+    </div>
+
+    <div class="card card--flat">
+      <div class="card__head">
+        {% icon "layers" %}
+        <h3 data-ar="الأقسام" data-en="Departments">الأقسام</h3>
+      </div>
+      {% for row in departments %}
+        <div class="kv"><span>{{ row.label }}</span>
+          <span class="mono muted">{{ row.questions.count }}</span></div>
+      {% endfor %}
+      <form method="post" action="{% url 'dashboard:hr_department_add' %}" class="mt">
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="field">
+            <label data-ar="الاسم" data-en="Name">الاسم</label>
+            {{ department_form.name }}
+          </div>
+          <div class="field">
+            <label data-ar="بالعربي" data-en="Arabic">بالعربي</label>
+            {{ department_form.name_ar }}
+          </div>
+        </div>
+        <button class="btn btn--sm btn--block" type="submit">
+          {% icon "plus" "ic--sm" %}<span data-ar="ضيف قسم" data-en="Add">ضيف قسم</span>
+        </button>
+      </form>
+      <small class="muted"
+             data-ar="قسم جديد مش محتاج أي تعديل في الكود."
+             data-en="A new department needs no code change.">
+        قسم جديد مش محتاج أي تعديل في الكود.
+      </small>
+    </div>
+  </div>
+</div>
+{% endblock %}

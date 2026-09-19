@@ -42,6 +42,9 @@ ROLE_MAP = {
     "operation": ("أوبريشن", "Operation"),
     "team_lead": ("تيم ليدر", "Team leader"),
     "translator": ("مترجم", "Translator"),
+    "hr": ("موارد بشرية", "HR"),
+    "reviewer": ("مراجع", "Reviewer"),
+    "accounting": ("حسابات", "Accounting"),
 }
 
 PRIORITY_MAP = {
@@ -70,6 +73,49 @@ WORK_MODE_MAP = {
     "office": ("من المكتب", "Office"),
     "remote": ("عن بُعد", "Remote"),
     "hybrid": ("هجين", "Hybrid"),
+}
+
+CANDIDATE_STATUS_MAP = {
+    "new": ("new", "جديد", "New"),
+    "screening": ("wait", "فرز", "Screening"),
+    "interview": ("info", "مقابلة", "Interview"),
+    "test": ("work", "اختبار", "Test"),
+    "final_review": ("review", "مراجعة نهائية", "Final review"),
+    "owner_approval": ("wait", "مستني المالك", "Owner approval"),
+    "approved": ("ok", "متوافق عليه", "Approved"),
+    "hired": ("ok", "اتعيّن", "Hired"),
+    "rejected": ("dead", "مرفوض", "Rejected"),
+}
+
+EMPLOYMENT_STATUS_MAP = {
+    "probation": ("wait", "تحت الاختبار", "Probation"),
+    "active": ("ok", "مثبّت", "Confirmed"),
+    "notice": ("review", "في فترة إشعار", "Notice"),
+    "left": ("dead", "ساب الشركة", "Left"),
+}
+
+LEAVE_STATUS_MAP = {
+    "pending": ("wait", "مستني", "Waiting"),
+    "manager_ok": ("info", "المدير وافق", "Manager approved"),
+    "approved": ("ok", "اتوافق عليه", "Approved"),
+    "rejected": ("dead", "مرفوض", "Rejected"),
+    "cancelled": ("", "اتسحب", "Withdrawn"),
+}
+
+PROBATION_MAP = {
+    "pending": ("wait", "مستني", "Pending"),
+    "confirmed": ("ok", "اتثبّت", "Confirmed"),
+    "extended": ("review", "اتمدّت", "Extended"),
+    "terminated": ("dead", "انتهى", "Terminated"),
+}
+
+#: The three words every performance number is described with, so the same
+#: score never reads "fair" on one screen and "good" on the next.
+BAND_MAP = {
+    "good": ("ok", "كويس", "Good"),
+    "fair": ("wait", "متوسط", "Fair"),
+    "poor": ("dead", "ضعيف", "Poor"),
+    "unknown": ("", "مابتتقاسش", "Not measured"),
 }
 
 EMPLOYMENT_MAP = {
@@ -108,6 +154,71 @@ def day_status_badge(status):
 
 
 @register.simple_tag
+def candidate_badge(status):
+    css, ar, en = CANDIDATE_STATUS_MAP.get(status, ("", status, status))
+    modifier = f" badge--{css}" if css else ""
+    return mark_safe(
+        f'<span class="badge{modifier}" data-ar="{escape(ar)}" '
+        f'data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+@register.simple_tag
+def employment_status_badge(status):
+    css, ar, en = EMPLOYMENT_STATUS_MAP.get(status, ("", status, status))
+    modifier = f" badge--{css}" if css else ""
+    return mark_safe(
+        f'<span class="badge{modifier}" data-ar="{escape(ar)}" '
+        f'data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+def _mapped_badge(table, value, default_css=""):
+    css, ar, en = table.get(value, (default_css, value, value))
+    modifier = f" badge--{css}" if css else ""
+    return mark_safe(
+        f'<span class="badge{modifier}" data-ar="{escape(ar)}" '
+        f'data-en="{escape(en)}">{escape(ar)}</span>'
+    )
+
+
+@register.simple_tag
+def leave_badge(status):
+    return _mapped_badge(LEAVE_STATUS_MAP, status)
+
+
+@register.simple_tag
+def probation_badge(outcome):
+    return _mapped_badge(PROBATION_MAP, outcome)
+
+
+@register.simple_tag
+def band_badge(band):
+    """A performance band. "unknown" is a real answer, not a failure."""
+    return _mapped_badge(BAND_MAP, band)
+
+
+@register.simple_tag
+def score_bar(score, band=""):
+    """A score as a bar, because four numbers in a column read as noise.
+
+    ``None`` draws an empty track rather than a full-width nothing, so a
+    missing indicator looks missing instead of looking like zero.
+    """
+    if score is None:
+        return mark_safe(
+            '<div class="meter meter--empty" role="img" aria-label="not measured">'
+            '<i style="width:0"></i></div>'
+        )
+    width = max(0, min(100, int(score)))
+    css = escape(band or "")
+    return mark_safe(
+        f'<div class="meter meter--{css}" role="img" aria-label="{width}%">'
+        f'<i style="width:{width}%"></i></div>'
+    )
+
+
+@register.simple_tag
 def work_mode_badge(mode):
     """Blank is a real answer here: a day nobody has assigned a mode to."""
     if not mode:
@@ -124,6 +235,15 @@ def employment_badge(kind):
     return mark_safe(
         f'<span class="chip" data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span>'
     )
+
+
+@register.filter
+def dict_get(mapping, key):
+    """``{{ labels|dict_get:value }}`` — Django has no subscript syntax."""
+    try:
+        return mapping.get(key, key)
+    except AttributeError:
+        return key
 
 
 @register.filter
