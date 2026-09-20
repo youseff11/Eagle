@@ -154,9 +154,13 @@ strong, b { font-weight: 620; }
 /* The company logo is a lockup - crest, name and tagline are all inside the
    one image - so it stands on its own instead of sitting in the little gold
    tile next to the word EAGLE. The file carries a wide transparent margin of
-   its own, which is why the box is the full width of the rail. */
-.brand--img { display: block; padding: 2px 4px 10px; }
-.brand--img img { display: block; width: 100%; height: auto; }
+   its own, so it is capped well below the rail width and centred; at the full
+   226px of the rail the crest alone ate the top of the nav. */
+.brand--img { display: block; padding: 2px 4px 8px; }
+.brand--img img {
+  display: block; width: 100%; max-width: 128px; height: auto;
+  margin-inline: auto;
+}
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav__label {
