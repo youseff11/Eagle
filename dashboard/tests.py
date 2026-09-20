@@ -17,6 +17,7 @@ from .models import (
     TaskStatus,
     User,
 )
+from .permissions import user_may_open
 
 
 class WorkflowTests(TestCase):
@@ -2323,3 +2324,51 @@ class LifecyclePageTests(TestCase):
         self.client.force_login(self.translator)
         for path in ("/hr/leave/", "/hr/probation/", "/hr/performance/"):
             self.assertEqual(self.client.get(path).status_code, 403, path)
+
+
+class NextAfterLoginTests(TestCase):
+    """Signing in while ?next= points at somebody else's page.
+
+    Measured on the live site 20/09/2026: the POST to /login/ succeeded and the
+    GET of /panel/ that followed returned 403. The session was never the
+    problem - the destination was.
+    """
+
+    def setUp(self):
+        self.translator = User.objects.create_user(
+            "tr_next", password="x", role=Role.TRANSLATOR
+        )
+        self.owner = User.objects.create_user(
+            "owner_next", password="x", role=Role.ADMIN
+        )
+
+    def test_a_translator_sent_to_the_admin_panel_lands_on_their_own_page(self):
+        response = self.client.post(
+            "/login/", {"username": "tr_next", "password": "x", "next": "/panel/"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/")
+
+    def test_the_owner_still_arrives_where_they_asked(self):
+        response = self.client.post(
+            "/login/", {"username": "owner_next", "password": "x", "next": "/panel/"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/panel/")
+
+    def test_a_page_behind_no_role_guard_is_still_honoured(self):
+        response = self.client.post(
+            "/login/", {"username": "tr_next", "password": "x", "next": "/leave/"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/leave/")
+
+    def test_the_rule_is_read_off_the_guard_not_a_second_copy(self):
+        self.assertFalse(user_may_open(self.translator, "/panel/"))
+        self.assertTrue(user_may_open(self.owner, "/panel/"))
+        self.assertFalse(user_may_open(self.translator, "/no/such/page/"))
+
+    def test_a_forbidden_page_opened_directly_is_still_refused(self):
+        """The redirect fixes arrival, not permission. The door stays shut."""
+        self.client.force_login(self.translator)
+        self.assertEqual(self.client.get("/panel/").status_code, 403)

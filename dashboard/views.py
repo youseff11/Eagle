@@ -114,6 +114,7 @@ from .permissions import (
     recruit_required,
     reviewer_required,
     role_required,
+    user_may_open,
 )
 
 
@@ -128,8 +129,18 @@ def login_view(request):
     if request.method == "POST" and form.is_valid():
         auth_login(request, form.get_user())
         nxt = request.POST.get("next") or request.GET.get("next") or ""
-        if nxt and url_has_allowed_host_and_scheme(
-            nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+        # Safe to redirect to is not the same question as allowed to open. A
+        # translator arriving from a link to /panel/ used to sign in fine and
+        # land on a bare 403; now the door they cannot open simply drops them
+        # at their own one.
+        if (
+            nxt
+            and url_has_allowed_host_and_scheme(
+                nxt,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            )
+            and user_may_open(request.user, nxt)
         ):
             return redirect(nxt)
         return redirect("dashboard:home")

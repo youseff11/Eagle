@@ -1,0 +1,58 @@
+{% load static eagle_tags %}<!DOCTYPE html>
+<html lang="{{ eagle_lang }}" dir="{{ eagle_dir }}" data-theme="{{ eagle_theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>403 · Eagle</title>
+  <link rel="icon" href="{% static 'img/logo-removebg-preview.png' %}" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+
+{% include "partials/icons.html" %}
+
+<div class="legal">
+  <div class="legal__wrap">
+
+    <a class="legal__brand" href="{% url 'dashboard:home' %}">
+      <span class="brand__mark">{% icon "eagle" %}</span>
+      <span>
+        <span class="brand__name">EAGLE</span>
+        <span class="brand__sub">translation ops</span>
+      </span>
+    </a>
+
+    <h1 class="legal__title"
+        data-ar="الصفحة دي مش من حقك"
+        data-en="This page is not yours to open">الصفحة دي مش من حقك</h1>
+
+    <div class="note note--warn">
+      {% icon "lock" %}
+      <div>
+        <span data-ar="حسابك شغال تمام - الصفحة بس مخصصة لدور تاني. لو محتاج تفتحها، كلّم الأدمن."
+              data-en="Your account is fine - this page belongs to another role. Ask the admin if you need it.">حسابك شغال تمام - الصفحة بس مخصصة لدور تاني. لو محتاج تفتحها، كلّم الأدمن.</span>
+      </div>
+    </div>
+
+    <p>
+      <a class="btn btn--primary" href="{% url 'dashboard:home' %}"
+         data-ar="روح للوحتك" data-en="Go to your dashboard">روح للوحتك</a>
+    </p>
+
+  </div>
+</div>
+
+<script>
+  window.EAGLE_CFG = {
+    lang: "{{ eagle_lang }}",
+    theme: "{{ eagle_theme }}",
+    prefsUrl: "{% url 'dashboard:api_prefs' %}"
+  };
+</script>
+<script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
