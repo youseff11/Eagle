@@ -265,6 +265,40 @@ def system_message(room, *, key, body_ar, body_en):
     )
 
 
+def share_source_files(task):
+    """Put the client's original files into the task group.
+
+    The translator never sees the inbound message itself - it carries the
+    client's name and number, and the whole dashboard is built on them seeing
+    a client code and nothing else. But the document *is* the job, so the
+    files themselves belong in the group.
+
+    The row points at the InboundMessage instead of copying the file, the same
+    trick the client room uses: ``relay_files`` serves the attachments, the
+    bubble reads as the client, and nothing is stored twice. Only the files
+    cross - the inbound's own text, which is where the name and number sit,
+    never does.
+
+    Idempotent: an inbound already shared is not shared again, so this is safe
+    to call on every acceptance and to re-run over tasks that predate it.
+    """
+    room = ensure_room(task, RoomKind.GROUP)
+    already = set(
+        room.messages.filter(inbound__isnull=False).values_list("inbound_id", flat=True)
+    )
+    shared = []
+    for inbound in task.source_messages.prefetch_related("attachments"):
+        if inbound.id in already or not inbound.attachments.all():
+            continue
+        shared.append(ChatMessage.objects.create(
+            room=room,
+            inbound=inbound,
+            sender=None,
+            body="ملفات العميل الأصلية. The client's original files.",
+        ))
+    return shared
+
+
 # ---------------------------------------------------------------------------
 # The relayed client room
 #
@@ -680,6 +714,9 @@ def accept_assignment(assignment, user):
         room = ensure_room(task, RoomKind.GROUP)
         # Re-run so the translator who just joined is added to the client room.
         ensure_room(task, RoomKind.CLIENT)
+        # The client's document is the job. Leaving it to somebody to forward
+        # by hand left a translator looking at an empty group (20/09/2026).
+        share_source_files(task)
         system_message(
             room, key="group_opened",
             body_ar=f"جروب التاسك {task.code} اتفتح: أوبريشن + تيم ليدر + مترجم.",

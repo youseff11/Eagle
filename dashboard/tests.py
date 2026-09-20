@@ -2372,3 +2372,80 @@ class NextAfterLoginTests(TestCase):
         """The redirect fixes arrival, not permission. The door stays shut."""
         self.client.force_login(self.translator)
         self.assertEqual(self.client.get("/panel/").status_code, 403)
+
+
+class SourceFilesReachTheTranslatorTests(TestCase):
+    """The client's document has to reach the translator - the client must not.
+
+    Measured 20/09/2026 on TSK-00002: the translator accepted, the group
+    opened, and the file the client had sent stayed in the inbox, which only
+    the admin and the operation can see. The group said "share the files here"
+    and nothing in the code ever did.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+
+        from .models import InboundMessage, MessageAttachment
+
+        self.InboundMessage = InboundMessage
+        self.ops = User.objects.create_user("ops_src", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_src", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_src", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000001")
+        self.inbound = InboundMessage.objects.create(
+            client=self.client_obj, body="[document]",
+            sender_identity="+201000000001", sender_display="Dr Kerolos",
+        )
+        MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"hello", name="brief.pdf"),
+            original_name="brief.pdf", size=5,
+        )
+        self.task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            messages=[self.inbound],
+        )
+
+    def _accept(self):
+        assignment = services.assign_to_translator(self.task, self.tr, self.ops)
+        services.accept_assignment(assignment, self.tr)
+        return self.task.rooms.get(kind=RoomKind.GROUP)
+
+    def _shared(self, room):
+        return [m for m in room.messages.all() if not m.is_system]
+
+    def test_accepting_puts_the_client_file_in_the_group(self):
+        room = self._accept()
+        shared = self._shared(room)
+        self.assertEqual(len(shared), 1)
+        self.assertEqual(
+            [f.original_name for f in shared[0].relay_files], ["brief.pdf"]
+        )
+
+    def test_the_client_identity_does_not_travel_with_the_file(self):
+        room = self._accept()
+        for item in services.group_thread(room, self.tr):
+            self.assertNotIn("+2010", item["body"])
+            self.assertNotIn("Kerolos", item["body"])
+            self.assertEqual(item["sender"], "")
+            self.assertTrue(item["files"])
+
+    def test_the_inbox_row_itself_stays_out_of_reach(self):
+        """Only the file crosses. The message it came on does not."""
+        self._accept()
+        self.assertFalse(self.inbound.visible_to(self.tr))
+
+    def test_sharing_again_does_not_double_the_file(self):
+        room = self._accept()
+        services.share_source_files(self.task)
+        services.share_source_files(self.task)
+        self.assertEqual(room.messages.filter(inbound__isnull=False).count(), 1)
+
+    def test_a_client_message_with_no_file_is_not_shared(self):
+        chatter = self.InboundMessage.objects.create(
+            client=self.client_obj, body="thanks", task=self.task
+        )
+        room = self._accept()
+        self.assertEqual(room.messages.filter(inbound=chatter).count(), 0)
