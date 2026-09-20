@@ -6,13 +6,17 @@ stores a Claude API key in the admin panel.
 """
 
 import json
+import logging
 import re
+import threading
 import urllib.error
 import urllib.request
 import zipfile
 
 from . import net
 from .models import AICheckResult, AppSettings
+
+logger = logging.getLogger(__name__)
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
@@ -116,25 +120,18 @@ def _parse(text):
     return json.loads(cleaned[start:end + 1])
 
 
-def run_check(task, user, source_text, translated_text, requirements=""):
-    """Run the review and persist an :class:`AICheckResult`."""
-    conf = AppSettings.load()
+def _review(conf, task, source_text, translated_text, requirements):
+    """Call the model and return the fields to store. Never raises.
 
-    if not conf.ai_check_enabled:
-        return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
-            error_message="AI check is disabled by the admin.",
-        )
-    if not conf.claude_api_key:
-        return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
-            error_message="No Claude API key configured in the admin panel.",
-        )
+    Split out of :func:`run_check` so the same call can either create a row
+    (somebody pressed the button) or fill one that is already there (the
+    automatic check, which writes its row before it starts).
+    """
     if not translated_text.strip():
-        return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
-            error_message="No translated text to review.",
-        )
+        return {
+            "status": AICheckResult.Status.ERROR,
+            "error_message": "No translated text to review.",
+        }
 
     prompt = (
         f"Task: {task.code} — {task.title}\n"
@@ -150,23 +147,185 @@ def run_check(task, user, source_text, translated_text, requirements=""):
         data = _parse(raw)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")[:500]
-        return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
-            error_message=f"HTTP {exc.code}: {detail}", model_used=conf.claude_model,
-        )
+        return {
+            "status": AICheckResult.Status.ERROR,
+            "error_message": f"HTTP {exc.code}: {detail}",
+            "model_used": conf.claude_model,
+        }
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-        return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
-            error_message=str(exc)[:500], model_used=conf.claude_model,
-        )
+        return {
+            "status": AICheckResult.Status.ERROR,
+            "error_message": str(exc)[:500],
+            "model_used": conf.claude_model,
+        }
 
     issues = data.get("issues") or []
     summary = data.get("summary_ar") or data.get("summary_en") or ""
     if data.get("summary_en") and data.get("summary_ar"):
         summary = f"{data['summary_ar']}\n{data['summary_en']}"
 
-    return AICheckResult.objects.create(
-        task=task, requested_by=user,
-        status=AICheckResult.Status.ISSUES if issues else AICheckResult.Status.CLEAN,
-        summary=summary, issues=issues, model_used=conf.claude_model,
+    return {
+        "status": AICheckResult.Status.ISSUES if issues else AICheckResult.Status.CLEAN,
+        "summary": summary,
+        "issues": issues,
+        "model_used": conf.claude_model,
+        "error_message": "",
+    }
+
+
+def run_check(task, user, source_text, translated_text, requirements=""):
+    """Run the review and persist an :class:`AICheckResult`."""
+    conf = AppSettings.load()
+
+    if not conf.ai_check_enabled:
+        return AICheckResult.objects.create(
+            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
+            error_message="AI check is disabled by the admin.",
+        )
+    if not conf.claude_api_key:
+        return AICheckResult.objects.create(
+            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
+            error_message="No Claude API key configured in the admin panel.",
+        )
+
+    fields = _review(conf, task, source_text, translated_text, requirements)
+    return AICheckResult.objects.create(task=task, requested_by=user, **fields)
+
+
+# ---------------------------------------------------------------------------
+# The automatic check
+#
+# It runs when the translator hands the job over, not when somebody remembers
+# to press a button - a quality gate nobody has to trigger is a quality gate.
+# ---------------------------------------------------------------------------
+
+def collect_texts(task):
+    """Source and translation text for a task, read out of its own files.
+
+    The translation is what the translator last put in the group; the source is
+    what the client sent. Both are best-effort - a PDF or a scan reads as
+    nothing, and the check then reports that instead of guessing.
+    """
+    from .models import ChatAttachment, RoomKind
+
+    translated = ""
+    room = task.rooms.filter(kind=RoomKind.GROUP).first()
+    if room is not None and task.translator_id:
+        latest = ChatAttachment.objects.filter(
+            message__room=room, message__sender=task.translator
+        ).order_by("-id")[:3]
+        translated = "\n\n".join(
+            extract_text(a.file, a.original_name) for a in latest
+        ).strip()
+
+    source = "\n\n".join(
+        extract_text(a.file, a.original_name)
+        for message in task.source_messages.prefetch_related("attachments")
+        for a in message.attachments.all()
+    ).strip()
+    return source, translated
+
+
+def requirements_text(task):
+    return "\n".join(
+        f"- [{r.get_kind_display()}] {r.text}"
+        for r in task.client.requirements.all()[:30]
     )
+
+
+def start_background_check(task):
+    """Queue the automatic review and run it off the request thread.
+
+    Returns the queued row, or ``None`` when there is nothing to run: the admin
+    switched the check off, no key is stored, or one is already in flight.
+
+    The row is written *before* the thread starts. The call can take a minute
+    against an outside API, and the translator pressing "finished" must not sit
+    through it - but a task page opened meanwhile still has to say what is
+    happening, and a process recycled mid-call has to leave evidence rather
+    than silence. ``run_ai_checks`` finishes whatever a dead process left.
+    """
+    conf = AppSettings.load()
+    if not conf.ai_check_enabled or not conf.claude_api_key:
+        return None
+    if task.ai_checks.filter(status=AICheckResult.Status.RUNNING).exists():
+        return None
+
+    result = AICheckResult.objects.create(
+        task=task, requested_by=None, status=AICheckResult.Status.RUNNING,
+        model_used=conf.claude_model,
+    )
+    threading.Thread(
+        target=finish_check, args=(result.pk,), daemon=True,
+        name=f"ai-check-{task.code}",
+    ).start()
+    return result
+
+
+def finish_check(result_pk, notify_lead=True):
+    """Do the work for a row left in ``running``. Safe to call from anywhere."""
+    from django.db import close_old_connections
+
+    close_old_connections()
+    try:
+        result = AICheckResult.objects.select_related(
+            "task", "task__client", "task__team_lead"
+        ).get(pk=result_pk)
+        task = result.task
+        source, translated = collect_texts(task)
+        fields = _review(
+            AppSettings.load(), task, source, translated, requirements_text(task)
+        )
+        for name, value in fields.items():
+            setattr(result, name, value)
+        result.save()
+        if notify_lead:
+            _tell_the_team_leader(result)
+        return result
+    except Exception:  # noqa: BLE001 - a background thread must never escape
+        logger.exception("AI check %s failed", result_pk)
+        AICheckResult.objects.filter(pk=result_pk).update(
+            status=AICheckResult.Status.ERROR,
+            error_message="The check did not finish.",
+        )
+        return None
+    finally:
+        close_old_connections()
+
+
+def _tell_the_team_leader(result):
+    """The notes go to the person who has to act on them, unasked."""
+    from . import services
+
+    task = result.task
+    if task.team_lead_id is None:
+        return
+    if result.status == AICheckResult.Status.ERROR:
+        services.notify(
+            task.team_lead,
+            title_ar="فحص الـAI مخلصش",
+            title_en="The AI check did not finish",
+            body_ar=f"التاسك {task.code} - راجعها بنفسك.",
+            body_en=f"Task {task.code} - review it yourself.",
+            level="warning", url=f"/tasks/{task.code}/", task=task,
+        )
+        return
+    count = result.issue_count
+    if count:
+        services.notify(
+            task.team_lead,
+            title_ar="ملاحظات الـAI جاهزة",
+            title_en="AI notes are ready",
+            body_ar=f"{count} ملاحظة على {task.code}.",
+            body_en=f"{count} note(s) on {task.code}.",
+            level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
+    else:
+        services.notify(
+            task.team_lead,
+            title_ar="الـAI مالقاش مشاكل",
+            title_en="The AI found nothing",
+            body_ar=f"فحص {task.code} عدّى نضيف - المراجعة البشرية لسه مطلوبة.",
+            body_en=f"{task.code} came back clean - your own review still stands.",
+            level="info", url=f"/tasks/{task.code}/", task=task,
+        )

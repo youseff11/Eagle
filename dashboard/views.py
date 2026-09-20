@@ -544,9 +544,21 @@ def task_detail(request, code):
                 "final": bool(task.translator_id and sender and sender.id == task.translator_id),
             })
 
+    # An admin who claimed the client's message themselves opens the group
+    # without an operation in it. These are the people they can still add.
+    group_room = task.rooms.filter(kind=RoomKind.GROUP).first()
+    group_candidates = []
+    if user.is_admin_role and group_room is not None:
+        group_candidates = (
+            User.objects
+            .filter(is_active=True, role__in=(Role.OPERATION, Role.TEAM_LEAD))
+            .exclude(pk__in=group_room.members.values("pk"))
+        )
+
     context = {
         "task": task,
         "rooms": rooms,
+        "group_candidates": group_candidates,
         "active_room": active_room,
         "chat_messages": chat_messages,
         "last_message_id": chat_messages[-1].id if chat_messages else 0,

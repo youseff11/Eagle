@@ -234,12 +234,30 @@
         {% endif %}
 
         {% for check in ai_checks %}
-          <div class="note {% if check.status == 'issues' %}note--warn{% else %}note--ok{% endif %} mt">
-            {% if check.status == 'issues' %}{% icon "alert" %}{% else %}{% icon "check-circle" %}{% endif %}
+          <div class="note mt
+                      {% if check.status == 'issues' %}note--warn
+                      {% elif check.status == 'error' %}note--high
+                      {% elif check.status == 'running' %}note--info
+                      {% else %}note--ok{% endif %}">
+            {% if check.status == 'issues' %}{% icon "alert" %}
+            {% elif check.status == 'error' %}{% icon "alert" %}
+            {% elif check.status == 'running' %}{% icon "timer" %}
+            {% else %}{% icon "check-circle" %}{% endif %}
             <div>
               <div class="note__where mono">{{ check.created_at|date:"m-d H:i" }} ·
-                {{ check.get_status_display }} · {{ check.issue_count }}</div>
-              <div>{{ check.summary|default:check.error_message }}</div>
+                {{ check.get_status_display }} · {{ check.issue_count }}
+                {% if not check.requested_by %}
+                  · <span data-ar="تلقائي" data-en="automatic">تلقائي</span>
+                {% endif %}
+              </div>
+              {% if check.status == 'running' %}
+                <div data-ar="الفحص شغال دلوقتي — التنبيه هيوصلك أول ما يخلص."
+                     data-en="Running now — you will be notified when it finishes.">
+                  الفحص شغال دلوقتي.
+                </div>
+              {% else %}
+                <div>{{ check.summary|default:check.error_message }}</div>
+              {% endif %}
             </div>
           </div>
         {% endfor %}
@@ -273,7 +291,41 @@
           </button>
         {% endif %}
 
-        {% if task.status == 'reviewed' %}
+        {% if task.status == 'reviewed' and not task.handover_ack_at %}
+          <div class="note note--warn">
+            {% icon "shield" %}
+            <div>
+              <strong data-ar="التاسك مستنية استلامك"
+                      data-en="Waiting for you to take it over">التاسك مستنية استلامك</strong>
+              <div data-ar="التيم ليدر خلص المراجعة. مفيش ملف بيروح للعميل قبل ما حد يستلم التاسك بإيده."
+                   data-en="The team leader is done. No file reaches the client until somebody takes the task over.">
+                التيم ليدر خلص المراجعة. مفيش ملف بيروح للعميل قبل ما حد يستلم.
+              </div>
+            </div>
+          </div>
+          <button class="btn btn--primary btn--block mt" type="button"
+                  data-action="{% url 'dashboard:api_task_action' task.code 'ack' %}"
+                  data-confirm-ar="تأكيد إنك استلمت التاسك من التيم ليدر؟"
+                  data-confirm-en="Confirm you are taking this task over?">
+            {% icon "user-check" "ic--sm" %}
+            <span data-ar="استلمت التاسك" data-en="I have the task">استلمت التاسك</span>
+          </button>
+        {% endif %}
+
+        {% if task.status == 'reviewed' and task.handover_ack_at %}
+          <div class="note note--ok">
+            {% icon "user-check" %}
+            <div>
+              <div class="note__where mono">
+                {{ task.handover_ack_by.short_name|default:"—" }} ·
+                {{ task.handover_ack_at|date:"m-d H:i" }}
+              </div>
+              <div data-ar="التاسك مستلمة — تقدر تبعتها للعميل."
+                   data-en="Taken over — you can send it to the client.">
+                التاسك مستلمة — تقدر تبعتها للعميل.
+              </div>
+            </div>
+          </div>
           <div class="deliver" id="deliverBox" data-url="{% url 'dashboard:api_deliver' task.code %}">
             <div class="label" data-ar="الملفات اللي هتتبعت للعميل"
                  data-en="Files to send to the client">الملفات اللي هتتبعت للعميل</div>
@@ -343,6 +395,29 @@
             <button class="btn" type="submit" data-ar="حفظ" data-en="Save">حفظ</button>
           </div>
         </form>
+
+        {% if user.is_admin_role and group_candidates %}
+          {% comment %}
+            An admin who claimed the client's message opens the group without
+            an operation in it. This is how one is added afterwards.
+          {% endcomment %}
+          <form class="mt" method="post"
+                action="{% url 'dashboard:api_task_action' task.code 'add-member' %}"
+                onsubmit="event.preventDefault();Eagle.post(this.action,{user:this.user.value}).then(function(){location.reload();});">
+            {% csrf_token %}
+            <label class="label" data-ar="ضيف حد لجروب التاسك"
+                   data-en="Add somebody to the task group">ضيف حد لجروب التاسك</label>
+            <div class="row row--tight">
+              <select class="input grow" name="user">
+                {% for person in group_candidates %}
+                  <option value="{{ person.pk }}">
+                    {{ person.short_name }} — {{ person.get_role_display }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn" type="submit" data-ar="ضيف" data-en="Add">ضيف</button>
+            </div>
+          </form>
+        {% endif %}
 
         {% if not task.is_done %}
           <button class="btn btn--danger btn--block mt" type="button"

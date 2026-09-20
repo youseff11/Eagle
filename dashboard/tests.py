@@ -67,8 +67,10 @@ class WorkflowTests(TestCase):
         # ops+lead, the full group, and the relayed client room.
         self.assertEqual(task.rooms.count(), 3)
         client_room = task.rooms.get(kind=RoomKind.CLIENT)
-        # The translator accepted, so they may talk to the client.
-        self.assertIn(self.tr, client_room.members.all())
+        # The client room is the operation's and the leader's. A translator
+        # never talks to a client, not even after accepting.
+        self.assertNotIn(self.tr, client_room.members.all())
+        self.assertIn(self.lead, client_room.members.all())
 
         services.mark_translated(task, self.tr)
         task.refresh_from_db()
@@ -106,6 +108,8 @@ class WorkflowTests(TestCase):
         task = self.make_task()
         task.team_lead, task.translator = self.lead, self.tr
         task.status = TaskStatus.REVIEWED
+        # Reviewed is not permission to send - somebody has to have the job.
+        task.handover_ack_at = timezone.now()
         task.save()
         room = services.ensure_room(task, RoomKind.GROUP)
         message = ChatMessage.objects.create(room=room, sender=self.tr, body="done")
@@ -133,6 +137,8 @@ class WorkflowTests(TestCase):
 
         task = self.make_task()
         task.status = TaskStatus.REVIEWED
+        # Reviewed is not permission to send - somebody has to have the job.
+        task.handover_ack_at = timezone.now()
         task.save()
 
         from . import whatsapp as wa
@@ -155,6 +161,8 @@ class WorkflowTests(TestCase):
         blank = Client.objects.create(name="No contact")
         task = services.create_task(client=blank, title="x", created_by=self.ops)
         task.status = TaskStatus.REVIEWED
+        # Reviewed is not permission to send - somebody has to have the job.
+        task.handover_ack_at = timezone.now()
         task.save()
 
         ok, delivery, error = services.deliver_to_client(task, self.ops, [], "hi")
@@ -168,6 +176,8 @@ class WorkflowTests(TestCase):
 
         task = self.make_task()
         task.status = TaskStatus.REVIEWED
+        # Reviewed is not permission to send - somebody has to have the job.
+        task.handover_ack_at = timezone.now()
         task.save()
         ok, delivery, _ = services.deliver_to_client(task, self.ops, [], "", send=False)
         self.assertTrue(ok)
@@ -2449,3 +2459,157 @@ class SourceFilesReachTheTranslatorTests(TestCase):
         )
         room = self._accept()
         self.assertEqual(room.messages.filter(inbound=chatter).count(), 0)
+
+
+class HandoverTests(TestCase):
+    """Review, then a person takes the job, then the client. In that order.
+
+    The step this covers did not exist before 20/09/2026: a reviewed task sat
+    in a status, and whoever opened the page next could send it. Sending to a
+    client is the one move nobody can take back, so it now waits for a person
+    to be on record as having the job.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_h", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_h", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_h", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000002")
+
+    def _task_in_progress(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        first = services.assign_to_lead(task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        task.refresh_from_db()
+        return task
+
+    def _reviewed_task(self):
+        task = self._task_in_progress()
+        services.mark_translated(task, self.tr)
+        task.refresh_from_db()
+        services.mark_reviewed(task, self.lead)
+        task.refresh_from_db()
+        return task
+
+    # -- the handover ------------------------------------------------------
+    def test_nothing_is_sent_before_somebody_takes_the_task(self):
+        task = self._reviewed_task()
+        ok, delivery, error = services.deliver_to_client(task, self.ops, [], "hi")
+        self.assertFalse(ok)
+        self.assertIsNone(delivery)
+        self.assertTrue(error)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.REVIEWED)
+
+    def test_taking_it_over_opens_the_door(self):
+        task = self._reviewed_task()
+        self.assertTrue(services.acknowledge_handover(task, self.ops))
+        task.refresh_from_db()
+        self.assertEqual(task.handover_ack_by, self.ops)
+        self.assertIsNotNone(task.handover_ack_at)
+
+        ok, _, _ = services.deliver_to_client(task, self.ops, [], "", send=False)
+        self.assertTrue(ok)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.DELIVERED)
+
+    def test_the_translator_cannot_take_the_task_over(self):
+        task = self._reviewed_task()
+        self.assertFalse(services.acknowledge_handover(task, self.tr))
+        task.refresh_from_db()
+        self.assertIsNone(task.handover_ack_at)
+
+    def test_a_task_that_is_not_reviewed_cannot_be_taken_over(self):
+        task = self._task_in_progress()
+        self.assertFalse(services.acknowledge_handover(task, self.ops))
+
+    def test_sending_it_back_cancels_the_handover(self):
+        task = self._reviewed_task()
+        services.acknowledge_handover(task, self.ops)
+        services.send_back_for_revision(task, self.lead, "ناقص")
+        task.refresh_from_db()
+        self.assertIsNone(task.handover_ack_at)
+        self.assertIsNone(task.handover_ack_by)
+
+    # -- who hears about it ------------------------------------------------
+    def test_the_group_is_told_the_review_is_done_not_only_the_creator(self):
+        from .models import Notification
+
+        task = self._reviewed_task()
+        told = set(
+            Notification.objects.filter(task=task, title_en__startswith="Reviewed")
+            .values_list("user_id", flat=True)
+        )
+        self.assertIn(self.ops.id, told)
+        # The person who pressed the button is not told about their own press.
+        self.assertNotIn(self.lead.id, told)
+
+    # -- the rooms ---------------------------------------------------------
+    def test_the_translator_is_not_in_the_client_room(self):
+        task = self._reviewed_task()
+        room = task.rooms.get(kind=RoomKind.CLIENT)
+        self.assertNotIn(self.tr, room.members.all())
+        self.assertIn(self.lead, room.members.all())
+
+    def test_an_admin_can_add_an_operation_to_the_group_afterwards(self):
+        admin = User.objects.create_user("owner_h", password="x", role=Role.ADMIN)
+        other = User.objects.create_user("ops_h2", password="x", role=Role.OPERATION)
+        task = self._reviewed_task()
+        self.assertTrue(services.add_group_member(task, admin, other))
+        self.assertIn(other, task.rooms.get(kind=RoomKind.GROUP).members.all())
+        # Twice is not an error, and does not add a second row.
+        self.assertTrue(services.add_group_member(task, admin, other))
+
+    def test_only_an_admin_adds_somebody_to_a_group(self):
+        other = User.objects.create_user("ops_h3", password="x", role=Role.OPERATION)
+        task = self._reviewed_task()
+        self.assertFalse(services.add_group_member(task, self.lead, other))
+        self.assertNotIn(other, task.rooms.get(kind=RoomKind.GROUP).members.all())
+
+    # -- the automatic AI check -------------------------------------------
+    def test_the_ai_check_starts_itself_when_the_translator_finishes(self):
+        from unittest import mock
+
+        from .models import AICheckResult
+
+        conf = AppSettings.load()
+        conf.ai_check_enabled = True
+        conf.claude_api_key = "test-key"
+        conf.save()
+
+        task = self._task_in_progress()
+        with mock.patch("dashboard.ai.threading.Thread") as thread:
+            services.mark_translated(task, self.tr)
+        self.assertTrue(thread.called)
+
+        row = task.ai_checks.first()
+        self.assertEqual(row.status, AICheckResult.Status.RUNNING)
+        # Nobody asked for it - that is what makes it the automatic one.
+        self.assertIsNone(row.requested_by)
+
+    def test_no_check_is_written_when_the_admin_has_it_switched_off(self):
+        task = self._task_in_progress()
+        services.mark_translated(task, self.tr)
+        self.assertEqual(task.ai_checks.count(), 0)
+
+    def test_a_second_check_does_not_start_while_one_is_running(self):
+        from unittest import mock
+
+        conf = AppSettings.load()
+        conf.ai_check_enabled = True
+        conf.claude_api_key = "test-key"
+        conf.save()
+
+        task = self._task_in_progress()
+        with mock.patch("dashboard.ai.threading.Thread"):
+            from . import ai
+
+            self.assertIsNotNone(ai.start_background_check(task))
+            self.assertIsNone(ai.start_background_check(task))
+        self.assertEqual(task.ai_checks.count(), 1)

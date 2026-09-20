@@ -311,6 +311,15 @@ def task_action(request, code, action):
         "score": lambda: services.score_review(
             task, user, request.POST.get("score"), request.POST.get("note", "")
         ),
+        # The operation putting their hand up for a reviewed job. Nothing
+        # reaches the client before this.
+        "ack": lambda: services.acknowledge_handover(task, user),
+        # An admin who claimed the client's message opens a group with no
+        # operation in it; this is how one joins afterwards.
+        "add-member": lambda: services.add_group_member(
+            task, user,
+            User.objects.filter(pk=_int(request.POST.get("user")), is_active=True).first(),
+        ),
     }
     handler = handlers.get(action)
     if handler is None:
@@ -323,6 +332,8 @@ def task_action(request, code, action):
         "cancel": user.is_operation,
         "return": task.team_lead_id == user.id,
         "score": task.team_lead_id == user.id,
+        "ack": user.is_operation,
+        "add-member": user.is_admin_role,
     }[action]
     if not (guard or user.is_admin_role):
         return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
@@ -346,6 +357,13 @@ def deliver(request, code):
 
     if task.status not in (TaskStatus.REVIEWED, TaskStatus.DELIVERED) and not user.is_admin_role:
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
+    # Checked here as well as in the service: this endpoint reads the delivery
+    # row it gets back, and a refused send has no row to read.
+    if not task.handover_ack_at:
+        return JsonResponse(
+            {"ok": False, "error": "\u0627\u0633\u062a\u0644\u0645 \u0627\u0644\u062a\u0627\u0633\u0643 \u0627\u0644\u0623\u0648\u0644 \u0642\u0628\u0644 \u0645\u0627 \u062a\u0628\u0639\u062a\u0647\u0627 \u0644\u0644\u0639\u0645\u064a\u0644."},
+            status=400,
+        )
 
     ids = [_int(v) for v in request.POST.getlist("attachments") if _int(v)]
     note = (request.POST.get("note") or "").strip()
@@ -974,22 +992,14 @@ def ai_check(request, code):
     source_text = request.POST.get("source_text", "")
     translated_text = request.POST.get("translated_text", "")
 
-    # Fall back to text extracted from the chat attachments.
-    if not translated_text.strip():
-        room = task.rooms.filter(kind=RoomKind.GROUP).first()
-        if room:
-            latest = (
-                ChatAttachment.objects.filter(
-                    message__room=room, message__sender=task.translator
-                ).order_by("-id")[:3]
-            )
-            translated_text = "\n\n".join(
-                ai.extract_text(a.file, a.original_name) for a in latest
-            ).strip()
+    # Blank boxes mean "read the files" - the same ones the automatic check
+    # reads, so a re-run by hand cannot quietly look at something else.
+    if not source_text.strip() or not translated_text.strip():
+        from_files_source, from_files_translated = ai.collect_texts(task)
+        source_text = source_text or from_files_source
+        translated_text = translated_text or from_files_translated
 
-    requirements = "\n".join(
-        f"- [{r.get_kind_display()}] {r.text}" for r in task.client.requirements.all()[:30]
-    )
+    requirements = ai.requirements_text(task)
 
     result = ai.run_check(task, user, source_text, translated_text, requirements)
     return JsonResponse({

@@ -217,27 +217,23 @@ def ensure_room(task, kind):
         # Mirrored from the task so every client room is findable by client.
         room.client_id = task.client_id
         room.save(update_fields=["client"])
+    # The group is the whole team. The client room is not: only the people who
+    # speak to clients belong there, so the translator is deliberately absent -
+    # anything they need to ask the client goes through the operation.
     members = [task.created_by, task.team_lead]
     if kind == RoomKind.GROUP:
         members.append(task.translator)
-    elif kind == RoomKind.CLIENT:
-        # Only a translator who actually accepted gets a box that talks to the
-        # client — being merely assigned is not enough.
-        if task.translator_accepted_at:
-            members.append(task.translator)
     members = [m for m in members if m is not None]
 
     if members:
         room.members.add(*members)
 
     if kind == RoomKind.CLIENT:
-        # This room relays to a real client, so exactly one translator belongs
-        # in it: the one who accepted the task. Anyone who declined or was
-        # swapped out is removed. Other roles are left alone, so an admin can
-        # still add someone (an accountant, say) on purpose.
-        stale = room.members.filter(role=Role.TRANSLATOR).exclude(
-            pk__in=[m.pk for m in members]
-        )
+        # This room relays to a real client, so no translator belongs in it at
+        # all - not even the one who accepted. Any translator left over from
+        # the days when they did is removed here. Other roles are left alone,
+        # so an admin can still add somebody (an accountant, say) on purpose.
+        stale = room.members.filter(role=Role.TRANSLATOR)
         if stale.exists():
             room.members.remove(*stale)
     if created:
@@ -876,6 +872,15 @@ def mark_translated(task, user):
         log(user, "task.word_count.failed", task.code)
 
     room = ensure_room(task, RoomKind.GROUP)
+    # The quality pass runs itself. A gate somebody has to remember to press
+    # is a gate that gets skipped on the busy days, which are the days it is
+    # for. It runs on its own thread - see ai.start_background_check.
+    try:
+        from . import ai
+
+        ai.start_background_check(task)
+    except Exception:  # noqa: BLE001 - never block a handover on the check
+        log(user, "task.ai_check.failed_to_start", task.code)
     system_message(
         room, key="translated",
         body_ar=f"{user.short_name} خلص الترجمة وبعت الملفات للمراجعة.",
@@ -910,26 +915,100 @@ def mark_reviewed(task, user):
     room = ensure_room(task, RoomKind.GROUP)
     system_message(
         room, key="reviewed",
-        body_ar=f"{user.short_name} أنهى المراجعة. الأوبريشن يقدر يسلّم للعميل.",
-        body_en=f"{user.short_name} completed the review. Operation can deliver to the client.",
+        body_ar=f"{user.short_name} \u0623\u0646\u0647\u0649 \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629. \u0627\u0644\u0623\u0648\u0628\u0631\u064a\u0634\u0646 \u064a\u0633\u062a\u0644\u0645 \u0648\u064a\u0633\u0644\u0651\u0645 \u0644\u0644\u0639\u0645\u064a\u0644.",
+        body_en=f"{user.short_name} completed the review. Operation takes it over and delivers.",
     )
-    notify(
-        task.created_by,
-        title_ar="تمت المراجعة",
-        title_en="Review completed",
-        body_ar=f"التاسك {task.code} اتراجعت. تقدر تبعت الملفات للعميل.",
-        body_en=f"Task {task.code} is reviewed. You can send the files to the client.",
-        level="success", url=f"/tasks/{task.code}/", sound=True, task=task,
-    )
-    notify(
-        task.translator,
-        title_ar="تمت مراجعة ترجمتك",
-        title_en="Your translation was reviewed",
-        body_ar=f"التيم ليدر خلص مراجعة {task.code}.",
-        body_en=f"The team leader reviewed {task.code}.",
-        level="success", url=f"/tasks/{task.code}/", task=task,
-    )
+    # The group is the audience, not whoever happened to create the task: an
+    # admin who took the client's message opens a group with no operation in
+    # it, and telling only the creator leaves the handover with nobody in it.
+    for person in room.members.exclude(pk=user.pk):
+        if person.id == task.translator_id:
+            notify(
+                person,
+                title_ar="\u062a\u0645\u062a \u0645\u0631\u0627\u062c\u0639\u0629 \u062a\u0631\u062c\u0645\u062a\u0643",
+                title_en="Your translation was reviewed",
+                body_ar=f"\u0627\u0644\u062a\u064a\u0645 \u0644\u064a\u062f\u0631 \u062e\u0644\u0635 \u0645\u0631\u0627\u062c\u0639\u0629 {task.code}.",
+                body_en=f"The team leader reviewed {task.code}.",
+                level="success", url=f"/tasks/{task.code}/", task=task,
+            )
+        else:
+            notify(
+                person,
+                title_ar="\u062a\u0645\u062a \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629 - \u0627\u0633\u062a\u0644\u0645 \u0627\u0644\u062a\u0627\u0633\u0643",
+                title_en="Reviewed - take the task over",
+                body_ar=f"{task.code} \u0627\u062a\u0631\u0627\u062c\u0639\u062a. \u0627\u0636\u063a\u0637 \u00ab\u0627\u0633\u062a\u0644\u0645\u062a \u0627\u0644\u062a\u0627\u0633\u0643\u00bb \u0639\u0634\u0627\u0646 \u062a\u0642\u062f\u0631 \u062a\u0628\u0639\u062a\u0647\u0627 \u0644\u0644\u0639\u0645\u064a\u0644.",
+                body_en=f"{task.code} is reviewed. Press \u201cI have the task\u201d before you can send it.",
+                level="success", url=f"/tasks/{task.code}/", sound=True, task=task,
+            )
     log(user, "task.reviewed", task.code)
+    return True
+
+
+def acknowledge_handover(task, user):
+    """The operation taking the reviewed job off the team leader's hands.
+
+    This is the last human decision before files leave the building, and it is
+    deliberately a separate press rather than something the delivery button
+    implies: sending to a client cannot be undone, so somebody has to be on
+    record as having the job before it can go.
+    """
+    if not (user.is_operation or user.is_admin_role):
+        return False
+    if task.status != TaskStatus.REVIEWED:
+        return False
+    if task.handover_ack_at:
+        return True
+
+    task.handover_ack_at = timezone.now()
+    task.handover_ack_by = user
+    task.save(update_fields=["handover_ack_at", "handover_ack_by", "updated_at"])
+    room = ensure_room(task, RoomKind.GROUP)
+    system_message(
+        room, key="handover_ack",
+        body_ar=f"{user.short_name} \u0627\u0633\u062a\u0644\u0645 \u0627\u0644\u062a\u0627\u0633\u0643 \u0648\u0647\u064a\u0633\u0644\u0651\u0645\u0647\u0627 \u0644\u0644\u0639\u0645\u064a\u0644.",
+        body_en=f"{user.short_name} took the task over and will deliver it to the client.",
+    )
+    notify(
+        task.team_lead,
+        title_ar="\u0627\u0644\u0623\u0648\u0628\u0631\u064a\u0634\u0646 \u0627\u0633\u062a\u0644\u0645 \u0627\u0644\u062a\u0627\u0633\u0643",
+        title_en="Operation took the task over",
+        body_ar=f"{user.short_name} \u0627\u0633\u062a\u0644\u0645 {task.code}.",
+        body_en=f"{user.short_name} has {task.code}.",
+        level="info", url=f"/tasks/{task.code}/", task=task,
+    )
+    log(user, "task.handover_ack", task.code)
+    return True
+
+
+def add_group_member(task, user, person):
+    """Put somebody into the task group after it has already opened.
+
+    An admin who claimed the client's message themselves opens a group with no
+    operation in it. This is how one joins later, which is the case the
+    workflow was written around.
+    """
+    if not user.is_admin_role:
+        return False
+    if person is None or not person.is_active:
+        return False
+    room = ensure_room(task, RoomKind.GROUP)
+    if room.members.filter(pk=person.pk).exists():
+        return True
+    room.members.add(person)
+    system_message(
+        room, key="member_added",
+        body_ar=f"{user.short_name} \u0636\u0627\u0641 {person.short_name} \u0644\u0644\u062c\u0631\u0648\u0628.",
+        body_en=f"{user.short_name} added {person.short_name} to the group.",
+    )
+    notify(
+        person,
+        title_ar="\u0627\u062a\u0636\u0641\u062a \u0644\u062c\u0631\u0648\u0628 \u062a\u0627\u0633\u0643",
+        title_en="You were added to a task group",
+        body_ar=f"\u0627\u0646\u062a \u062f\u0644\u0648\u0642\u062a\u064a \u0641\u064a \u062c\u0631\u0648\u0628 {task.code}.",
+        body_en=f"You are now in the group for {task.code}.",
+        level="info", url=f"/tasks/{task.code}/", task=task,
+    )
+    log(user, "task.group_member_add", task.code, person.username)
     return True
 
 
@@ -949,8 +1028,14 @@ def send_back_for_revision(task, user, reason=""):
     task.revision_count += 1
     task.returned_at = timezone.now()
     task.reviewed_at = None
+    # The handover is off. Whoever takes it next says so again, on the new
+    # version - an acknowledgement of a translation that no longer exists is
+    # worse than none at all.
+    task.handover_ack_at = None
+    task.handover_ack_by = None
     task.save(update_fields=[
-        "status", "revision_count", "returned_at", "reviewed_at", "updated_at"
+        "status", "revision_count", "returned_at", "reviewed_at",
+        "handover_ack_at", "handover_ack_by", "updated_at",
     ])
     room = ensure_room(task, RoomKind.GROUP)
     system_message(
@@ -1027,6 +1112,10 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
     """
     from . import mailer, whatsapp as wa
     from .models import ChatAttachment, OutboundMessage
+
+    # A reviewed status is not consent to send. Somebody has to have the job.
+    if not task.handover_ack_at:
+        return False, None, "\u0644\u0627\u0632\u0645 \u062a\u0636\u063a\u0637 \u00ab\u0627\u0633\u062a\u0644\u0645\u062a \u0627\u0644\u062a\u0627\u0633\u0643\u00bb \u0627\u0644\u0623\u0648\u0644."
 
     conf = AppSettings.load()
     client = task.client

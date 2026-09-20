@@ -969,6 +969,15 @@ class Task(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
 
+    #: The operation saying, by hand, that they have the reviewed job. Sending
+    #: files to a client is the one step nobody can take back, so it waits for
+    #: a person to claim it rather than following a status change on its own.
+    #: Cleared when a task goes back for revision - the handover is over.
+    handover_ack_at = models.DateTimeField(null=True, blank=True)
+    handover_ack_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1270,11 +1279,17 @@ class Notification(models.Model):
 
 class AICheckResult(models.Model):
     class Status(models.TextChoices):
+        #: Written before the model is called, so a page opened while the
+        #: check is in flight says so, and a worker that dies mid-call leaves
+        #: a row behind instead of silence.
+        RUNNING = "running", "Running"
         CLEAN = "clean", "No issues"
         ISSUES = "issues", "Issues found"
         ERROR = "error", "Error"
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="ai_checks")
+    #: Null means the check ran by itself when the translator handed the job
+    #: over - nobody asked for it.
     requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CLEAN)
     summary = models.TextField(blank=True)
