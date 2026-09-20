@@ -1,11 +1,7 @@
-{% load eagle_tags %}{% with url_name=request.resolver_match.url_name %}
+{% load static eagle_tags %}{% with url_name=request.resolver_match.url_name %}
 <aside class="sidebar">
-  <a href="{% url 'dashboard:home' %}" class="brand">
-    <span class="brand__mark">{% icon "eagle" %}</span>
-    <span>
-      <span class="brand__name">EAGLE</span>
-      <span class="brand__sub">translation ops</span>
-    </span>
+  <a href="{% url 'dashboard:home' %}" class="brand brand--img">
+    <img src="{% static 'img/logo-removebg-preview.png' %}" alt="Eagle Operation">
   </a>
 
   <nav class="nav">

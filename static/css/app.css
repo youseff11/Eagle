@@ -151,6 +151,13 @@ strong, b { font-weight: 620; }
 .brand__sub { display: block; font-size: .61rem; color: var(--faint);
   letter-spacing: .17em; text-transform: uppercase; line-height: 1.3; }
 
+/* The company logo is a lockup - crest, name and tagline are all inside the
+   one image - so it stands on its own instead of sitting in the little gold
+   tile next to the word EAGLE. The file carries a wide transparent margin of
+   its own, which is why the box is the full width of the rail. */
+.brand--img { display: block; padding: 2px 4px 10px; }
+.brand--img img { display: block; width: 100%; height: auto; }
+
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav__label {
   font-size: .64rem; color: var(--faint); text-transform: uppercase;
@@ -739,62 +746,111 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 /* ------------------------------------------------------------- sign in
  *
  * The one page people outside the team ever see, so it carries the weight of
- * first impressions. Three things do the work: a card that sits above the
- * page instead of being painted on it, a rhythm that lets the form breathe,
- * and the legal block demoted to the footnote it is rather than the largest
- * block on screen.
+ * first impressions. It is two halves rather than a card floating on a wash:
+ *
+ *   the brand half, dark in BOTH themes, with the crest framed and lit. Gold
+ *   on near-black reads as metal; the same gold on white reads as a sticker,
+ *   which is why this panel does not follow the theme;
+ *
+ *   the working half, plain and quiet, where the form gets the whole of the
+ *   reader's attention and nothing competes with it.
+ *
+ * Under 900px the panel becomes a short band above the form: still the first
+ * thing seen, but never more than a third of a phone screen.
  */
 
 .auth {
-  min-height: 100vh; display: grid; place-items: center;
-  padding: 44px 20px 32px;
-  background:
-    radial-gradient(1120px 620px at 50% -14%, var(--brand-soft), transparent 62%),
-    radial-gradient(760px 520px at 88% 112%, var(--accent-soft), transparent 60%),
-    var(--bg);
+  min-height: 100vh; min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
 }
-.auth__wrap { width: min(396px, 100%); }
 
 .auth__utils {
   position: fixed; inset-block-start: 18px; inset-inline-end: 18px;
   display: flex; align-items: center; gap: 7px; z-index: 5;
 }
 
-/* -- the lockup ------------------------------------------------------- */
+/* -- the brand half --------------------------------------------------- */
 
-.auth__logo {
-  display: flex; align-items: center; justify-content: center;
-  gap: 12px; margin-bottom: 26px;
+.auth__panel {
+  position: relative; overflow: hidden;
+  display: grid; place-items: center;
+  padding: 48px 40px;
+  background:
+    radial-gradient(88% 66% at 50% 32%, rgba(217, 164, 65, .17), transparent 63%),
+    radial-gradient(62% 52% at 14% 98%, rgba(217, 164, 65, .09), transparent 70%),
+    linear-gradient(158deg, #15171d 0%, #0a0b0e 56%, #111319 100%);
+  color: #e9e6df;
 }
-.auth__logo .brand__mark {
-  width: 42px; height: 42px; border-radius: 13px;
-  box-shadow: 0 8px 20px -8px var(--brand-line), inset 0 1px 0 rgba(255, 255, 255, .22);
-}
-.auth__logo .brand__mark .ic { width: 23px; height: 23px; }
-.auth__logo .brand__name { font-size: 1.06rem; letter-spacing: .12em; }
-.auth__logo .brand__sub { font-size: .605rem; letter-spacing: .2em; }
 
-/* -- the card --------------------------------------------------------- */
-
-.auth__card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 18px; padding: 30px 28px 28px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .28), 0 28px 64px -32px rgba(0, 0, 0, .8);
+/* A hairline of gold on the seam between the halves - the one place the two
+   surfaces meet, and the cheapest way to make that meeting look intentional. */
+.auth__panel::after {
+  content: ""; position: absolute; inset-block: 0; inset-inline-end: 0; width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--brand), transparent);
+  opacity: .5;
 }
-[data-theme="light"] .auth__card {
-  /* Light mode has no darkness to sit against, so the card has to earn its
-     lift from a layered shadow rather than contrast alone. */
+
+.auth__brand { width: 100%; max-width: 340px; text-align: center; }
+
+/* The frame. The crest arrives as a flat PNG with a wide transparent margin,
+   so the frame is what gives it a place to sit: a square of its own, a thin
+   gold edge, one highlight along the top, and a halo behind it doing the work
+   that a drop shadow cannot do on a dark surface. */
+.auth__crest {
+  position: relative;
+  width: min(248px, 70%); margin-inline: auto;
+  aspect-ratio: 1; display: grid; place-items: center;
+  padding: 30px; border-radius: 28px;
+  background: linear-gradient(162deg, rgba(255, 255, 255, .065), rgba(255, 255, 255, .012));
+  border: 1px solid rgba(217, 164, 65, .3);
   box-shadow:
-    0 1px 2px rgba(16, 24, 40, .05),
-    0 14px 30px -14px rgba(16, 24, 40, .16),
-    0 44px 86px -46px rgba(16, 24, 40, .26);
+    inset 0 1px 0 rgba(255, 255, 255, .09),
+    inset 0 0 40px rgba(217, 164, 65, .05),
+    0 30px 64px -38px rgba(0, 0, 0, .95);
 }
+.auth__crest::before {
+  content: ""; position: absolute; inset: -16%; border-radius: 50%;
+  background: radial-gradient(circle at 50% 46%, rgba(217, 164, 65, .20), transparent 64%);
+}
+.auth__crest img {
+  position: relative;
+  width: 100%; height: 100%; object-fit: contain; display: block;
+}
+
+.auth__rule {
+  width: 56px; height: 1px; margin: 28px auto 15px;
+  background: linear-gradient(to right, transparent, var(--brand), transparent);
+}
+.auth__kicker {
+  margin: 0; font-size: .74rem; line-height: 1.8;
+  letter-spacing: .17em; text-transform: uppercase;
+  color: rgba(233, 230, 223, .52);
+}
+/* Arabic has no upper case, and the wide tracking that flatters Latin caps
+   pulls its letters apart instead. */
+[lang="ar"] .auth__kicker {
+  text-transform: none; letter-spacing: .02em; font-size: .84rem;
+}
+
+/* -- the working half ------------------------------------------------- */
+
+.auth__side {
+  display: grid; place-items: center;
+  padding: 48px clamp(20px, 4vw, 60px);
+  /* `--surface`, not `--bg`: on the dark theme the page background is almost
+     exactly the panel's own black and the two halves melt into one. The
+     surface colour is a step lighter, so the panel stays the darker, richer
+     side of the page - which is the whole point of the split. */
+  background: var(--surface);
+}
+.auth__wrap { width: min(392px, 100%); }
 
 .auth__title {
-  font-size: 1.44rem; font-weight: 680; letter-spacing: -.025em;
-  margin-bottom: 6px; color: var(--heading);
+  font-size: 1.62rem; font-weight: 680; letter-spacing: -.025em;
+  margin-bottom: 7px; color: var(--heading);
 }
-.auth__sub { color: var(--muted); margin-bottom: 26px; font-size: .855rem; line-height: 1.6; }
+.auth__sub { color: var(--muted); margin-bottom: 28px; font-size: .875rem; line-height: 1.6; }
 
 .auth .field { margin-bottom: 16px; }
 .auth .field > label { font-size: .775rem; font-weight: 600; margin-bottom: 7px; }
@@ -807,7 +863,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 }
 .field-icon:focus-within > .ic--lead { color: var(--brand); }
 .field-icon .input {
-  height: 46px; border-radius: 11px; font-size: .9rem;
+  height: 48px; border-radius: 12px; font-size: .9rem;
   padding-inline-start: 40px; padding-inline-end: 42px;
 }
 .field-icon .peek {
@@ -817,21 +873,23 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 }
 .field-icon .peek:hover { color: var(--text); background: var(--surface-3); }
 
-/* On a white card a near-white field reads as nothing at all. A hairline of
-   inner shadow is enough to make it look like somewhere you can type. */
+/* On a pale background a near-white field reads as nothing at all. A hairline
+   of inner shadow is enough to make it look like somewhere you can type. */
 [data-theme="light"] .field-icon .input {
   background: #fff;
-  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .045);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .05);
 }
 [data-theme="light"] .field-icon .input:focus {
-  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .045), 0 0 0 3px var(--brand-soft);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, .05), 0 0 0 3px var(--brand-soft);
 }
 
 .auth .btn--primary {
-  height: 46px; margin-top: 10px; border-radius: 11px;
-  font-size: .92rem; letter-spacing: .01em;
-  box-shadow: 0 10px 22px -12px var(--brand-line);
+  height: 48px; margin-top: 12px; border-radius: 12px;
+  font-size: .93rem; letter-spacing: .01em; font-weight: 650;
+  background: linear-gradient(180deg, var(--brand-strong), var(--brand));
+  box-shadow: 0 12px 26px -14px var(--brand-line), inset 0 1px 0 rgba(255, 255, 255, .24);
 }
+.auth .btn--primary:hover { filter: brightness(1.05); }
 .auth .btn--primary:active { transform: translateY(1px); }
 
 .auth__alert {
@@ -842,7 +900,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .auth__alert .ic { flex: none; margin-top: 2px; }
 
 .auth__foot {
-  margin-top: 16px; color: var(--faint); font-size: .765rem; text-align: center;
+  margin-top: 18px; color: var(--faint); font-size: .765rem; text-align: center;
 }
 
 /* -- the operator's legal identity ------------------------------------ *
@@ -852,7 +910,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
  */
 
 .auth__legal {
-  margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--border);
+  margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border);
   color: var(--faint); font-size: .705rem; line-height: 1.7; text-align: center;
 }
 .auth__legal-brand {
@@ -873,11 +931,45 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .auth__legal-links a { color: var(--muted); }
 .auth__legal-links a:hover { color: var(--text); text-decoration: underline; }
 
+/* -- narrower than a laptop: one column ------------------------------- */
+
+@media (max-width: 1080px) {
+  .auth { grid-template-columns: minmax(0, .92fr) minmax(0, 1fr); }
+  .auth__crest { width: min(230px, 80%); }
+  .auth__panel { padding: 40px 28px; }
+}
+
+@media (max-width: 900px) {
+  .auth { grid-template-columns: 1fr; align-content: start; }
+  .auth__panel { padding: 34px 22px 28px; }
+  /* The seam moves from the side to the foot along with the layout. */
+  .auth__panel::after {
+    inset: auto 0 0 0; width: auto; height: 1px;
+    background: linear-gradient(to right, transparent, var(--brand-line), transparent);
+  }
+  .auth__crest { width: min(168px, 46%); border-radius: 22px; padding: 15px; }
+  .auth__rule { margin: 18px auto 11px; }
+  .auth__side { padding: 30px 20px 34px; }
+  .auth__title { font-size: 1.42rem; }
+  .auth__sub { margin-bottom: 22px; }
+}
+
 @media (max-width: 480px) {
-  .auth { padding: 68px 14px 28px; }
-  .auth__card { padding: 24px 20px 22px; border-radius: 16px; }
-  .auth__title { font-size: 1.28rem; }
+  .auth__panel { padding: 30px 18px 24px; }
+  .auth__crest { width: min(140px, 42%); border-radius: 18px; padding: 12px; }
+  .auth__kicker { font-size: .68rem; letter-spacing: .13em; }
+  [lang="ar"] .auth__kicker { font-size: .78rem; }
+  .auth__title { font-size: 1.3rem; }
   .auth__utils { inset-block-start: 14px; inset-inline-end: 14px; }
+}
+
+/* A phone held sideways has no room for a band and a form. The panel keeps
+   only the crest, at a size that leaves the fields on screen. */
+@media (max-height: 560px) and (orientation: landscape) and (max-width: 900px) {
+  .auth__panel { padding: 16px; }
+  .auth__crest { width: 96px; padding: 9px; border-radius: 14px; }
+  .auth__rule, .auth__kicker { display: none; }
+  .auth__side { padding: 20px; }
 }
 
 /* ---------------------------------------------------- public legal pages */

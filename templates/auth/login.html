@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Eagle · Sign in</title>
-  <link rel="icon" href="{% static 'img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="icon" href="{% static 'img/logo-removebg-preview.png' %}" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet"
@@ -27,17 +27,25 @@
 </div>
 
 <main class="auth">
-  <div class="auth__wrap">
 
-    <div class="auth__logo">
-      <span class="brand__mark">{% icon "eagle" %}</span>
-      <span>
-        <span class="brand__name">EAGLE</span>
-        <span class="brand__sub">translation ops</span>
-      </span>
+  {# The brand half. Dark in both themes on purpose: the crest is gold, and #}
+  {# gold reads as metal on near-black and as a sticker on white. #}
+  <aside class="auth__panel">
+    <div class="auth__brand">
+      <div class="auth__crest">
+        <img src="{% static 'img/logo-removebg-preview.png' %}" alt="Eagle Operation">
+      </div>
+      <div class="auth__rule" aria-hidden="true"></div>
+      <p class="auth__kicker"
+         data-ar="منصة إدارة عمليات الترجمة"
+         data-en="Translation operations platform">منصة إدارة عمليات الترجمة</p>
     </div>
+  </aside>
 
-    <div class="auth__card">
+  {# The working half. #}
+  <section class="auth__side">
+    <div class="auth__wrap">
+
       <h1 class="auth__title" data-ar="تسجيل الدخول" data-en="Sign in">تسجيل الدخول</h1>
       <p class="auth__sub" data-ar="ادخل ببيانات حسابك عشان تكمّل شغلك."
          data-en="Enter your account details to continue.">ادخل ببيانات حسابك عشان تكمّل شغلك.</p>
@@ -79,41 +87,41 @@
         <button class="btn btn--primary btn--block" type="submit"
                 data-ar="دخول" data-en="Sign in">دخول</button>
       </form>
-    </div>
 
-    <div class="auth__foot" data-ar="لو نسيت بياناتك كلّم الأدمن عشان يعملك reset."
-         data-en="Lost your credentials? Ask the admin to reset them.">
-      لو نسيت بياناتك كلّم الأدمن عشان يعملك reset.
-    </div>
-
-    <footer class="auth__legal">
-      <div class="auth__legal-brand">Eagle Translation</div>
-      <div class="auth__legal-row">
-        <b>النسر للتوريدات العامة</b>
-        <span class="auth__legal-sep" aria-hidden="true">·</span>
-        <span data-ar="سجل تجاري" data-en="Commercial register">سجل تجاري</span>
-        <span dir="ltr">51760</span>
-      </div>
-      <div class="auth__legal-row">شارع زيدان، أبو المطامير، البحيرة 22731، مصر</div>
-      <div class="auth__legal-row">
-        <a href="tel:+201004500410" dir="ltr">+20 100 450 0410</a>
-        <span class="auth__legal-sep" aria-hidden="true">·</span>
-        <a href="https://www.eagel-operation.com" dir="ltr">eagel-operation.com</a>
+      <div class="auth__foot" data-ar="لو نسيت بياناتك كلّم الأدمن عشان يعملك reset."
+           data-en="Lost your credentials? Ask the admin to reset them.">
+        لو نسيت بياناتك كلّم الأدمن عشان يعملك reset.
       </div>
 
-      {# Reachable without signing in — Meta requires these to be public. #}
-      <nav class="auth__legal-links">
-        <a href="{% url 'dashboard:privacy' %}"
-           data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</a>
-        <span class="auth__legal-sep" aria-hidden="true">·</span>
-        <a href="{% url 'dashboard:terms' %}"
-           data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</a>
-        <span class="auth__legal-sep" aria-hidden="true">·</span>
-        <a href="{% url 'dashboard:data_deletion' %}"
-           data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
-      </nav>
-    </footer>
-  </div>
+      <footer class="auth__legal">
+        <div class="auth__legal-brand">Eagle Translation</div>
+        <div class="auth__legal-row">
+          <b>النسر للتوريدات العامة</b>
+          <span class="auth__legal-sep" aria-hidden="true">·</span>
+          <span data-ar="سجل تجاري" data-en="Commercial register">سجل تجاري</span>
+          <span dir="ltr">51760</span>
+        </div>
+        <div class="auth__legal-row">شارع زيدان، أبو المطامير، البحيرة 22731، مصر</div>
+        <div class="auth__legal-row">
+          <a href="tel:+201004500410" dir="ltr">+20 100 450 0410</a>
+          <span class="auth__legal-sep" aria-hidden="true">·</span>
+          <a href="https://www.eagel-operation.com" dir="ltr">eagel-operation.com</a>
+        </div>
+
+        {# Reachable without signing in — Meta requires these to be public. #}
+        <nav class="auth__legal-links">
+          <a href="{% url 'dashboard:privacy' %}"
+             data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</a>
+          <span class="auth__legal-sep" aria-hidden="true">·</span>
+          <a href="{% url 'dashboard:terms' %}"
+             data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</a>
+          <span class="auth__legal-sep" aria-hidden="true">·</span>
+          <a href="{% url 'dashboard:data_deletion' %}"
+             data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
+        </nav>
+      </footer>
+    </div>
+  </section>
 </main>
 
 <script>
