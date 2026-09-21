@@ -454,6 +454,87 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .msg-item__body { flex: 1; min-width: 0; }
 .msg-item__text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 
+/* --------------------------------------------------------------- the mail
+   /ops/inbox/ is e-mail and nothing else, so it is shaped like a mailbox:
+   one list, hairlines between letters, unread carrying weight rather than a
+   badge, and the letter itself opening in place instead of on another page. */
+
+.chip--sm { font-size: 10.5px; padding: 1px 7px; }
+
+.mail-list {
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface); overflow: hidden;
+}
+.mail-list > .empty { border: 0; border-radius: 0; background: transparent; }
+
+.mail { border-bottom: 1px solid var(--border-soft); }
+.mail:last-child { border-bottom: 0; }
+.mail.is-new { animation: msg-arrive .5s ease-out, mail-flash 2.4s ease-out; }
+@keyframes mail-flash { 0%, 35% { background: var(--brand-soft); } 100% { background: transparent; } }
+.mail.is-blocked { background: var(--danger-soft); }
+
+.mail__row {
+  width: 100%; display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 14px; background: transparent; text-align: start;
+  color: inherit; font: inherit; cursor: pointer;
+  /* Always there, transparent until unread: a border that appears would
+     shift every row sideways the moment somebody claims a letter. */
+  border: 0; border-inline-start: 3px solid transparent;
+}
+.mail__row:hover { background: var(--surface-2); }
+.mail__avatar { margin-top: 2px; }
+.mail__body { flex: 1; min-width: 0; display: block; }
+
+.mail__top { display: flex; align-items: baseline; gap: 10px; }
+.mail__from { color: var(--muted); font-weight: 560; font-size: .84rem; }
+.mail__time { margin-inline-start: auto; color: var(--faint); font-size: .72rem; flex: none; }
+
+/* One line each, because a mailbox is scanned and not read. */
+.mail__subject,
+.mail__snippet { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail__subject { color: var(--text); font-size: .86rem; margin-top: 1px; }
+.mail__snippet { color: var(--faint); font-size: .78rem; margin-top: 1px; }
+
+.mail__tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.mail__tags:empty { display: none; }
+
+.mail__chev { color: var(--faint); margin-top: 6px; flex: none; transition: transform .16s; }
+.mail.is-open .mail__chev { transform: rotate(180deg); }
+
+/* Unread is the one thing this list has to say at a glance. */
+.mail.is-unread .mail__from,
+.mail.is-unread .mail__subject { color: var(--heading); font-weight: 680; }
+.mail.is-unread .mail__row { border-inline-start-color: var(--brand); }
+
+.mail__open { padding: 2px 14px 16px; background: var(--surface-2); }
+.mail__text {
+  white-space: pre-wrap; word-break: break-word; color: var(--text);
+  font-size: .86rem; line-height: 1.65; padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.mail__raw { font-size: .72rem; margin-top: 8px; direction: ltr; text-align: start; }
+.mail__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+.mail__convert {
+  margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border);
+}
+.pick__label { color: var(--muted); font-size: .78rem; margin-bottom: 7px; }
+.pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.pick__item {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 5px 10px; border-radius: 7px; font-size: .765rem;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.pick__item:hover { border-color: var(--brand-line); }
+.pick__item .ic { color: var(--faint); }
+.pick__item input { accent-color: var(--brand); }
+.pick__item span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .mail__time { font-size: .68rem; }
+  .pick__item span { max-width: 150px; }
+}
+
 .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .file-pill {
   display: inline-flex; align-items: center; gap: 6px;
@@ -568,6 +649,27 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .presence[data-state="busy"] .presence__seen { display: none; }
 /* The compact form is a bare dot; the time lives in its tooltip instead. */
 .presence--dot .presence__seen { display: none; }
+
+/* -- the translator board ------------------------------------------------- */
+/* /lead/translators/ answers one question, so the answer is in the row's own
+   colour before anybody reads a word of it. */
+
+/* border-collapse is on, so the stripe rides on the first cell as a logical
+   inline-start border — it lands on the correct edge in Arabic and English
+   without either layout needing its own rule. */
+.tstate > td:first-child { border-inline-start: 3px solid transparent; }
+.tstate--free > td:first-child { border-inline-start-color: var(--ok); }
+.tstate--busy > td:first-child { border-inline-start-color: var(--warn); }
+.tstate--off { opacity: .68; }
+
+/* How much of a full plate this person is carrying. Capped at full on
+   purpose — see FULL_LOAD_TASKS in services.py. */
+.load {
+  display: inline-block; width: 54px; height: 6px; border-radius: 999px;
+  background: var(--surface-3); overflow: hidden; vertical-align: middle;
+}
+.load__fill { display: block; height: 100%; background: var(--brand); border-radius: 999px; }
+.tstate--free .load__fill { background: var(--ok); }
 
 /* -- voice notes ---------------------------------------------------------- */
 /* Ours, not the browser's: <audio controls> is a different widget in every

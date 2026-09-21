@@ -493,6 +493,53 @@ window.Eagle = (function () {
     setInterval(poll, cfg.pollMs || 3000);
   }
 
+  /* ------------------------------------------------------------- the mail */
+
+  /**
+   * Open a letter in place. Delegated, so rows the live feed injects a minute
+   * from now behave the same as the ones that came with the page.
+   *
+   * Clicks on the controls *inside* an open letter (the file checkboxes, the
+   * convert button) must not fold it shut again, which is why only the row
+   * button itself is listened for.
+   */
+  function initMailList() {
+    document.addEventListener("click", function (event) {
+      var row = event.target && event.target.closest &&
+        event.target.closest("[data-mail-open]");
+      if (!row) { return; }
+      var mail = row.closest(".mail");
+      if (!mail) { return; }
+      var open = mail.querySelector(".mail__open");
+      if (!open) { return; }
+      var isOpen = mail.classList.toggle("is-open");
+      open.classList.toggle("hidden", !isOpen);
+    });
+
+    var fetchBtn = $("#fetchMailBtn");
+    if (!fetchBtn) { return; }
+    fetchBtn.addEventListener("click", function () {
+      fetchBtn.disabled = true;
+      post(fetchBtn.getAttribute("data-url"), {}).then(function (res) {
+        fetchBtn.disabled = false;
+        if (!res.ok) {
+          toast({ level: "danger", title: t("الجلب فشل", "Fetch failed"), body: res.error || "" });
+          return;
+        }
+        var count = Number(res.created) || 0;
+        toast({
+          level: count ? "success" : "info",
+          title: count
+            ? t("وصل " + count + " ميل", count + " new e-mail")
+            : t("مفيش ميلات جديدة", "No new mail")
+        });
+        // Only reload when there is something new to show; a reload that
+        // changes nothing just loses the letter somebody had open.
+        if (count) { setTimeout(function () { window.location.reload(); }, 600); }
+      });
+    });
+  }
+
   function initAiCheck() {
     var button = $("#aiCheckBtn");
     if (!button) { return; }
@@ -939,6 +986,7 @@ window.Eagle = (function () {
     initAiCheck();
     initDeliver();
     initInboxLive();
+    initMailList();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",
       "الاتصال بواتساب شغال", "WhatsApp connection is working");

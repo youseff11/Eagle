@@ -37,6 +37,18 @@
     return (template || "").replace("CODE", encodeURIComponent(code));
   }
 
+  /* The two operation actions on a client's own message. The template is
+     reversed once by Django with a 0 in it, so the routes stay in urls.py
+     and this file never hard-codes a path. */
+  var confirmTemplate = root.dataset.confirmUrl || "";
+  var taskNewUrl = root.dataset.taskNewUrl || "";
+  //: message id -> its attachments, for the "pick the files" dialog.
+  var filesByMessage = {};
+
+  function confirmUrl(id) {
+    return confirmTemplate.replace("0", String(id || 0));
+  }
+
   /* While an open conversation owns the whole screen, the page behind it must
      not scroll. A stray scroll there collapses the browser's address bar, the
      viewport resizes, and the whole panel jumps — which reads as the frame
@@ -104,6 +116,33 @@
       parts.push('<div class="bub__file">' + icon("paperclip", "ic--sm") + label + "</div>");
     });
 
+    // What the operation does with a client's message, where the message is.
+    // Mirrors the same block in _client_bubble.html.
+    if (msg.actions) {
+        var acts = [
+          '<button class="btn btn--sm btn--accent" type="button" data-action="' +
+            esc(confirmUrl(msg.id)) + '" ' +
+            'data-confirm-ar="هيتبعت للعميل رد فيه كلمة confirmed. تمام؟" ' +
+            'data-confirm-en="The client will receive a reply saying &quot;confirmed&quot;. Go ahead?">' +
+            icon("check", "ic--sm") +
+            '<span data-ar="استلمت" data-en="Received">' +
+              esc(E.t("استلمت", "Received")) + "</span></button>"
+        ];
+        if (msg.task_code) {
+          acts.push('<span class="chip chip--sm mono">' + esc(msg.task_code) + "</span>");
+        } else {
+          acts.push('<button class="btn btn--sm" type="button" data-convert="' +
+            esc(String(msg.id)) + '">' + icon("arrow-right", "ic--sm") +
+            '<span data-ar="تحويل لتاسك" data-en="Convert to task">' +
+              esc(E.t("تحويل لتاسك", "Convert to task")) + "</span></button>");
+        }
+        if (msg.claimed_by) {
+          acts.push('<span class="chip chip--sm">' + icon("user-check", "ic--sm") +
+            esc(msg.claimed_by) + "</span>");
+        }
+        parts.push('<div class="bub__actions">' + acts.join("") + "</div>");
+    }
+
     var foot = [];
     if (msg.is_delivery) {
       foot.push('<span class="chip chip--sm">' +
@@ -129,10 +168,12 @@
       '<div class="bub__box">' + parts.join("") + "</div></div>";
   }
 
-  /** Cheap fingerprint so a poll only touches the DOM when something moved. */
+  /** Cheap fingerprint so a poll only touches the DOM when something moved.
+      Keep in step with data-sig in _client_bubble.html. */
   function signature(msg) {
     return [msg.status || "", (msg.body || "").length, (msg.files || []).length,
-      msg.error ? 1 : 0, msg.quote ? 1 : 0].join("|");
+      msg.error ? 1 : 0, msg.quote ? 1 : 0,
+      msg.claimed_by ? 1 : 0, msg.task_code ? 1 : 0].join("|");
   }
 
   function renderMessages(messages) {
@@ -141,6 +182,10 @@
     var added = false;
 
     (messages || []).forEach(function (msg) {
+      // Remembered whether the bubble is redrawn or not: the "convert to
+      // task" dialog reads this, and it may open long after the last poll
+      // that actually changed anything on screen.
+      if (msg.actions && msg.id) { filesByMessage[msg.id] = msg.files || []; }
       var sig = signature(msg);
       var existing = stream.querySelector('[data-uid="' + msg.uid + '"]');
       if (existing) {
@@ -726,6 +771,61 @@
   if (recSend) { recSend.addEventListener("click", sendRecording); }
   if (recCancel) { recCancel.addEventListener("click", cancelRecording); }
   window.addEventListener("beforeunload", recRelease);
+
+  /* ------------------------------------------------- convert to a task */
+
+  /* "تحويل لتاسك" on a client's message: tick which of their files are the
+     job, then hand the ids to the task form. The server re-checks every id
+     against the message, so this dialog only has to be convenient. */
+
+  var convertModal = document.getElementById("convertModal");
+  var convertForm = document.getElementById("convertForm");
+  var convertId = document.getElementById("convertMessage");
+  var convertFiles = document.getElementById("convertFiles");
+  var convertEmpty = document.getElementById("convertNoFiles");
+
+  function showConvert(on) {
+    if (convertModal) { convertModal.classList.toggle("hidden", !on); }
+  }
+
+  function fillConvert(messageId) {
+    if (!convertForm) { return; }
+    convertId.value = messageId;
+    var files = filesByMessage[messageId] || [];
+    convertFiles.innerHTML = files.map(function (f) {
+      if (!f.id) { return ""; }
+      return '<label class="pick__item">' +
+        '<input type="checkbox" name="files" value="' + E.escapeHtml(String(f.id)) + '" checked>' +
+        icon("paperclip", "ic--sm") +
+        "<span>" + E.escapeHtml(f.name || "") + "</span></label>";
+    }).join("");
+    var any = convertFiles.children.length > 0;
+    convertFiles.classList.toggle("hidden", !any);
+    if (convertEmpty) { convertEmpty.classList.toggle("hidden", any); }
+    showConvert(true);
+  }
+
+  if (convertForm) {
+    document.addEventListener("click", function (event) {
+      var btn = event.target && event.target.closest &&
+        event.target.closest("[data-convert]");
+      if (!btn) { return; }
+      var id = btn.getAttribute("data-convert");
+      if (!id) { return; }
+      // A click in the first seconds after load can beat the first poll that
+      // fills the file map; fetch once rather than open an empty dialog.
+      if (filesByMessage[id]) { fillConvert(id); }
+      else { pollThread().then(function () { fillConvert(id); }); }
+    });
+
+    ["convertClose", "convertCancel"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { el.addEventListener("click", function () { showConvert(false); }); }
+    });
+    convertModal.addEventListener("click", function (event) {
+      if (event.target === convertModal) { showConvert(false); }
+    });
+  }
 
   /* --------------------------------------------------------------- init */
 

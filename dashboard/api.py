@@ -14,6 +14,7 @@ from .models import (
     AppSettings,
     Assignment,
     AssignmentStatus,
+    Channel,
     ChatAttachment,
     ChatMessage,
     ChatRoom,
@@ -108,8 +109,10 @@ def heartbeat(request):
 
     if user.is_operation or user.is_admin_role:
         data["counters"] = {
+            # The sidebar badge counts what its page shows, and that page is
+            # e-mail now. WhatsApp has its own unread marks in the chat list.
             "inbox": InboundMessage.objects.filter(
-                claimed_by__isnull=True, is_rate_blocked=False
+                channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
             ).count(),
             "new_tasks": Task.objects.filter(status=TaskStatus.NEW).count(),
             "ready": Task.objects.filter(status=TaskStatus.REVIEWED).count(),
@@ -471,6 +474,44 @@ def claim_message(request, pk):
     })
 
 
+@api_role_required(Role.OPERATION)
+@require_POST
+def confirm_message(request, pk):
+    """"استلمت" — tell the client it arrived, then mark it claimed.
+
+    The receipt goes out on the channel the message came in on, so a WhatsApp
+    message is answered on WhatsApp and an e-mail by e-mail, whatever the
+    client's most recent message happened to be.
+    """
+    message = get_object_or_404(
+        InboundMessage.objects.select_related("client"), pk=pk
+    )
+    if message.is_rate_blocked and not request.user.is_admin_role:
+        raise Http404
+    ok, error = services.confirm_receipt(message, request.user)
+    return JsonResponse(
+        {
+            "ok": ok,
+            "error": error,
+            "claimed_by": message.claimed_by.short_name if message.claimed_by_id else "",
+        },
+        status=200 if ok else 400,
+    )
+
+
+@api_role_required(Role.OPERATION)
+@require_POST
+def fetch_mail(request):
+    """Poll the mailbox now, instead of waiting for the scheduled run."""
+    from . import mailbox
+
+    created, error = mailbox.fetch_and_record()
+    return JsonResponse(
+        {"ok": not error, "created": created, "error": error},
+        status=200 if not error else 400,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------------
@@ -639,7 +680,16 @@ def _client_or_404(request, client_code):
 def _thread_entry_json(entry, viewer):
     return {
         "uid": entry["uid"],
+        "id": entry.get("id", 0),
         "kind": entry["kind"],
+        # The two actions under a client message. A translator or team leader
+        # never gets them: turning a message into a task and answering the
+        # client both belong to the operation.
+        "actions": bool(
+            entry.get("actions") and (viewer.is_operation or viewer.is_admin_role)
+        ),
+        "claimed_by": entry.get("claimed_by", ""),
+        "has_task": entry.get("has_task", False),
         "body": entry["body"],
         "subject": entry.get("subject", ""),
         "channel": entry.get("channel", ""),
@@ -934,6 +984,10 @@ def client_chat_send(request, client_code):
         voice_seconds=_int(request.POST.get("seconds"), 0),
         reply_to_wamid=reply_wamid,
         reply_preview=reply_preview,
+        # This page is the WhatsApp line. Without pinning it, a reply typed
+        # here would leave by e-mail whenever the client's most recent message
+        # happened to be one — which the page no longer even shows.
+        force_channel=Channel.WHATSAPP,
     )
     payload = {"ok": ok, "error": error}
     if outbound is not None:

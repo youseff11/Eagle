@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% load eagle_tags %}
-{% block title %}Inbox{% endblock %}
-{% block page_title %}<span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>{% endblock %}
+{% block title %}Mail{% endblock %}
+{% block page_title %}<span data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</span>{% endblock %}
 
 {% block content %}
 <div class="page-head">
-  <h1 data-ar="الرسايل الواردة من العملاء" data-en="Client inbox">الرسايل الواردة من العملاء</h1>
+  <h1 data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</h1>
   <span class="badge badge--new mono">{{ unclaimed_count }}</span>
   <span class="badge badge--ok" id="liveBadge" title="live">
     <i class="badge__dot"></i><span data-ar="مباشر" data-en="Live">مباشر</span>
   </span>
+  <span class="page-head__sub"
+        data-ar="الميلات بس. رسايل الواتساب في شات العملاء."
+        data-en="E-mail only. WhatsApp lives in the client chat.">
+    الميلات بس. رسايل الواتساب في شات العملاء.
+  </span>
   <div class="grow"></div>
+  <button class="btn" type="button" id="fetchMailBtn"
+          data-url="{% url 'dashboard:api_fetch_mail' %}">
+    {% icon "refresh" "ic--sm" %}<span data-ar="جيب الميلات دلوقتي" data-en="Fetch mail now">جيب الميلات دلوقتي</span>
+  </button>
   <a class="btn btn--primary" href="{% url 'dashboard:ops_task_new' %}">
     {% icon "plus" "ic--sm" %}<span data-ar="تاسك جديدة" data-en="New task">تاسك جديدة</span>
   </a>
@@ -21,13 +30,13 @@
     <div class="field-icon grow" style="margin:0">
       {% icon "search" "ic--lead" %}
       <input class="input" name="q" value="{{ query }}"
-             data-ar-ph="ابحث في نص الرسالة أو كود العميل…"
-             data-en-ph="Search the message text or client code…"
-             placeholder="ابحث في نص الرسالة أو كود العميل…">
+             data-ar-ph="ابحث في العنوان أو نص الميل أو كود العميل…"
+             data-en-ph="Search the subject, the text or the client code…"
+             placeholder="ابحث في العنوان أو نص الميل أو كود العميل…">
     </div>
     <select class="input" name="state" style="max-width:210px" onchange="this.form.submit()">
       <option value="" {% if not state %}selected{% endif %}
-              data-ar="كل الرسايل" data-en="All messages">كل الرسايل</option>
+              data-ar="كل الميلات" data-en="All mail">كل الميلات</option>
       <option value="unclaimed" {% if state == 'unclaimed' %}selected{% endif %}
               data-ar="محدش استلمها" data-en="Unclaimed">محدش استلمها</option>
       <option value="mine" {% if state == 'mine' %}selected{% endif %}
@@ -38,28 +47,60 @@
     <button class="btn" type="submit" data-ar="بحث" data-en="Search">بحث</button>
   </form>
 
+  {% if not mail_configured %}
+    <div class="note note--warn mt">
+      {% icon "alert" %}
+      <div>
+        <strong data-ar="صندوق البريد مش متظبّط" data-en="The mailbox is not configured">صندوق البريد مش متظبّط</strong>
+        <div data-ar="من غير بيانات IMAP في الإعدادات مفيش ميل هيوصل الصفحة دي أصلًا."
+             data-en="Without the IMAP details under Settings no e-mail ever reaches this page.">
+          من غير بيانات IMAP في الإعدادات مفيش ميل هيوصل الصفحة دي أصلًا.
+        </div>
+      </div>
+    </div>
+  {% elif mail_last_error %}
+    <div class="note note--high mt">
+      {% icon "alert" %}
+      <div>
+        <strong data-ar="آخر محاولة جلب فشلت" data-en="The last fetch failed">آخر محاولة جلب فشلت</strong>
+        <div>{{ mail_last_error }}</div>
+      </div>
+    </div>
+  {% elif mail_last_fetch_at %}
+    <div class="note note--info mt">
+      {% icon "clock" %}
+      <div>
+        <span data-ar="آخر جلب:" data-en="Last fetch:">آخر جلب:</span>
+        <span class="mono">{{ mail_last_fetch_at|date:"Y-m-d H:i" }}</span>
+        ·
+        <span data-ar="جاب" data-en="brought">جاب</span>
+        <strong class="mono">{{ mail_last_count }}</strong>
+      </div>
+    </div>
+  {% endif %}
+
   {% if user.is_admin_role and blocked_count %}
     <div class="note note--warn mt">
       {% icon "shield" %}
       <div>
-        <span data-ar="رسايل محجوبة عن الأوبريشن (فيها كلمة سعر / rate):"
-              data-en="Messages hidden from Operation (rate keyword):">رسايل محجوبة عن الأوبريشن:</span>
+        <span data-ar="ميلات محجوبة عن الأوبريشن (فيها كلمة سعر / rate):"
+              data-en="Mail hidden from Operation (rate keyword):">ميلات محجوبة عن الأوبريشن:</span>
         <strong class="mono">{{ blocked_count }}</strong>
       </div>
     </div>
   {% endif %}
 </div>
 
-{# New messages are appended here by the poller — no page refresh. #}
-<div id="inboxList"
+{# New mail is prepended here by the poller — no page refresh. #}
+<div class="mail-list" id="inboxList"
      data-live-url="{% url 'dashboard:api_inbox_feed' %}"
      data-last="{{ last_message_id }}"
      data-state="{{ state }}"
      data-q="{{ query }}">
 
   <div class="card empty {% if messages_list %}hidden{% endif %}" id="inboxEmpty">
-    {% icon "inbox" "ic--xl" %}
-    <span data-ar="مفيش رسايل هنا دلوقتي." data-en="No messages here yet.">مفيش رسايل هنا دلوقتي.</span>
+    {% icon "mail" "ic--xl" %}
+    <span data-ar="مفيش ميلات هنا دلوقتي." data-en="No mail here yet.">مفيش ميلات هنا دلوقتي.</span>
   </div>
 
   {% for item in messages_list %}{% include "ops/_message_item.html" %}{% endfor %}

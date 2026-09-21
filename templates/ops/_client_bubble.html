@@ -8,7 +8,7 @@ Expects: entry (dict from services.client_thread)
      data-body="{{ entry.body|slice:':90' }}"
      data-who="{% if entry.kind == 'in' %}العميل{% else %}{{ entry.sender }}{% endif %}"
      {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
-     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}">
+     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}">
   <button class="bub__reply" type="button" data-reply="{{ entry.uid }}"
           data-ar-title="رد" data-en-title="Reply" title="رد">{% icon "reply" "ic--sm" %}</button>
   <div class="bub__box">
@@ -39,6 +39,28 @@ Expects: entry (dict from services.client_thread)
         </div>
       {% endif %}
     {% endfor %}
+
+    {% if entry.actions and can_convert %}
+      {# What the operation does with a client's message, where the message is. #}
+      <div class="bub__actions">
+        <button class="btn btn--sm btn--accent" type="button"
+                data-action="{% url 'dashboard:api_confirm_message' entry.id %}"
+                data-confirm-ar="هيتبعت للعميل رد فيه كلمة confirmed. تمام؟"
+                data-confirm-en="The client will receive a reply saying “confirmed”. Go ahead?">
+          {% icon "check" "ic--sm" %}<span data-ar="استلمت" data-en="Received">استلمت</span>
+        </button>
+        {% if entry.task_code %}
+          <span class="chip chip--sm mono">{{ entry.task_code }}</span>
+        {% else %}
+          <button class="btn btn--sm" type="button" data-convert="{{ entry.id }}">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</span>
+          </button>
+        {% endif %}
+        {% if entry.claimed_by %}
+          <span class="chip chip--sm">{% icon "user-check" "ic--sm" %}{{ entry.claimed_by }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
 
     <div class="bub__foot">
       {% if entry.is_delivery %}

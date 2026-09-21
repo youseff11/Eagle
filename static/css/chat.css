@@ -341,6 +341,19 @@
 
 #micBtn.is-live { color: var(--danger, #e5484d); }
 
+/* What the operation can do with the client's message, under the message.
+   Only ever drawn on an inbound bubble, and only for the operation. */
+.bub__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: 8px;
+  padding-block-start: 8px;
+  border-block-start: 1px solid var(--border);
+}
+.bub__actions .btn { padding: 3px 9px; font-size: 11px; }
+
 .bub__foot {
   display: flex;
   align-items: center;

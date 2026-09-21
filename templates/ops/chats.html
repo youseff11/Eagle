@@ -19,7 +19,11 @@
        data-send-url="{% url 'dashboard:api_client_chat_send' 'CODE' %}"
        data-active="{% if active %}{{ active.code }}{% endif %}"
      {% endif %}
-     data-detail-url="{% url 'dashboard:ops_chat_detail' 'CODE' %}">
+     data-detail-url="{% url 'dashboard:ops_chat_detail' 'CODE' %}"
+     {% if can_convert %}
+       data-confirm-url="{% url 'dashboard:api_confirm_message' 0 %}"
+       data-task-new-url="{% url 'dashboard:ops_task_new' %}"
+     {% endif %}>
 
   {# ---- conversation list ------------------------------------------------ #}
   <aside class="cchat__list">
@@ -258,6 +262,47 @@
           {% icon "plus" "ic--sm" %}<span data-ar="ضيف" data-en="Add">ضيف</span>
         </button>
       </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if can_convert %}
+  {# ---- which of the client's files are the job ------------------------- #}
+  <div class="modal-backdrop hidden" id="convertModal">
+    <div class="modal" style="text-align:start">
+      <div class="row row--tight">
+        {% icon "arrow-right" %}
+        <div class="modal__title" data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</div>
+        <div class="grow"></div>
+        <button class="icon-btn" type="button" id="convertClose"
+                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
+      </div>
+
+      <form method="get" action="{% url 'dashboard:ops_task_new' %}" id="convertForm">
+        <input type="hidden" name="message" id="convertMessage" value="">
+
+        <p class="muted" style="font-size:.82rem"
+           data-ar="شيل العلامة عن أي ملف مش جزء من الشغلانة — اللي متعلّم عليه بس هو اللي هيوصل المترجم."
+           data-en="Untick anything that is not part of the job — only the ticked files reach the translator.">
+          شيل العلامة عن أي ملف مش جزء من الشغلانة — اللي متعلّم عليه بس هو اللي هيوصل المترجم.
+        </p>
+
+        <div class="pick" id="convertFiles"></div>
+        <div class="muted hidden" id="convertNoFiles" style="font-size:.82rem"
+             data-ar="الرسالة دي مفيهاش ملفات — هتفتح التاسك بنصها."
+             data-en="This message has no files — the task opens with its text.">
+          الرسالة دي مفيهاش ملفات — هتفتح التاسك بنصها.
+        </div>
+
+        <div class="row" style="margin-top:14px;align-items:center">
+          <div class="grow"></div>
+          <button class="btn" type="button" id="convertCancel"
+                  data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+          <button class="btn btn--primary" type="submit">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="كمّل" data-en="Continue">كمّل</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {% endif %}

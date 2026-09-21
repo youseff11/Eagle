@@ -2613,3 +2613,420 @@ class HandoverTests(TestCase):
             self.assertIsNotNone(ai.start_background_check(task))
             self.assertIsNone(ai.start_background_check(task))
         self.assertEqual(task.ai_checks.count(), 1)
+
+
+class MailAndChatAreSeparateTests(TestCase):
+    """One message, one place.
+
+    Until 21/09/2026 every inbound message — WhatsApp and e-mail alike — sat in
+    /ops/inbox/ *and* in the client chat. Two people answered the same client
+    twice, which is the only kind of duplicate a client actually notices. The
+    mail page is now e-mail and the chat is WhatsApp, and these tests are what
+    keeps them apart.
+    """
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.Channel = Channel
+        self.InboundMessage = InboundMessage
+        self.ops = User.objects.create_user("ops_mail", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(
+            name="ACME", phone="+201000000002", email="client@example.com"
+        )
+        self.mail = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL,
+            subject="Bilingual contract", body="please quote the attached",
+            sender_identity="client@example.com",
+        )
+        self.wa = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP,
+            body="any update?", sender_identity="+201000000002",
+        )
+
+    def test_the_mail_page_holds_the_mail_and_not_the_whatsapp(self):
+        rows = list(services.inbox_queryset(self.ops))
+        self.assertIn(self.mail, rows)
+        self.assertNotIn(self.wa, rows)
+
+    def test_the_chat_holds_the_whatsapp_and_not_the_mail(self):
+        bodies = [e["body"] for e in services.client_thread(self.client_obj, self.ops)]
+        self.assertIn("any update?", bodies)
+        self.assertNotIn("please quote the attached", bodies)
+
+    def test_a_client_we_have_only_e_mailed_is_not_in_the_chat_list(self):
+        only_mail = Client.objects.create(name="MAILONLY", email="m@example.com")
+        self.InboundMessage.objects.create(
+            client=only_mail, channel=self.Channel.EMAIL, body="hello",
+            sender_identity="m@example.com",
+        )
+        codes = [c.code for c in services.client_conversations(self.ops)]
+        self.assertIn(self.client_obj.code, codes)
+        self.assertNotIn(only_mail.code, codes)
+
+    def test_the_mail_page_opens(self):
+        self.client.force_login(self.ops)
+        response = self.client.get("/ops/inbox/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Bilingual contract")
+        self.assertNotContains(response, "any update?")
+
+    def test_the_search_finds_a_subject(self):
+        rows = list(services.inbox_queryset(self.ops, query="bilingual"))
+        self.assertEqual(rows, [self.mail])
+
+    def test_an_e_mail_does_not_open_the_whatsapp_window(self):
+        """Meta's 24-hour clock is WhatsApp's alone.
+
+        Counting an e-mail here would have the chat promise a free-form reply
+        that Meta then refuses — the one thing the banner exists to prevent.
+        """
+        quiet = Client.objects.create(name="QUIET", phone="+201000000009",
+                                      email="quiet@example.com")
+        self.InboundMessage.objects.create(
+            client=quiet, channel=self.Channel.EMAIL, body="hello",
+            sender_identity="quiet@example.com",
+        )
+        self.assertFalse(quiet.reply_window_open)
+        self.InboundMessage.objects.create(
+            client=quiet, channel=self.Channel.WHATSAPP, body="hello",
+            sender_identity="+201000000009",
+        )
+        self.assertTrue(quiet.reply_window_open)
+
+
+class ReceiptTests(TestCase):
+    """"استلمت" is a promise to the client, not a checkbox for us.
+
+    The button both tells the client their message arrived and marks the row
+    claimed — in that order. A row that says "handled" beside a client who was
+    never told is the exact state the button exists to prevent.
+    """
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.Channel = Channel
+        self.ops = User.objects.create_user("ops_rcpt", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(
+            name="ACME", phone="+201000000003", email="rcpt@example.com"
+        )
+        self.wa = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="hi",
+            sender_identity="+201000000003",
+        )
+        self.mail = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, subject="Quote",
+            body="hi", sender_identity="rcpt@example.com",
+        )
+
+    def test_a_whatsapp_message_is_answered_on_whatsapp(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.r") as sent:
+            ok, error = services.confirm_receipt(self.wa, self.ops)
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args[0][0], "+201000000003")
+        self.assertEqual(sent.call_args[0][1], "confirmed")
+
+    def test_an_e_mail_is_answered_by_e_mail_in_its_own_thread(self):
+        from unittest import mock
+
+        # The e-mail is the *older* of the two here, so a reply that followed
+        # the client's latest channel would go out on WhatsApp instead.
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, error = services.confirm_receipt(self.mail, self.ops)
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs["subject"], "Re: Quote")
+        self.assertEqual(sent.call_args.kwargs["body"], "confirmed")
+
+    def test_the_row_is_claimed_once_the_client_has_been_told(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.r"):
+            services.confirm_receipt(self.wa, self.ops)
+        self.wa.refresh_from_db()
+        self.assertEqual(self.wa.claimed_by, self.ops)
+
+    def test_a_send_that_failed_leaves_the_row_unclaimed(self):
+        from unittest import mock
+
+        from . import whatsapp as wa
+
+        with mock.patch(
+            "dashboard.whatsapp.send_text",
+            side_effect=wa.WhatsAppError("مش ظابط", "nope"),
+        ):
+            ok, error = services.confirm_receipt(self.wa, self.ops)
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        self.wa.refresh_from_db()
+        self.assertIsNone(self.wa.claimed_by_id)
+
+    def test_the_endpoint_belongs_to_the_operation(self):
+        translator = User.objects.create_user(
+            "tr_rcpt", password="x", role=Role.TRANSLATOR
+        )
+        self.client.force_login(translator)
+        response = self.client.post(f"/api/messages/{self.wa.pk}/confirm/")
+        self.assertIn(response.status_code, (403, 404))
+
+
+class PickedSourceFilesTests(TestCase):
+    """Only the files somebody ticked are the job.
+
+    A client's message can carry the contract, their signature, and a photo of
+    their desk. Before this, all three walked into the task group. Empty still
+    means "all of them", so every task made before the picker is unchanged.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_pick", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_pick", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_pick", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000004")
+        self.inbound = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="[documents]",
+            sender_identity="+201000000004",
+        )
+        self.contract = MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"contract", name="contract.pdf"),
+            original_name="contract.pdf", size=8,
+        )
+        self.selfie = MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"selfie", name="selfie.jpg"),
+            original_name="selfie.jpg", size=6,
+        )
+
+    def _task(self, picked=None):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            messages=[self.inbound],
+        )
+        if picked:
+            task.source_files.set(picked)
+        assignment = services.assign_to_translator(task, self.tr, self.ops)
+        services.accept_assignment(assignment, self.tr)
+        return task, task.rooms.get(kind=RoomKind.GROUP)
+
+    def _names(self, room):
+        shared = [m for m in room.messages.all() if not m.is_system]
+        return [f.original_name for m in shared for f in m.relay_files]
+
+    def test_only_the_ticked_file_reaches_the_translator(self):
+        _task, room = self._task(picked=[self.contract])
+        self.assertEqual(self._names(room), ["contract.pdf"])
+
+    def test_nothing_ticked_still_means_everything(self):
+        _task, room = self._task()
+        self.assertEqual(sorted(self._names(room)), ["contract.pdf", "selfie.jpg"])
+
+    def test_the_client_room_still_shows_what_the_client_actually_sent(self):
+        """The picker trims the task group. It must not edit the record."""
+        task, _room = self._task(picked=[self.contract])
+        services.mirror_inbound_to_room(self.inbound)
+        client_room = task.rooms.get(kind=RoomKind.CLIENT)
+        names = [
+            f.original_name
+            for m in client_room.messages.filter(inbound=self.inbound)
+            for f in m.relay_files
+        ]
+        self.assertEqual(sorted(names), ["contract.pdf", "selfie.jpg"])
+
+    def test_an_id_from_another_message_cannot_walk_into_the_task(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+        from .views import _picked_attachments
+
+        other_client = Client.objects.create(name="OTHER", phone="+201000000005")
+        other = InboundMessage.objects.create(
+            client=other_client, channel=Channel.WHATSAPP, body="x",
+            sender_identity="+201000000005",
+        )
+        stranger = MessageAttachment.objects.create(
+            message=other, file=ContentFile(b"nope", name="secret.pdf"),
+            original_name="secret.pdf", size=4,
+        )
+        picked = _picked_attachments(self.inbound, [f"{self.contract.pk},{stranger.pk}"])
+        self.assertEqual(picked, [self.contract])
+
+    def test_the_form_carries_the_ticked_files_into_the_task(self):
+        self.client.force_login(self.ops)
+        response = self.client.post("/ops/tasks/new/", {
+            "message": self.inbound.pk,
+            "files": [str(self.contract.pk)],
+            "client": self.client_obj.pk,
+            "title": "Contract",
+            "description": "",
+            "source_lang": "", "target_lang": "", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        })
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        task = Task.objects.latest("id")
+        self.assertEqual(
+            [a.original_name for a in task.source_files.all()], ["contract.pdf"]
+        )
+
+
+class TranslatorBoardTests(TestCase):
+    """Who can take a job this minute — and the evidence behind the answer."""
+
+    def setUp(self):
+        self.lead = User.objects.create_user("lead_bd", password="x", role=Role.TEAM_LEAD)
+        self.ops = User.objects.create_user("ops_bd", password="x", role=Role.OPERATION)
+        self.free = User.objects.create_user(
+            "free_bd", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.busy = User.objects.create_user(
+            "busy_bd", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.away = User.objects.create_user(
+            "away_bd", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000006")
+        # Online means the site is open right now, and nothing else.
+        for person in (self.free, self.busy):
+            person.last_seen = timezone.now()
+            person.save(update_fields=["last_seen"])
+
+    def _states(self):
+        return {
+            row["person"].username: row["state"]
+            for row in services.translator_board(self.lead)
+        }
+
+    def test_somebody_with_no_work_and_the_site_open_is_free(self):
+        self.assertEqual(self._states()["free_bd"], "free")
+
+    def test_a_running_task_makes_them_busy(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        task.translator = self.busy
+        task.status = TaskStatus.IN_PROGRESS
+        task.save(update_fields=["translator", "status"])
+        self.assertEqual(self._states()["busy_bd"], "busy")
+
+    def test_an_unanswered_offer_already_holds_them(self):
+        """An offer nobody has answered is work in flight, not free time."""
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        services.assign_to_translator(task, self.busy, self.lead)
+        self.assertEqual(self._states()["busy_bd"], "busy")
+
+    def test_somebody_who_never_opened_eagle_is_not_free(self):
+        self.assertIn(self._states()["away_bd"], ("off", "shift"))
+
+    def test_free_people_come_first(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        task.translator = self.busy
+        task.status = TaskStatus.IN_PROGRESS
+        task.save(update_fields=["translator", "status"])
+        rows = services.translator_board(self.lead)
+        self.assertEqual(rows[0]["person"], self.free)
+
+    def test_another_leader_s_team_is_not_on_this_board(self):
+        other_lead = User.objects.create_user(
+            "lead_bd2", password="x", role=Role.TEAM_LEAD
+        )
+        User.objects.create_user(
+            "tr_other", password="x", role=Role.TRANSLATOR, team_lead=other_lead
+        )
+        self.assertNotIn("tr_other", self._states())
+
+    def test_the_page_opens_for_the_leader_only(self):
+        self.client.force_login(self.lead)
+        self.assertEqual(self.client.get("/lead/translators/").status_code, 200)
+        self.client.force_login(self.free)
+        self.assertEqual(self.client.get("/lead/translators/").status_code, 403)
+
+
+class MailboxParsingTests(TestCase):
+    """Turning a real e-mail into an inbound row.
+
+    Gmail sends most mail as plain text *and* HTML; a client who writes from a
+    phone may send HTML only. Both have to arrive with words in them — a row
+    with an empty body reads on the page as though the client sent nothing.
+    """
+
+    def _message(self, raw):
+        import email as email_module
+
+        from . import mailbox
+
+        return mailbox.parse_message(email_module.message_from_string(raw))
+
+    def test_plain_text_wins_over_the_html_copy(self):
+        parsed = self._message(
+            "From: Dr Sara <sara@example.com>\r\n"
+            "Subject: Contract\r\n"
+            'Content-Type: multipart/alternative; boundary="b"\r\n\r\n'
+            "--b\r\nContent-Type: text/plain\r\n\r\nplease translate\r\n"
+            "--b\r\nContent-Type: text/html\r\n\r\n<p>please translate</p>\r\n--b--\r\n"
+        )
+        self.assertEqual(parsed["body"], "please translate")
+        self.assertEqual(parsed["sender_identity"], "sara@example.com")
+        self.assertEqual(parsed["sender_display"], "Dr Sara")
+        self.assertEqual(parsed["subject"], "Contract")
+
+    def test_an_html_only_message_still_has_words(self):
+        parsed = self._message(
+            "From: sara@example.com\r\n"
+            "Subject: Hi\r\n"
+            "Content-Type: text/html\r\n\r\n"
+            "<html><style>p{color:red}</style><p>hello <b>there</b></p></html>\r\n"
+        )
+        self.assertEqual(parsed["body"], "hello there")
+
+    def test_an_attachment_comes_across_with_its_name(self):
+        import base64
+
+        payload = base64.b64encode(b"PDF-BYTES").decode()
+        parsed = self._message(
+            "From: sara@example.com\r\n"
+            "Subject: Files\r\n"
+            'Content-Type: multipart/mixed; boundary="b"\r\n\r\n'
+            "--b\r\nContent-Type: text/plain\r\n\r\nsee attached\r\n"
+            "--b\r\nContent-Type: application/pdf\r\n"
+            'Content-Disposition: attachment; filename="brief.pdf"\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{payload}\r\n--b--\r\n"
+        )
+        self.assertEqual(len(parsed["attachments"]), 1)
+        self.assertEqual(parsed["attachments"][0]["name"], "brief.pdf")
+
+    def test_a_filename_cannot_carry_a_path(self):
+        import base64
+
+        payload = base64.b64encode(b"x").decode()
+        parsed = self._message(
+            "From: sara@example.com\r\n"
+            'Content-Type: multipart/mixed; boundary="b"\r\n\r\n'
+            "--b\r\nContent-Type: application/pdf\r\n"
+            'Content-Disposition: attachment; filename="../../etc/passwd"\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{payload}\r\n--b--\r\n"
+        )
+        self.assertEqual(parsed["attachments"][0]["name"], "passwd")
+
+    def test_a_parsed_message_becomes_an_inbox_row(self):
+        Client.objects.create(name="ACME", email="sara@example.com")
+        parsed = self._message(
+            "From: sara@example.com\r\n"
+            "Subject: Contract\r\n"
+            "Message-ID: <abc@example.com>\r\n"
+            "Content-Type: text/plain\r\n\r\nplease translate\r\n"
+        )
+        row = services.ingest_message(**parsed)
+        self.assertEqual(row.channel, "email")
+        self.assertEqual(row.subject, "Contract")
+        ops = User.objects.create_user("ops_box", password="x", role=Role.OPERATION)
+        self.assertIn(row, list(services.inbox_queryset(ops)))
+        # The same letter arriving twice is the same row.
+        self.assertEqual(services.ingest_message(**parsed).pk, row.pk)

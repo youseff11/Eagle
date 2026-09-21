@@ -10,13 +10,13 @@
       <div class="nav__label" data-ar="الأوبريشن" data-en="Operation">الأوبريشن</div>
 
       <a class="nav__item {% if url_name == 'ops_inbox' %}is-active{% endif %}" href="{% url 'dashboard:ops_inbox' %}">
-        {% icon "inbox" %}
-        <span data-ar="الرسايل الواردة" data-en="Inbox">الرسايل الواردة</span>
+        {% icon "mail" %}
+        <span data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</span>
         <span class="nav__count hidden" data-counter="inbox">0</span>
       </a>
       <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_chat_detail' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
         {% icon "message" %}
-        <span data-ar="شات العملاء" data-en="Client chat">شات العملاء</span>
+        <span data-ar="شات العملاء (واتساب)" data-en="Client chat (WhatsApp)">شات العملاء (واتساب)</span>
       </a>
       <a class="nav__item {% if url_name == 'ops_tasks' or url_name == 'ops_task_new' %}is-active{% endif %}" href="{% url 'dashboard:ops_tasks' %}">
         {% icon "layers" %}
@@ -35,6 +35,10 @@
         {% icon "target" %}
         <span data-ar="تاسكاتي" data-en="My tasks">تاسكاتي</span>
         <span class="nav__count hidden" data-counter="open">0</span>
+      </a>
+      <a class="nav__item {% if url_name == 'lead_translators' %}is-active{% endif %}" href="{% url 'dashboard:lead_translators' %}">
+        {% icon "users" %}
+        <span data-ar="حالة المترجمين" data-en="Translator status">حالة المترجمين</span>
       </a>
       <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
         {% icon "users" %}

@@ -755,7 +755,16 @@ class Client(models.Model):
 
     @property
     def last_inbound_at(self):
-        last = self.messages.order_by("-received_at").first()
+        """The client's last *WhatsApp* message — the only one that opens it.
+
+        Counting e-mail here would have the chat say the window is open when
+        Meta will refuse the send: a client who writes an e-mail has not
+        touched the WhatsApp clock at all.
+        """
+        last = (
+            self.messages.filter(channel=Channel.WHATSAPP)
+            .order_by("-received_at").first()
+        )
         return last.received_at if last else None
 
     @property
@@ -937,6 +946,14 @@ class Task(models.Model):
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.NORMAL)
     status = models.CharField(
         max_length=24, choices=TaskStatus.choices, default=TaskStatus.NEW, db_index=True
+    )
+
+    #: The client files the operation ticked when they turned the message into
+    #: this task. Empty means "everything the client sent" - which is what
+    #: every task made before the picker existed means too, so no backfill.
+    source_files = models.ManyToManyField(
+        "MessageAttachment", blank=True, related_name="tasks",
+        help_text="Client attachments chosen for this task. Empty = all of them.",
     )
 
     created_by = models.ForeignKey(
@@ -1226,10 +1243,22 @@ class ChatMessage(models.Model):
 
     @property
     def relay_files(self):
-        """Attachments to show — the client's own when this mirrors an inbound."""
-        if self.inbound_id:
-            return self.inbound.attachments.all()
-        return self.attachments.all()
+        """Attachments to show — the client's own when this mirrors an inbound.
+
+        In a *task* group the operation may have ticked only some of the
+        client's files when they made the task; the translator should then see
+        exactly those. The client room is deliberately left alone: it is the
+        record of what the client actually sent, and hiding half of it there
+        would make the conversation lie.
+        """
+        if not self.inbound_id:
+            return self.attachments.all()
+
+        files = self.inbound.attachments.all()
+        task = self.room.task if self.room_id else None
+        if task and self.room.kind == RoomKind.GROUP and task.source_files.exists():
+            files = files.filter(tasks=task)
+        return files
 
 
 class ChatAttachment(PlayableFile, models.Model):
@@ -1358,6 +1387,13 @@ class AppSettings(models.Model):
     imap_user = models.CharField(max_length=190, blank=True)
     imap_password = models.CharField(max_length=250, blank=True)
     imap_folder = models.CharField(max_length=60, default="INBOX")
+
+    #: Last time the mailbox was actually polled, and how it went. Without
+    #: these the mail page can only say "IMAP is filled in", which is not the
+    #: same thing as "mail is arriving" — the difference is the whole point.
+    mail_last_fetch_at = models.DateTimeField(null=True, blank=True)
+    mail_last_count = models.PositiveIntegerField(default=0)
+    mail_last_error = models.CharField(max_length=300, blank=True)
 
     smtp_host = models.CharField(
         max_length=120, blank=True,

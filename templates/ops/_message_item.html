@@ -1,27 +1,58 @@
-{% load eagle_tags %}{# One inbox row. Rendered by the page loop AND by the live feed. #}
-<div class="msg-item {% if item.is_rate_blocked %}is-blocked{% endif %}" data-message="{{ item.pk }}">
-  <div class="avatar avatar--brand">
-    {% if item.channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}{% else %}{% icon "mail" "ic--sm" %}{% endif %}
-  </div>
+{% load eagle_tags %}{% comment %}
+One letter in the mail list. Rendered by the page loop AND by the live feed,
+so it must stand on its own: no context beyond `item` and `user`.
+Unread means nobody has claimed it yet — the same fact the old badge showed,
+worn the way a mailbox wears it.
+{% endcomment %}
+<article class="mail {% if not item.claimed_by_id %}is-unread{% endif %}{% if item.is_rate_blocked %} is-blocked{% endif %}"
+         data-message="{{ item.pk }}">
 
-  <div class="msg-item__body">
-    <div class="row row--between">
-      <div class="row row--tight">
-        <strong class="mono">{{ item.client_code }}</strong>
-        <span class="chip">{{ item.get_channel_display }}</span>
+  <button class="mail__row" type="button" data-mail-open
+          data-ar-title="افتح الميل" data-en-title="Open the e-mail">
+    <span class="avatar avatar--brand mail__avatar">
+      {% if item.client_id %}{{ item.client.code|slice:"3:" }}{% else %}{% icon "mail" "ic--sm" %}{% endif %}
+    </span>
+
+    <span class="mail__body">
+      <span class="mail__top">
+        <b class="mail__from">
+          {% if item.client_id %}{{ item.client|label_for:user }}
+          {% elif user.is_admin_role and item.sender_identity %}{{ item.sender_identity }}
+          {% else %}<span data-ar="مرسل غير معروف" data-en="Unknown sender">مرسل غير معروف</span>{% endif %}
+        </b>
+        <span class="mail__time mono">{{ item.received_at|date:"Y-m-d H:i" }}</span>
+      </span>
+
+      <span class="mail__subject">
+        {% if item.subject %}{{ item.subject }}
+        {% else %}<span class="muted" data-ar="(من غير عنوان)" data-en="(no subject)">(من غير عنوان)</span>{% endif %}
+      </span>
+
+      <span class="mail__snippet">{{ item.body|truncatechars:120 }}</span>
+
+      <span class="mail__tags">
         {% if item.is_rate_blocked %}
           <span class="badge badge--dead"><i class="badge__dot"></i><span
             data-ar="محجوبة — سعر" data-en="Hidden — rate">محجوبة — سعر</span></span>
         {% endif %}
         {% if item.task_id %}
-          <a class="badge badge--ok mono" href="{% url 'dashboard:task_detail' item.task.code %}">{{ item.task.code }}</a>
+          <span class="badge badge--ok mono">{{ item.task.code }}</span>
         {% endif %}
-      </div>
-      <small class="mono">{{ item.received_at|date:"Y-m-d H:i" }}</small>
-    </div>
+        {% if item.attachments.all %}
+          <span class="chip chip--sm">{% icon "paperclip" "ic--sm" %}{{ item.attachments.all|length }}</span>
+        {% endif %}
+        {% if item.claimed_by_id %}
+          <span class="chip chip--sm">{% icon "user-check" "ic--sm" %}{{ item.claimed_by.short_name }}</span>
+        {% endif %}
+      </span>
+    </span>
 
-    {% if item.subject %}<div style="font-weight:600">{{ item.subject }}</div>{% endif %}
-    <div class="msg-item__text">{{ item.body }}</div>
+    <span class="mail__chev">{% icon "chevron-down" "ic--sm" %}</span>
+  </button>
+
+  {# The letter itself. Closed until the row is clicked, like any mailbox. #}
+  <div class="mail__open hidden">
+    <div class="mail__text">{{ item.body }}</div>
 
     {% if item.attachments.all %}
       <div class="files">
@@ -38,29 +69,48 @@
     {% endif %}
 
     {% if user.is_admin_role and item.sender_identity %}
-      <div class="muted mono" style="font-size:.75rem;margin-top:7px">
-        {{ item.sender_identity }} {{ item.sender_display }}
-      </div>
+      <div class="muted mono mail__raw">{{ item.sender_identity }} {{ item.sender_display }}</div>
     {% endif %}
 
-    <div class="row row--tight" style="margin-top:11px">
+    <div class="mail__actions">
+      {% if item.client_id %}
+        <button class="btn btn--sm btn--accent" type="button"
+                data-action="{% url 'dashboard:api_confirm_message' item.pk %}"
+                data-confirm-ar="هيتبعت للعميل رد فيه كلمة confirmed. تمام؟"
+                data-confirm-en="The client will receive a reply saying “confirmed”. Go ahead?">
+          {% icon "check" "ic--sm" %}<span data-ar="استلمت" data-en="Received">استلمت</span>
+        </button>
+      {% endif %}
       {% if item.claimed_by_id %}
         <span class="badge badge--ok">
           {% icon "user-check" "ic--sm" %}
           <span data-ar="استلمها" data-en="Claimed by">استلمها</span> {{ item.claimed_by.short_name }}
         </span>
-      {% else %}
-        <button class="btn btn--sm btn--accent" type="button"
-                data-action="{% url 'dashboard:api_claim_message' item.pk %}">
-          {% icon "user-check" "ic--sm" %}<span data-ar="استلمت الرسالة" data-en="Claim">استلمت الرسالة</span>
-        </button>
-      {% endif %}
-
-      {% if not item.task_id %}
-        <a class="btn btn--sm btn--primary" href="{% url 'dashboard:ops_task_new' %}?message={{ item.pk }}">
-          {% icon "arrow-right" "ic--sm" %}<span data-ar="حوّلها لتاسك" data-en="Convert to task">حوّلها لتاسك</span>
-        </a>
       {% endif %}
     </div>
+
+    {% if not item.task_id %}
+      {# Tick the files that are the job. Nothing ticked = everything. #}
+      <form class="mail__convert" method="get" action="{% url 'dashboard:ops_task_new' %}">
+        <input type="hidden" name="message" value="{{ item.pk }}">
+        {% if item.attachments.all %}
+          <div class="pick__label"
+               data-ar="اختار الملفات اللي هتروح للتاسك:"
+               data-en="Pick the files that go to the task:">اختار الملفات اللي هتروح للتاسك:</div>
+          <div class="pick">
+            {% for attachment in item.attachments.all %}
+              <label class="pick__item">
+                <input type="checkbox" name="files" value="{{ attachment.pk }}" checked>
+                {% icon "paperclip" "ic--sm" %}
+                <span>{{ attachment.original_name|default:attachment.file.name }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <button class="btn btn--sm btn--primary" type="submit">
+          {% icon "arrow-right" "ic--sm" %}<span data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</span>
+        </button>
+      </form>
+    {% endif %}
   </div>
-</div>
+</article>

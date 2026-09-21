@@ -28,6 +28,7 @@ urlpatterns = [
 
     # -- team leader / translator -------------------------------------------
     path("lead/", views.lead_home, name="lead_home"),
+    path("lead/translators/", views.lead_translators, name="lead_translators"),
     path("translator/", views.translator_home, name="translator_home"),
     path("translator/payroll/", views.translator_payroll, name="translator_payroll"),
 
@@ -191,6 +192,8 @@ urlpatterns = [
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),
     path("api/inbox/feed/", api.inbox_feed, name="api_inbox_feed"),
     path("api/messages/<int:pk>/claim/", api.claim_message, name="api_claim_message"),
+    path("api/messages/<int:pk>/confirm/", api.confirm_message, name="api_confirm_message"),
+    path("api/mail/fetch/", api.fetch_mail, name="api_fetch_mail"),
     path("api/rooms/<int:room_id>/messages/", api.chat_fetch, name="api_chat_fetch"),
     path("api/rooms/<int:room_id>/send/", api.chat_send, name="api_chat_send"),
     path("api/clients/<str:client_code>/requirement/", api.add_requirement, name="api_requirement"),

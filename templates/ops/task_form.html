@@ -12,7 +12,13 @@
   <div class="card">
     <form method="post">
       {% csrf_token %}
-      {% if source_message %}<input type="hidden" name="message" value="{{ source_message.pk }}">{% endif %}
+      {% if source_message %}
+        <input type="hidden" name="message" value="{{ source_message.pk }}">
+        {# The files ticked on the way here, carried through the POST. #}
+        {% for attachment in picked_files %}
+          <input type="hidden" name="files" value="{{ attachment.pk }}">
+        {% endfor %}
+      {% endif %}
 
       <div class="field">
         <label data-ar="كود العميل" data-en="Client code">كود العميل</label>
@@ -102,6 +108,31 @@
         {% endif %}
       </div>
 
+      {# Which files the translator will get. Say it before the task exists. #}
+      <div class="card">
+        <div class="card__head">
+          {% icon "paperclip" %}
+          <h3 data-ar="الملفات اللي هتروح للمترجم" data-en="Files the translator gets">الملفات اللي هتروح للمترجم</h3>
+        </div>
+        {% if picked_files %}
+          <div class="files">
+            {% for attachment in picked_files %}
+              <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+            {% endfor %}
+          </div>
+        {% elif source_message.attachments.all %}
+          <div class="muted"
+               data-ar="كل ملفات الرسالة — مااختارتش ملفات معينة."
+               data-en="Every file on the message — nothing specific was picked.">
+            كل ملفات الرسالة — مااختارتش ملفات معينة.
+          </div>
+        {% else %}
+          <div class="muted" data-ar="الرسالة دي مفيهاش ملفات."
+               data-en="This message has no files.">الرسالة دي مفيهاش ملفات.</div>
+        {% endif %}
+      </div>
+
       {% if source_message.client %}
         <div class="card">
           <div class="card__head">
@@ -126,9 +157,10 @@
     {% else %}
       <div class="note note--info">
         {% icon "info" %}
-        <div data-ar="تقدر تعمل التاسك من رسالة في الإنبوكس عشان تتربط بيها تلقائي."
-             data-en="You can also create a task straight from an inbox message so they stay linked.">
-          تقدر تعمل التاسك من رسالة في الإنبوكس عشان تتربط بيها تلقائي.
+        <div data-ar="تقدر تعمل التاسك من ميل في «ميلات واردة» أو من رسالة في شات العملاء، وساعتها تختار الملفات اللي تروح للمترجم."
+             data-en="You can also start a task from a letter in Incoming mail or a message in the client chat, and pick which files reach the translator.">
+          تقدر تعمل التاسك من ميل في «ميلات واردة» أو من رسالة في شات العملاء،
+          وساعتها تختار الملفات اللي تروح للمترجم.
         </div>
       </div>
     {% endif %}

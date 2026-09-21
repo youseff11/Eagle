@@ -64,6 +64,7 @@ from .models import (
     CandidateSource,
     CandidateStatus,
     CandidateTest,
+    Channel,
     ChatAttachment,
     ClientComplaint,
     ChatRoom,
@@ -206,21 +207,35 @@ def data_deletion(request):
 
 @role_required(Role.OPERATION)
 def ops_inbox(request):
+    """The mail page — e-mail and nothing else.
+
+    WhatsApp moved out to /ops/chats/ entirely: a message that shows up in two
+    places gets answered twice, and the two media do not want the same screen
+    anyway. A mailbox is a list of letters; a chat is a conversation.
+    """
     user = request.user
     state = request.GET.get("state", "")
     query = request.GET.get("q", "").strip()
     messages_list = list(services.inbox_queryset(user, state, query)[:150])
 
+    conf = AppSettings.load()
+    mails = InboundMessage.objects.filter(channel=Channel.EMAIL)
     context = {
         "messages_list": messages_list,
         # The live feed asks for anything newer than this.
         "last_message_id": messages_list[0].id if messages_list else 0,
         "state": state,
         "query": query,
-        "unclaimed_count": InboundMessage.objects.filter(
+        "unclaimed_count": mails.filter(
             claimed_by__isnull=True, is_rate_blocked=False
         ).count(),
-        "blocked_count": InboundMessage.objects.filter(is_rate_blocked=True).count(),
+        "blocked_count": mails.filter(is_rate_blocked=True).count(),
+        # "IMAP is filled in" and "mail is arriving" are different claims, and
+        # the second is the one the page makes.
+        "mail_configured": bool(conf.imap_host and conf.imap_user and conf.imap_password),
+        "mail_last_fetch_at": conf.mail_last_fetch_at,
+        "mail_last_count": conf.mail_last_count,
+        "mail_last_error": conf.mail_last_error,
     }
     return render(request, "ops/inbox.html", context)
 
@@ -271,6 +286,9 @@ def _chats_context(request, kind):
         # Only the roles that see the whole client list get the filter — for
         # everyone else this page is their groups and nothing else.
         "show_filter": user.is_operation or user.is_admin_role,
+        # Answering the client and turning their message into a task both
+        # belong to the operation; a translator in a group gets neither.
+        "can_convert": user.is_operation or user.is_admin_role,
         "group_clients": [],
         "group_people": [],
     }
@@ -389,6 +407,28 @@ def _task_counters():
     }
 
 
+def _picked_attachments(message, raw_values):
+    """The attachment rows named in ``raw_values`` — but only this message's own.
+
+    Takes either the repeated ``files=`` checkboxes the mail page posts or one
+    comma-joined string, because the chat builds the link in JavaScript.
+
+    The ids come from the browser, so the rows are re-fetched against the
+    message rather than trusted: an id from somebody else's conversation must
+    not be able to walk a file into a task it has nothing to do with.
+    """
+    if not message or not raw_values:
+        return []
+    ids = []
+    for value in raw_values:
+        for chunk in str(value).replace(" ", "").split(","):
+            if chunk.isdigit():
+                ids.append(int(chunk))
+    if not ids:
+        return []
+    return list(message.attachments.filter(pk__in=ids))
+
+
 @role_required(Role.OPERATION)
 def ops_task_new(request):
     message = None
@@ -397,6 +437,12 @@ def ops_task_new(request):
         message = InboundMessage.objects.filter(pk=message_id).first()
         if message and message.is_rate_blocked and not request.user.is_admin_role:
             message = None
+
+    # Which of the client's files the operation ticked. Nothing ticked means
+    # all of them, which is what it meant before the picker existed.
+    source = request.POST if request.method == "POST" else request.GET
+    picked = _picked_attachments(message, source.getlist("files"))
+    picked_ids = ",".join(str(row.pk) for row in picked)
 
     initial = {}
     if message:
@@ -419,12 +465,19 @@ def ops_task_new(request):
             target_lang=form.cleaned_data["target_lang"],
             messages=[message] if message else None,
         )
+        if picked:
+            task.source_files.set(picked)
         if message and not message.claimed_by_id:
             services.claim_message(message, request.user)
         flash.success(request, f"{task.code}")
         return redirect("dashboard:task_detail", code=task.code)
 
-    return render(request, "ops/task_form.html", {"form": form, "source_message": message})
+    return render(request, "ops/task_form.html", {
+        "form": form,
+        "source_message": message,
+        "picked_files": picked,
+        "picked_ids": picked_ids,
+    })
 
 
 @role_required(Role.OPERATION)
@@ -448,6 +501,31 @@ def lead_home(request):
         "free_count": sum(1 for m in team if m.is_online and not m.is_busy),
         "busy_count": sum(1 for m in team if m.is_online and m.is_busy),
         "offline_count": sum(1 for m in team if not m.is_online),
+    })
+
+
+@role_required(Role.TEAM_LEAD)
+def lead_translators(request):
+    """Who is free and who is busy — the team leader's assignment board.
+
+    Its own page rather than a card on the home screen: this is the thing a
+    leader looks at before handing out work, and it has to hold the evidence
+    (the open tasks, the nearest deadline, the load) not just a coloured dot.
+    """
+    rows = services.translator_board(request.user)
+    return render(request, "lead/translators.html", {
+        "rows": rows,
+        # The board answers "who is free"; this is the other half of the same
+        # question — the work that is waiting for one of them.
+        "needs_translator": (
+            Task.objects.filter(team_lead=request.user, status=TaskStatus.LEAD_ACCEPTED)
+            .select_related("client").order_by("deadline", "code")[:20]
+        ),
+        "free_count": sum(1 for r in rows if r["state"] == "free"),
+        "busy_count": sum(1 for r in rows if r["state"] == "busy"),
+        "shift_count": sum(1 for r in rows if r["state"] == "shift"),
+        "offline_count": sum(1 for r in rows if r["state"] == "off"),
+        "total_open": sum(r["load"] for r in rows),
     })
 
 

@@ -131,6 +131,11 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         )
 
     code = client.code if client else "UNKNOWN"
+    # The two channels now live on two pages, so the notification has to point
+    # at the one the message is actually on. A link to an inbox that filters
+    # this message out is worse than no link.
+    is_mail = channel == Channel.EMAIL
+    where = "/ops/inbox/" if is_mail else (f"/ops/chats/{code}/" if client else "/ops/chats/")
     if keyword:
         notify_role(
             Role.ADMIN,
@@ -139,18 +144,24 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             body_ar=f"رسالة من العميل {code} فيها كلمة «{keyword}».",
             body_en=f"A message from client {code} contains “{keyword}”.",
             level="warning",
-            url="/ops/inbox/",
+            url=where,
         )
     else:
         for user in User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True):
             notify(
                 user,
-                title_ar="رسالة جديدة من عميل",
-                title_en="New client message",
-                body_ar=f"وصلت رسالة جديدة من العميل {code}.",
-                body_en=f"A new message arrived from client {code}.",
+                title_ar="ميل جديد من عميل" if is_mail else "رسالة جديدة من عميل",
+                title_en="New client e-mail" if is_mail else "New client message",
+                body_ar=(
+                    f"وصل ميل جديد من العميل {code}." if is_mail
+                    else f"وصلت رسالة جديدة من العميل {code}."
+                ),
+                body_en=(
+                    f"A new e-mail arrived from client {code}." if is_mail
+                    else f"A new message arrived from client {code}."
+                ),
                 level="info",
-                url="/ops/inbox/",
+                url=where,
                 sound=user.is_operation,
             )
 
@@ -171,12 +182,17 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
 
 
 def inbox_queryset(user, state="", query=""):
-    """The operation inbox, filtered identically for the page and the live feed."""
+    """The e-mail inbox, filtered identically for the page and the live feed.
+
+    E-mail only, on purpose. WhatsApp is a conversation and lives in the client
+    chat; a mailbox is a list of letters and lives here. A message that is in
+    both places is a message two people answer twice.
+    """
     from django.db.models import Q
 
-    qs = InboundMessage.objects.select_related("client", "claimed_by", "task").prefetch_related(
-        "attachments"
-    )
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).select_related(
+        "client", "claimed_by", "task"
+    ).prefetch_related("attachments")
     # Rate talk never reaches the operation role.
     if not user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
@@ -190,7 +206,12 @@ def inbox_queryset(user, state="", query=""):
 
     query = (query or "").strip()
     if query:
-        qs = qs.filter(Q(body__icontains=query) | Q(client__code__icontains=query))
+        qs = qs.filter(
+            Q(body__icontains=query)
+            | Q(subject__icontains=query)
+            | Q(client__code__icontains=query)
+            | Q(sender_identity__icontains=query)
+        )
     return qs
 
 
@@ -202,6 +223,49 @@ def claim_message(message, user):
     message.save(update_fields=["claimed_by", "claimed_at"])
     log(user, "message.claim", message.client_code)
     return True
+
+
+#: What the client is told when somebody presses "استلمت". One word, in both
+#: directions of the conversation, and never anything the client has to read
+#: twice - this is a receipt, not an answer.
+RECEIPT_BODY = "confirmed"
+
+
+def confirm_receipt(message, user):
+    """Tell the client their message arrived, and mark it claimed.
+
+    Returns ``(ok, error_ar)``. The claim only happens once the reply is out:
+    a row that says "handled" next to a client who was never told is exactly
+    the state this button exists to prevent.
+    """
+    if not message.client_id:
+        return False, "الرسالة دي مش مربوطة بعميل معروف."
+    if message.is_rate_blocked and not user.is_admin_role:
+        return False, "الرسالة دي محجوبة."
+
+    ok, _outbound, error = send_client_message(
+        message.client, user,
+        body=RECEIPT_BODY,
+        force_channel=message.channel,
+        subject=_reply_subject(message),
+    )
+    if not ok:
+        return False, error
+
+    if not message.claimed_by_id:
+        claim_message(message, user)
+    log(user, "message.confirm", message.client_code)
+    return True, ""
+
+
+def _reply_subject(message):
+    """``Re:`` the client's own subject, so the reply lands in their thread."""
+    subject = (message.subject or "").strip()
+    if not subject:
+        return ""
+    if subject.lower().startswith("re:"):
+        return subject[:200]
+    return f"Re: {subject}"[:200]
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +346,17 @@ def share_source_files(task):
     already = set(
         room.messages.filter(inbound__isnull=False).values_list("inbound_id", flat=True)
     )
+    # When the operation ticked specific files while making the task, only
+    # those cross. Nothing ticked means everything, which is what every task
+    # made before the picker existed means as well.
+    picked = set(task.source_files.values_list("id", flat=True))
+
     shared = []
     for inbound in task.source_messages.prefetch_related("attachments"):
-        if inbound.id in already or not inbound.attachments.all():
+        files = list(inbound.attachments.all())
+        if picked:
+            files = [f for f in files if f.id in picked]
+        if inbound.id in already or not files:
             continue
         shared.append(ChatMessage.objects.create(
             room=room,
@@ -1250,14 +1322,23 @@ def client_conversations(user, query=""):
     """One row per client we have ever talked to, most recent activity first."""
     from django.db.models import Max
 
+    # WhatsApp only — this list is the WhatsApp line. A client we have only
+    # ever e-mailed belongs on the mail page, not in a chat with no thread.
     if user.is_admin_role:
-        rows = Client.objects.filter(messages__isnull=False)
+        rows = Client.objects.filter(messages__channel=Channel.WHATSAPP)
     else:
         # One filter, one join: the operation never sees a conversation made
         # only of rate-blocked messages, and the Max below then reflects only
         # the messages that role is allowed to know about.
-        rows = Client.objects.filter(messages__is_rate_blocked=False)
-    rows = rows.annotate(last_activity=Max("messages__received_at")).distinct()
+        rows = Client.objects.filter(
+            messages__channel=Channel.WHATSAPP, messages__is_rate_blocked=False
+        )
+    rows = rows.annotate(
+        last_activity=Max(
+            "messages__received_at",
+            filter=Q(messages__channel=Channel.WHATSAPP),
+        )
+    ).distinct()
 
     query = (query or "").strip()
     if query:
@@ -1275,7 +1356,13 @@ def client_conversations(user, query=""):
 
 
 def _visible_inbound(client, user):
-    qs = client.messages.prefetch_related("attachments")
+    """The client's messages for the chat page — WhatsApp only.
+
+    The chat is the WhatsApp line and nothing else; e-mail has its own page
+    (``inbox_queryset``). Mixing the two put the same letter in two inboxes and
+    left two people answering it.
+    """
+    qs = client.messages.filter(channel=Channel.WHATSAPP).prefetch_related("attachments")
     if not user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
     return qs
@@ -1299,6 +1386,10 @@ def _file_json(attachment):
     inbound or outbound attachment but without the mime/voice/duration columns.
     """
     return {
+        # The id is what the "convert to task" picker ticks. It is only ever
+        # meaningful for an inbound attachment; the server re-checks it against
+        # the message anyway, so an outbound id here is harmless.
+        "id": attachment.pk,
         "url": attachment.file.url,
         "name": attachment.original_name or attachment.file.name,
         "size": attachment.size,
@@ -1312,7 +1403,10 @@ def _file_json(attachment):
 def conversation_preview(client, user):
     """The snippet shown in the conversation list."""
     last = _visible_inbound(client, user).order_by("-received_at").first()
-    out = client.deliveries.prefetch_related("uploads").order_by("-created_at").first()
+    out = (
+        client.deliveries.filter(channel=Channel.WHATSAPP)
+        .prefetch_related("uploads").order_by("-created_at").first()
+    )
     if out and last and out.created_at > last.received_at:
         text = out.body or _attachment_snippet(out.uploads.all())
         if text == "—" and out.file_count:
@@ -1342,16 +1436,29 @@ def client_thread(client, user, limit=200):
             "wamid": row.external_id or "",
             "reply_to": row.reply_to_external or "",
             "files": [_file_json(a) for a in row.attachments.all()],
+            # What the two buttons under a client message need: who has it,
+            # and whether it is already a task. ``actions`` is what says the
+            # entry is a real InboundMessage — a group's bubbles share this
+            # shape but stand for relayed room messages, and "convert this to
+            # a task" would have nothing to point at.
+            "actions": True,
+            "claimed_by": row.claimed_by.short_name if row.claimed_by_id else "",
+            "has_task": bool(row.task_id),
         })
 
-    outbound = client.deliveries.select_related("created_by", "task").prefetch_related("uploads")
+    # WhatsApp only, to match the inbound side: an e-mailed delivery has no
+    # place in a thread whose other half was filtered out.
+    outbound = (
+        client.deliveries.filter(channel=Channel.WHATSAPP)
+        .select_related("created_by", "task").prefetch_related("uploads")
+    )
     for row in outbound.order_by("-created_at")[:limit]:
         files = [_file_json(a) for a in row.uploads.all()]
         # Task deliveries keep their file list in JSON (the bytes went straight
         # to WhatsApp), so show the names without a link.
         if not files:
             files = [
-                {"url": "", "name": f.get("name", ""), "size": 0,
+                {"id": 0, "url": "", "name": f.get("name", ""), "size": 0,
                  "mime": "", "voice": False, "audio": False, "length": ""}
                 for f in (row.files or [])
             ]
@@ -1409,8 +1516,14 @@ def _resolve_quotes(items):
 
 def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
-                        reply_preview=""):
+                        reply_preview="", force_channel="", subject=""):
     """Free-form reply to a client on whichever channel they used last.
+
+    ``force_channel`` names the line instead of guessing it. The two pages are
+    each tied to one channel now — the chat is WhatsApp, the mail page is
+    e-mail — so a reply written on one of them must not leave by the other
+    just because the client's most recent message happened to arrive there.
+    ``subject`` is the e-mail subject; blank keeps the old ``Eagle — CODE``.
 
     ``voice`` is a recording made in the browser. It is converted to whatever
     WhatsApp accepts *before* it is stored, so the file kept in the thread is
@@ -1435,7 +1548,9 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         return False, None, "مفيش حاجة تتبعت."
 
     conf = AppSettings.load()
-    channel = client_channel(client)
+    channel = force_channel or client_channel(client)
+    if channel not in (Channel.WHATSAPP, Channel.EMAIL):
+        channel = client_channel(client)
     target = client.phone if channel == Channel.WHATSAPP else client.email
 
     # Convert first: a recording Meta would reject must never reach the thread
@@ -1517,7 +1632,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         else:
             mailer.send_delivery(
                 conf, target,
-                subject=f"Eagle — {client.code}",
+                subject=(subject or "").strip() or f"Eagle — {client.code}",
                 body=body or "مرفق الملفات.",
                 attachments=payload,
             )
@@ -1611,6 +1726,78 @@ def heartbeat(user):
 # ---------------------------------------------------------------------------
 # Team overview for the Operation screen
 # ---------------------------------------------------------------------------
+
+#: A translator with this many open tasks is treated as fully loaded. It is a
+#: display threshold for the load bar, not a rule the code enforces anywhere —
+#: the team leader decides who can take one more, not a constant.
+FULL_LOAD_TASKS = 3
+
+
+def translator_board(lead=None):
+    """Who can take a job right now, and who already has one.
+
+    Built for the team leader's own question — "who is free?" — so the answer
+    is a state per person plus the evidence behind it: their open tasks, what
+    those tasks are waiting on, and the nearest deadline. A board that says
+    "busy" without saying what with sends the leader looking anyway.
+
+    ``lead=None`` means every translator, which is what the operation's team
+    page wants.
+    """
+    people = User.objects.filter(role=Role.TRANSLATOR, is_active=True)
+    if lead is not None:
+        people = people.filter(team_lead=lead)
+    people = people.select_related("team_lead").prefetch_related("shifts")
+
+    open_tasks = (
+        Task.objects.filter(
+            status__in=ACTIVE_TASK_STATUSES, translator__in=people
+        )
+        .select_related("client")
+        .order_by("deadline", "code")
+    )
+    by_person = {}
+    for task in open_tasks:
+        by_person.setdefault(task.translator_id, []).append(task)
+
+    # A translator who has been offered a task and has not answered yet is not
+    # free — the offer is already holding them.
+    pending = set(
+        Assignment.objects.filter(
+            status=AssignmentStatus.PENDING, assignee__in=people
+        ).values_list("assignee_id", flat=True)
+    )
+
+    rows = []
+    for person in people:
+        tasks = by_person.get(person.pk, [])
+        if not person.is_online:
+            state = "shift" if person.on_shift else "off"
+        elif tasks or person.pk in pending:
+            state = "busy"
+        else:
+            state = "free"
+
+        deadlines = [t.deadline for t in tasks if t.deadline]
+        rows.append({
+            "person": person,
+            "state": state,
+            "tasks": tasks,
+            "load": len(tasks),
+            # Capped at 100 on purpose: a bar that overflows says less than a
+            # full bar next to the number it is actually carrying.
+            "load_percent": min(100, int(round(len(tasks) * 100 / FULL_LOAD_TASKS))),
+            "awaiting_answer": person.pk in pending,
+            "words": sum(t.source_words or t.word_count or 0 for t in tasks),
+            "next_deadline": min(deadlines) if deadlines else None,
+        })
+
+    # Free first — this board is read to answer one question, so the answer
+    # sits at the top of it. Then the lightest load, then the name.
+    order = {"free": 0, "busy": 1, "shift": 2, "off": 3}
+    rows.sort(key=lambda row: (order.get(row["state"], 9), row["load"], row["person"].short_name))
+    return rows
+
 
 def team_overview():
     """Team leaders with their live availability and team load."""

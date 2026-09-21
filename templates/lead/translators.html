@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Translator status{% endblock %}
+{% block page_title %}<span data-ar="حالة المترجمين" data-en="Translator status">حالة المترجمين</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="مين فاضي ومين مشغول" data-en="Who is free, who is busy">مين فاضي ومين مشغول</h1>
+  <span class="badge badge--ok" id="liveBadge" title="live">
+    <i class="badge__dot"></i><span data-ar="مباشر" data-en="Live">مباشر</span>
+  </span>
+  <span class="page-head__sub"
+        data-ar="«فاضي» يعني فاتح إيجل دلوقتي ومفيش تاسك شغّالة عنده ولا عرض مستني رده."
+        data-en="“Free” means Eagle is open right now, with no running task and no offer awaiting an answer.">
+    «فاضي» يعني فاتح إيجل دلوقتي ومفيش تاسك شغّالة عنده ولا عرض مستني رده.
+  </span>
+</div>
+
+<div class="grid grid--4" style="margin-bottom:18px">
+  <div class="kpi kpi--ok"><div class="kpi__value">{{ free_count }}</div>
+    <div class="kpi__label" data-ar="فاضيين دلوقتي" data-en="Free now">فاضيين دلوقتي</div></div>
+  <div class="kpi kpi--warn"><div class="kpi__value">{{ busy_count }}</div>
+    <div class="kpi__label" data-ar="مشغولين" data-en="Busy">مشغولين</div></div>
+  <div class="kpi"><div class="kpi__value">{{ shift_count }}</div>
+    <div class="kpi__label" data-ar="في الشيفت — مش فاتح" data-en="On shift — not open">في الشيفت — مش فاتح</div></div>
+  <div class="kpi"><div class="kpi__value">{{ offline_count }}</div>
+    <div class="kpi__label" data-ar="أوفلاين" data-en="Offline">أوفلاين</div></div>
+</div>
+
+{% if needs_translator %}
+  <div class="note note--warn" style="margin-bottom:16px">
+    {% icon "target" %}
+    <div>
+      <strong data-ar="تاسكات مستنية توزيع" data-en="Tasks waiting for a translator">تاسكات مستنية توزيع</strong>
+      <div class="files" style="margin-top:7px">
+        {% for task in needs_translator %}
+          <a class="file-pill mono deadline--{{ task.deadline_state }}"
+             href="{% url 'dashboard:task_detail' task.code %}">
+            {% icon "arrow-right" "ic--sm" %}{{ task.code }}
+            {% if task.deadline %} · {{ task.deadline|date:"m-d H:i" }}{% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card__head">
+    {% icon "users" %}
+    <h2 data-ar="فريقي" data-en="My team">فريقي</h2>
+    <div class="grow"></div>
+    <span class="chip mono">{{ rows|length }}</span>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th data-ar="المترجم" data-en="Translator">المترجم</th>
+          <th data-ar="الحالة" data-en="State">الحالة</th>
+          <th data-ar="الحِمل" data-en="Load">الحِمل</th>
+          <th data-ar="شغّال على" data-en="Working on">شغّال على</th>
+          <th data-ar="أقرب ديدلاين" data-en="Next deadline">أقرب ديدلاين</th>
+          <th data-ar="التقييم" data-en="Rating">التقييم</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr class="tstate tstate--{{ row.state }}">
+          <td>
+            <div class="row row--tight">
+              <div class="avatar avatar--sm">{{ row.person.initials }}</div>
+              <div>
+                <div>{{ row.person.short_name }}</div>
+                <small class="muted mono">{{ row.person.languages|default:"—" }}</small>
+              </div>
+            </div>
+          </td>
+
+          <td>
+            {% presence_cell row.person row.state False "free" %}
+            {% if row.awaiting_answer %}
+              <div><small class="muted"
+                          data-ar="مستني يرد على عرض تاسك"
+                          data-en="An offer is awaiting their answer">مستني يرد على عرض تاسك</small></div>
+            {% endif %}
+          </td>
+
+          <td>
+            <div class="row row--tight">
+              <span class="mono">{{ row.load }}</span>
+              <span class="load"><i class="load__fill" style="width:{{ row.load_percent }}%"></i></span>
+            </div>
+            {% if row.words %}
+              <small class="muted mono">{{ row.words }}
+                <span data-ar="كلمة" data-en="words">كلمة</span></small>
+            {% endif %}
+          </td>
+
+          <td>
+            {% for task in row.tasks|slice:":3" %}
+              <a class="badge badge--work mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            {% empty %}
+              <span class="muted">—</span>
+            {% endfor %}
+            {% if row.load > 3 %}<span class="chip mono">+{{ row.load|add:"-3" }}</span>{% endif %}
+          </td>
+
+          <td class="mono deadline--{% if row.tasks %}{{ row.tasks.0.deadline_state }}{% else %}none{% endif %}">
+            {% if row.next_deadline %}{{ row.next_deadline|date:"m-d H:i" }}{% else %}—{% endif %}
+          </td>
+
+          <td>{% stars_html row.person.rating %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty">
+          {% icon "users" "ic--xl" %}
+          <span data-ar="مفيش مترجمين تحتك." data-en="No translators assigned to you.">مفيش مترجمين تحتك.</span>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
