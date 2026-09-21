@@ -1,0 +1,58 @@
+{% load eagle_tags %}{% comment %}
+One conversation in the mail list — Gmail's row: who wrote last, how many
+letters, the subject the client first wrote, and the newest letter's first
+line. Rendered by the page loop AND by the live feed, so it stands on its own:
+no context beyond `thread`, `back_qs` and `user`.
+Unread means some letter in it has not been claimed yet.
+{% endcomment %}{% with last=thread.latest %}
+<article class="mail mail--thread {% if thread.is_unread %}is-unread{% endif %}{% if thread.is_blocked %} is-blocked{% endif %}"
+         data-thread="{{ thread.key }}">
+
+  <a class="mail__row" href="{% url 'dashboard:ops_mail_thread' last.pk %}{% if back_qs %}?{{ back_qs }}{% endif %}"
+     data-ar-title="افتح المحادثة" data-en-title="Open the conversation">
+    <span class="avatar avatar--brand mail__avatar">
+      {% if last.client_id %}{{ last.client.code|slice:"3:" }}{% else %}{% icon "mail" "ic--sm" %}{% endif %}
+    </span>
+
+    <span class="mail__body">
+      <span class="mail__top">
+        <b class="mail__from">
+          {% if last.client_id %}{{ last.client|label_for:user }}
+          {% elif user.is_admin_role and last.sender_identity %}{{ last.sender_identity }}
+          {% else %}<span data-ar="مرسل غير معروف" data-en="Unknown sender">مرسل غير معروف</span>{% endif %}
+        </b>
+        {% if thread.count > 1 %}
+          <span class="mail__count mono" data-ar-title="عدد الميلات في المحادثة"
+                data-en-title="Letters in this conversation">{{ thread.count }}</span>
+        {% endif %}
+        <span class="mail__time mono">{{ last.received_at|date:"Y-m-d H:i" }}</span>
+      </span>
+
+      <span class="mail__subject">
+        {% if thread.subject %}{{ thread.subject }}
+        {% else %}<span class="muted" data-ar="(من غير عنوان)" data-en="(no subject)">(من غير عنوان)</span>{% endif %}
+      </span>
+
+      <span class="mail__snippet">{{ last.body|truncatechars:120 }}</span>
+
+      <span class="mail__tags">
+        {% if thread.is_blocked %}
+          <span class="badge badge--dead"><i class="badge__dot"></i><span
+            data-ar="محجوبة — سعر" data-en="Hidden — rate">محجوبة — سعر</span></span>
+        {% endif %}
+        {% for task in thread.tasks %}
+          <span class="badge badge--ok mono">{{ task.code }}</span>
+        {% endfor %}
+        {% if thread.attachment_count %}
+          <span class="chip chip--sm">{% icon "paperclip" "ic--sm" %}{{ thread.attachment_count }}</span>
+        {% endif %}
+        {% for name in thread.claimers %}
+          <span class="chip chip--sm">{% icon "user-check" "ic--sm" %}{{ name }}</span>
+        {% endfor %}
+      </span>
+    </span>
+
+    <span class="mail__chev mail__chev--go">{% icon "chevron-down" "ic--sm" %}</span>
+  </a>
+</article>
+{% endwith %}

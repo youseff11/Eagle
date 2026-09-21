@@ -91,8 +91,14 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True):
 @transaction.atomic
 def ingest_message(*, channel, body="", subject="", sender_identity="",
                    sender_display="", external_id="", received_at=None,
-                   attachments=None, reply_to_external=""):
-    """Create an :class:`InboundMessage` and fan out the notifications."""
+                   attachments=None, reply_to_external="", references=""):
+    """Create an :class:`InboundMessage` and fan out the notifications.
+
+    ``references`` is the e-mail ``References`` header. It is not stored; it
+    only decides which conversation the letter joins.
+    """
+    from . import threads
+
     if external_id:
         existing = InboundMessage.objects.filter(external_id=external_id).first()
         if existing:
@@ -106,7 +112,20 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
     )
     keyword = detect_rate_keyword(f"{subject} {body}")
 
+    thread_key = ""
+    if channel == Channel.EMAIL:
+        thread_key = threads.find_thread_key(
+            InboundMessage,
+            channel=Channel.EMAIL,
+            client_id=client.pk if client else None,
+            sender=sender_identity or "",
+            subject=subject or "",
+            refs=threads.message_ids(reply_to_external, references),
+            when=received_at,
+        ) or threads.new_key()
+
     message = InboundMessage.objects.create(
+        thread_key=thread_key,
         client=client,
         channel=channel,
         external_id=external_id or "",
@@ -135,7 +154,11 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
     # at the one the message is actually on. A link to an inbox that filters
     # this message out is worse than no link.
     is_mail = channel == Channel.EMAIL
-    where = "/ops/inbox/" if is_mail else (f"/ops/chats/{code}/" if client else "/ops/chats/")
+    # A letter opens on its conversation, the replies before it included.
+    where = (
+        f"/ops/inbox/thread/{message.pk}/" if is_mail
+        else (f"/ops/chats/{code}/" if client else "/ops/chats/")
+    )
     if keyword:
         notify_role(
             Role.ADMIN,
@@ -213,6 +236,169 @@ def inbox_queryset(user, state="", query=""):
             | Q(sender_identity__icontains=query)
         )
     return qs
+
+
+# ---------------------------------------------------------------------------
+# Mail conversations
+# ---------------------------------------------------------------------------
+
+def _thread_ident(key, pk):
+    """A letter keyed before threading existed is a conversation of its own."""
+    return key or f"m{pk}"
+
+
+def _visible_mail(user):
+    """Every e-mail this user may read, with what a mail row needs loaded."""
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).select_related(
+        "client", "claimed_by", "task"
+    ).prefetch_related("attachments")
+    if not user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+    return qs
+
+
+class MailThread:
+    """One conversation on /ops/inbox/: the letters that answer each other.
+
+    ``messages`` is oldest first — the order they are read in. The row on the
+    list speaks for the newest one, the way Gmail's does.
+    """
+
+    def __init__(self, ident, messages):
+        self.key = ident
+        self.messages = messages
+        self.first = messages[0]
+        self.latest = messages[-1]
+
+    @property
+    def count(self):
+        return len(self.messages)
+
+    @property
+    def subject(self):
+        # The subject the client first wrote, not "Re: Re: Fwd:" of the last.
+        for message in self.messages:
+            if (message.subject or "").strip():
+                return message.subject
+        return ""
+
+    @property
+    def client(self):
+        return self.latest.client
+
+    @property
+    def unclaimed(self):
+        return [m for m in self.messages if not m.claimed_by_id]
+
+    @property
+    def is_unread(self):
+        return bool(self.unclaimed)
+
+    @property
+    def is_blocked(self):
+        return any(m.is_rate_blocked for m in self.messages)
+
+    @property
+    def attachment_count(self):
+        return sum(len(m.attachments.all()) for m in self.messages)
+
+    @property
+    def tasks(self):
+        seen, tasks = set(), []
+        for message in self.messages:
+            if message.task_id and message.task_id not in seen:
+                seen.add(message.task_id)
+                tasks.append(message.task)
+        return tasks
+
+    @property
+    def claimers(self):
+        seen, names = set(), []
+        for message in self.messages:
+            if message.claimed_by_id and message.claimed_by_id not in seen:
+                seen.add(message.claimed_by_id)
+                names.append(message.claimed_by.short_name)
+        return names
+
+    @property
+    def last_id(self):
+        return max(m.pk for m in self.messages)
+
+
+def _build_threads(user, idents):
+    """``[MailThread]`` for the given conversation idents, newest first."""
+    keys = [i for i in idents if not i.startswith("m")]
+    loose = [int(i[1:]) for i in idents if i.startswith("m")]
+    if not keys and not loose:
+        return []
+
+    grouped = {}
+    rows = _visible_mail(user).filter(
+        Q(thread_key__in=keys) | Q(pk__in=loose, thread_key="")
+    ).order_by("received_at", "id")
+    for row in rows:
+        grouped.setdefault(_thread_ident(row.thread_key, row.pk), []).append(row)
+
+    threads = [MailThread(ident, messages) for ident, messages in grouped.items()]
+    threads.sort(key=lambda t: (t.latest.received_at, t.latest.pk), reverse=True)
+    return threads
+
+
+def inbox_threads(user, state="", query="", limit=100, after=0):
+    """The mail page as conversations, filtered like :func:`inbox_queryset`.
+
+    A conversation is on the list when *any* letter in it matches — a search
+    for "word count" finds the conversation that has it — and the row then
+    carries the whole conversation, as Gmail's does. ``after`` limits it to
+    conversations that gained a letter with a higher id: the live feed.
+    """
+    matching = inbox_queryset(user, state, query)
+    if after:
+        matching = matching.filter(id__gt=after)
+
+    idents = []
+    for pk, key in matching.order_by("-received_at", "-id").values_list(
+        "pk", "thread_key"
+    )[: limit * 20]:
+        ident = _thread_ident(key, pk)
+        if ident not in idents:
+            idents.append(ident)
+            if len(idents) >= limit:
+                break
+    return _build_threads(user, idents)
+
+
+def unclaimed_conversation_count():
+    """What the mail badge counts: conversations with a letter nobody claimed.
+
+    Gmail counts unread conversations, not unread letters, and so does this —
+    a client who wrote four times is one thing waiting, not four.
+    """
+    waiting = InboundMessage.objects.filter(
+        channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
+    ).order_by()
+    keyed = waiting.exclude(thread_key="").values("thread_key").distinct().count()
+    return keyed + waiting.filter(thread_key="").count()
+
+
+def inbox_filter_qs(state="", query=""):
+    """The list's filters as a query string, carried into a conversation and
+    back out again, so "back" returns to the list as it was left."""
+    from django.utils.http import urlencode
+
+    params = [(k, v) for k, v in (("state", state), ("q", query)) if v]
+    return urlencode(params) if params else ""
+
+
+def thread_messages(user, message):
+    """The whole conversation ``message`` is in, oldest first, as ``user`` sees it."""
+    if not message.thread_key:
+        return list(_visible_mail(user).filter(pk=message.pk))
+    return list(
+        _visible_mail(user)
+        .filter(thread_key=message.thread_key)
+        .order_by("received_at", "id")
+    )
 
 
 def claim_message(message, user):

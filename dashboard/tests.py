@@ -3030,3 +3030,200 @@ class MailboxParsingTests(TestCase):
         self.assertIn(row, list(services.inbox_queryset(ops)))
         # The same letter arriving twice is the same row.
         self.assertEqual(services.ingest_message(**parsed).pk, row.pk)
+
+
+class MailThreadTests(TestCase):
+    """The mail page lists conversations, not letters — the way Gmail does.
+
+    Until 21/09/2026 a client who wrote "Legal Arabic Translation", then
+    "please share", then "word count please" was three rows, each read on its
+    own. Now it is one row that opens on all three, oldest first.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_thr", password="x", role=Role.OPERATION)
+        self.admin = User.objects.create_user("adm_thr", password="x", role=Role.ADMIN)
+        self.client_obj = Client.objects.create(name="ALHAMD", email="info@alhamd.ae")
+
+    def _mail(self, subject, body="hello", sender="info@alhamd.ae", message_id="",
+               in_reply_to="", references="", when=None):
+        return services.ingest_message(
+            channel="email", subject=subject, body=body, sender_identity=sender,
+            external_id=message_id, reply_to_external=in_reply_to,
+            references=references, received_at=when,
+        )
+
+    # -- grouping ---------------------------------------------------------
+
+    def test_replies_with_the_same_subject_are_one_conversation(self):
+        first = self._mail("Legal Arabic Translation | Rajesh & Meera", "the job")
+        second = self._mail("Re: Legal Arabic Translation | Rajesh & Meera", "please share")
+        third = self._mail("RE: Fwd:  legal arabic translation | Rajesh & Meera", "word count please")
+        self.assertTrue(first.thread_key)
+        self.assertEqual(second.thread_key, first.thread_key)
+        self.assertEqual(third.thread_key, first.thread_key)
+
+    def test_the_headers_win_over_a_changed_subject(self):
+        first = self._mail("Bilingual - Yashba", message_id="<one@alhamd.ae>")
+        reply = self._mail(
+            "something else entirely", message_id="<two@alhamd.ae>",
+            in_reply_to="<ours@gmail.com>",
+            references="<one@alhamd.ae>\r\n <ours@gmail.com>",
+        )
+        self.assertEqual(reply.thread_key, first.thread_key)
+
+    def test_a_different_subject_is_a_different_conversation(self):
+        first = self._mail("Bilingual - Yashba")
+        other = self._mail("Legal Arabic Translation | Rajesh & Meera")
+        self.assertNotEqual(first.thread_key, other.thread_key)
+
+    def test_another_client_with_the_same_subject_is_not_merged(self):
+        ours = self._mail("Translation request")
+        theirs = self._mail("Translation request", sender="someone@else.com")
+        self.assertNotEqual(ours.thread_key, theirs.thread_key)
+
+    def test_an_old_subject_reused_months_later_starts_over(self):
+        old = self._mail("Translation request", when=timezone.now() - timedelta(days=90))
+        new = self._mail("Translation request")
+        self.assertNotEqual(old.thread_key, new.thread_key)
+
+    def test_no_subject_is_never_a_conversation(self):
+        first = self._mail("")
+        second = self._mail("")
+        self.assertNotEqual(first.thread_key, second.thread_key)
+
+    def test_whatsapp_has_no_mail_thread(self):
+        row = services.ingest_message(
+            channel="whatsapp", body="hi", sender_identity="+201000000077",
+        )
+        self.assertEqual(row.thread_key, "")
+
+    def test_the_references_header_reaches_the_ingest(self):
+        import email as email_module
+
+        from . import mailbox
+
+        first = self._mail("Contract", message_id="<root@x.com>")
+        parsed = mailbox.parse_message(email_module.message_from_string(
+            "From: info@alhamd.ae\r\n"
+            "Subject: totally new words\r\n"
+            "Message-ID: <leaf@x.com>\r\n"
+            "In-Reply-To: <gmail-sent@y.com>\r\n"
+            "References: <root@x.com> <gmail-sent@y.com>\r\n"
+            "Content-Type: text/plain\r\n\r\nany news?\r\n"
+        ))
+        row = services.ingest_message(**parsed)
+        self.assertEqual(row.thread_key, first.thread_key)
+
+    # -- the pages --------------------------------------------------------
+
+    def test_the_list_has_one_row_per_conversation(self):
+        self._mail("Legal Arabic Translation", "the job")
+        self._mail("Re: Legal Arabic Translation", "please share")
+        self._mail("Re: Legal Arabic Translation", "word count please")
+        self._mail("Bilingual - Yashba", "another job")
+
+        threads = services.inbox_threads(self.ops)
+        self.assertEqual(len(threads), 2)
+        # Newest conversation first, and the row speaks for its newest letter.
+        self.assertEqual(threads[0].subject, "Bilingual - Yashba")
+        legal = threads[1]
+        self.assertEqual(legal.count, 3)
+        self.assertEqual(legal.subject, "Legal Arabic Translation")
+        self.assertEqual(legal.latest.body, "word count please")
+
+        self.client.force_login(self.ops)
+        response = self.client.get("/ops/inbox/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode().count("data-thread="), 2)
+
+    def test_a_search_brings_the_whole_conversation(self):
+        self._mail("Legal Arabic Translation", "the job")
+        self._mail("Re: Legal Arabic Translation", "word count please")
+        threads = services.inbox_threads(self.ops, query="the job")
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(threads[0].count, 2)
+
+    def test_the_conversation_page_holds_every_letter_oldest_first(self):
+        first = self._mail("Legal Arabic Translation", "the job")
+        self._mail("Re: Legal Arabic Translation", "please share")
+        last = self._mail("Re: Legal Arabic Translation", "word count please")
+
+        self.client.force_login(self.ops)
+        # Any letter opens the whole conversation.
+        for pk in (first.pk, last.pk):
+            response = self.client.get(f"/ops/inbox/thread/{pk}/")
+            self.assertEqual(response.status_code, 200)
+            html = response.content.decode()
+            self.assertLess(html.index("the job"), html.index("please share"))
+            self.assertLess(html.index("please share"), html.index("word count please"))
+
+    def test_a_rate_letter_stays_hidden_inside_a_conversation(self):
+        self._mail("Legal Arabic Translation", "the job")
+        secret = self._mail("Re: Legal Arabic Translation", "what is your rate?")
+        self.assertTrue(secret.is_rate_blocked)
+
+        [thread] = services.inbox_threads(self.ops)
+        self.assertEqual(thread.count, 1)
+        [admin_thread] = services.inbox_threads(self.admin)
+        self.assertEqual(admin_thread.count, 2)
+
+        self.client.force_login(self.ops)
+        self.assertEqual(self.client.get(f"/ops/inbox/thread/{secret.pk}/").status_code, 404)
+
+    def test_the_live_feed_sends_the_conversation_row(self):
+        first = self._mail("Legal Arabic Translation", "the job")
+        reply = self._mail("Re: Legal Arabic Translation", "please share")
+
+        self.client.force_login(self.ops)
+        data = self.client.get(f"/api/inbox/feed/?after={first.pk}").json()
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0]["thread"], first.thread_key)
+        self.assertEqual(data["last"], reply.pk)
+        self.assertIn(f'data-thread="{first.thread_key}"', data["items"][0]["html"])
+
+        thread_feed = self.client.get(
+            f"/api/inbox/thread/{first.pk}/feed/?after={first.pk}"
+        ).json()
+        self.assertEqual([i["id"] for i in thread_feed["items"]], [reply.pk])
+
+    def test_the_badge_counts_conversations_not_letters(self):
+        self._mail("Legal Arabic Translation", "the job")
+        self._mail("Re: Legal Arabic Translation", "please share")
+        self._mail("Re: Legal Arabic Translation", "word count please")
+        self._mail("Bilingual - Yashba", "another job")
+        self.assertEqual(services.unclaimed_conversation_count(), 2)
+
+    def test_the_notification_opens_the_conversation(self):
+        from .models import Notification
+
+        row = self._mail("Legal Arabic Translation", "the job")
+        note = Notification.objects.filter(user=self.ops).latest("id")
+        self.assertEqual(note.url, f"/ops/inbox/thread/{row.pk}/")
+
+    def test_mail_from_before_threading_is_grouped_by_the_migration(self):
+        import importlib
+
+        from django.apps import apps
+
+        from .models import InboundMessage
+
+        migration = importlib.import_module("dashboard.migrations.0016_mail_threads")
+        now = timezone.now()
+        rows = [
+            InboundMessage.objects.create(
+                client=self.client_obj, channel="email", subject=subject,
+                body="x", sender_identity="info@alhamd.ae",
+                received_at=now - timedelta(minutes=10 - i),
+            )
+            for i, subject in enumerate(
+                ["Bilingual - Yashba", "Re: Bilingual - Yashba", "Other job"]
+            )
+        ]
+        self.assertEqual({r.thread_key for r in rows}, {""})
+
+        migration.group_existing_mail(apps, None)
+        keys = [InboundMessage.objects.get(pk=r.pk).thread_key for r in rows]
+        self.assertTrue(all(keys))
+        self.assertEqual(keys[0], keys[1])
+        self.assertNotEqual(keys[0], keys[2])

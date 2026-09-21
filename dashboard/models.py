@@ -822,6 +822,10 @@ class InboundMessage(models.Model):
     received_at = models.DateTimeField(default=timezone.now)
     #: The WhatsApp id this message replies to, when the client quoted one.
     reply_to_external = models.CharField(max_length=190, blank=True)
+    #: The e-mail conversation this letter belongs to — every reply in it
+    #: shares the key, and /ops/inbox/ shows one row per key (``threads.py``).
+    #: Blank for WhatsApp, which is a conversation already.
+    thread_key = models.CharField(max_length=32, blank=True, db_index=True)
     #: Messages that talk about rates are hidden from the operation role.
     is_rate_blocked = models.BooleanField(default=False)
     blocked_keyword = models.CharField(max_length=60, blank=True)

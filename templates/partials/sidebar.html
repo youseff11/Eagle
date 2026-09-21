@@ -9,7 +9,7 @@
     {% if user.is_operation or user.is_admin_role %}
       <div class="nav__label" data-ar="الأوبريشن" data-en="Operation">الأوبريشن</div>
 
-      <a class="nav__item {% if url_name == 'ops_inbox' %}is-active{% endif %}" href="{% url 'dashboard:ops_inbox' %}">
+      <a class="nav__item {% if url_name == 'ops_inbox' or url_name == 'ops_mail_thread' %}is-active{% endif %}" href="{% url 'dashboard:ops_inbox' %}">
         {% icon "mail" %}
         <span data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</span>
         <span class="nav__count hidden" data-counter="inbox">0</span>

@@ -530,6 +530,28 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .pick__item input { accent-color: var(--brand); }
 .pick__item span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Conversations: the list shows one row per exchange, Gmail-style, and the
+   row is a link into it rather than a letter that unfolds in place. */
+.mail__count {
+  flex: none; font-size: .7rem; font-weight: 600; line-height: 1.5;
+  padding: 0 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
+}
+.mail.is-unread .mail__count { color: var(--heading); border-color: var(--brand-line); }
+.mail__chev--go { transform: rotate(90deg); }
+[dir="ltr"] .mail__chev--go { transform: rotate(-90deg); }
+
+/* A letter inside an open conversation: the first line is only a preview,
+   so it goes away once the whole letter is showing. */
+.mail--letter { scroll-margin-top: 76px; }
+.mail--letter.is-open .mail__snippet { display: none; }
+.mail--letter.is-open .mail__row { background: var(--surface-2); }
+
+.thread-head__subject { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+[dir="ltr"] .thread-head__back .ic { transform: rotate(180deg); }
+.thread-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 14px; }
+.thread-meta:empty { display: none; }
+
 @media (max-width: 640px) {
   .mail__time { font-size: .68rem; }
   .pick__item span { max-width: 150px; }

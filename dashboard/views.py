@@ -213,22 +213,29 @@ def ops_inbox(request):
     places gets answered twice, and the two media do not want the same screen
     anyway. A mailbox is a list of letters; a chat is a conversation.
     """
+    from django.db.models import Max
+
     user = request.user
     state = request.GET.get("state", "")
     query = request.GET.get("q", "").strip()
-    messages_list = list(services.inbox_queryset(user, state, query)[:150])
+    # One row per conversation, like Gmail — the letters inside it are on
+    # ops_mail_thread. A client who writes four times is one row, not four.
+    threads = services.inbox_threads(user, state, query, limit=100)
 
     conf = AppSettings.load()
     mails = InboundMessage.objects.filter(channel=Channel.EMAIL)
     context = {
-        "messages_list": messages_list,
-        # The live feed asks for anything newer than this.
-        "last_message_id": messages_list[0].id if messages_list else 0,
+        "threads": threads,
+        # The live feed asks for anything newer than this. The highest id, not
+        # the newest date: a letter with an old Date header is still new here.
+        "last_message_id": services.inbox_queryset(user, state, query)
+        .aggregate(top=Max("id"))["top"] or 0,
+        "back_qs": services.inbox_filter_qs(state, query),
         "state": state,
         "query": query,
-        "unclaimed_count": mails.filter(
-            claimed_by__isnull=True, is_rate_blocked=False
-        ).count(),
+        # Conversations waiting, like Gmail's unread count — the same number
+        # the sidebar badge shows.
+        "unclaimed_count": services.unclaimed_conversation_count(),
         "blocked_count": mails.filter(is_rate_blocked=True).count(),
         # "IMAP is filled in" and "mail is arriving" are different claims, and
         # the second is the one the page makes.
@@ -238,6 +245,43 @@ def ops_inbox(request):
         "mail_last_error": conf.mail_last_error,
     }
     return render(request, "ops/inbox.html", context)
+
+
+@role_required(Role.OPERATION)
+def ops_mail_thread(request, pk):
+    """One conversation, every letter in it — Gmail's open-conversation view.
+
+    Any letter's id opens the conversation it belongs to, so a notification
+    that points at the newest letter lands on the whole exchange. The older
+    letters start folded; the newest one, and the one the link named, start
+    open. (Not "every unclaimed one": here unread means *unclaimed*, which a
+    busy conversation mostly is, and the page would open fully unfolded.)
+    """
+    user = request.user
+    anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
+    if not anchor.visible_to(user):
+        raise Http404
+
+    letters = services.thread_messages(user, anchor)
+    if not letters:
+        raise Http404
+    thread = services.MailThread(anchor.thread_key or f"m{anchor.pk}", letters)
+
+    state = request.GET.get("state", "")
+    query = request.GET.get("q", "").strip()
+    back_qs = services.inbox_filter_qs(state, query)
+    back_url = reverse("dashboard:ops_inbox") + (f"?{back_qs}" if back_qs else "")
+
+    return render(request, "ops/mail_thread.html", {
+        "thread": thread,
+        "letters": [
+            {"item": letter,
+             "open": letter.pk in (thread.latest.pk, anchor.pk)}
+            for letter in letters
+        ],
+        "anchor_id": anchor.pk,
+        "back_url": back_url,
+    })
 
 
 def _chat_sidebar(user, query, kind):

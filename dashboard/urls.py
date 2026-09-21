@@ -19,6 +19,7 @@ urlpatterns = [
 
     # -- operation ----------------------------------------------------------
     path("ops/inbox/", views.ops_inbox, name="ops_inbox"),
+    path("ops/inbox/thread/<int:pk>/", views.ops_mail_thread, name="ops_mail_thread"),
     path("ops/chats/", views.ops_chats, name="ops_chats"),
     path("ops/chats/g/<int:room_id>/", views.ops_group_chat, name="ops_group_chat"),
     path("ops/chats/<str:code>/", views.ops_chats, name="ops_chat_detail"),
@@ -191,6 +192,7 @@ urlpatterns = [
     path("api/integrations/email/test/", api.email_test, name="api_email_test"),
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),
     path("api/inbox/feed/", api.inbox_feed, name="api_inbox_feed"),
+    path("api/inbox/thread/<int:pk>/feed/", api.mail_thread_feed, name="api_mail_thread_feed"),
     path("api/messages/<int:pk>/claim/", api.claim_message, name="api_claim_message"),
     path("api/messages/<int:pk>/confirm/", api.confirm_message, name="api_confirm_message"),
     path("api/mail/fetch/", api.fetch_mail, name="api_fetch_mail"),

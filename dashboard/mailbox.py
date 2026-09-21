@@ -135,6 +135,9 @@ def parse_message(message):
         "sender_display": (display or "")[:190],
         "external_id": (message.get("Message-ID") or "")[:190],
         "reply_to_external": (message.get("In-Reply-To") or "")[:190],
+        # The whole chain of letters this one answers. Not stored — it is only
+        # read once, to put the letter in the right conversation (threads.py).
+        "references": str(message.get("References") or ""),
         "received_at": received_at,
         # The files are the job. Leaving this key out built the list above and
         # threw it away, so every attached contract arrived as a bare subject

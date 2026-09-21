@@ -108,6 +108,9 @@ class MessageAttachmentInline(admin.TabularInline):
 class InboundMessageAdmin(admin.ModelAdmin):
     list_display = ("id", "channel", "client", "is_rate_blocked", "claimed_by", "received_at")
     list_filter = ("channel", "is_rate_blocked")
+    # thread_key is editable here on purpose: two letters grouped wrongly are
+    # separated by giving one of them a new key, and joined by copying one.
+    search_fields = ("subject", "thread_key", "sender_identity")
     inlines = [MessageAttachmentInline]
 
 

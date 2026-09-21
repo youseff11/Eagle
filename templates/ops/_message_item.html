@@ -1,10 +1,13 @@
 {% load eagle_tags %}{% comment %}
-One letter in the mail list. Rendered by the page loop AND by the live feed,
-so it must stand on its own: no context beyond `item` and `user`.
+One letter inside an open conversation (ops/mail_thread.html). Rendered by
+that page's loop AND by its live feed, so it must stand on its own: no context
+beyond `item`, `user`, and the two switches —
+  in_thread  the subject is the page's heading, so the row leaves it out
+  open       start unfolded (the newest letter, or the one a link named)
 Unread means nobody has claimed it yet — the same fact the old badge showed,
 worn the way a mailbox wears it.
 {% endcomment %}
-<article class="mail {% if not item.claimed_by_id %}is-unread{% endif %}{% if item.is_rate_blocked %} is-blocked{% endif %}"
+<article class="mail {% if not item.claimed_by_id %}is-unread{% endif %}{% if item.is_rate_blocked %} is-blocked{% endif %}{% if in_thread %} mail--letter{% endif %}{% if open %} is-open{% endif %}"
          data-message="{{ item.pk }}">
 
   <button class="mail__row" type="button" data-mail-open
@@ -23,10 +26,12 @@ worn the way a mailbox wears it.
         <span class="mail__time mono">{{ item.received_at|date:"Y-m-d H:i" }}</span>
       </span>
 
+      {% if not in_thread %}
       <span class="mail__subject">
         {% if item.subject %}{{ item.subject }}
         {% else %}<span class="muted" data-ar="(من غير عنوان)" data-en="(no subject)">(من غير عنوان)</span>{% endif %}
       </span>
+      {% endif %}
 
       <span class="mail__snippet">{{ item.body|truncatechars:120 }}</span>
 
@@ -51,7 +56,7 @@ worn the way a mailbox wears it.
   </button>
 
   {# The letter itself. Closed until the row is clicked, like any mailbox. #}
-  <div class="mail__open hidden">
+  <div class="mail__open {% if not open %}hidden{% endif %}">
     <div class="mail__text">{{ item.body }}</div>
 
     {% if item.attachments.all %}

@@ -110,10 +110,9 @@ def heartbeat(request):
     if user.is_operation or user.is_admin_role:
         data["counters"] = {
             # The sidebar badge counts what its page shows, and that page is
-            # e-mail now. WhatsApp has its own unread marks in the chat list.
-            "inbox": InboundMessage.objects.filter(
-                channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
-            ).count(),
+            # e-mail conversations now. WhatsApp has its own unread marks in
+            # the chat list.
+            "inbox": services.unclaimed_conversation_count(),
             "new_tasks": Task.objects.filter(status=TaskStatus.NEW).count(),
             "ready": Task.objects.filter(status=TaskStatus.REVIEWED).count(),
         }
@@ -439,22 +438,71 @@ def set_deadline(request, code):
 @api_role_required(Role.OPERATION)
 @require_GET
 def inbox_feed(request):
-    """Messages newer than ``after``, rendered with the same partial as the page."""
+    """Conversations that gained a letter newer than ``after``.
+
+    Each comes back as the whole row, rendered with the page's own partial. The
+    page swaps out the row with the same ``data-thread`` and puts the new one
+    on top — a reply moves its conversation up, the way it does in Gmail,
+    instead of appearing as a second row.
+    """
     from django.template.loader import render_to_string
 
     after = _int(request.GET.get("after"), 0)
-    rows = services.inbox_queryset(
-        request.user, request.GET.get("state", ""), request.GET.get("q", "")
-    ).filter(id__gt=after)[:20]
+    state = request.GET.get("state", "")
+    query = request.GET.get("q", "").strip()
+    # after=0 is an inbox that was empty when the page loaded: everything
+    # that matches now is new to it.
+    threads = services.inbox_threads(request.user, state, query, limit=20, after=after)
+    back_qs = services.inbox_filter_qs(state, query)
 
     # Oldest first so the client can prepend each one and keep newest on top.
-    rows = list(rows)[::-1]
+    threads = threads[::-1]
+    return JsonResponse({
+        "ok": True,
+        "last": max([after] + [t.last_id for t in threads]),
+        "items": [
+            {
+                "id": thread.last_id,
+                "thread": thread.key,
+                "html": render_to_string(
+                    "ops/_thread_item.html",
+                    {"thread": thread, "back_qs": back_qs},
+                    request=request,
+                ),
+            }
+            for thread in threads
+        ],
+    })
+
+
+@api_role_required(Role.OPERATION)
+@require_GET
+def mail_thread_feed(request, pk):
+    """Letters newer than ``after`` in the conversation ``pk`` belongs to.
+
+    Keeps an open conversation current: the client's next reply lands at the
+    bottom of the page somebody is already reading.
+    """
+    from django.template.loader import render_to_string
+
+    anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
+    if not anchor.visible_to(request.user):
+        raise Http404
+    after = _int(request.GET.get("after"), 0)
+    rows = [
+        row for row in services.thread_messages(request.user, anchor)
+        if row.pk > after
+    ]
     return JsonResponse({
         "ok": True,
         "items": [
             {
                 "id": row.id,
-                "html": render_to_string("ops/_message_item.html", {"item": row}, request=request),
+                "html": render_to_string(
+                    "ops/_message_item.html",
+                    {"item": row, "in_thread": True, "open": True},
+                    request=request,
+                ),
             }
             for row in rows
         ],

@@ -473,12 +473,24 @@ window.Eagle = (function () {
 
     function poll() {
       get(url + "?after=" + last + params).then(function (data) {
-        if (!data || !data.items || !data.items.length) { return; }
+        if (!data) { return; }
+        if (data.last) { last = Math.max(last, Number(data.last) || 0); }
+        if (!data.items || !data.items.length) {
+          list.setAttribute("data-last", last);
+          return;
+        }
         data.items.forEach(function (item) {
           var holder = document.createElement("div");
           holder.innerHTML = item.html.trim();
           var node = holder.firstElementChild;
           if (!node) { return; }
+          // One row per conversation: a reply replaces its conversation's
+          // row instead of adding a second one, then rises to the top.
+          if (item.thread) {
+            $$("[data-thread]", list).forEach(function (row) {
+              if (row.getAttribute("data-thread") === item.thread) { row.remove(); }
+            });
+          }
           node.classList.add("is-new");
           // Newest first, directly under the empty-state placeholder.
           list.insertBefore(node, empty ? empty.nextSibling : list.firstChild);
@@ -487,6 +499,60 @@ window.Eagle = (function () {
         list.setAttribute("data-last", last);
         if (empty) { empty.classList.add("hidden"); }
         applyLang(state.lang, false);   // translate the freshly injected markup
+      }).catch(function () { /* offline: next tick will retry */ });
+    }
+
+    setInterval(poll, cfg.pollMs || 3000);
+  }
+
+  /* ------------------------------------------------ one open conversation */
+
+  /**
+   * The conversation page: the client's next reply appears at the bottom of
+   * the letters already on screen, open, the way it would in Gmail.
+   */
+  function initMailThread() {
+    var list = $("#threadList");
+    if (!list) { return; }
+
+    var expandAll = $("#threadExpandAll");
+    if (expandAll) {
+      expandAll.addEventListener("click", function () {
+        $$(".mail", list).forEach(function (mail) {
+          var open = mail.querySelector(".mail__open");
+          if (!open) { return; }
+          mail.classList.add("is-open");
+          open.classList.remove("hidden");
+        });
+      });
+    }
+
+    // Opened from a notification or a long list: land on the open letter.
+    var opened = $$(".mail.is-open", list);
+    if (opened.length && list.children.length > 2 && opened[0].scrollIntoView) {
+      opened[0].scrollIntoView({ block: "start" });
+    }
+
+    var url = list.getAttribute("data-live-url");
+    var last = Number(list.getAttribute("data-last") || 0);
+    var count = $("#threadCount");
+
+    function poll() {
+      get(url + "?after=" + last).then(function (data) {
+        if (!data || !data.items || !data.items.length) { return; }
+        data.items.forEach(function (item) {
+          if (item.id <= last) { return; }
+          var holder = document.createElement("div");
+          holder.innerHTML = item.html.trim();
+          var node = holder.firstElementChild;
+          if (!node) { return; }
+          node.classList.add("is-new");
+          list.appendChild(node);
+          last = Math.max(last, item.id);
+          if (count) { count.textContent = String(list.querySelectorAll(".mail").length); }
+        });
+        list.setAttribute("data-last", last);
+        applyLang(state.lang, false);
       }).catch(function () { /* offline: next tick will retry */ });
     }
 
@@ -986,6 +1052,7 @@ window.Eagle = (function () {
     initAiCheck();
     initDeliver();
     initInboxLive();
+    initMailThread();
     initMailList();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Mail{% endblock %}
+{% block page_title %}<span data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</span>{% endblock %}
+
+{% block content %}
+{# One conversation, every letter in it, oldest at the top — Gmail's open view. #}
+<div class="page-head thread-head">
+  <a class="btn btn--sm thread-head__back" href="{{ back_url }}"
+     data-ar-title="رجوع للميلات" data-en-title="Back to the mail" title="رجوع للميلات">
+    {% icon "arrow-right" "ic--sm" %}<span data-ar="الميلات" data-en="Mail">الميلات</span>
+  </a>
+  <h1 class="thread-head__subject">
+    {% if thread.subject %}{{ thread.subject }}
+    {% else %}<span data-ar="(من غير عنوان)" data-en="(no subject)">(من غير عنوان)</span>{% endif %}
+  </h1>
+  <span class="badge badge--new mono" data-ar-title="عدد الميلات في المحادثة"
+        data-en-title="Letters in this conversation" id="threadCount">{{ thread.count }}</span>
+  <div class="grow"></div>
+  {% if thread.count > 1 %}
+    <button class="btn btn--sm" type="button" id="threadExpandAll">
+      {% icon "chevron-down" "ic--sm" %}<span data-ar="افتح الكل" data-en="Expand all">افتح الكل</span>
+    </button>
+  {% endif %}
+</div>
+
+<div class="thread-meta">
+  {% if thread.client %}
+    <span class="chip">{% icon "user" "ic--sm" %}{{ thread.client|label_for:user }}</span>
+  {% endif %}
+  {% for task in thread.tasks %}
+    <a class="badge badge--ok mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+  {% endfor %}
+  {% if thread.is_blocked %}
+    <span class="badge badge--dead"><i class="badge__dot"></i><span
+      data-ar="فيها ميلات محجوبة — سعر" data-en="Has hidden letters — rate">فيها ميلات محجوبة — سعر</span></span>
+  {% endif %}
+</div>
+
+{# New letters in this conversation are appended here by the poller. #}
+<div class="mail-list mail-thread" id="threadList"
+     data-live-url="{% url 'dashboard:api_mail_thread_feed' anchor_id %}"
+     data-last="{{ thread.last_id }}">
+  {% for letter in letters %}
+    {% include "ops/_message_item.html" with item=letter.item open=letter.open in_thread=True %}
+  {% endfor %}
+</div>
+{% endblock %}

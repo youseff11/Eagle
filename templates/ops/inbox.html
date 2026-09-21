@@ -91,18 +91,19 @@
   {% endif %}
 </div>
 
-{# New mail is prepended here by the poller — no page refresh. #}
+{# One row per conversation, like Gmail. A new letter replaces its
+   conversation's row and moves it to the top — no page refresh. #}
 <div class="mail-list" id="inboxList"
      data-live-url="{% url 'dashboard:api_inbox_feed' %}"
      data-last="{{ last_message_id }}"
      data-state="{{ state }}"
      data-q="{{ query }}">
 
-  <div class="card empty {% if messages_list %}hidden{% endif %}" id="inboxEmpty">
+  <div class="card empty {% if threads %}hidden{% endif %}" id="inboxEmpty">
     {% icon "mail" "ic--xl" %}
     <span data-ar="مفيش ميلات هنا دلوقتي." data-en="No mail here yet.">مفيش ميلات هنا دلوقتي.</span>
   </div>
 
-  {% for item in messages_list %}{% include "ops/_message_item.html" %}{% endfor %}
+  {% for thread in threads %}{% include "ops/_thread_item.html" %}{% endfor %}
 </div>
 {% endblock %}
