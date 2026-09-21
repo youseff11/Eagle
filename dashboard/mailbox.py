@@ -23,6 +23,9 @@ import email
 import email.utils
 import imaplib
 import re
+import socket
+import ssl
+import time
 from email.header import decode_header, make_header
 
 from django.core.files.base import ContentFile
@@ -249,3 +252,207 @@ def fetch_and_record(limit=25, keep_unread=False):
     )
     AppSettings._cached = None
     return created, ""
+
+
+# ---------------------------------------------------------------------------
+# Push: IMAP IDLE
+# ---------------------------------------------------------------------------
+#
+# Polling every few minutes means a client's "very urgent" sits unseen for
+# minutes. IMAP IDLE (RFC 2177) turns that around: one connection stays open,
+# and the mail server itself says "* 12 EXISTS" the moment a letter lands.
+# ``run_worker`` keeps one of these open in a thread and fetches on the spot.
+#
+# Written on a raw TLS socket rather than on imaplib: imaplib reads through a
+# buffered file object that is unusable after its first timeout, and an IDLE
+# that cannot time out cannot be refreshed. The watcher only ever needs five
+# commands — LOGIN, CAPABILITY, SELECT, IDLE/DONE, LOGOUT — and never reads a
+# message; the fetch itself stays in :func:`fetch`, unchanged.
+
+#: How long one IDLE is held before it is renewed. RFC 2177 allows 29
+#: minutes, but a cloud NAT drops a silent TCP connection much sooner (AWS:
+#: 350 s), after which the push would never arrive. Four minutes keeps the
+#: line warm with room to spare.
+IDLE_RENEW_SECONDS = 240
+
+#: A command that is answered at all is answered well inside this.
+COMMAND_TIMEOUT = 30
+
+
+class IdleUnsupported(MailboxError):
+    """The server has no IDLE; the worker falls back to polling."""
+
+
+def _quote(value):
+    """An IMAP quoted string. App passwords are ASCII; that is all LOGIN takes."""
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class IdleWatcher:
+    """One logged-in, selected IMAP connection that waits for new mail.
+
+    ``sock`` is for the tests: anything with ``sendall``/``recv``/``settimeout``
+    /``close`` can stand in for the TLS socket.
+    """
+
+    def __init__(self, conf, sock=None):
+        self._buffer = b""
+        self._counter = 0
+        if sock is None:
+            raw = socket.create_connection(
+                (conf.imap_host, conf.imap_port or 993), timeout=COMMAND_TIMEOUT
+            )
+            sock = ssl.create_default_context().wrap_socket(
+                raw, server_hostname=conf.imap_host
+            )
+        self.sock = sock
+        try:
+            greeting = self._line(COMMAND_TIMEOUT)
+            if not greeting.startswith(b"* OK"):
+                raise MailboxError("سيرفر البريد رفض الاتصال.", "The mail server refused us.")
+            self._command(f"LOGIN {_quote(conf.imap_user)} {_quote(conf.imap_password)}")
+            capabilities = b" ".join(self._command("CAPABILITY")).upper()
+            if b" IDLE" not in capabilities:
+                raise IdleUnsupported(
+                    "سيرفر البريد مبيدعمش IDLE.", "The mail server does not support IDLE."
+                )
+            self._command(f"SELECT {_quote(conf.imap_folder or 'INBOX')}")
+        except Exception:
+            self.close()
+            raise
+
+    # -- the wire ----------------------------------------------------------
+
+    def _line(self, timeout):
+        """The next line from the server, or ``socket.timeout`` after ``timeout``."""
+        self.sock.settimeout(timeout)
+        while b"\r\n" not in self._buffer:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise ConnectionError("the mail server closed the connection")
+            self._buffer += chunk
+        line, self._buffer = self._buffer.split(b"\r\n", 1)
+        return line
+
+    def _send(self, text):
+        self.sock.sendall(text.encode("utf-8") + b"\r\n")
+
+    def _tag(self):
+        self._counter += 1
+        return f"E{self._counter:04d}"
+
+    def _finish(self, tag):
+        """Read up to the tagged answer; return the untagged lines before it."""
+        untagged = []
+        prefix = tag.encode() + b" "
+        while True:
+            line = self._line(COMMAND_TIMEOUT)
+            if line.startswith(prefix):
+                if not line[len(prefix):].upper().startswith(b"OK"):
+                    raise MailboxError(
+                        f"سيرفر البريد رفض الأمر: {line.decode(errors='ignore')[:120]}",
+                        f"The mail server said: {line.decode(errors='ignore')[:120]}",
+                    )
+                return untagged
+            untagged.append(line)
+
+    def _command(self, text):
+        tag = self._tag()
+        self._send(f"{tag} {text}")
+        return self._finish(tag)
+
+    # -- the point ---------------------------------------------------------
+
+    def wait(self, seconds=IDLE_RENEW_SECONDS):
+        """IDLE for up to ``seconds``. True when the server announced new mail.
+
+        Only ``EXISTS`` counts. Marking a letter read makes the server send a
+        ``FETCH (FLAGS …)`` line too — reacting to that would have every fetch
+        trigger the next one, forever.
+        """
+        tag = self._tag()
+        self._send(f"{tag} IDLE")
+        while True:
+            line = self._line(COMMAND_TIMEOUT)
+            if line.startswith(b"+"):
+                break
+            if line.startswith(tag.encode() + b" "):
+                raise IdleUnsupported(
+                    "سيرفر البريد رفض IDLE.", "The mail server refused IDLE."
+                )
+
+        arrived = False
+        deadline = time.monotonic() + seconds
+        try:
+            while True:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                line = self._line(left)
+                if line.startswith(b"*") and line.upper().endswith(b" EXISTS"):
+                    arrived = True
+                    break
+        except socket.timeout:
+            pass
+
+        self._send("DONE")
+        self._finish(tag)
+        return arrived
+
+    def close(self):
+        try:
+            self._send(f"{self._tag()} LOGOUT")
+        except Exception:  # noqa: BLE001 - already going away
+            pass
+        try:
+            self.sock.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SECONDS):
+    """Call ``on_mail()`` the moment new mail lands, until ``stop`` is set.
+
+    Runs forever in ``run_worker``'s mail thread. Every (re)connection also
+    calls ``on_mail()`` once, so a letter that arrived while the line was down
+    is picked up then, not at the next push. Any failure reconnects with a
+    growing pause — a flaky mailbox must never end the watch — and a server
+    without IDLE is simply polled every ``poll_seconds`` instead.
+    """
+    from django.db import close_old_connections
+
+    pause = 5
+    while not stop.is_set():
+        watcher = None
+        try:
+            # This thread holds its own database connection, idle for minutes
+            # at a time between letters; a stale one must be dropped first.
+            close_old_connections()
+            conf = AppSettings.load()
+            close_old_connections()
+            if not (conf.imap_host and conf.imap_user and conf.imap_password):
+                stop.wait(60)
+                continue
+
+            watcher = IdleWatcher(conf)
+            log("mail push: connected, waiting for new mail")
+            on_mail()
+            pause = 5
+            while not stop.is_set():
+                if watcher.wait(renew_seconds):
+                    on_mail()
+        except IdleUnsupported as exc:
+            log(f"mail push: {exc.message_en} Polling every {poll_seconds}s instead.")
+            while not stop.is_set():
+                try:
+                    on_mail()
+                except Exception as err:  # noqa: BLE001 - keep polling
+                    log(f"mail poll: {type(err).__name__}: {err}")
+                stop.wait(poll_seconds)
+        except Exception as exc:  # noqa: BLE001 - reconnect, whatever it was
+            log(f"mail push: {type(exc).__name__}: {exc} — reconnecting in {pause}s")
+            stop.wait(pause)
+            pause = min(pause * 2, 300)
+        finally:
+            if watcher is not None:
+                watcher.close()

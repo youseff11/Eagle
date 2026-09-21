@@ -3384,3 +3384,128 @@ class MailReplyTests(TestCase):
         self.assertEqual(sent.call_args.kwargs["headers"]["In-Reply-To"], "<b@alhamd.ae>")
         [thread] = services.inbox_threads(self.ops)
         self.assertEqual([r.body for r in thread.replies], ["confirmed"])
+
+
+class MailPushTests(TestCase):
+    """New mail is fetched the moment it lands, not at the next 3-minute poll.
+
+    ``run_worker`` holds an IMAP IDLE connection open (``mailbox.watch``) and
+    the server announces each new letter with ``* N EXISTS``. These tests play
+    the server's side of that conversation.
+    """
+
+    class FakeSock:
+        """Hands out scripted server lines; ``None`` is a read that times out."""
+
+        def __init__(self, replies):
+            self.replies = [r if r is None else r.encode() + b"\r\n" for r in replies]
+            self.sent = []
+
+        def settimeout(self, _seconds):
+            pass
+
+        def sendall(self, data):
+            self.sent.append(data.decode().strip())
+
+        def recv(self, _size):
+            import socket
+
+            item = self.replies.pop(0) if self.replies else None
+            if item is None:
+                raise socket.timeout("timed out")
+            return item
+
+        def close(self):
+            pass
+
+    class Conf:
+        imap_host = "imap.example.com"
+        imap_port = 993
+        imap_user = "eagle@example.com"
+        imap_password = "app password"
+        imap_folder = "INBOX"
+
+    HELLO = [
+        "* OK ready",
+        "E0001 OK logged in",
+        "* CAPABILITY IMAP4rev1 IDLE UNSELECT", "E0002 OK",
+        "* 3 EXISTS", "E0003 OK [READ-WRITE] INBOX selected",
+    ]
+
+    def test_new_mail_is_announced_straight_away(self):
+        from . import mailbox
+
+        sock = self.FakeSock(self.HELLO + [
+            "+ idling",
+            # Marking a letter read is not new mail; it must not count.
+            "* 3 FETCH (FLAGS (\\Seen))",
+            "* 4 EXISTS",
+            "E0004 OK IDLE terminated",
+        ])
+        watcher = mailbox.IdleWatcher(self.Conf, sock=sock)
+        self.assertTrue(watcher.wait(60))
+        self.assertIn("E0004 IDLE", sock.sent)
+        self.assertIn("DONE", sock.sent)
+
+    def test_a_quiet_idle_is_renewed_not_mistaken_for_mail(self):
+        from . import mailbox
+
+        sock = self.FakeSock(self.HELLO + [
+            "+ idling",
+            "* 3 FETCH (FLAGS (\\Seen))",
+            None,                             # nothing more before the renew time
+            "E0004 OK IDLE terminated",
+        ])
+        watcher = mailbox.IdleWatcher(self.Conf, sock=sock)
+        self.assertFalse(watcher.wait(60))
+        self.assertIn("DONE", sock.sent)
+
+    def test_a_server_without_idle_is_told_apart(self):
+        from . import mailbox
+
+        sock = self.FakeSock([
+            "* OK ready", "E0001 OK logged in",
+            "* CAPABILITY IMAP4rev1 UNSELECT", "E0002 OK",
+        ])
+        with self.assertRaises(mailbox.IdleUnsupported):
+            mailbox.IdleWatcher(self.Conf, sock=sock)
+
+    def test_the_password_is_quoted_on_the_wire(self):
+        from . import mailbox
+
+        self.assertEqual(mailbox._quote('a"b\\c d'), '"a\\"b\\\\c d"')
+
+    def test_watch_fetches_on_connect_and_on_every_push(self):
+        import threading
+        from unittest import mock
+
+        from . import mailbox
+        from .models import AppSettings
+
+        conf = AppSettings.load()
+        conf.imap_host, conf.imap_user, conf.imap_password = "imap.x", "u@x.com", "p"
+        conf.save()
+
+        stop = threading.Event()
+        fetched = []
+
+        class Watcher:
+            def __init__(self, _conf):
+                self.rounds = 0
+
+            def wait(self, _seconds):
+                self.rounds += 1
+                if self.rounds == 1:
+                    return True           # a letter landed
+                stop.set()
+                return False
+
+            def close(self):
+                pass
+
+        # close_old_connections would end the test's own transaction.
+        with mock.patch.object(mailbox, "IdleWatcher", Watcher), \
+                mock.patch("django.db.close_old_connections"):
+            mailbox.watch(on_mail=lambda: fetched.append(1), stop=stop, log=lambda _m: None)
+        # Once on connecting (catch-up), once for the push.
+        self.assertEqual(len(fetched), 2)
