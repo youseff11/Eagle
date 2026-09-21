@@ -3227,3 +3227,160 @@ class MailThreadTests(TestCase):
         self.assertTrue(all(keys))
         self.assertEqual(keys[0], keys[1])
         self.assertNotEqual(keys[0], keys[2])
+
+
+class MailReplyTests(TestCase):
+    """Answering a mail conversation from its own page, text and files.
+
+    The reply has to land where Gmail would put it: inside the client's own
+    thread in *their* mailbox (Re: + In-Reply-To + References), and inside the
+    conversation on ours — and the client's answer to it has to come back to
+    that same conversation, whatever they do to the subject.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_rep", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(name="ALHAMD", email="info@alhamd.ae")
+        self.first = self._mail("Legal Arabic Translation", "the job", "<a@alhamd.ae>")
+        self.second = self._mail("Re: Legal Arabic Translation", "word count please", "<b@alhamd.ae>")
+
+    def _mail(self, subject, body, message_id, in_reply_to=""):
+        return services.ingest_message(
+            channel="email", subject=subject, body=body,
+            sender_identity="info@alhamd.ae", external_id=message_id,
+            reply_to_external=in_reply_to,
+        )
+
+    def _reply(self, body="566 words", uploads=None, anchor=None):
+        from unittest import mock
+
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            result = services.reply_to_thread(
+                anchor or self.first, self.ops, body=body, uploads=uploads
+            )
+        return result, sent
+
+    def test_the_reply_goes_to_the_client_inside_their_own_thread(self):
+        (ok, outbound, error), sent = self._reply()
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.args[1], "info@alhamd.ae")
+        self.assertEqual(sent.call_args.kwargs["subject"], "Re: Legal Arabic Translation")
+        self.assertEqual(sent.call_args.kwargs["body"], "566 words")
+        headers = sent.call_args.kwargs["headers"]
+        self.assertEqual(headers["In-Reply-To"], "<b@alhamd.ae>")
+        self.assertEqual(headers["References"], "<a@alhamd.ae> <b@alhamd.ae>")
+        self.assertTrue(headers["Message-ID"])
+
+        self.assertEqual(outbound.thread_key, self.first.thread_key)
+        self.assertEqual(outbound.provider_id, headers["Message-ID"])
+        self.assertEqual(outbound.subject, "Re: Legal Arabic Translation")
+
+    def test_replying_claims_the_conversation(self):
+        self._reply()
+        for letter in (self.first, self.second):
+            letter.refresh_from_db()
+            self.assertEqual(letter.claimed_by, self.ops)
+        self.assertEqual(services.unclaimed_conversation_count(), 0)
+
+    def test_the_reply_shows_inside_the_conversation(self):
+        (ok, outbound, _error), _sent = self._reply()
+        [thread] = services.inbox_threads(self.ops)
+        self.assertEqual(thread.count, 3)
+        self.assertTrue(thread.answered)
+
+        self.client.force_login(self.ops)
+        html = self.client.get(f"/ops/inbox/thread/{self.first.pk}/").content.decode()
+        self.assertIn(f'data-reply="{outbound.pk}"', html)
+        self.assertLess(html.index("word count please"), html.index("566 words"))
+
+    def test_the_clients_answer_to_our_reply_comes_back_to_it(self):
+        (ok, outbound, _error), _sent = self._reply()
+        answer = self._mail("thanks, a new subject", "ok received", "<c@alhamd.ae>",
+                            in_reply_to=outbound.provider_id)
+        self.assertEqual(answer.thread_key, self.first.thread_key)
+
+    def test_an_empty_reply_is_refused(self):
+        (ok, outbound, error), sent = self._reply(body="   ")
+        self.assertFalse(ok)
+        self.assertIsNone(outbound)
+        self.assertTrue(error)
+        sent.assert_not_called()
+
+    def test_files_go_out_with_the_reply(self):
+        import tempfile
+
+        from django.conf import settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.test import override_settings
+
+        local = {**settings.STORAGES,
+                 "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"}}
+        with tempfile.TemporaryDirectory() as media, \
+                override_settings(MEDIA_ROOT=media, STORAGES=local):
+            upload = SimpleUploadedFile("brief.pdf", b"PDF-BYTES", content_type="application/pdf")
+            (ok, outbound, error), sent = self._reply(body="", uploads=[upload])
+            self.assertTrue(ok, error)
+            [(name, content, _mime)] = sent.call_args.kwargs["attachments"]
+            self.assertEqual((name, content), ("brief.pdf", b"PDF-BYTES"))
+            self.assertEqual(outbound.uploads.count(), 1)
+
+    def test_files_over_the_mail_limit_are_refused_before_sending(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        big = SimpleUploadedFile("big.pdf", b"x")
+        big.size = services.MAX_MAIL_BYTES + 1
+        (ok, _outbound, error), sent = self._reply(uploads=[big])
+        self.assertFalse(ok)
+        self.assertIn("25", error)
+        sent.assert_not_called()
+
+    def test_a_failed_reply_stays_on_the_page(self):
+        from unittest import mock
+
+        from . import mailer
+
+        self.client.force_login(self.ops)
+        with mock.patch("dashboard.mailer.send_delivery",
+                        side_effect=mailer.MailError("الإرسال فشل", "failed")):
+            response = self.client.post(
+                f"/api/inbox/thread/{self.first.pk}/reply/", {"body": "566 words"}
+            )
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("is-failed", data["html"])
+
+    def test_the_endpoint_answers_with_the_rendered_reply(self):
+        from unittest import mock
+
+        self.client.force_login(self.ops)
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True):
+            response = self.client.post(
+                f"/api/inbox/thread/{self.second.pk}/reply/", {"body": "566 words"}
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"], data)
+        self.assertIn(f'data-reply="{data["id"]}"', data["html"])
+
+        feed = self.client.get(
+            f"/api/inbox/thread/{self.first.pk}/feed/?after={self.second.pk}&after_out=0"
+        ).json()
+        self.assertEqual([(i["kind"], i["id"]) for i in feed["items"]], [("out", data["id"])])
+
+    def test_operation_cannot_reply_into_a_rate_letter(self):
+        secret = self._mail("Re: Legal Arabic Translation", "what is your rate?", "<r@alhamd.ae>")
+        self.assertTrue(secret.is_rate_blocked)
+        self.client.force_login(self.ops)
+        response = self.client.post(f"/api/inbox/thread/{secret.pk}/reply/", {"body": "hi"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_an_e_mail_receipt_lands_in_the_conversation(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, error = services.confirm_receipt(self.second, self.ops)
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs["headers"]["In-Reply-To"], "<b@alhamd.ae>")
+        [thread] = services.inbox_threads(self.ops)
+        self.assertEqual([r.body for r in thread.replies], ["confirmed"])

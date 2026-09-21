@@ -22,6 +22,11 @@
       {% icon "chevron-down" "ic--sm" %}<span data-ar="افتح الكل" data-en="Expand all">افتح الكل</span>
     </button>
   {% endif %}
+  {% if thread.client %}
+    <button class="btn btn--sm btn--primary" type="button" id="threadReplyJump">
+      {% icon "reply" "ic--sm" %}<span data-ar="رد" data-en="Reply">رد</span>
+    </button>
+  {% endif %}
 </div>
 
 <div class="thread-meta">
@@ -37,12 +42,57 @@
   {% endif %}
 </div>
 
-{# New letters in this conversation are appended here by the poller. #}
+{# The client's letters and our replies, oldest first; the poller appends new ones. #}
 <div class="mail-list mail-thread" id="threadList"
      data-live-url="{% url 'dashboard:api_mail_thread_feed' anchor_id %}"
-     data-last="{{ thread.last_id }}">
-  {% for letter in letters %}
-    {% include "ops/_message_item.html" with item=letter.item open=letter.open in_thread=True %}
+     data-last="{{ thread.last_id }}"
+     data-last-out="{{ thread.last_reply_id }}">
+  {% for entry in entries %}
+    {% if entry.kind == "out" %}
+      {% include "ops/_reply_item.html" with reply=entry.item open=entry.open %}
+    {% else %}
+      {% include "ops/_message_item.html" with item=entry.item open=entry.open in_thread=True %}
+    {% endif %}
   {% endfor %}
 </div>
+
+{% if thread.client %}
+  {# Gmail's reply box: goes to the client by e-mail, inside their own thread. #}
+  <form class="card mail-reply" id="mailReply" autocomplete="off"
+        data-url="{% url 'dashboard:api_mail_reply' anchor_id %}">
+    <div class="mail-reply__head">
+      {% icon "reply" "ic--sm" %}
+      <span data-ar="رد على" data-en="Reply to">رد على</span>
+      <b>{{ thread.client|label_for:user }}</b>
+    </div>
+
+    <textarea class="input mail-reply__body" name="body" rows="5" dir="auto"
+              data-ar-ph="اكتب ردك هنا…" data-en-ph="Write your reply…"
+              placeholder="اكتب ردك هنا…"></textarea>
+
+    <div class="files mail-reply__files" id="mailReplyFiles"></div>
+
+    <div class="mail-reply__bar">
+      <label class="btn btn--sm mail-reply__attach">
+        {% icon "paperclip" "ic--sm" %}<span data-ar="ارفق ملفات" data-en="Attach files">ارفق ملفات</span>
+        <input type="file" id="mailReplyPick" multiple hidden>
+      </label>
+      <span class="muted mail-reply__hint"
+            data-ar="لحد 25 ميجا · Ctrl+Enter يبعت"
+            data-en="Up to 25 MB · Ctrl+Enter sends">لحد 25 ميجا · Ctrl+Enter يبعت</span>
+      <div class="grow"></div>
+      <button class="btn btn--primary" type="submit" id="mailReplySend">
+        {% icon "send" "ic--sm" %}<span data-ar="ابعت" data-en="Send">ابعت</span>
+      </button>
+    </div>
+  </form>
+{% else %}
+  <div class="note note--warn mt">
+    {% icon "alert" %}
+    <div data-ar="المحادثة دي مش مربوطة بعميل، فمينفعش ترد عليها من هنا."
+         data-en="This conversation has no client, so it cannot be answered from here.">
+      المحادثة دي مش مربوطة بعميل، فمينفعش ترد عليها من هنا.
+    </div>
+  </div>
+{% endif %}
 {% endblock %}

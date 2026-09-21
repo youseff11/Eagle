@@ -1503,6 +1503,13 @@ class OutboundMessage(models.Model):
     #: of it, so the thread can show the quote without a second lookup.
     reply_to_wamid = models.CharField(max_length=190, blank=True)
     reply_preview = models.CharField(max_length=160, blank=True)
+    #: E-mail only: the subject it went out with, and the mail conversation it
+    #: answers (``InboundMessage.thread_key``) — which is how a reply written on
+    #: /ops/inbox/thread/ shows up inside that conversation. For e-mail,
+    #: ``provider_id`` holds our Message-ID, so the client's answer to it finds
+    #: its way back to the same conversation.
+    subject = models.CharField(max_length=250, blank=True)
+    thread_key = models.CharField(max_length=32, blank=True, db_index=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

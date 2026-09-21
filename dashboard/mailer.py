@@ -31,8 +31,28 @@ def is_configured(conf):
     return bool(host and user and password)
 
 
-def send_delivery(conf, to, subject, body, attachments):
-    """``attachments`` is a list of ``(filename, bytes, mime)`` tuples."""
+def new_message_id(conf):
+    """A Message-ID for a letter we are about to send, on our sender's domain.
+
+    Made here rather than left to Django so it can be stored first: the
+    client's answer names it in ``In-Reply-To``, and that is what puts their
+    answer back in the right conversation on /ops/inbox/.
+    """
+    import email.utils
+
+    _host, user, _password = _credentials(conf)
+    sender = email.utils.parseaddr(conf.smtp_from or user or "")[1]
+    domain = sender.rpartition("@")[2] or "eagel-operation.com"
+    return email.utils.make_msgid(domain=domain)
+
+
+def send_delivery(conf, to, subject, body, attachments, headers=None):
+    """``attachments`` is a list of ``(filename, bytes, mime)`` tuples.
+
+    ``headers`` is for threading — ``Message-ID``, ``In-Reply-To`` and
+    ``References`` — so a reply lands inside the client's own conversation in
+    their mailbox instead of arriving as a new letter.
+    """
     host, user, password = _credentials(conf)
     if not (host and user and password):
         raise MailError(
@@ -53,6 +73,7 @@ def send_delivery(conf, to, subject, body, attachments):
             subject=subject, body=body,
             from_email=(conf.smtp_from or user), to=[to],
             connection=connection,
+            headers={k: v for k, v in (headers or {}).items() if v} or None,
         )
         for filename, content, mime in attachments:
             message.attach(filename, content, mime or "application/octet-stream")

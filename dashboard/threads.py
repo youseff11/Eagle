@@ -78,12 +78,16 @@ def new_key():
 
 
 def find_thread_key(model, *, channel, client_id=None, sender="", subject="",
-                    refs=(), when=None, exclude_pk=None):
+                    refs=(), when=None, exclude_pk=None, outbound_model=None):
     """The conversation a new letter belongs to, or ``""`` for a new one.
 
     ``model`` is ``InboundMessage`` — the live one, or the historical one a
     migration hands over. Only letters that already have a key are candidates,
     which is what lets the backfill walk the mail oldest first.
+
+    ``outbound_model`` (``OutboundMessage``) lets a client's answer to one of
+    *our* replies find its way home: we store our Message-ID on the reply, and
+    their ``In-Reply-To`` names it.
     """
     candidates = model.objects.filter(channel=channel).exclude(thread_key="")
     if exclude_pk:
@@ -99,6 +103,16 @@ def find_thread_key(model, *, channel, client_id=None, sender="", subject="",
         )
         if hit:
             return hit
+        if outbound_model is not None:
+            ours = (
+                outbound_model.objects.filter(provider_id__in=refs)
+                .exclude(thread_key="")
+                .order_by("-created_at")
+                .values_list("thread_key", flat=True)
+                .first()
+            )
+            if ours:
+                return ours
 
     wanted = normalize_subject(subject)
     if not wanted:

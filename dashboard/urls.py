@@ -193,6 +193,7 @@ urlpatterns = [
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),
     path("api/inbox/feed/", api.inbox_feed, name="api_inbox_feed"),
     path("api/inbox/thread/<int:pk>/feed/", api.mail_thread_feed, name="api_mail_thread_feed"),
+    path("api/inbox/thread/<int:pk>/reply/", api.mail_reply, name="api_mail_reply"),
     path("api/messages/<int:pk>/claim/", api.claim_message, name="api_claim_message"),
     path("api/messages/<int:pk>/confirm/", api.confirm_message, name="api_confirm_message"),
     path("api/mail/fetch/", api.fetch_mail, name="api_fetch_mail"),

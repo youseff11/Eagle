@@ -122,6 +122,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             subject=subject or "",
             refs=threads.message_ids(reply_to_external, references),
             when=received_at,
+            outbound_model=OutboundMessage,
         ) or threads.new_key()
 
     message = InboundMessage.objects.create(
@@ -261,18 +262,38 @@ class MailThread:
     """One conversation on /ops/inbox/: the letters that answer each other.
 
     ``messages`` is oldest first — the order they are read in. The row on the
-    list speaks for the newest one, the way Gmail's does.
+    list speaks for the newest one, the way Gmail's does. ``replies`` is what
+    we sent into it from the conversation page (Gmail's "me").
     """
 
-    def __init__(self, ident, messages):
+    def __init__(self, ident, messages, replies=()):
         self.key = ident
         self.messages = messages
+        self.replies = list(replies)
         self.first = messages[0]
         self.latest = messages[-1]
 
     @property
     def count(self):
-        return len(self.messages)
+        return len(self.messages) + len(self.replies)
+
+    @property
+    def entries(self):
+        """Their letters and our replies on one timeline, oldest first."""
+        rows = [("in", m.received_at, m.pk, m) for m in self.messages]
+        rows += [("out", r.created_at, r.pk, r) for r in self.replies]
+        rows.sort(key=lambda row: (row[1], row[0] == "out", row[2]))
+        return [{"kind": kind, "item": item} for kind, _at, _pk, item in rows]
+
+    @property
+    def answered(self):
+        """Our reply is the last word — nothing from the client since."""
+        sent = [r for r in self.replies if r.status == "sent"]
+        return bool(sent) and sent[-1].created_at >= self.latest.received_at
+
+    @property
+    def last_reply_id(self):
+        return max((r.pk for r in self.replies), default=0)
 
     @property
     def subject(self):
@@ -339,7 +360,19 @@ def _build_threads(user, idents):
     for row in rows:
         grouped.setdefault(_thread_ident(row.thread_key, row.pk), []).append(row)
 
-    threads = [MailThread(ident, messages) for ident, messages in grouped.items()]
+    replies = {}
+    if keys:
+        from .models import OutboundMessage
+
+        for reply in OutboundMessage.objects.filter(
+            channel=Channel.EMAIL, thread_key__in=keys
+        ).select_related("created_by").prefetch_related("uploads").order_by("created_at", "id"):
+            replies.setdefault(reply.thread_key, []).append(reply)
+
+    threads = [
+        MailThread(ident, messages, replies.get(ident, ()))
+        for ident, messages in grouped.items()
+    ]
     threads.sort(key=lambda t: (t.latest.received_at, t.latest.pk), reverse=True)
     return threads
 
@@ -401,6 +434,102 @@ def thread_messages(user, message):
     )
 
 
+def thread_replies(thread_key):
+    """What we sent into this mail conversation, oldest first."""
+    from .models import OutboundMessage
+
+    if not thread_key:
+        return []
+    return list(
+        OutboundMessage.objects.filter(channel=Channel.EMAIL, thread_key=thread_key)
+        .select_related("created_by").prefetch_related("uploads")
+        .order_by("created_at", "id")
+    )
+
+
+def thread_references(thread_key):
+    """Every Message-ID in the conversation, oldest first — ``References``.
+
+    The client's letters and ours together, so whichever of them their mail
+    program looks at, it finds the conversation.
+    """
+    from .models import OutboundMessage
+
+    if not thread_key:
+        return []
+    stamped = [
+        (at, pk, mid) for pk, at, mid in InboundMessage.objects.filter(
+            channel=Channel.EMAIL, thread_key=thread_key
+        ).exclude(external_id="").values_list("pk", "received_at", "external_id")
+    ]
+    stamped += [
+        (at, pk, mid) for pk, at, mid in OutboundMessage.objects.filter(
+            channel=Channel.EMAIL, thread_key=thread_key,
+            status=OutboundMessage.Status.SENT,
+        ).exclude(provider_id="").values_list("pk", "created_at", "provider_id")
+    ]
+    stamped.sort(key=lambda row: (row[0], row[1]))
+    return [mid for _at, _pk, mid in stamped]
+
+
+#: Gmail refuses a letter whose attachments add up to more than this.
+MAX_MAIL_BYTES = 25 * 1024 * 1024
+
+
+def reply_to_thread(anchor, user, body="", uploads=None):
+    """Answer a mail conversation by e-mail, from its own page.
+
+    Goes to the client who wrote the newest letter this user can see, as
+    ``Re:`` its subject, with ``In-Reply-To`` / ``References`` set — so in the
+    client's Gmail it lands inside their own conversation, not as a new one.
+    A reply is somebody handling the conversation, so the letters in it that
+    nobody had claimed are claimed by whoever sent it.
+
+    Returns ``(ok, outbound, error_ar)``, like :func:`send_client_message`.
+    """
+    from . import threads
+
+    body = (body or "").strip()
+    uploads = list(uploads or [])
+    if not body and not uploads:
+        return False, None, "اكتب رد أو ارفق ملف."
+    if sum(item.size or 0 for item in uploads) > MAX_MAIL_BYTES:
+        return False, None, "الملفات مع بعض أكبر من 25 ميجا — الإيميل مش هيقبلها."
+
+    letters = thread_messages(user, anchor)
+    if not letters:
+        return False, None, "المحادثة دي مش موجودة."
+    latest = letters[-1]
+    client = next((m.client for m in reversed(letters) if m.client_id), None)
+    if client is None:
+        return False, None, "المحادثة دي مش مربوطة بعميل معروف."
+
+    # A letter from before threading: give it a key now, so the reply has a
+    # conversation to be shown in.
+    if not anchor.thread_key:
+        anchor.thread_key = threads.new_key()
+        anchor.save(update_fields=["thread_key"])
+        latest.thread_key = anchor.thread_key
+
+    titled = next((m for m in reversed(letters) if (m.subject or "").strip()), latest)
+    ok, outbound, error = send_client_message(
+        client, user,
+        body=body,
+        uploads=uploads,
+        force_channel=Channel.EMAIL,
+        subject=_reply_subject(titled),
+        in_reply_to=latest.external_id,
+        references=thread_references(anchor.thread_key),
+        thread_key=anchor.thread_key,
+    )
+    if ok:
+        for letter in letters:
+            if not letter.claimed_by_id:
+                claim_message(letter, user)
+        log(user, "mail.reply", client.code, (body or f"{len(uploads)} file(s)")[:120])
+    return ok, outbound, error
+
+
 def claim_message(message, user):
     if message.claimed_by_id:
         return False
@@ -429,11 +558,17 @@ def confirm_receipt(message, user):
     if message.is_rate_blocked and not user.is_admin_role:
         return False, "الرسالة دي محجوبة."
 
+    is_mail = message.channel == Channel.EMAIL
     ok, _outbound, error = send_client_message(
         message.client, user,
         body=RECEIPT_BODY,
         force_channel=message.channel,
         subject=_reply_subject(message),
+        # An e-mail receipt is a reply like any other: threaded in the
+        # client's mailbox, and shown inside the conversation on our side.
+        in_reply_to=message.external_id if is_mail else "",
+        references=thread_references(message.thread_key) if is_mail else (),
+        thread_key=message.thread_key if is_mail else "",
     )
     if not ok:
         return False, error
@@ -1702,7 +1837,8 @@ def _resolve_quotes(items):
 
 def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
-                        reply_preview="", force_channel="", subject=""):
+                        reply_preview="", force_channel="", subject="",
+                        in_reply_to="", references=(), thread_key=""):
     """Free-form reply to a client on whichever channel they used last.
 
     ``force_channel`` names the line instead of guessing it. The two pages are
@@ -1710,6 +1846,10 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     e-mail — so a reply written on one of them must not leave by the other
     just because the client's most recent message happened to arrive there.
     ``subject`` is the e-mail subject; blank keeps the old ``Eagle — CODE``.
+
+    ``in_reply_to`` / ``references`` / ``thread_key`` are e-mail only: the
+    client's letter this answers, the conversation's Message-IDs, and the
+    conversation on /ops/inbox/ the reply is shown in (see :func:`reply_to_thread`).
 
     ``voice`` is a recording made in the browser. It is converted to whatever
     WhatsApp accepts *before* it is stored, so the file kept in the thread is
@@ -1761,11 +1901,16 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     if recording:
         names.append(recording["name"])
 
+    is_mail = channel == Channel.EMAIL
+    mail_subject = ((subject or "").strip() or f"Eagle — {client.code}")[:250]
+
     outbound = OutboundMessage.objects.create(
         client=client, task=None, kind=OutboundMessage.Kind.CHAT,
         created_by=user, channel=channel, to_identity=target or "", body=body,
         files=[{"name": name, "status": "pending"} for name in names],
         reply_to_wamid=reply_to_wamid or "", reply_preview=(reply_preview or "")[:160],
+        subject=mail_subject if is_mail else "",
+        thread_key=(thread_key or "") if is_mail else "",
     )
     stored = [
         OutboundAttachment.objects.create(
@@ -1816,12 +1961,27 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
                 quote = ""
                 outbound.files[index]["status"] = "sent"
         else:
+            from . import threads
+
+            # Our own Message-ID, stored, so the client's answer to this letter
+            # comes back into the same conversation (threads.find_thread_key).
+            message_id = mailer.new_message_id(conf)
+            parents = threads.message_ids(in_reply_to)
+            chain = threads.message_ids(*references) if references else []
             mailer.send_delivery(
                 conf, target,
-                subject=(subject or "").strip() or f"Eagle — {client.code}",
+                subject=mail_subject,
                 body=body or "مرفق الملفات.",
                 attachments=payload,
+                headers={
+                    "Message-ID": message_id,
+                    "In-Reply-To": parents[0] if parents else "",
+                    # Newest ids last, and not unbounded: a long exchange must
+                    # not grow the header past what a mail server accepts.
+                    "References": " ".join(chain[-20:]),
+                },
             )
+            outbound.provider_id = message_id[:190]
             for entry in outbound.files:
                 entry["status"] = "sent"
     except (wa.WhatsAppError, mailer.MailError) as exc:

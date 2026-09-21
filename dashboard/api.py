@@ -478,10 +478,11 @@ def inbox_feed(request):
 @api_role_required(Role.OPERATION)
 @require_GET
 def mail_thread_feed(request, pk):
-    """Letters newer than ``after`` in the conversation ``pk`` belongs to.
+    """What is new in the conversation ``pk`` belongs to.
 
-    Keeps an open conversation current: the client's next reply lands at the
-    bottom of the page somebody is already reading.
+    ``after`` is the newest client letter on screen, ``after_out`` our newest
+    reply. Keeps an open conversation current: the client's next letter — or a
+    colleague's reply — lands at the bottom of the page somebody is reading.
     """
     from django.template.loader import render_to_string
 
@@ -489,24 +490,63 @@ def mail_thread_feed(request, pk):
     if not anchor.visible_to(request.user):
         raise Http404
     after = _int(request.GET.get("after"), 0)
-    rows = [
-        row for row in services.thread_messages(request.user, anchor)
+    after_out = _int(request.GET.get("after_out"), 0)
+
+    items = [
+        {
+            "kind": "in",
+            "id": row.id,
+            "html": render_to_string(
+                "ops/_message_item.html",
+                {"item": row, "in_thread": True, "open": True},
+                request=request,
+            ),
+        }
+        for row in services.thread_messages(request.user, anchor)
         if row.pk > after
     ]
-    return JsonResponse({
-        "ok": True,
-        "items": [
-            {
-                "id": row.id,
-                "html": render_to_string(
-                    "ops/_message_item.html",
-                    {"item": row, "in_thread": True, "open": True},
-                    request=request,
-                ),
-            }
-            for row in rows
-        ],
-    })
+    items += [
+        {
+            "kind": "out",
+            "id": reply.id,
+            "html": render_to_string(
+                "ops/_reply_item.html", {"reply": reply, "open": True}, request=request,
+            ),
+        }
+        for reply in services.thread_replies(anchor.thread_key)
+        if reply.pk > after_out
+    ]
+    return JsonResponse({"ok": True, "items": items})
+
+
+@api_role_required(Role.OPERATION)
+@require_POST
+def mail_reply(request, pk):
+    """Answer the conversation ``pk`` is in: text, files, or both, by e-mail.
+
+    The reply comes back rendered, so the page can put it under the letters
+    without a reload — and it comes back on a failure too, marked failed, the
+    way the chat keeps a failed send visible instead of losing it.
+    """
+    from django.template.loader import render_to_string
+
+    anchor = get_object_or_404(
+        InboundMessage.objects.select_related("client"), pk=pk, channel=Channel.EMAIL
+    )
+    if not anchor.visible_to(request.user):
+        raise Http404
+    ok, outbound, error = services.reply_to_thread(
+        anchor, request.user,
+        body=request.POST.get("body", ""),
+        uploads=request.FILES.getlist("files"),
+    )
+    payload = {"ok": ok, "error": error}
+    if outbound is not None:
+        payload["id"] = outbound.pk
+        payload["html"] = render_to_string(
+            "ops/_reply_item.html", {"reply": outbound, "open": True}, request=request,
+        )
+    return JsonResponse(payload, status=200 if ok else 400)
 
 
 @api_role_required(Role.OPERATION)

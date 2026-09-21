@@ -552,6 +552,33 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .thread-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 14px; }
 .thread-meta:empty { display: none; }
 
+/* Our replies inside a conversation — Gmail's "me". */
+.mail__avatar--ours { background: var(--ok-soft); color: var(--ok); }
+.mail--ours .mail__from { color: var(--ok); }
+.mail--ours.is-failed { background: var(--danger-soft); }
+.chip--replied { color: var(--ok); border-color: var(--ok-soft); background: var(--ok-soft); }
+
+/* The reply box under a conversation. */
+.mail-reply { margin-top: 14px; scroll-margin-top: 76px; }
+.mail-reply__head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 10px;
+  color: var(--muted); font-size: .82rem;
+}
+.mail-reply__head b { color: var(--heading); }
+.mail-reply__body { width: 100%; min-height: 120px; line-height: 1.65; }
+.mail-reply__files:empty { display: none; }
+.mail-reply__files .file-pill small { font-size: .68rem; }
+.file-pill__x {
+  display: inline-grid; place-items: center; width: 18px; height: 18px;
+  margin-inline-start: 2px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.file-pill__x:hover { background: var(--danger-soft); color: var(--danger); }
+.mail-reply__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.mail-reply__attach { cursor: pointer; }
+.mail-reply__hint { font-size: .74rem; }
+.mail-reply.is-sending { opacity: .7; pointer-events: none; }
+
 @media (max-width: 640px) {
   .mail__time { font-size: .68rem; }
   .pick__item span { max-width: 150px; }

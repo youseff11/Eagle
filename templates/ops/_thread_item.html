@@ -36,6 +36,10 @@ Unread means some letter in it has not been claimed yet.
       <span class="mail__snippet">{{ last.body|truncatechars:120 }}</span>
 
       <span class="mail__tags">
+        {% if thread.answered %}
+          <span class="chip chip--sm chip--replied">{% icon "reply" "ic--sm" %}<span
+            data-ar="اتردّ عليها" data-en="Replied">اتردّ عليها</span></span>
+        {% endif %}
         {% if thread.is_blocked %}
           <span class="badge badge--dead"><i class="badge__dot"></i><span
             data-ar="محجوبة — سعر" data-en="Hidden — rate">محجوبة — سعر</span></span>

@@ -1,0 +1,60 @@
+{% load eagle_tags %}{% comment %}
+One of OUR replies inside a mail conversation — Gmail's "me". Rendered by the
+conversation page, by its live feed and by the reply endpoint, so it stands on
+its own: no context beyond `reply`, `open` and `user`. A failed send stays on
+screen, marked, with the reason — never silently gone.
+{% endcomment %}
+<article class="mail mail--letter mail--ours{% if open %} is-open{% endif %}{% if reply.status == 'failed' %} is-failed{% endif %}"
+         data-reply="{{ reply.pk }}">
+
+  <button class="mail__row" type="button" data-mail-open
+          data-ar-title="افتح الرد" data-en-title="Open the reply">
+    <span class="avatar mail__avatar mail__avatar--ours">{% icon "reply" "ic--sm" %}</span>
+
+    <span class="mail__body">
+      <span class="mail__top">
+        <b class="mail__from">
+          <span data-ar="ردّنا" data-en="Our reply">ردّنا</span>{% if reply.created_by_id %} · {{ reply.created_by.short_name }}{% endif %}
+        </b>
+        <span class="mail__time mono">{{ reply.created_at|date:"Y-m-d H:i" }}</span>
+      </span>
+
+      <span class="mail__snippet">
+        {% if reply.body %}{{ reply.body|truncatechars:120 }}
+        {% else %}<span data-ar="(ملفات بس)" data-en="(files only)">(ملفات بس)</span>{% endif %}
+      </span>
+
+      <span class="mail__tags">
+        {% if reply.status == 'failed' %}
+          <span class="badge badge--dead"><i class="badge__dot"></i><span
+            data-ar="متبعتش" data-en="Not sent">متبعتش</span></span>
+        {% endif %}
+        {% if reply.uploads.all %}
+          <span class="chip chip--sm">{% icon "paperclip" "ic--sm" %}{{ reply.uploads.all|length }}</span>
+        {% endif %}
+      </span>
+    </span>
+
+    <span class="mail__chev">{% icon "chevron-down" "ic--sm" %}</span>
+  </button>
+
+  <div class="mail__open {% if not open %}hidden{% endif %}">
+    {% if reply.body %}
+      <div class="mail__text">{{ reply.body }}</div>
+    {% endif %}
+
+    {% if reply.uploads.all %}
+      <div class="files">
+        {% for upload in reply.uploads.all %}
+          <a class="file-pill" href="{{ upload.file.url }}" target="_blank" rel="noopener">
+            {% icon "paperclip" "ic--sm" %}{{ upload.original_name|default:upload.file.name }}
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if reply.status == 'failed' and reply.error_message %}
+      <div class="note note--high mt">{% icon "alert" %}<div>{{ reply.error_message }}</div></div>
+    {% endif %}
+  </div>
+</article>

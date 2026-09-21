@@ -265,20 +265,26 @@ def ops_mail_thread(request, pk):
     letters = services.thread_messages(user, anchor)
     if not letters:
         raise Http404
-    thread = services.MailThread(anchor.thread_key or f"m{anchor.pk}", letters)
+    thread = services.MailThread(
+        anchor.thread_key or f"m{anchor.pk}", letters,
+        services.thread_replies(anchor.thread_key),
+    )
 
     state = request.GET.get("state", "")
     query = request.GET.get("q", "").strip()
     back_qs = services.inbox_filter_qs(state, query)
     back_url = reverse("dashboard:ops_inbox") + (f"?{back_qs}" if back_qs else "")
 
+    entries = thread.entries
+    for index, entry in enumerate(entries):
+        # The last thing said (theirs or ours), and the letter the link named.
+        entry["open"] = index == len(entries) - 1 or (
+            entry["kind"] == "in" and entry["item"].pk == anchor.pk
+        )
+
     return render(request, "ops/mail_thread.html", {
         "thread": thread,
-        "letters": [
-            {"item": letter,
-             "open": letter.pk in (thread.latest.pk, anchor.pk)}
-            for letter in letters
-        ],
+        "entries": entries,
         "anchor_id": anchor.pk,
         "back_url": back_url,
     })

@@ -534,29 +534,172 @@ window.Eagle = (function () {
     }
 
     var url = list.getAttribute("data-live-url");
-    var last = Number(list.getAttribute("data-last") || 0);
-    var count = $("#threadCount");
 
+    // The cursors live on the list itself, because the reply box appends to
+    // it too: a reply sent from this page must not come back a second time
+    // from the poller.
     function poll() {
-      get(url + "?after=" + last).then(function (data) {
+      var last = Number(list.getAttribute("data-last") || 0);
+      var lastOut = Number(list.getAttribute("data-last-out") || 0);
+      get(url + "?after=" + last + "&after_out=" + lastOut).then(function (data) {
         if (!data || !data.items || !data.items.length) { return; }
         data.items.forEach(function (item) {
-          if (item.id <= last) { return; }
-          var holder = document.createElement("div");
-          holder.innerHTML = item.html.trim();
-          var node = holder.firstElementChild;
-          if (!node) { return; }
-          node.classList.add("is-new");
-          list.appendChild(node);
-          last = Math.max(last, item.id);
-          if (count) { count.textContent = String(list.querySelectorAll(".mail").length); }
+          appendToThread(list, item.kind, item.id, item.html);
         });
-        list.setAttribute("data-last", last);
-        applyLang(state.lang, false);
       }).catch(function () { /* offline: next tick will retry */ });
     }
 
     setInterval(poll, cfg.pollMs || 3000);
+  }
+
+  /**
+   * Put one letter ("in") or one of our replies ("out") at the bottom of an
+   * open conversation, once, and move the matching cursor past it.
+   */
+  function appendToThread(list, kind, id, html) {
+    var isOut = kind === "out";
+    var attr = isOut ? "data-reply" : "data-message";
+    var cursor = isOut ? "data-last-out" : "data-last";
+    id = Number(id) || 0;
+    if (list.querySelector("[" + attr + '="' + id + '"]')) { return; }
+
+    var holder = document.createElement("div");
+    holder.innerHTML = (html || "").trim();
+    var node = holder.firstElementChild;
+    if (!node) { return; }
+    node.classList.add("is-new");
+    list.appendChild(node);
+
+    list.setAttribute(cursor, Math.max(Number(list.getAttribute(cursor) || 0), id));
+    var count = $("#threadCount");
+    if (count) { count.textContent = String(list.querySelectorAll(".mail").length); }
+    applyLang(state.lang, false);
+  }
+
+  /* ------------------------------------------------------ replying to mail */
+
+  /**
+   * The reply box under a conversation: text, files, or both, sent to the
+   * client by e-mail. Files are kept in an array rather than read off the
+   * <input>, so they can be picked in several goes and removed one by one.
+   */
+  function initMailReply() {
+    var form = $("#mailReply");
+    if (!form) { return; }
+
+    var LIMIT = 25 * 1024 * 1024;
+    var list = $("#threadList");
+    var pick = $("#mailReplyPick");
+    var box = $("#mailReplyFiles");
+    var body = form.querySelector("textarea[name=body]");
+    var sendBtn = $("#mailReplySend");
+    var files = [];
+
+    function totalSize() {
+      return files.reduce(function (sum, file) { return sum + (file.size || 0); }, 0);
+    }
+
+    function prettySize(bytes) {
+      if (bytes < 1024) { return bytes + " B"; }
+      if (bytes < 1024 * 1024) { return (bytes / 1024).toFixed(0) + " KB"; }
+      return (bytes / 1024 / 1024).toFixed(1) + " MB";
+    }
+
+    function render() {
+      box.innerHTML = files.map(function (file, index) {
+        return '<span class="file-pill">' + svgIcon("paperclip", "ic--sm") +
+          "<span>" + escapeHtml(file.name) + "</span>" +
+          '<small class="muted mono">' + prettySize(file.size) + "</small>" +
+          '<button type="button" class="file-pill__x" data-remove="' + index + '" ' +
+          'title="' + escapeHtml(t("شيل الملف", "Remove the file")) + '">' +
+          svgIcon("x", "ic--sm") + "</button></span>";
+      }).join("");
+    }
+
+    if (pick) {
+      pick.addEventListener("change", function () {
+        Array.prototype.forEach.call(pick.files || [], function (file) { files.push(file); });
+        pick.value = "";          // picking the same file again must still fire
+        render();
+        if (totalSize() > LIMIT) {
+          toast({
+            level: "warning",
+            title: t("الملفات أكبر من 25 ميجا", "Files are over 25 MB"),
+            body: t("شيل ملف أو اتنين قبل ما تبعت.", "Remove a file or two before sending.")
+          });
+        }
+      });
+    }
+
+    box.addEventListener("click", function (event) {
+      var x = event.target && event.target.closest && event.target.closest("[data-remove]");
+      if (!x) { return; }
+      files.splice(Number(x.getAttribute("data-remove")), 1);
+      render();
+    });
+
+    var jump = $("#threadReplyJump");
+    if (jump) {
+      jump.addEventListener("click", function () {
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+        setTimeout(function () { body.focus(); }, 250);
+      });
+    }
+
+    function send() {
+      var text = (body.value || "").trim();
+      if (!text && !files.length) {
+        toast({ level: "warning", title: t("اكتب رد أو ارفق ملف", "Write a reply or attach a file") });
+        body.focus();
+        return;
+      }
+      if (totalSize() > LIMIT) {
+        toast({ level: "danger", title: t("الملفات أكبر من 25 ميجا", "Files are over 25 MB") });
+        return;
+      }
+
+      var data = new FormData();
+      data.append("body", text);
+      files.forEach(function (file) { data.append("files", file, file.name); });
+
+      form.classList.add("is-sending");
+      sendBtn.disabled = true;
+      post(form.getAttribute("data-url"), data).then(function (res) {
+        form.classList.remove("is-sending");
+        sendBtn.disabled = false;
+        // A failed send comes back rendered too, marked, so it is not lost.
+        if (res && res.html && list) { appendToThread(list, "out", res.id, res.html); }
+        if (res && res.ok) {
+          body.value = "";
+          files = [];
+          render();
+          // Replying claims the letters nobody had claimed yet.
+          $$(".mail.is-unread", list).forEach(function (mail) { mail.classList.remove("is-unread"); });
+          toast({ level: "success", title: t("الرد اتبعت", "Reply sent") });
+        } else {
+          toast({
+            level: "danger",
+            title: t("الرد متبعتش", "The reply was not sent"),
+            body: (res && res.error) || ""
+          });
+        }
+      }).catch(function () {
+        form.classList.remove("is-sending");
+        sendBtn.disabled = false;
+        toast({ level: "danger", title: t("الرد متبعتش", "The reply was not sent") });
+      });
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      send();
+    });
+    body.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        send();
+      }
+    });
   }
 
   /* ------------------------------------------------------------- the mail */
@@ -1053,6 +1196,7 @@ window.Eagle = (function () {
     initDeliver();
     initInboxLive();
     initMailThread();
+    initMailReply();
     initMailList();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",
