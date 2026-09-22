@@ -17,6 +17,21 @@
 
 <div class="topbar__divider"></div>
 
+{% comment %}
+Which account this is, beside the way out of it. The sidebar says so too,
+but that is a long scroll away on most pages - and this is the one thing
+you want answered before you click anything. On a phone the name folds
+away and the initials stay, because the question is still the question.
+{% endcomment %}
+<div class="topbar__user" data-ar-title="انت داخل بالحساب ده" data-en-title="Signed in as"
+     title="{{ user.short_name }}">
+  <span class="avatar avatar--brand topbar__face">{{ user.initials }}</span>
+  <span class="topbar__who">
+    <span class="topbar__who-name">{{ user.short_name }}</span>
+    {% role_badge user.role %}
+  </span>
+</div>
+
 <form method="post" action="{% url 'dashboard:logout' %}">
   {% csrf_token %}
   <button class="icon-btn" type="submit" data-ar-title="خروج" data-en-title="Log out">

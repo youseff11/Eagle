@@ -210,6 +210,16 @@ strong, b { font-weight: 620; }
 .topbar__spacer { flex: 1; }
 .topbar__divider { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 
+/* Which account you are signed in as, kept in view. The sidebar carries the
+   same thing at its foot, which is off-screen on any page worth scrolling. */
+.topbar__user { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.topbar__face { width: 28px; height: 28px; font-size: .68rem; border-radius: 8px; }
+.topbar__who { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.topbar__who-name {
+  font-weight: 600; font-size: .84rem; color: var(--heading);
+  max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .content { padding: 24px; flex: 1; }
 
 .page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -1334,6 +1344,13 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .topbar__title {
   min-width: 0; flex: 0 1 auto;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* On a phone the bar is already full. The name and the role fold away and
+   the initials stay: the question is "which account", and a face answers it
+   in the width of an icon. Tapping it still shows the full name. */
+@media (max-width: 720px) {
+  .topbar__who { display: none; }
 }
 
 /* Two stat tiles still fit a 360px phone and read better than one stretched
