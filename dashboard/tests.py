@@ -2806,6 +2806,88 @@ class ReceiptTests(TestCase):
         self.assertIn(response.status_code, (403, 404))
 
 
+class ClientNameFromWhatsAppTests(TestCase):
+    """A client row reading only "CL-0001" when the name was in the payload.
+
+    WhatsApp sends the sender's profile name with every message, and it has
+    been stored on the message all along. It just never reached the client.
+    """
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.Channel = Channel
+        self.InboundMessage = InboundMessage
+        self.admin = User.objects.create_user(
+            "admin_cn", password="x", role=Role.ADMIN
+        )
+        self.ops = User.objects.create_user(
+            "ops_cn", password="x", role=Role.OPERATION
+        )
+
+    def _arrives(self, phone="+201143890607", name="Kerolos", body="اهلا"):
+        return services.ingest_message(
+            channel=self.Channel.WHATSAPP, body=body,
+            sender_identity=phone, sender_display=name,
+        )
+
+    def test_a_new_client_is_named_from_their_profile(self):
+        message = self._arrives()
+        self.assertEqual(message.client.name, "Kerolos")
+
+    def test_a_message_with_no_profile_name_still_works(self):
+        message = self._arrives(name="")
+        self.assertEqual(message.client.name, "")
+        self.assertTrue(message.client.code)
+
+    def test_a_client_who_wrote_before_gets_the_name_next_time(self):
+        blank = Client.objects.create(name="", phone="+201143890607")
+        self._arrives()
+        blank.refresh_from_db()
+        self.assertEqual(blank.name, "Kerolos")
+
+    def test_a_name_somebody_typed_is_never_overwritten(self):
+        """A typed name is a decision. A profile name is whatever they set
+        on their phone this morning, and the decision wins."""
+        theirs = Client.objects.create(name="ACME Legal", phone="+201143890607")
+        self._arrives(name="kiko")
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.name, "ACME Legal")
+
+    def test_filling_the_field_does_not_widen_who_may_read_it(self):
+        message = self._arrives()
+        self.assertIn("Kerolos", message.client.label_for(self.admin))
+        self.assertEqual(message.client.label_for(self.ops), message.client.code)
+
+    def test_the_backfill_fills_the_ones_already_there(self):
+        from django.core.management import call_command
+
+        client = Client.objects.create(name="", phone="+201143890607")
+        self.InboundMessage.objects.create(
+            client=client, channel=self.Channel.WHATSAPP, body="hi",
+            sender_identity="+201143890607", sender_display="Kerolos",
+        )
+        call_command("backfill_client_names", dry_run=True)
+        client.refresh_from_db()
+        self.assertEqual(client.name, "")
+
+        call_command("backfill_client_names")
+        client.refresh_from_db()
+        self.assertEqual(client.name, "Kerolos")
+
+    def test_the_backfill_leaves_a_typed_name_alone(self):
+        from django.core.management import call_command
+
+        client = Client.objects.create(name="ACME Legal", phone="+201143890607")
+        self.InboundMessage.objects.create(
+            client=client, channel=self.Channel.WHATSAPP, body="hi",
+            sender_identity="+201143890607", sender_display="Kerolos",
+        )
+        call_command("backfill_client_names")
+        client.refresh_from_db()
+        self.assertEqual(client.name, "ACME Legal")
+
+
 class StaffChatTests(TestCase):
     """A line between two employees, and a page that changes with the role.
 

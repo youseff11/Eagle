@@ -72,8 +72,19 @@ def detect_rate_keyword(text):
     return ""
 
 
-def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True):
-    """Map an incoming identity onto a client, creating a coded stub if needed."""
+def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True,
+                   display_name=""):
+    """Map an incoming identity onto a client, creating a coded stub if needed.
+
+    ``display_name`` is the name the sender's own account carries - the
+    WhatsApp profile name, or the display part of an e-mail address. It is
+    used as the client's name when there is nothing better, which beats a
+    row that reads only "CL-0001" on the one screen allowed to show a name.
+
+    It never overwrites a name already there. Whatever an admin typed is a
+    decision; a profile name is whatever the person set on their phone, and
+    it changes whenever they feel like it.
+    """
     client = None
     if phone:
         digits = "".join(ch for ch in phone if ch.isdigit())
@@ -81,9 +92,19 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True):
             client = Client.objects.filter(phone__endswith=digits[-9:]).first()
     if client is None and email:
         client = Client.objects.filter(email__iexact=email).first()
-    if client is None and auto_create:
+
+    display_name = (display_name or "").strip()[:120]
+    if client is not None:
+        # A client from before this, or one created by a message that carried
+        # no profile name, gets the name filled in the first time one arrives.
+        if display_name and not client.name:
+            client.name = display_name
+            client.save(update_fields=["name"])
+        return client
+
+    if auto_create:
         client = Client.objects.create(
-            name="", phone=phone or "", email=email or "",
+            name=display_name, phone=phone or "", email=email or "",
             admin_notes=f"Auto-created from an inbound {channel} message.",
         )
     return client
@@ -110,6 +131,8 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         phone="" if is_email else sender_identity,
         email=sender_identity if is_email else "",
         channel=channel,
+        # The sender's own profile name, straight off the WhatsApp payload.
+        display_name=sender_display,
     )
     keyword = detect_rate_keyword(f"{subject} {body}")
 
