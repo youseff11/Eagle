@@ -192,6 +192,11 @@ urlpatterns = [
         name="api_assign_translator",
     ),
     path("api/tasks/<str:code>/deadline/", api.set_deadline, name="api_set_deadline"),
+    path(
+        "api/tasks/<str:code>/translator-deadline/",
+        api.set_translator_deadline,
+        name="api_set_translator_deadline",
+    ),
     path("api/tasks/<str:code>/ai-check/", api.ai_check, name="api_ai_check"),
     path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
     path("api/integrations/whatsapp/test/", api.whatsapp_test, name="api_whatsapp_test"),

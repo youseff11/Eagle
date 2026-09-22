@@ -1034,9 +1034,24 @@ class Task(models.Model):
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="translator_tasks"
     )
 
+    #: What the client was promised. The operation room's number, and the
+    #: only one that is ever true about the company's word.
     deadline = models.DateTimeField(null=True, blank=True)
     deadline_warned_at = models.DateTimeField(null=True, blank=True)
     deadline_missed_notified = models.BooleanField(default=False)
+
+    #: What the translator was told, set by the team leader when they hand
+    #: the job over. Earlier than the client's, by however much review time
+    #: the leader wants to keep: a job due to the client on Thursday can be
+    #: due from the translator on Wednesday, and the day in between is the
+    #: review. Empty means "the same as the client's".
+    #:
+    #: Kept as its own column rather than as a subtraction, because the two
+    #: are different promises made to different people, and they need their
+    #: own countdowns - see ``deadline_for``.
+    translator_deadline = models.DateTimeField(null=True, blank=True)
+    translator_warned_at = models.DateTimeField(null=True, blank=True)
+    translator_missed_notified = models.BooleanField(default=False)
 
     #: The team leader's mark out of ten, set when they finish reviewing.
     #: Null means "not marked", which is not a zero - an unscored task must
@@ -1113,13 +1128,36 @@ class Task(models.Model):
         stamp = self.translated_at or self.delivered_at
         return timezone.localtime(stamp).date() if stamp else None
 
-    def deadline_state(self):
-        if not self.deadline:
+    @property
+    def translator_due(self):
+        """The date the translator is working to, whoever is asking.
+
+        Not the same question as :meth:`deadline_for` - this one is about
+        the task, that one is about the reader.
+        """
+        return self.translator_deadline or self.deadline
+
+    def deadline_for(self, user):
+        """The deadline that governs this person.
+
+        A translator is shown theirs and only theirs. The leader shortens
+        it in order to keep review time, and that time only exists as long
+        as the translator does not know it is there - tell them the client
+        has another day and the day is spent. Everyone else sees what the
+        client was promised, because that is the promise they answer for.
+        """
+        if getattr(user, "is_translator", False):
+            return self.translator_due
+        return self.deadline
+
+    def deadline_state(self, user=None):
+        """``none``/``ok``/``soon``/``late``/``done`` for this person's date."""
+        due = self.deadline_for(user) if user is not None else self.deadline
+        if not due:
             return "none"
-        now = timezone.now()
         if self.status in (TaskStatus.DELIVERED, TaskStatus.CANCELLED):
             return "done"
-        remaining = (self.deadline - now).total_seconds()
+        remaining = (due - timezone.now()).total_seconds()
         if remaining < 0:
             return "late"
         if remaining <= AppSettings.load().deadline_warning_minutes * 60:

@@ -9,11 +9,25 @@
   {% status_badge task.status %}
   {% priority_badge task.priority %}
   <div class="grow"></div>
-  <span class="row row--tight mono deadline--{{ task.deadline_state }}">
+  {% comment %}
+  Whose deadline this is depends on who is reading. A translator sees the
+  one their team leader handed them and never the client's - the gap
+  between the two is the leader's review time, and it only exists while
+  the translator does not know it is there.
+  {% endcomment %}
+  {% with due=task|deadline_for:user %}
+  <span class="row row--tight mono deadline--{{ task|deadline_state_for:user }}">
     {% icon "clock" "ic--sm" %}
-    {% if task.deadline %}{{ task.deadline|date:"Y-m-d H:i" }}
+    {% if due %}{{ due|date:"Y-m-d H:i" }}
     {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
   </span>
+  {% endwith %}
+  {% if not user.is_translator and task.translator_deadline %}
+    <span class="chip chip--sm" data-ar-title="الديدلاين اللي المترجم شايفه"
+          data-en-title="What the translator was given">
+      {% icon "pen" "ic--sm" %}<span class="mono">{{ task.translator_deadline|date:"m-d H:i" }}</span>
+    </span>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-bottom:14px">
@@ -445,11 +459,53 @@
               {% endfor %}
             </select>
           </div>
+          {% comment %}
+          The leader's own deadline for the translator. Shorter than the
+          client's on purpose: the difference is the time the leader keeps
+          to review the work before it goes out. Left empty it is the
+          client's date, which is what every task did before this existed.
+          {% endcomment %}
+          <div class="field" id="translatorDeadline">
+            <label data-ar="الديدلاين اللي هتديه للمترجم"
+                   data-en="The deadline you are giving the translator">
+              الديدلاين اللي هتديه للمترجم</label>
+            {% deadline_boxes task.translator_deadline "tdeadline" %}
+            <small class="muted"
+                   data-ar="شيل لنفسك وقت للمراجعة. سيبها فاضية يعني نفس ديدلاين العميل — ومش هيفضلّك وقت تراجع."
+                   data-en="Keep yourself some review time. Leave it empty and it is the client's own date, which leaves you none.">
+              شيل لنفسك وقت للمراجعة. سيبها فاضية يعني نفس ديدلاين العميل — ومش هيفضلّك وقت تراجع.
+            </small>
+            {% if task.deadline %}
+              <small class="muted mono"
+                     data-ar-title="ديدلاين العميل" data-en-title="The client's deadline">
+                {% icon "clock" "ic--sm" %}{{ task.deadline|date:"Y-m-d H:i" }}
+              </small>
+            {% endif %}
+          </div>
           <button class="btn btn--primary btn--block" type="button"
                   data-action="{% url 'dashboard:api_assign_translator' task.code %}"
-                  data-field="translatorSelect">
+                  data-field="translatorSelect" data-extra="translatorDeadline">
             {% icon "send" "ic--sm" %}<span data-ar="ابعتها للمترجم" data-en="Send to translator">ابعتها للمترجم</span>
           </button>
+        {% endif %}
+
+        {% if task.translator_id %}
+          {% comment %}
+          Changing it afterwards. Without this the leader gets one shot at
+          the moment of handing over, and a mistake there is permanent.
+          {% endcomment %}
+          <form class="mt" method="post"
+                action="{% url 'dashboard:api_set_translator_deadline' task.code %}"
+                onsubmit="event.preventDefault();Eagle.post(this.action,new FormData(this)).then(function(r){if(r.ok){location.reload();}else{Eagle.toast({level:'danger',title:r.error||''});}});">
+            {% csrf_token %}
+            <label class="label" data-ar="ديدلاين المترجم" data-en="The translator's deadline">
+              ديدلاين المترجم</label>
+            {% deadline_boxes task.translator_deadline "tdeadline" "edit_" %}
+            <button class="btn btn--block btn--sm mt" type="submit"
+                    data-ar="حفظ ديدلاين المترجم" data-en="Save the translator's deadline">
+              حفظ ديدلاين المترجم
+            </button>
+          </form>
         {% endif %}
 
         {% if task.status == 'under_review' %}

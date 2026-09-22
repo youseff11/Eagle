@@ -27,11 +27,17 @@
               {% status_badge task.status %}
               {% priority_badge task.priority %}
             </div>
-            <span class="row row--tight mono deadline--{{ task.deadline_state }}">
+            {% comment %}
+            The translator's own date, which their team leader set and which
+            is often earlier than the client's. Never the client's.
+            {% endcomment %}
+            {% with due=task|deadline_for:user %}
+            <span class="row row--tight mono deadline--{{ task|deadline_state_for:user }}">
               {% icon "clock" "ic--sm" %}
-              {% if task.deadline %}{{ task.deadline|date:"Y-m-d H:i" }}
+              {% if due %}{{ due|date:"Y-m-d H:i" }}
               {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
             </span>
+            {% endwith %}
           </div>
           <div>{{ task.title }}</div>
           <small class="muted mono">

@@ -484,6 +484,18 @@ window.Eagle = (function () {
         var field = document.getElementById(fieldId);
         if (field) { payload[el.getAttribute("data-field-name") || "user"] = field.value; }
       }
+      // Everything named inside this element rides along - for the buttons
+      // that carry more than one value, like the hand-off that also sets
+      // the translator's deadline.
+      var extraId = el.getAttribute("data-extra");
+      if (extraId) {
+        var extra = document.getElementById(extraId);
+        if (extra) {
+          $$("input[name], select[name], textarea[name]", extra).forEach(function (input) {
+            payload[input.name] = input.value;
+          });
+        }
+      }
       post(url, payload).then(function (res) {
         el.disabled = false;
         if (res.ok) {

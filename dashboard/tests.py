@@ -5224,3 +5224,281 @@ class NavTests(TestCase):
             self.assertIn(f'href="{url}"', html)
         # ...and not as full rows in the nav any more.
         self.assertNotIn("سياسة الخصوصية", html)
+
+
+class TranslatorDeadlineTests(TestCase):
+    """A task has two deadlines, and the translator only ever sees one.
+
+    Before 23/09/2026 there was one date on a task: the client's. A team
+    leader handing a job to a translator had to hand over the client's own
+    date, which left the leader no time at all to review before it went
+    out. Now the leader sets a second, earlier one, and the gap between
+    them is the review.
+
+    The translator is told theirs and only theirs. That is the whole
+    mechanism: a translator who can see the client has another day will
+    spend it, and the review time the leader kept back disappears.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_dd", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_dd", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_dd", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000055")
+        self.client_due = timezone.now() + timedelta(days=3)
+
+    def _task(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            deadline=self.client_due,
+        )
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        task.refresh_from_db()
+        return task
+
+    def _hand_over(self, task, days=2):
+        self.client.force_login(self.lead)
+        return self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
+            "user": self.tr.pk, "tdeadline_days": str(days),
+        })
+
+    # -- the two dates ----------------------------------------------------
+
+    def test_the_leader_hands_over_a_shorter_one(self):
+        task = self._task()
+        self.assertEqual(self._hand_over(task, days=2).status_code, 200)
+
+        task.refresh_from_db()
+        self.assertEqual(task.deadline, self.client_due)
+        self.assertLess(task.translator_deadline, task.deadline)
+        self.assertEqual(task.deadline_for(self.tr), task.translator_deadline)
+        self.assertEqual(task.deadline_for(self.lead), self.client_due)
+        self.assertEqual(task.deadline_for(self.ops), self.client_due)
+
+    def test_no_deadline_given_means_the_clients_own(self):
+        task = self._task()
+        self.client.force_login(self.lead)
+        self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
+            "user": self.tr.pk, "tdeadline_days": "", "tdeadline_hours": "",
+            "tdeadline_minutes": "",
+        })
+        task.refresh_from_db()
+        self.assertIsNone(task.translator_deadline)
+        self.assertEqual(task.deadline_for(self.tr), self.client_due)
+
+    def test_the_leader_cannot_give_more_time_than_the_client_gave(self):
+        task = self._task()
+        response = self._hand_over(task, days=9)
+        self.assertEqual(response.status_code, 400)
+        task.refresh_from_db()
+        self.assertIsNone(task.translator_deadline)
+        # ...and the job did not go out on a promise nobody can keep.
+        self.assertIsNone(task.translator_id)
+
+    def test_the_leader_can_change_it_afterwards(self):
+        task = self._task()
+        self._hand_over(task, days=2)
+        self.client.force_login(self.lead)
+        response = self.client.post(
+            f"/api/tasks/{task.code}/translator-deadline/", {"tdeadline_days": "1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        task.refresh_from_db()
+        self.assertLessEqual(
+            abs((task.translator_deadline
+                 - (timezone.now() + timedelta(days=1))).total_seconds()), 120
+        )
+
+    def test_another_leader_cannot_touch_it(self):
+        other = User.objects.create_user("lead_dd2", password="x", role=Role.TEAM_LEAD)
+        task = self._task()
+        self._hand_over(task, days=2)
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/tasks/{task.code}/translator-deadline/", {"tdeadline_days": "1"}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_shortening_the_clients_date_pulls_the_translators_with_it(self):
+        """The operation room can move the client's date after the job is
+        out. Leaving the translator on the later one would mean the person
+        doing the work is the only one who was not told."""
+        task = self._task()
+        self._hand_over(task, days=2)
+        self.client.force_login(self.ops)
+        self.client.post(f"/api/tasks/{task.code}/deadline/", {"deadline_hours": "6"})
+
+        task.refresh_from_db()
+        self.assertEqual(task.translator_deadline, task.deadline)
+
+    def test_lengthening_the_clients_date_leaves_the_translator_alone(self):
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        theirs = task.translator_deadline
+
+        self.client.force_login(self.ops)
+        self.client.post(f"/api/tasks/{task.code}/deadline/", {"deadline_days": "8"})
+        task.refresh_from_db()
+        self.assertEqual(task.translator_deadline, theirs)
+
+    # -- what the translator can see --------------------------------------
+
+    def test_the_task_page_never_shows_a_translator_the_clients_date(self):
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+
+        self.client.force_login(self.tr)
+        html = self.client.get(f"/tasks/{task.code}/").content.decode()
+        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M"), html)
+        self.assertNotIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
+
+    def test_the_leader_sees_both(self):
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/tasks/{task.code}/").content.decode()
+        self.assertIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
+        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%m-%d %H:%M"), html)
+
+    def test_the_translators_board_shows_their_own_date(self):
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        services.accept_assignment(
+            task.assignments.order_by("-id").first(), self.tr
+        )
+
+        self.client.force_login(self.tr)
+        html = self.client.get("/translator/").content.decode()
+        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M"), html)
+        self.assertNotIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
+
+    def test_the_hand_over_card_shows_the_translator_their_own_date(self):
+        """The 60-second accept window quotes a deadline. It has to be the
+        one they are being held to."""
+        from .api import _pending_json
+
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        pending = task.assignments.order_by("-id").first()
+
+        theirs = timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M")
+        clients = timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M")
+        self.assertEqual(_pending_json(pending, self.tr)["deadline"], theirs)
+        self.assertEqual(_pending_json(pending, self.lead)["deadline"], clients)
+
+    def test_accepting_tells_the_translator_their_own_date(self):
+        from .models import Notification
+
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)
+
+        clients = timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M")
+        for note in Notification.objects.filter(user=self.tr):
+            self.assertNotIn(clients, note.body_ar)
+            self.assertNotIn(clients, note.body_en)
+
+    # -- the countdowns ---------------------------------------------------
+
+    def test_the_two_countdowns_warn_different_people(self):
+        from .models import AppSettings, Notification
+
+        conf = AppSettings.load()
+        conf.deadline_warning_minutes = 30
+        conf.save(update_fields=["deadline_warning_minutes"])
+
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)
+
+        # Only the translator's date is inside the warning window.
+        task.translator_deadline = timezone.now() + timedelta(minutes=10)
+        task.save(update_fields=["translator_deadline"])
+        Notification.objects.all().delete()
+        services.sweep_deadlines()
+
+        def warned(person):
+            return Notification.objects.filter(
+                user=person, title_en="Deadline approaching"
+            ).exists()
+
+        self.assertTrue(warned(self.tr))
+        self.assertFalse(warned(self.lead))
+        self.assertFalse(warned(self.ops))
+
+        # Now the client's, which is the leader's and the operation's.
+        task.deadline = timezone.now() + timedelta(minutes=10)
+        task.save(update_fields=["deadline"])
+        Notification.objects.all().delete()
+        services.sweep_deadlines()
+        self.assertTrue(warned(self.lead))
+        self.assertTrue(warned(self.ops))
+
+    def test_one_date_warns_the_translator_once(self):
+        """With no deadline of their own the two are the same thing, and
+        the translator must not be told twice."""
+        from .models import AppSettings, Notification
+
+        conf = AppSettings.load()
+        conf.deadline_warning_minutes = 30
+        conf.save(update_fields=["deadline_warning_minutes"])
+
+        task = self._task()
+        self.client.force_login(self.lead)
+        self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
+            "user": self.tr.pk, "tdeadline_days": "",
+        })
+        task.refresh_from_db()
+        services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)
+
+        task.deadline = timezone.now() + timedelta(minutes=10)
+        task.save(update_fields=["deadline"])
+        Notification.objects.all().delete()
+        services.sweep_deadlines()
+        self.assertEqual(
+            Notification.objects.filter(
+                user=self.tr, title_en="Deadline approaching"
+            ).count(), 1
+        )
+
+    # -- and the money ----------------------------------------------------
+
+    def test_the_score_holds_them_to_the_date_they_were_given(self):
+        from . import performance
+
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        # Finished after their own deadline, comfortably before the client's.
+        task.translated_at = task.translator_deadline + timedelta(hours=1)
+        task.save(update_fields=["translated_at"])
+
+        day = timezone.localtime(task.translated_at).date()
+        score = performance.deadlines(self.tr, day, day)
+        self.assertEqual(score["total"], 1)
+        self.assertEqual(score["late"], 1)
+
+    def test_in_time_on_their_own_date_is_in_time(self):
+        from . import performance
+
+        task = self._task()
+        self._hand_over(task, days=2)
+        task.refresh_from_db()
+        task.translated_at = task.translator_deadline - timedelta(hours=1)
+        task.save(update_fields=["translated_at"])
+
+        day = timezone.localtime(task.translated_at).date()
+        score = performance.deadlines(self.tr, day, day)
+        self.assertEqual(score["late"], 0)

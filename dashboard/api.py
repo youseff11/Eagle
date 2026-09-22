@@ -57,6 +57,10 @@ def _notification_json(item):
     }
 
 
+def _stamp(moment):
+    return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M") if moment else ""
+
+
 def _pending_json(assignment, viewer):
     task = assignment.task
     return {
@@ -75,10 +79,9 @@ def _pending_json(assignment, viewer):
         ),
         "open_url": f"/api/assignments/{assignment.id}/files/",
         "priority": task.priority,
-        "deadline": (
-            timezone.localtime(task.deadline).strftime("%Y-%m-%d %H:%M")
-            if task.deadline else ""
-        ),
+        # The date that governs whoever is being asked to take this on: a
+        # translator is shown theirs, never what the client was promised.
+        "deadline": _stamp(task.deadline_for(viewer)),
         "note": assignment.note,
     }
 
@@ -313,8 +316,26 @@ def assign_translator(request, code):
         return JsonResponse({"ok": False, "error": "not_in_your_team"}, status=403)
     if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR):
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
+
+    # The date the leader is handing over with the job. Blank keeps the
+    # client's, which is what happened before they could choose.
+    from django import forms
+
+    from .forms import DeadlineField
+
+    field = DeadlineField(required=False)
+    typed = field.widget.value_from_datadict(request.POST, request.FILES, "tdeadline")
+    try:
+        their_deadline = field.clean(typed)
+    except forms.ValidationError as problem:
+        return JsonResponse({"ok": False, "error": problem.messages[0]}, status=400)
+    problem = services.deadline_problem(task, their_deadline)
+    if problem:
+        return JsonResponse({"ok": False, "error": problem}, status=400)
+
     assignment = services.assign_to_translator(
-        task, translator, user, note=request.POST.get("note", "")[:250]
+        task, translator, user, note=request.POST.get("note", "")[:250],
+        deadline=their_deadline,
     )
     return JsonResponse({"ok": True, "assignment": assignment.id, "status": task.status})
 
@@ -473,15 +494,54 @@ def set_deadline(request, code):
     task.save(update_fields=[
         "deadline", "deadline_warned_at", "deadline_missed_notified", "updated_at"
     ])
-    if task.translator_id:
+
+    # Shortening the client's date can leave the translator on a later one.
+    # Pulling theirs back tells them; otherwise the person doing the work is
+    # the only one who was not told the job moved.
+    pulled = services.cap_translator_deadline(task, request.user)
+
+    if task.translator_id and not pulled:
+        # Their own date, which is not the client's when the leader set one.
+        due = task.translator_due
         services.notify(
             task.translator,
             title_ar="اتحدد ديدلاين جديد",
             title_en="Deadline updated",
-            body_ar=f"ديدلاين {task.code}: {timezone.localtime(parsed):%Y-%m-%d %H:%M}" if parsed else "الديدلاين اتشال.",
-            body_en=f"Deadline for {task.code}: {timezone.localtime(parsed):%Y-%m-%d %H:%M}" if parsed else "Deadline cleared.",
+            body_ar=f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}" if due else "الديدلاين اتشال.",
+            body_en=f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}" if due else "Deadline cleared.",
             level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
         )
+    return JsonResponse({"ok": True})
+
+
+@api_role_required(Role.TEAM_LEAD)
+@require_POST
+def set_translator_deadline(request, code):
+    """The leader's own date for the translator — shorter than the client's.
+
+    The gap between the two is what the leader keeps for review. Blank
+    boxes clear it, and then the translator works to the client's date
+    again, which is what every task did before this existed.
+    """
+    from django import forms
+
+    from .forms import DeadlineField
+
+    task = get_object_or_404(Task, code=code)
+    user = request.user
+    if not user.is_admin_role and task.team_lead_id != user.id:
+        return JsonResponse({"ok": False, "error": "not_your_task"}, status=403)
+
+    field = DeadlineField(required=False)
+    typed = field.widget.value_from_datadict(request.POST, request.FILES, "tdeadline")
+    try:
+        moment = field.clean(typed)
+    except forms.ValidationError as problem:
+        return JsonResponse({"ok": False, "error": problem.messages[0]}, status=400)
+
+    ok, error = services.set_translator_deadline(task, moment, user)
+    if not ok:
+        return JsonResponse({"ok": False, "error": error}, status=400)
     return JsonResponse({"ok": True})
 
 

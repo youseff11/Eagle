@@ -108,9 +108,14 @@ class DeadlineInput(forms.Widget):
     trade worth making.
     """
 
-    def __init__(self, attrs=None, parts=("days", "hours", "minutes")):
+    def __init__(self, attrs=None, parts=("days", "hours", "minutes"), scope=""):
         super().__init__(attrs)
         self.parts = tuple(parts)
+        #: Prefix for the element ids. Two forms on one page can ask for the
+        #: same deadline - the team leader's, once while handing the job
+        #: over and once to change it afterwards - and they post the same
+        #: field names on purpose. Only the ids have to differ.
+        self.scope = scope
 
     def value_from_datadict(self, data, files, name):
         typed = {p: (data.get(f"{name}_{p}") or "").strip() for p in self.parts}
@@ -162,7 +167,8 @@ class DeadlineInput(forms.Widget):
             '<label class="dur__part">'
             f'<input class="input dur__num" type="number" min="0" step="1"'
             f' inputmode="numeric" name="{escape(name)}_{part}"'
-            f' id="id_{escape(name)}_{part}" value="{escape(boxes.get(part, ""))}">'
+            f' id="id_{escape(self.scope)}{escape(name)}_{part}"'
+            f' value="{escape(boxes.get(part, ""))}">'
             f'<span class="dur__unit" data-ar="{escape(ar)}" data-en="{escape(en)}">'
             f'{escape(ar)}</span>'
             "</label>"

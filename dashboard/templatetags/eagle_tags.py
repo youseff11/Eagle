@@ -401,17 +401,20 @@ def get_item(mapping, key):
 # ---------------------------------------------------------------------------
 
 @register.simple_tag
-def deadline_boxes(value=None, name="deadline"):
+def deadline_boxes(value=None, name="deadline", scope=""):
     """The days / hours / minutes boxes, outside a Django form.
 
-    One screen asks for a deadline without a form behind it - the panel on
-    the task page. It borrows the widget rather than hand-rolling the same
+    Some panels ask for a deadline with no form behind them - the ones on
+    the task page. They borrow the widget rather than hand-rolling the same
     three inputs, so the markup, the prefilling and the "blank means leave
     it alone" rule stay in one place.
+
+    ``scope`` prefixes the element ids, for the page that draws the same
+    deadline twice: the field names have to match, the ids must not.
     """
     from ..forms import DeadlineInput
 
-    return DeadlineInput().render(name, value)
+    return DeadlineInput(scope=scope).render(name, value)
 
 
 # ---------------------------------------------------------------------------
@@ -431,3 +434,24 @@ def nav_groups(user, url_name=""):
     if not getattr(user, "is_authenticated", False):
         return []
     return nav.sidebar(user, url_name or "")
+
+
+# ---------------------------------------------------------------------------
+# Deadlines
+# ---------------------------------------------------------------------------
+
+@register.filter
+def deadline_for(task, user):
+    """The deadline this reader works to — see ``Task.deadline_for``.
+
+    A filter and not a plain attribute because the answer depends on who is
+    looking: a translator is shown the date their team leader gave them,
+    never the one the client was promised.
+    """
+    return task.deadline_for(user)
+
+
+@register.filter
+def deadline_state_for(task, user):
+    """``ok`` / ``soon`` / ``late`` / ``done`` for that same date."""
+    return task.deadline_state(user)

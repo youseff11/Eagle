@@ -1404,7 +1404,72 @@ def assign_to_lead(task, lead, by_user, note=""):
 
 
 @transaction.atomic
-def assign_to_translator(task, translator, by_user, note=""):
+def deadline_problem(task, moment):
+    """Why this cannot be the translator's deadline. Empty when it can.
+
+    One rule: never later than what the client was promised. A leader who
+    could hand out a longer date than the company's own would be creating
+    a job that is late before anybody starts it.
+    """
+    if moment is None:
+        return ""
+    if task.deadline and moment > task.deadline:
+        return "ما ينفعش تدي المترجم وقت أطول من ديدلاين العميل."
+    return ""
+
+
+def set_translator_deadline(task, moment, by_user, tell_translator=True):
+    """Set what the translator is working to. ``(ok, error)``.
+
+    ``None`` means "the same as the client's", which is what a task has
+    until somebody says otherwise.
+    """
+    problem = deadline_problem(task, moment)
+    if problem:
+        return False, problem
+
+    task.translator_deadline = moment
+    task.translator_warned_at = None
+    task.translator_missed_notified = False
+    task.save(update_fields=[
+        "translator_deadline", "translator_warned_at",
+        "translator_missed_notified", "updated_at",
+    ])
+
+    if tell_translator and task.translator_id:
+        due = task.translator_due
+        notify(
+            task.translator,
+            title_ar="اتحدد ديدلاين جديد",
+            title_en="Deadline updated",
+            # The translator's own date, never the client's.
+            body_ar=(f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}"
+                     if due else "الديدلاين اتشال."),
+            body_en=(f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}"
+                     if due else "Deadline cleared."),
+            level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
+    log(by_user, "task.translator_deadline", task.code,
+        f"{timezone.localtime(moment):%Y-%m-%d %H:%M}" if moment else "cleared")
+    return True, ""
+
+
+def cap_translator_deadline(task, by_user):
+    """Pull the translator's date back when the client's moves in front of it.
+
+    The operation room can shorten a deadline after the job is already out.
+    Leaving the translator on the old, later date would mean the one person
+    doing the work is the only one who has not been told.
+    """
+    if not task.deadline or not task.translator_deadline:
+        return False
+    if task.translator_deadline <= task.deadline:
+        return False
+    set_translator_deadline(task, task.deadline, by_user)
+    return True
+
+
+def assign_to_translator(task, translator, by_user, note="", deadline=None):
     conf = AppSettings.load()
     _cancel_pending(task)
     now = timezone.now()
@@ -1418,7 +1483,16 @@ def assign_to_translator(task, translator, by_user, note=""):
     task.translator = translator
     task.status = TaskStatus.AWAITING_TRANSLATOR
     task.translator_accepted_at = None
-    task.save(update_fields=["translator", "status", "translator_accepted_at", "updated_at"])
+    # The date the leader is giving them, which is theirs alone. Blank keeps
+    # whatever was there, and nothing there means the client's own date.
+    if deadline is not None:
+        task.translator_deadline = deadline
+        task.translator_warned_at = None
+        task.translator_missed_notified = False
+    task.save(update_fields=[
+        "translator", "status", "translator_accepted_at", "translator_deadline",
+        "translator_warned_at", "translator_missed_notified", "updated_at",
+    ])
 
     notify(
         translator,
@@ -1495,13 +1569,16 @@ def accept_assignment(assignment, user):
                 body_en=f"{user.short_name} accepted {task.code}.",
                 level="success", url=f"/tasks/{task.code}/", task=task,
             )
-        if task.deadline:
+        # Theirs, not the client's: this goes to the translator, and the
+        # review time the leader kept back only exists while it is quiet.
+        due = task.translator_due
+        if due:
             notify(
                 user,
                 title_ar="الديدلاين بتاع التاسك",
                 title_en="Task deadline",
-                body_ar=f"ديدلاين {task.code}: {timezone.localtime(task.deadline):%Y-%m-%d %H:%M}",
-                body_en=f"Deadline for {task.code}: {timezone.localtime(task.deadline):%Y-%m-%d %H:%M}",
+                body_ar=f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}",
+                body_en=f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}",
                 level="info", url=f"/tasks/{task.code}/", task=task,
             )
     log(user, "assignment.accept", task.code)
@@ -2451,12 +2528,47 @@ def sweep_expired_assignments():
     return count
 
 
+def _warn_deadline(task, now, minutes, people):
+    for person, sound in people:
+        notify(
+            person,
+            title_ar="تحذير: الديدلاين قرب",
+            title_en="Deadline approaching",
+            body_ar=f"فاضل {minutes} دقيقة على ديدلاين {task.code}.",
+            body_en=f"{minutes} minutes left before the deadline of {task.code}.",
+            level="warning", url=f"/tasks/{task.code}/", sound=sound, task=task,
+        )
+
+
+def _missed_deadline(task, people):
+    for person in people:
+        notify(
+            person,
+            title_ar="الديدلاين فات",
+            title_en="Deadline missed",
+            body_ar=f"التاسك {task.code} عدت الديدلاين.",
+            body_en=f"Task {task.code} passed its deadline.",
+            level="danger", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
+
+
 def sweep_deadlines():
+    """Two countdowns, because there are two deadlines and two audiences.
+
+    The translator is warned on their own date - the earlier one the leader
+    gave them. The leader and the operation room are warned on the client's.
+    They need separate "already warned" marks: one flag would mean whichever
+    countdown ran first silenced the other.
+
+    A task with no translator deadline of its own has the two fall together,
+    and then only the client's pass runs - so nobody is told twice.
+    """
     conf = AppSettings.load()
     now = timezone.now()
     threshold = now + timedelta(minutes=conf.deadline_warning_minutes)
     warned = 0
 
+    # -- the client's date: the leader and the operation room --------------
     upcoming = Task.objects.filter(
         status__in=ACTIVE_TASK_STATUSES,
         deadline__isnull=False,
@@ -2468,15 +2580,13 @@ def sweep_deadlines():
         task.deadline_warned_at = now
         task.save(update_fields=["deadline_warned_at"])
         minutes = max(1, int((task.deadline - now).total_seconds() // 60))
-        for person, sound in ((task.translator, True), (task.team_lead, False), (task.created_by, False)):
-            notify(
-                person,
-                title_ar="تحذير: الديدلاين قرب",
-                title_en="Deadline approaching",
-                body_ar=f"فاضل {minutes} دقيقة على ديدلاين {task.code}.",
-                body_en=f"{minutes} minutes left before the deadline of {task.code}.",
-                level="warning", url=f"/tasks/{task.code}/", sound=sound, task=task,
-            )
+        people = [(task.team_lead, False), (task.created_by, False)]
+        # Only when the two dates are the same thing: otherwise the
+        # translator gets their own warning from the pass below, on their
+        # own date, and this one would hand them the client's.
+        if not task.translator_deadline:
+            people.insert(0, (task.translator, True))
+        _warn_deadline(task, now, minutes, people)
         warned += 1
 
     late = Task.objects.filter(
@@ -2488,15 +2598,39 @@ def sweep_deadlines():
     for task in late:
         task.deadline_missed_notified = True
         task.save(update_fields=["deadline_missed_notified"])
-        for person in (task.translator, task.team_lead, task.created_by):
-            notify(
-                person,
-                title_ar="الديدلاين فات",
-                title_en="Deadline missed",
-                body_ar=f"التاسك {task.code} عدت الديدلاين.",
-                body_en=f"Task {task.code} passed its deadline.",
-                level="danger", url=f"/tasks/{task.code}/", sound=True, task=task,
-            )
+        people = [task.team_lead, task.created_by]
+        if not task.translator_deadline:
+            people.insert(0, task.translator)
+        _missed_deadline(task, people)
+
+    # -- the translator's own date, which only they hear about -------------
+    theirs = Task.objects.filter(
+        status__in=ACTIVE_TASK_STATUSES,
+        translator__isnull=False,
+        translator_deadline__isnull=False,
+        translator_deadline__lte=threshold,
+        translator_deadline__gt=now,
+        translator_warned_at__isnull=True,
+    ).select_related("translator")
+    for task in theirs:
+        task.translator_warned_at = now
+        task.save(update_fields=["translator_warned_at"])
+        minutes = max(1, int((task.translator_deadline - now).total_seconds() // 60))
+        _warn_deadline(task, now, minutes, [(task.translator, True)])
+        warned += 1
+
+    theirs_late = Task.objects.filter(
+        status__in=ACTIVE_TASK_STATUSES,
+        translator__isnull=False,
+        translator_deadline__isnull=False,
+        translator_deadline__lt=now,
+        translator_missed_notified=False,
+    ).select_related("translator")
+    for task in theirs_late:
+        task.translator_missed_notified = True
+        task.save(update_fields=["translator_missed_notified"])
+        _missed_deadline(task, [task.translator])
+
     return warned
 
 

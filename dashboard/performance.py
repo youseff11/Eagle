@@ -85,14 +85,21 @@ def deadlines(person, first_day, last_day):
     Measured on ``translated_at`` against the deadline, because that is the
     moment the translator's part ended - holding them to a delivery the
     operations side made two days later would be measuring somebody else.
+
+    And against *their* deadline - the one the team leader handed them -
+    rather than the client's. The leader keeps the difference back for
+    review, and marking somebody late against a date nobody ever told them
+    about is scoring them on a secret.
     """
+    from django.db.models.functions import Coalesce
+
     rows = Task.objects.filter(
         translator=person, translated_at__date__range=(first_day, last_day)
-    ).exclude(deadline=None)
+    ).annotate(due=Coalesce("translator_deadline", "deadline")).exclude(due=None)
     total = rows.count()
     if not total:
         return {"score": None, "total": 0, "late": 0, "reason": "no dated jobs"}
-    late = sum(1 for task in rows if task.translated_at > task.deadline)
+    late = sum(1 for task in rows if task.translated_at > task.due)
     return {
         "score": _pct((total - late) / total * 100),
         "total": total,
