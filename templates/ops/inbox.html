@@ -6,7 +6,26 @@
 {% block content %}
 <div class="page-head">
   <h1 data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</h1>
-  <span class="badge badge--new mono">{{ unclaimed_count }}</span>
+  {% comment %}
+  Two numbers, because they answer two questions. The first is the one in the
+  sidebar — conversations you have not opened — and it goes down as you read.
+  The second does not move until somebody presses «استلمت», and it is the one
+  that matters on the day everybody has read the mailbox and nobody has
+  picked anything up.
+  {% endcomment %}
+  {% if unseen_count %}
+    <span class="badge badge--new mono"
+          data-ar-title="محادثات لسه مفتحتهاش"
+          data-en-title="Conversations you have not opened">{{ unseen_count }}</span>
+  {% endif %}
+  {% if unclaimed_count %}
+    <span class="badge badge--wait"
+          data-ar-title="محادثات محدش استلمها"
+          data-en-title="Conversations nobody has claimed">
+      {% icon "user" "ic--sm" %}<span class="mono">{{ unclaimed_count }}</span>
+      <span data-ar="محدش استلمها" data-en="unclaimed">محدش استلمها</span>
+    </span>
+  {% endif %}
   <span class="badge badge--ok" id="liveBadge" title="live">
     <i class="badge__dot"></i><span data-ar="مباشر" data-en="Live">مباشر</span>
   </span>

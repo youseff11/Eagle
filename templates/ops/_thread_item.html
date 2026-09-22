@@ -3,7 +3,8 @@ One conversation in the mail list — Gmail's row: who wrote last, how many
 letters, the subject the client first wrote, and the newest letter's first
 line. Rendered by the page loop AND by the live feed, so it stands on its own:
 no context beyond `thread`, `back_qs` and `user`.
-Unread means some letter in it has not been claimed yet.
+Unread means some letter in it is one you have not opened. Whether anyone has
+taken it is a separate thing, and the tags below say so either way.
 {% endcomment %}{% with last=thread.latest %}
 <article class="mail mail--thread {% if thread.is_unread %}is-unread{% endif %}{% if thread.is_blocked %} is-blocked{% endif %}"
          data-thread="{{ thread.key }}">
@@ -50,8 +51,20 @@ Unread means some letter in it has not been claimed yet.
         {% if thread.attachment_count %}
           <span class="chip chip--sm">{% icon "paperclip" "ic--sm" %}{{ thread.attachment_count }}</span>
         {% endif %}
+        {% comment %}
+        Reading it is not taking it. Now that the badge clears the moment you
+        open a conversation, this chip is the only thing left saying "still
+        nobody's job" — so it belongs on the row, not only behind the filter.
+        Not shown once somebody has answered: a reply is someone handling it,
+        whether or not they pressed the button.
+        {% endcomment %}
         {% for name in thread.claimers %}
           <span class="chip chip--sm">{% icon "user-check" "ic--sm" %}{{ name }}</span>
+        {% empty %}
+          {% if not thread.answered %}
+            <span class="chip chip--sm chip--open">{% icon "user" "ic--sm" %}<span
+              data-ar="محدش استلمها" data-en="Nobody claimed it">محدش استلمها</span></span>
+          {% endif %}
         {% endfor %}
       </span>
     </span>

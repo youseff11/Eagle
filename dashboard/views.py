@@ -233,8 +233,10 @@ def ops_inbox(request):
         "back_qs": services.inbox_filter_qs(state, query),
         "state": state,
         "query": query,
-        # Conversations waiting, like Gmail's unread count — the same number
-        # the sidebar badge shows.
+        # Two different questions, so two different numbers. "Anything I have
+        # not opened" is the badge in the sidebar, and it empties as you read.
+        # "Nobody has taken this yet" does not, and should not.
+        "unseen_count": services.unseen_conversation_count(user),
         "unclaimed_count": services.unclaimed_conversation_count(),
         "blocked_count": mails.filter(is_rate_blocked=True).count(),
         # "IMAP is filled in" and "mail is arriving" are different claims, and
@@ -254,8 +256,10 @@ def ops_mail_thread(request, pk):
     Any letter's id opens the conversation it belongs to, so a notification
     that points at the newest letter lands on the whole exchange. The older
     letters start folded; the newest one, and the one the link named, start
-    open. (Not "every unclaimed one": here unread means *unclaimed*, which a
-    busy conversation mostly is, and the page would open fully unfolded.)
+    open. (Not "every unread one": a conversation you are opening for the
+    first time is unread all through, and the page would unfold entirely.)
+
+    Arriving here is reading it, so the badge drops from this line on.
     """
     user = request.user
     anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
@@ -265,6 +269,12 @@ def ops_mail_thread(request, pk):
     letters = services.thread_messages(user, anchor)
     if not letters:
         raise Http404
+
+    # Marked read now; which ones were new is remembered for this one render,
+    # so the reader can still see what they had not seen before they clicked.
+    fresh = services.mark_letters_seen(user, letters)
+    for letter in letters:
+        letter.is_unseen = letter.pk in fresh
     thread = services.MailThread(
         anchor.thread_key or f"m{anchor.pk}", letters,
         services.thread_replies(anchor.thread_key),

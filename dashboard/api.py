@@ -116,8 +116,9 @@ def heartbeat(request):
         data["counters"] = {
             # The sidebar badge counts what its page shows, and that page is
             # e-mail conversations now. WhatsApp has its own unread marks in
-            # the chat list.
-            "inbox": services.unclaimed_conversation_count(),
+            # the chat list. Unopened, not unclaimed: a badge that ignores
+            # your own reading is a badge you stop looking at.
+            "inbox": services.unseen_conversation_count(user),
             "new_tasks": Task.objects.filter(status=TaskStatus.NEW).count(),
             "ready": Task.objects.filter(status=TaskStatus.REVIEWED).count(),
         }
@@ -513,6 +514,10 @@ def mail_thread_feed(request, pk):
     ``after`` is the newest client letter on screen, ``after_out`` our newest
     reply. Keeps an open conversation current: the client's next letter — or a
     colleague's reply — lands at the bottom of the page somebody is reading.
+
+    A letter that arrives while you are on the page counts as read — you are
+    looking at it — so the badge does not light up behind you. It still comes
+    in marked new, because it is.
     """
     from django.template.loader import render_to_string
 
@@ -521,6 +526,14 @@ def mail_thread_feed(request, pk):
         raise Http404
     after = _int(request.GET.get("after"), 0)
     after_out = _int(request.GET.get("after_out"), 0)
+
+    arrived = [
+        row for row in services.thread_messages(request.user, anchor)
+        if row.pk > after
+    ]
+    fresh = services.mark_letters_seen(request.user, arrived)
+    for row in arrived:
+        row.is_unseen = row.pk in fresh
 
     items = [
         {
@@ -532,8 +545,7 @@ def mail_thread_feed(request, pk):
                 request=request,
             ),
         }
-        for row in services.thread_messages(request.user, anchor)
-        if row.pk > after
+        for row in arrived
     ]
     items += [
         {

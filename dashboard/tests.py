@@ -4652,3 +4652,128 @@ class MailPushTests(TestCase):
             mailbox.watch(on_mail=lambda: fetched.append(1), stop=stop, log=lambda _m: None)
         # Once on connecting (catch-up), once for the push.
         self.assertEqual(len(fetched), 2)
+
+
+class MailSeenTests(TestCase):
+    """Opening a letter counts as reading it.
+
+    Until 22/09/2026 the mail badge counted conversations nobody had
+    *claimed*. You could read the whole mailbox and the number would not
+    move, because reading was not the question it was asking. It asks the
+    right one now, per person — and the inbox still says, separately, what
+    nobody has taken.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_seen", password="x", role=Role.OPERATION)
+        self.mate = User.objects.create_user("ops_seen2", password="x", role=Role.OPERATION)
+        Client.objects.create(name="ALHAMD", email="info@alhamd.ae")
+
+    def _mail(self, subject, body="hello"):
+        return services.ingest_message(
+            channel="email", subject=subject, body=body,
+            sender_identity="info@alhamd.ae",
+        )
+
+    def test_opening_a_conversation_drops_the_badge(self):
+        self._mail("Legal Arabic Translation", "the job")
+        second = self._mail("Re: Legal Arabic Translation", "please share")
+        self._mail("Bilingual - Yashba", "another job")
+        self.assertEqual(services.unseen_conversation_count(self.ops), 2)
+
+        self.client.force_login(self.ops)
+        # Any letter opens the whole conversation, and reads all of it.
+        self.assertEqual(
+            self.client.get(f"/ops/inbox/thread/{second.pk}/").status_code, 200
+        )
+        self.assertEqual(services.unseen_conversation_count(self.ops), 1)
+
+    def test_reading_it_is_not_claiming_it(self):
+        letter = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+
+        letter.refresh_from_db()
+        self.assertIsNone(letter.claimed_by_id)
+        # The badge is quiet; the queue is not.
+        self.assertEqual(services.unseen_conversation_count(self.ops), 0)
+        self.assertEqual(services.unclaimed_conversation_count(), 1)
+
+    def test_a_colleague_reading_it_does_not_clear_your_badge(self):
+        letter = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.mate)
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+
+        self.assertEqual(services.unseen_conversation_count(self.mate), 0)
+        self.assertEqual(services.unseen_conversation_count(self.ops), 1)
+
+    def test_a_new_letter_in_a_read_conversation_lights_it_again(self):
+        first = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{first.pk}/")
+        self.assertEqual(services.unseen_conversation_count(self.ops), 0)
+
+        self._mail("Re: Legal Arabic Translation", "any news?")
+        self.assertEqual(services.unseen_conversation_count(self.ops), 1)
+
+    def test_the_heartbeat_counter_follows_the_reader(self):
+        letter = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.assertEqual(
+            self.client.get("/api/heartbeat/").json()["counters"]["inbox"], 1
+        )
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        self.assertEqual(
+            self.client.get("/api/heartbeat/").json()["counters"]["inbox"], 0
+        )
+
+    def test_the_list_stops_bolding_what_you_have_read(self):
+        letter = self._mail("Legal Arabic Translation", "the job")
+        [thread] = services.inbox_threads(self.ops)
+        self.assertTrue(thread.is_unread)
+
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        [thread] = services.inbox_threads(self.ops)
+        self.assertFalse(thread.is_unread)
+        # Still nobody's job, and the row still says so. Anchored on the chip's
+        # class: those words are also in the filter and in the header badge, so
+        # searching for them would pass whether the chip rendered or not.
+        self.assertTrue(thread.unclaimed)
+        response = self.client.get("/ops/inbox/")
+        self.assertIn("chip--open", response.content.decode())
+
+    def test_reading_twice_writes_one_mark(self):
+        from .models import MailRead
+
+        letter = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        self.assertEqual(MailRead.objects.filter(message=letter).count(), 1)
+
+    def test_the_letters_new_to_you_are_marked_on_the_visit(self):
+        first = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{first.pk}/")
+
+        second = self._mail("Re: Legal Arabic Translation", "any news?")
+        html = self.client.get(f"/ops/inbox/thread/{first.pk}/").content.decode()
+        # The new one carries the unread mark on this visit; the old one does not.
+        new_row = html.index(f'data-message="{second.pk}"')
+        old_row = html.index(f'data-message="{first.pk}"')
+        self.assertIn("is-unread", html[html.rindex("<article", 0, new_row):new_row])
+        self.assertNotIn("is-unread", html[html.rindex("<article", 0, old_row):old_row])
+
+    def test_a_letter_arriving_while_you_watch_does_not_ring_the_badge(self):
+        first = self._mail("Legal Arabic Translation", "the job")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/inbox/thread/{first.pk}/")
+
+        arrival = self._mail("Re: Legal Arabic Translation", "any news?")
+        data = self.client.get(
+            f"/api/inbox/thread/{first.pk}/feed/?after={first.pk}"
+        ).json()
+        self.assertEqual([i["id"] for i in data["items"]], [arrival.pk])
+        self.assertIn("is-unread", data["items"][0]["html"])
+        self.assertEqual(services.unseen_conversation_count(self.ops), 0)

@@ -4,10 +4,11 @@ that page's loop AND by its live feed, so it must stand on its own: no context
 beyond `item`, `user`, and the two switches —
   in_thread  the subject is the page's heading, so the row leaves it out
   open       start unfolded (the newest letter, or the one a link named)
-Unread means nobody has claimed it yet — the same fact the old badge showed,
-worn the way a mailbox wears it.
+Unread means you had not opened this letter before this visit — the view sets
+it while marking them read. Who has claimed it is a different fact and wears
+its own chip further down.
 {% endcomment %}
-<article class="mail {% if not item.claimed_by_id %}is-unread{% endif %}{% if item.is_rate_blocked %} is-blocked{% endif %}{% if in_thread %} mail--letter{% endif %}{% if open %} is-open{% endif %}"
+<article class="mail {% if item.is_unseen %}is-unread{% endif %}{% if item.is_rate_blocked %} is-blocked{% endif %}{% if in_thread %} mail--letter{% endif %}{% if open %} is-open{% endif %}"
          data-message="{{ item.pk }}">
 
   <button class="mail__row" type="button" data-mail-open

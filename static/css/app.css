@@ -567,6 +567,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .mail--ours .mail__from { color: var(--ok); }
 .mail--ours.is-failed { background: var(--danger-soft); }
 .chip--replied { color: var(--ok); border-color: var(--ok-soft); background: var(--ok-soft); }
+/* Nobody has taken this conversation yet. Warm rather than alarming: it is
+   the ordinary state of a new letter. It has to carry on showing after the
+   row goes read, because that is the moment the badge stops saying it. */
+.chip--open { color: var(--warn); border-color: var(--warn-soft); background: var(--warn-soft); }
 
 /* The reply box under a conversation. */
 .mail-reply { margin-top: 14px; scroll-margin-top: 76px; }

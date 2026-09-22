@@ -23,6 +23,7 @@ from .models import (
     ChatRoom,
     Client,
     InboundMessage,
+    MailRead,
     Notification,
     OutboundMessage,
     Role,
@@ -290,12 +291,16 @@ class MailThread:
     we sent into it from the conversation page (Gmail's "me").
     """
 
-    def __init__(self, ident, messages, replies=()):
+    def __init__(self, ident, messages, replies=(), seen_ids=()):
         self.key = ident
         self.messages = messages
         self.replies = list(replies)
         self.first = messages[0]
         self.latest = messages[-1]
+        #: Which of these letters the person looking at the list has opened.
+        #: Empty when nobody asked - a conversation nobody claims to have
+        #: read is then simply unread, which is the safe way round.
+        self.seen_ids = set(seen_ids)
 
     @property
     def count(self):
@@ -333,11 +338,23 @@ class MailThread:
 
     @property
     def unclaimed(self):
+        """Letters nobody has taken. Not the same as unread — see below."""
         return [m for m in self.messages if not m.claimed_by_id]
 
     @property
+    def unseen(self):
+        return [m for m in self.messages if m.pk not in self.seen_ids]
+
+    @property
     def is_unread(self):
-        return bool(self.unclaimed)
+        """Bold on the list: something in here *you* have not opened yet.
+
+        It used to mean "nobody claimed it", which never changed when you
+        read the thing — so the badge sat there after you had been through
+        the whole mailbox. Whether anyone has taken it is a separate fact,
+        and the row still says so through ``claimers``.
+        """
+        return bool(self.unseen)
 
     @property
     def is_blocked(self):
@@ -393,8 +410,12 @@ def _build_threads(user, idents):
         ).select_related("created_by").prefetch_related("uploads").order_by("created_at", "id"):
             replies.setdefault(reply.thread_key, []).append(reply)
 
+    # One query for the whole page: which of these letters this person has
+    # already opened. Passed to every thread; each picks out its own.
+    seen = seen_letter_ids(user, [m for rows in grouped.values() for m in rows])
+
     threads = [
-        MailThread(ident, messages, replies.get(ident, ()))
+        MailThread(ident, messages, replies.get(ident, ()), seen)
         for ident, messages in grouped.items()
     ]
     threads.sort(key=lambda t: (t.latest.received_at, t.latest.pk), reverse=True)
@@ -425,17 +446,70 @@ def inbox_threads(user, state="", query="", limit=100, after=0):
     return _build_threads(user, idents)
 
 
-def unclaimed_conversation_count():
-    """What the mail badge counts: conversations with a letter nobody claimed.
+def _conversation_count(waiting):
+    """How many conversations that queryset of letters adds up to.
 
-    Gmail counts unread conversations, not unread letters, and so does this —
-    a client who wrote four times is one thing waiting, not four.
+    Gmail counts conversations, not letters, and so does this — a client who
+    wrote four times is one thing waiting, not four. A letter from before
+    threading existed has no key and is a conversation on its own.
     """
-    waiting = InboundMessage.objects.filter(
-        channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
-    ).order_by()
+    waiting = waiting.order_by()
     keyed = waiting.exclude(thread_key="").values("thread_key").distinct().count()
     return keyed + waiting.filter(thread_key="").count()
+
+
+def unclaimed_conversation_count():
+    """Conversations holding a letter nobody has taken.
+
+    What the mail page says out loud, and what the "محدش استلمها" filter
+    shows. Not the badge: this number stays up until somebody presses
+    "استلمت", which is right for a queue and wrong for a doorbell.
+    """
+    return _conversation_count(InboundMessage.objects.filter(
+        channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
+    ))
+
+
+def unseen_conversation_count(user):
+    """What the sidebar badge counts: conversations this person has not opened.
+
+    Per person, so it answers "is there anything here I have not looked at"
+    rather than "has anyone dealt with this". Opening a conversation drops
+    it; nothing else has to happen.
+    """
+    return _conversation_count(InboundMessage.objects.filter(
+        channel=Channel.EMAIL, is_rate_blocked=False
+    ).exclude(reads__user=user))
+
+
+def seen_letter_ids(user, messages):
+    """The ids, out of ``messages``, this person has already opened."""
+    ids = [m.pk for m in messages]
+    if not ids:
+        return set()
+    return set(
+        MailRead.objects.filter(user=user, message_id__in=ids)
+        .values_list("message_id", flat=True)
+    )
+
+
+def mark_letters_seen(user, messages):
+    """Record that this person opened these letters. Returns the new ones.
+
+    The ids come back so the page can mark what was new *on this visit* —
+    the badge drops either way, but the reader still gets to see which
+    letters they had not read before they clicked in.
+
+    ``ignore_conflicts`` because two tabs on the same conversation are one
+    person reading it once, not a crash.
+    """
+    already = seen_letter_ids(user, messages)
+    fresh = [m for m in messages if m.pk not in already]
+    if fresh:
+        MailRead.objects.bulk_create(
+            [MailRead(user=user, message=m) for m in fresh], ignore_conflicts=True
+        )
+    return {m.pk for m in fresh}
 
 
 def inbox_filter_qs(state="", query=""):

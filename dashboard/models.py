@@ -860,6 +860,11 @@ class InboundMessage(models.Model):
         ordering = ("-received_at",)
         indexes = [models.Index(fields=["is_rate_blocked", "-received_at"])]
 
+    #: Not a column: the reader's own view of this letter, set by the page
+    #: that is about to draw it (see ``services.mark_letters_seen``). False
+    #: by default so a letter drawn from anywhere else is simply not new.
+    is_unseen = False
+
     def __str__(self):
         return f"{self.get_channel_display()} · {self.client_code}"
 
@@ -888,6 +893,36 @@ class InboundMessage(models.Model):
         if self.is_rate_blocked:
             return False
         return user.is_operation
+
+
+class MailRead(models.Model):
+    """One person has opened one letter.
+
+    Read is per person, not per mailbox. The inbox is shared - several people
+    in the operation room look at the same letters - and a shared mailbox
+    where a colleague's reading clears *your* badge is a mailbox where things
+    go quiet: you never see it, so you never answer it.
+
+    Separate from ``claimed_by`` on purpose. Claiming is a decision ("I am
+    taking this one", and the client hears about it). Reading is only that
+    your eyes were on it. The badge counts the second; the list still marks
+    the first, because a letter everyone read and nobody took is exactly the
+    letter that gets dropped.
+    """
+
+    message = models.ForeignKey(
+        InboundMessage, on_delete=models.CASCADE, related_name="reads"
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mail_reads")
+    seen_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["message", "user"], name="uniq_mail_read"),
+        ]
+
+    def __str__(self):
+        return f"{self.user.short_name} · #{self.message_id}"
 
 
 class PlayableFile:
