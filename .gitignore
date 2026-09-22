@@ -41,6 +41,9 @@ env/
 ENV/
 
 # --- Tooling -----------------------------------------------------------------
+# Whatever the fast test run writes (Core/settings_test.py points MEDIA_ROOT
+# here so a test attachment never lands in media/ or on Bunny).
+/.test-media/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

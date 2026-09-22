@@ -40,8 +40,12 @@ Expects: entry (dict from services.client_thread)
       {% endif %}
     {% endfor %}
 
-    {% if entry.actions and can_convert %}
-      {# What the operation does with a client's message, where the message is. #}
+    {% if entry.actions and entry.has_docs and can_convert %}
+      {% comment %}
+      What the operation does with a client's files, where the files are. A
+      message with no document behind it gets no buttons: nothing arrived to
+      confirm, and nothing to build a task out of.
+      {% endcomment %}
       <div class="bub__actions">
         <button class="btn btn--sm btn--accent" type="button"
                 data-action="{% url 'dashboard:api_confirm_message' entry.id %}"

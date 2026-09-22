@@ -853,6 +853,17 @@ class InboundMessage(models.Model):
     def is_claimed(self):
         return self.claimed_by_id is not None
 
+    @property
+    def document_attachments(self):
+        """The attachments that are files to work on, not voice notes.
+
+        The two buttons under a letter — "received" and "convert to task" —
+        both stand for work on a document the client sent, so they are drawn
+        from this list rather than from every attachment. Iterating the
+        prefetched ``attachments`` keeps it to the query the page already ran.
+        """
+        return [a for a in self.attachments.all() if not a.is_audio]
+
     def visible_to(self, user):
         if user.is_admin_role:
             return True

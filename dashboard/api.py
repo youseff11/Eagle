@@ -776,6 +776,9 @@ def _thread_entry_json(entry, viewer):
         "actions": bool(
             entry.get("actions") and (viewer.is_operation or viewer.is_admin_role)
         ),
+        # Drawn only under a message that carries a document — see
+        # ``services.client_thread``.
+        "has_docs": entry.get("has_docs", False),
         "claimed_by": entry.get("claimed_by", ""),
         "has_task": entry.get("has_task", False),
         "body": entry["body"],

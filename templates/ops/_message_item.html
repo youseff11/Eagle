@@ -77,24 +77,32 @@ worn the way a mailbox wears it.
       <div class="muted mono mail__raw">{{ item.sender_identity }} {{ item.sender_display }}</div>
     {% endif %}
 
-    <div class="mail__actions">
-      {% if item.client_id %}
-        <button class="btn btn--sm btn--accent" type="button"
-                data-action="{% url 'dashboard:api_confirm_message' item.pk %}"
-                data-confirm-ar="هيتبعت للعميل رد فيه كلمة confirmed. تمام؟"
-                data-confirm-en="The client will receive a reply saying “confirmed”. Go ahead?">
-          {% icon "check" "ic--sm" %}<span data-ar="استلمت" data-en="Received">استلمت</span>
-        </button>
-      {% endif %}
-      {% if item.claimed_by_id %}
-        <span class="badge badge--ok">
-          {% icon "user-check" "ic--sm" %}
-          <span data-ar="استلمها" data-en="Claimed by">استلمها</span> {{ item.claimed_by.short_name }}
-        </span>
-      {% endif %}
-    </div>
+    {% with docs=item.document_attachments %}
+    {% comment %}
+    Both buttons stand for work on a file the client sent: one confirms the
+    file arrived, the other turns it into a task. A letter carrying only text,
+    or only a voice note, gets neither.
+    {% endcomment %}
+    {% if docs and item.client_id or item.claimed_by_id %}
+      <div class="mail__actions">
+        {% if docs and item.client_id %}
+          <button class="btn btn--sm btn--accent" type="button"
+                  data-action="{% url 'dashboard:api_confirm_message' item.pk %}"
+                  data-confirm-ar="هيتبعت للعميل رد فيه كلمة confirmed. تمام؟"
+                  data-confirm-en="The client will receive a reply saying “confirmed”. Go ahead?">
+            {% icon "check" "ic--sm" %}<span data-ar="استلمت" data-en="Received">استلمت</span>
+          </button>
+        {% endif %}
+        {% if item.claimed_by_id %}
+          <span class="badge badge--ok">
+            {% icon "user-check" "ic--sm" %}
+            <span data-ar="استلمها" data-en="Claimed by">استلمها</span> {{ item.claimed_by.short_name }}
+          </span>
+        {% endif %}
+      </div>
+    {% endif %}
 
-    {% if not item.task_id %}
+    {% if docs and not item.task_id %}
       {# Tick the files that are the job. Nothing ticked = everything. #}
       <form class="mail__convert" method="get" action="{% url 'dashboard:ops_task_new' %}">
         <input type="hidden" name="message" value="{{ item.pk }}">
@@ -117,5 +125,6 @@ worn the way a mailbox wears it.
         </button>
       </form>
     {% endif %}
+    {% endwith %}
   </div>
 </article>

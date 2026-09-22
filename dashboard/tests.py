@@ -2772,6 +2772,100 @@ class ReceiptTests(TestCase):
         self.assertIn(response.status_code, (403, 404))
 
 
+class ActionsFollowTheFilesTests(TestCase):
+    """The two buttons under a message belong to the file, not to the words.
+
+    "Received" tells the client their file arrived, and the task is built out
+    of that same file. A line of text has neither thing behind it, and a voice
+    note is not a document to translate — so both of those get no buttons at
+    all. Before this, the pair sat under every message a client ever sent.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.Channel = Channel
+        self.InboundMessage = InboundMessage
+        self.MessageAttachment = MessageAttachment
+        self.ContentFile = ContentFile
+        self.ops = User.objects.create_user("ops_acts", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(
+            name="ACME", phone="+201000000021", email="acts@example.com"
+        )
+
+    def _message(self, body="", channel=None):
+        return self.InboundMessage.objects.create(
+            client=self.client_obj,
+            channel=channel or self.Channel.WHATSAPP,
+            body=body,
+            sender_identity="+201000000021",
+        )
+
+    def _attach(self, message, name, mime=""):
+        return self.MessageAttachment.objects.create(
+            message=message,
+            file=self.ContentFile(b"x", name=name),
+            original_name=name, size=1, mime=mime,
+        )
+
+    def _entry(self, message):
+        uid = f"in-{message.pk}"
+        return next(
+            entry for entry in services.client_thread(self.client_obj, self.ops)
+            if entry["uid"] == uid
+        )
+
+    def test_a_message_carrying_a_document_keeps_the_buttons(self):
+        message = self._message(body="[document]")
+        self._attach(message, "contract.pdf", "application/pdf")
+        self.assertTrue(self._entry(message)["has_docs"])
+
+    def test_a_message_that_is_only_words_gets_none(self):
+        message = self._message(body="ممكن سعر الترجمة؟")
+        self.assertFalse(self._entry(message)["has_docs"])
+
+    def test_a_voice_note_on_its_own_is_not_a_document(self):
+        """Nothing to translate, so nothing to confirm and nothing to convert."""
+        message = self._message()
+        self._attach(message, "note.ogg", "audio/ogg")
+        self.assertFalse(self._entry(message)["has_docs"])
+        self.assertEqual(message.document_attachments, [])
+
+    def test_a_voice_note_beside_a_document_still_counts(self):
+        message = self._message()
+        self._attach(message, "note.ogg", "audio/ogg")
+        contract = self._attach(message, "contract.pdf", "application/pdf")
+        self.assertTrue(self._entry(message)["has_docs"])
+        self.assertEqual(message.document_attachments, [contract])
+
+    def test_the_chat_draws_one_pair_of_buttons_for_two_messages(self):
+        """One conversation, two messages, one file: one pair of buttons."""
+        self._message(body="ممكن سعر الترجمة؟")
+        with_file = self._message(body="[document]")
+        self._attach(with_file, "contract.pdf", "application/pdf")
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "تحويل لتاسك", count=1)
+
+    def test_a_letter_with_nothing_attached_shows_no_buttons(self):
+        letter = self._message(body="just asking", channel=self.Channel.EMAIL)
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "تحويل لتاسك")
+        self.assertNotContains(response, 'data-ar="استلمت"')
+
+    def test_a_letter_with_a_file_shows_them(self):
+        letter = self._message(body="here it is", channel=self.Channel.EMAIL)
+        self._attach(letter, "contract.pdf", "application/pdf")
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/inbox/thread/{letter.pk}/")
+        self.assertContains(response, "تحويل لتاسك")
+        self.assertContains(response, 'data-ar="استلمت"')
+
+
 class PickedSourceFilesTests(TestCase):
     """Only the files somebody ticked are the job.
 

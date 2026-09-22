@@ -1744,6 +1744,7 @@ def client_thread(client, user, limit=200):
     items = []
 
     for row in _visible_inbound(client, user).order_by("-received_at")[:limit]:
+        files = [_file_json(a) for a in row.attachments.all()]
         items.append({
             "kind": "in",
             "id": row.id,
@@ -1756,13 +1757,18 @@ def client_thread(client, user, limit=200):
             "task_code": row.task.code if row.task_id else "",
             "wamid": row.external_id or "",
             "reply_to": row.reply_to_external or "",
-            "files": [_file_json(a) for a in row.attachments.all()],
+            "files": files,
             # What the two buttons under a client message need: who has it,
             # and whether it is already a task. ``actions`` is what says the
             # entry is a real InboundMessage — a group's bubbles share this
             # shape but stand for relayed room messages, and "convert this to
             # a task" would have nothing to point at.
             "actions": True,
+            # Both buttons stand for work on a file the client sent: one
+            # confirms the file arrived, the other turns it into a task. A
+            # message carrying only text — or only a voice note, which is not
+            # a document to translate — gets neither.
+            "has_docs": any(not f["audio"] for f in files),
             "claimed_by": row.claimed_by.short_name if row.claimed_by_id else "",
             "has_task": bool(row.task_id),
         })

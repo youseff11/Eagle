@@ -116,9 +116,10 @@
       parts.push('<div class="bub__file">' + icon("paperclip", "ic--sm") + label + "</div>");
     });
 
-    // What the operation does with a client's message, where the message is.
+    // What the operation does with a client's files, where the files are.
+    // A message with no document behind it gets no buttons.
     // Mirrors the same block in _client_bubble.html.
-    if (msg.actions) {
+    if (msg.actions && msg.has_docs) {
         var acts = [
           '<button class="btn btn--sm btn--accent" type="button" data-action="' +
             esc(confirmUrl(msg.id)) + '" ' +
