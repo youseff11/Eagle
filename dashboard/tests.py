@@ -5502,3 +5502,179 @@ class TranslatorDeadlineTests(TestCase):
         day = timezone.localtime(task.translated_at).date()
         score = performance.deadlines(self.tr, day, day)
         self.assertEqual(score["late"], 0)
+
+
+class FilesArriveOnHandoffTests(TestCase):
+    """The client's files reach the chat by themselves, at the hand-off.
+
+    Not at the acceptance: the whole point of the sixty-second window is
+    that you can open the documents and *then* decide, instead of accepting
+    blind to stop a countdown.
+
+    Accepting shares them a second time as a safety net. Posting the
+    hand-off is best effort - it is wrapped so that a chat message which
+    refuses to write cannot cost somebody their assignment - and that
+    second attempt is the only thing that ever puts a failed one right.
+    Until 23/09/2026 only the translator's side had it.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_hf", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_hf", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_hf", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000066")
+
+    def _task_with_a_file(self):
+        message = services.ingest_message(
+            channel="whatsapp", body="here is the contract",
+            sender_identity="+201000000066",
+        )
+        from .models import MessageAttachment
+
+        MessageAttachment.objects.create(
+            message=message, file="inbound/contract.docx",
+            original_name="contract.docx", size=1200,
+        )
+        return services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            messages=[message],
+        ), message
+
+    def _files_in(self, one, two):
+        room = services.staff_room(one, two)
+        return list(room.messages.filter(inbound__isnull=False)) if room else []
+
+    # -- the hand-off itself ----------------------------------------------
+
+    def test_the_files_reach_the_lead_before_they_accept(self):
+        task, message = self._task_with_a_file()
+        assignment = services.assign_to_lead(task, self.lead, self.ops)
+
+        shared = self._files_in(self.ops, self.lead)
+        self.assertEqual([m.inbound_id for m in shared], [message.pk])
+        # Still pending: they have the documents and have decided nothing.
+        self.assertEqual(assignment.status, AssignmentStatus.PENDING)
+        # And the window's "open the files" button knows where they are.
+        self.assertIsNotNone(assignment.room_id)
+
+    def test_the_files_reach_the_translator_before_they_accept(self):
+        task, message = self._task_with_a_file()
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        task.refresh_from_db()
+        assignment = services.assign_to_translator(task, self.tr, self.lead)
+
+        shared = self._files_in(self.lead, self.tr)
+        self.assertEqual([m.inbound_id for m in shared], [message.pk])
+        self.assertEqual(assignment.status, AssignmentStatus.PENDING)
+
+    def test_sharing_twice_does_not_post_twice(self):
+        task, _message = self._task_with_a_file()
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        # The hand-off posted them; accepting shares again as a safety net.
+        self.assertEqual(len(self._files_in(self.ops, self.lead)), 1)
+
+    def test_a_failed_hand_off_is_repaired_when_the_lead_accepts(self):
+        """The gap this closes: the hand-off's post is best effort, so a
+        chat that would not write left the leader holding a task with no
+        documents and nothing that would ever fix it."""
+        task, message = self._task_with_a_file()
+        assignment = services.assign_to_lead(task, self.lead, self.ops)
+
+        # Whatever the reason, the files did not make it.
+        room = services.staff_room(self.ops, self.lead)
+        room.messages.filter(inbound__isnull=False).delete()
+        self.assertEqual(self._files_in(self.ops, self.lead), [])
+
+        services.accept_assignment(assignment, self.lead)
+        shared = self._files_in(self.ops, self.lead)
+        self.assertEqual([m.inbound_id for m in shared], [message.pk])
+
+    def test_a_failed_hand_off_is_repaired_when_the_translator_accepts(self):
+        task, message = self._task_with_a_file()
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        task.refresh_from_db()
+        assignment = services.assign_to_translator(task, self.tr, self.lead)
+
+        room = services.staff_room(self.lead, self.tr)
+        room.messages.filter(inbound__isnull=False).delete()
+
+        services.accept_assignment(assignment, self.tr)
+        shared = self._files_in(self.lead, self.tr)
+        self.assertEqual([m.inbound_id for m in shared], [message.pk])
+
+    def test_a_file_that_will_not_write_does_not_cost_the_acceptance(self):
+        """Accepting runs in one transaction. A file row that blew up used
+        to take the acceptance down with it - and the person who pressed
+        the button would be left with a live window and a penalty coming."""
+        from unittest import mock
+
+        task, _message = self._task_with_a_file()
+        assignment = services.assign_to_lead(task, self.lead, self.ops)
+
+        with mock.patch.object(
+            services, "share_source_files", side_effect=RuntimeError("disk")
+        ), self.assertLogs("dashboard", level="ERROR"):
+            ok, _why = services.accept_assignment(assignment, self.lead)
+
+        self.assertTrue(ok)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.LEAD_ACCEPTED)
+
+    # -- the message that was out of date ---------------------------------
+
+    def test_the_operation_is_not_told_to_send_files_that_already_went(self):
+        from .models import Notification
+
+        task, _message = self._task_with_a_file()
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        note = Notification.objects.filter(
+            user=self.ops, title_en="Team leader accepted"
+        ).first()
+        self.assertIsNotNone(note)
+        self.assertNotIn("ابعتله الملفات", note.body_ar)
+        self.assertNotIn("Send the files", note.body_en)
+
+    # -- the hand-off stays whole -----------------------------------------
+
+    def test_a_hand_off_that_breaks_half_way_leaves_nothing_behind(self):
+        """Both hand-offs are one transaction, and have to stay that way.
+
+        They create the assignment row first and move the task after. A
+        failure in between would leave a pending assignment against a task
+        that never changed status - a job nobody can see and nobody can
+        accept, with a sixty-second window already running against them.
+        """
+        from unittest import mock
+
+        task, _message = self._task_with_a_file()
+
+        # To the leader.
+        with mock.patch.object(services, "notify", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                services.assign_to_lead(task, self.lead, self.ops)
+        self.assertEqual(task.assignments.count(), 0)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.NEW)
+
+        # And on to the translator.
+        services.accept_assignment(
+            services.assign_to_lead(task, self.lead, self.ops), self.lead
+        )
+        task.refresh_from_db()
+        before = task.assignments.count()
+        with mock.patch.object(services, "notify", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                services.assign_to_translator(task, self.tr, self.lead)
+        self.assertEqual(task.assignments.count(), before)
+        task.refresh_from_db()
+        self.assertIsNone(task.translator_id)

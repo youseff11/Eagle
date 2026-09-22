@@ -749,6 +749,27 @@ def system_message(room, *, key, body_ar, body_en):
     )
 
 
+def share_files_quietly(task, room):
+    """Put the files in the chat without ever undoing the step that asked.
+
+    ``accept_assignment`` runs as one transaction. A file row that refused
+    to write would roll the acceptance back with it, and the person who had
+    just pressed the button would be left with a window still running and a
+    penalty on its way. The files are the second most important thing in
+    that moment; the acceptance is the first.
+
+    The inner ``atomic`` is what makes catching it safe: without a savepoint
+    a database error poisons the outer transaction, and every query after it
+    fails too - so the "safe" version would be the one that broke.
+    """
+    try:
+        with transaction.atomic():
+            return share_source_files(task, room=room)
+    except Exception:  # noqa: BLE001 - a file must never undo a step
+        logger.exception("could not share the files for %s", task.code)
+        return []
+
+
 def share_source_files(task, room=None):
     """Put the client's original files into a room - the task group by default.
 
@@ -1375,6 +1396,7 @@ def post_handoff(assignment, by_user):
         return None
 
 
+@transaction.atomic
 def assign_to_lead(task, lead, by_user, note=""):
     conf = AppSettings.load()
     _cancel_pending(task)
@@ -1403,7 +1425,6 @@ def assign_to_lead(task, lead, by_user, note=""):
     return assignment
 
 
-@transaction.atomic
 def deadline_problem(task, moment):
     """Why this cannot be the translator's deadline. Empty when it can.
 
@@ -1469,6 +1490,7 @@ def cap_translator_deadline(task, by_user):
     return True
 
 
+@transaction.atomic
 def assign_to_translator(task, translator, by_user, note="", deadline=None):
     conf = AppSettings.load()
     _cancel_pending(task)
@@ -1530,6 +1552,12 @@ def accept_assignment(assignment, user):
         # own chat. No room is opened for the task - talking to the client is
         # the operation's own conversation with them, under "Clients".
         room = assignment.room or task_thread(task, task.created_by, user)
+        # The same safety net the translator's side has always had. The files
+        # went into this chat when the task was handed over, and posting them
+        # is best effort - so if that attempt failed, this is the only thing
+        # that will ever put them right. Sharing is idempotent, so on the
+        # ordinary path it finds them already there and does nothing.
+        share_files_quietly(task, room)
         system_message(
             room, key="lead_accepted",
             body_ar=f"{user.short_name} استلم التاسك.",
@@ -1539,8 +1567,12 @@ def accept_assignment(assignment, user):
             task.created_by,
             title_ar="التيم ليدر استلم التاسك",
             title_en="Team leader accepted",
-            body_ar=f"{user.short_name} أكد استلام {task.code}. ابعتله الملفات في الشات.",
-            body_en=f"{user.short_name} accepted {task.code}. Send the files in the chat.",
+            # It used to say "send them the files in the chat". The files go
+            # by themselves at hand-off, and have done since the hand-off
+            # started posting - so the line was sending the operation off to
+            # do a job that was already done.
+            body_ar=f"{user.short_name} أكد استلام {task.code}. الملفات وصلته في الشات.",
+            body_en=f"{user.short_name} accepted {task.code}. The files are already in their chat.",
             level="success", url=f"/tasks/{task.code}/", task=task,
         )
     else:
@@ -1554,7 +1586,7 @@ def accept_assignment(assignment, user):
         room = assignment.room or task_thread(
             task, task.team_lead or task.created_by, user
         )
-        share_source_files(task, room=room)
+        share_files_quietly(task, room)
         system_message(
             room, key="work_started",
             body_ar=f"{user.short_name} استلم {task.code} وبدأ شغل.",
