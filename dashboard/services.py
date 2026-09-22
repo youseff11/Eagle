@@ -857,8 +857,10 @@ def group_preview(room, user):
 def default_team_group_name(creator, people):
     """What a new work group is called before anybody types a name.
 
-    The shape asked for is "<translator> (<team leader>)", which makes a list
-    of a dozen such groups readable at a glance. So both have to be known:
+    The shape is "مترجم: <translator> · ليدر: <team leader>" - each name
+    labelled, because a title that reads "adam (omar)" leaves you working out
+    which of the two is which every time you scan the list. Both have to be
+    known:
 
     * one translator among the people picked, and
     * a team leader - whoever is opening the group when they are one, and
@@ -882,7 +884,7 @@ def default_team_group_name(creator, people):
         if len(leads) != 1:
             return ""
         lead = leads[0]
-    return f"{translators[0].short_name} ({lead.short_name})"
+    return f"مترجم: {translators[0].short_name} · ليدر: {lead.short_name}"
 
 
 def create_team_group(creator, title="", members=None):

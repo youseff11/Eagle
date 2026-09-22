@@ -676,10 +676,11 @@
 
   /* Mirrors services.default_team_group_name - keep the two in step.
 
-     "<translator> (<team leader>)", so both have to be known: one translator
-     among the people picked, and a team leader - you, if you are one, and
-     otherwise the single leader you picked. That second path is what lets an
-     admin open the group for a pair without losing the name.
+     Each name is labelled, so a list of a dozen of these does not have to be
+     decoded one by one. Both have to be known: one translator among the
+     people picked, and a team leader - you, if you are one, and otherwise
+     the single leader you picked. That second path is what lets an admin
+     open the group for a pair without losing the name.
 
      The server works the same name out when the box is left empty, so this
      is a convenience and never the only place the rule lives. */
@@ -703,7 +704,7 @@
       if (leads.length === 1) { lead = leads[0].dataset.name || ""; }
     }
     teamTitle.value = lead
-      ? translators[0].dataset.name + " (" + lead + ")"
+      ? "مترجم: " + translators[0].dataset.name + " · ليدر: " + lead
       : "";
   }
 

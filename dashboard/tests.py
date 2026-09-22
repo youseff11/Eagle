@@ -3545,7 +3545,8 @@ class TeamGroupTests(TestCase):
 
     def test_a_lead_and_one_translator_name_themselves(self):
         self.assertEqual(
-            services.default_team_group_name(self.lead, [self.tr]), "Tarek (Laila)"
+            services.default_team_group_name(self.lead, [self.tr]),
+            "مترجم: Tarek · ليدر: Laila",
         )
 
     def test_two_translators_get_no_guess(self):
@@ -3562,7 +3563,7 @@ class TeamGroupTests(TestCase):
         """
         self.assertEqual(
             services.default_team_group_name(self.admin, [self.tr, self.lead]),
-            "Tarek (Laila)",
+            "مترجم: Tarek · ليدر: Laila",
         )
 
     def test_with_no_lead_anywhere_there_is_no_guess(self):
@@ -3581,12 +3582,12 @@ class TeamGroupTests(TestCase):
             self.admin, title="", members=[self.tr, self.lead]
         )
         self.assertIsNotNone(room, error)
-        self.assertEqual(room.title, "Tarek (Laila)")
+        self.assertEqual(room.title, "مترجم: Tarek · ليدر: Laila")
 
     def test_an_empty_name_falls_back_to_the_default(self):
         room, error = services.create_team_group(self.lead, title="", members=[self.tr])
         self.assertIsNotNone(room, error)
-        self.assertEqual(room.title, "Tarek (Laila)")
+        self.assertEqual(room.title, "مترجم: Tarek · ليدر: Laila")
 
     def test_a_name_that_cannot_be_guessed_is_refused(self):
         room, error = services.create_team_group(
@@ -3670,7 +3671,7 @@ class TeamGroupTests(TestCase):
         self.client.force_login(self.tr)
         response = self.client.get(f"/ops/chats/g/{room.pk}/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Tarek (Laila)")
+        self.assertContains(response, "مترجم: Tarek")
         self.assertContains(response, "مفيش حاجة هنا بتوصل العميل")
 
     def test_somebody_outside_the_group_cannot_open_it(self):
