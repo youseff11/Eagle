@@ -348,6 +348,10 @@ def _chat_sidebar(user, query, kind):
             client = room.relay_client
             rows.append({
                 "is_group": True,
+                # A work group and a client room sit in the same tab while the
+                # client rooms are still in use, so the row says which it is.
+                "is_team": room.is_team_group,
+                "reaches_client": room.reaches_client,
                 "room": room,
                 "client": client,
                 "code": f"g{room.id}",
@@ -386,15 +390,17 @@ def _chats_context(request, kind, tabs=None):
         # Answering the client and turning their message into a task both
         # belong to the operation; a translator in a group gets neither.
         "can_convert": user.is_operation or user.is_admin_role,
+        "can_create_team_group": user.can_create_team_group,
         "group_clients": [],
         "group_people": [],
     }
-    if may_create:
-        context["group_clients"] = Client.objects.filter(is_active=True).order_by("code")[:300]
+    if may_create or user.can_create_team_group:
         context["group_people"] = (
             User.objects.filter(is_active=True).exclude(pk=user.pk)
             .order_by("role", "username")[:200]
         )
+    if may_create:
+        context["group_clients"] = Client.objects.filter(is_active=True).order_by("code")[:300]
     return context
 
 
@@ -446,7 +452,7 @@ def ops_group_chat(request, room_id):
     user = request.user
     room = get_object_or_404(
         ChatRoom.objects.select_related("client", "task"),
-        pk=room_id, kind=RoomKind.CLIENT,
+        pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.TEAM),
     )
     if not room.can_access(user):
         raise Http404
@@ -458,6 +464,13 @@ def ops_group_chat(request, room_id):
 
     client = room.relay_client
     members = list(room.members.all())
+    # Adding somebody to a client room hands them a live line to that client,
+    # so that stays behind the client-group setting. A work group reaches
+    # nobody outside, so whoever may open one may add to one.
+    may_add = (
+        user.can_create_team_group if room.is_team_group
+        else AppSettings.load().can_create_group(user)
+    )
     context.update({
         "active": client,
         "active_group": room,
@@ -465,7 +478,7 @@ def ops_group_chat(request, room_id):
         "thread": services.group_thread(room, user),
         "channel": services.client_channel(client) if client else "",
         "members": members,
-        "can_add_members": AppSettings.load().can_create_group(user),
+        "can_add_members": may_add,
         "addable_people": User.objects.filter(is_active=True)
                               .exclude(pk__in=[m.pk for m in members])
                               .order_by("role", "username")[:200],

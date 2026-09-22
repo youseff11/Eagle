@@ -720,6 +720,94 @@
   }
   if (groupSave) { groupSave.addEventListener("click", createGroup); }
 
+  /* ------------------------------------------------- work group */
+
+  var teamModal = document.getElementById("newTeamGroupModal");
+  var teamOpen = document.getElementById("newTeamGroupBtn");
+  var teamSave = document.getElementById("newTeamGroupSave");
+  var teamError = document.getElementById("teamError");
+  var teamPicker = document.getElementById("teamMembers");
+  var teamTitle = document.getElementById("teamTitle");
+  // True once the person has typed a name of their own: after that the
+  // suggestion stops overwriting it, which is the whole difference between
+  // a default and a nuisance.
+  var teamTitleTouched = false;
+
+  function showTeamModal(show) {
+    if (!teamModal) { return; }
+    teamModal.classList.toggle("hidden", !show);
+    if (teamError) { teamError.textContent = ""; }
+  }
+
+  /* Mirrors services.default_team_group_name - keep the two in step. A team
+     leader picking exactly one translator gets "<translator> (<leader>)".
+     The server computes the same name when the box is left empty, so this is
+     a convenience, never the only place the rule lives. */
+  function suggestTeamName() {
+    if (!teamTitle || !teamPicker || teamTitleTouched) { return; }
+    var lead = teamTitle.dataset.leadName || "";
+    if (!lead) { return; }
+    var picked = Array.prototype.filter.call(
+      teamPicker.selectedOptions || [],
+      function (opt) { return opt.dataset.role === "translator"; }
+    );
+    teamTitle.value = picked.length === 1
+      ? picked[0].dataset.name + " (" + lead + ")"
+      : "";
+  }
+
+  function createTeamGroup() {
+    if (!teamSave) { return; }
+    var data = new FormData();
+    data.append("title", teamTitle ? teamTitle.value : "");
+    var chosen = teamPicker ? (teamPicker.selectedOptions || []) : [];
+    if (!chosen.length) {
+      if (teamError) {
+        teamError.textContent = E.t("اختار عضو واحد على الأقل.", "Pick at least one person.");
+      }
+      return;
+    }
+    Array.prototype.forEach.call(chosen, function (opt) {
+      data.append("members", opt.value);
+    });
+
+    teamSave.disabled = true;
+    E.post(teamSave.dataset.url, data).then(function (res) {
+      if (res && res.ok && res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      if (teamError) {
+        teamError.textContent = (res && res.error) ||
+          E.t("مقدرتش أعمل الجروب.", "Could not create the group.");
+      }
+    }).catch(function () {
+      if (teamError) {
+        teamError.textContent = E.t("مشكلة في الاتصال", "Connection problem");
+      }
+    }).then(function () {
+      teamSave.disabled = false;
+    });
+  }
+
+  if (teamOpen) { teamOpen.addEventListener("click", function () { showTeamModal(true); }); }
+  ["newTeamGroupClose", "newTeamGroupCancel"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.addEventListener("click", function () { showTeamModal(false); }); }
+  });
+  if (teamModal) {
+    teamModal.addEventListener("click", function (event) {
+      if (event.target === teamModal) { showTeamModal(false); }
+    });
+  }
+  if (teamPicker) { teamPicker.addEventListener("change", suggestTeamName); }
+  if (teamTitle) {
+    teamTitle.addEventListener("input", function () {
+      teamTitleTouched = teamTitle.value.trim() !== "";
+    });
+  }
+  if (teamSave) { teamSave.addEventListener("click", createTeamGroup); }
+
   /* ---------------------------------------------------- add members */
 
   var memberModal = document.getElementById("addMemberModal");

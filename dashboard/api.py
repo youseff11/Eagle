@@ -841,6 +841,8 @@ def _group_json(room, viewer):
     return {
         "code": f"g{room.id}",
         "group": True,
+        "team": room.is_team_group,
+        "reaches_client": room.reaches_client,
         "room": room.id,
         "url": f"/ops/chats/g/{room.id}/",
         "label": room.display_title,
@@ -952,8 +954,25 @@ def group_create(request):
     return JsonResponse({"ok": True, "room": room.id, "url": f"/ops/chats/g/{room.id}/"})
 
 
+@login_required
+@require_POST
+def team_group_create(request):
+    """Open an internal work group: a name, some people, and no client."""
+    members = list(User.objects.filter(
+        pk__in=[_int(v) for v in request.POST.getlist("members") if _int(v)],
+        is_active=True,
+    ))
+    room, error = services.create_team_group(
+        request.user, title=request.POST.get("title", ""), members=members,
+    )
+    if room is None:
+        status = 403 if "صلاحية" in error else 400
+        return JsonResponse({"ok": False, "error": error}, status=status)
+    return JsonResponse({"ok": True, "room": room.id, "url": f"/ops/chats/g/{room.id}/"})
+
+
 def _group_or_404(request, room_id):
-    """A room chat.js can drive: a client group, or a staff chat.
+    """A room chat.js can drive: a client group, a work group, or a staff chat.
 
     Both are read and written through the same two endpoints; what separates
     them is inside ``chat_send``, which relays only a client room. A staff
@@ -962,7 +981,7 @@ def _group_or_404(request, room_id):
     """
     room = get_object_or_404(
         ChatRoom.objects.select_related("client", "task"),
-        pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.STAFF),
+        pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.STAFF, RoomKind.TEAM),
     )
     if not room.can_access(request.user):
         raise Http404
@@ -982,6 +1001,30 @@ def group_add_members(request, room_id):
         return JsonResponse(
             {"ok": False, "error": "ده شات بين اتنين — مينفعش تضيف حد."}, status=400
         )
+    if room.is_team_group:
+        if not request.user.can_create_team_group:
+            return JsonResponse(
+                {"ok": False, "error": "مالكش صلاحية تضيف أعضاء."}, status=403
+            )
+        wanted = [_int(v) for v in request.POST.getlist("members") if _int(v)]
+        people = list(User.objects.filter(pk__in=wanted, is_active=True))
+        if not people:
+            return JsonResponse({"ok": False, "error": "اختار حد الأول."}, status=400)
+        room.members.add(*people)
+        for person in people:
+            services.system_message(
+                room, key="member_added",
+                body_ar=f"{request.user.short_name} ضاف {person.short_name}.",
+                body_en=f"{request.user.short_name} added {person.short_name}.",
+            )
+            services.notify(
+                person, level="info",
+                title_ar="اتضافت لجروب شغل", title_en="Added to a work group",
+                body_ar=f"{request.user.short_name} ضافك في «{room.display_title}».",
+                body_en=f"{request.user.short_name} added you to \"{room.display_title}\".",
+                url=f"/ops/chats/g/{room.id}/",
+            )
+        return JsonResponse({"ok": True, "added": [p.short_name for p in people]})
     conf = AppSettings.load()
     if not conf.can_create_group(request.user):
         return JsonResponse(

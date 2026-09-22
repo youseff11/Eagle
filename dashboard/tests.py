@@ -2919,6 +2919,171 @@ class StaffChatTests(TestCase):
         self.assertEqual(rows[0]["preview"]["text"], "hi")
 
 
+class TeamGroupTests(TestCase):
+    """A work group is a name, the people in it, and no client.
+
+    It shares the groups tab with the rooms that relay to a client, which is
+    exactly why the difference has to hold in the code and not only on the
+    screen: one of them puts what you type on somebody's phone.
+    """
+
+    def setUp(self):
+        from .models import ChatRoom, RoomKind
+
+        self.ChatRoom = ChatRoom
+        self.RoomKind = RoomKind
+        self.admin = User.objects.create_user(
+            "admin_tg", password="x", role=Role.ADMIN, first_name="Mina"
+        )
+        self.ops = User.objects.create_user(
+            "ops_tg", password="x", role=Role.OPERATION, first_name="Omar"
+        )
+        self.lead = User.objects.create_user(
+            "lead_tg", password="x", role=Role.TEAM_LEAD, first_name="Laila"
+        )
+        self.tr = User.objects.create_user(
+            "tr_tg", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Tarek",
+        )
+        self.other_tr = User.objects.create_user(
+            "tr2_tg", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Nour",
+        )
+
+    # -- the default name --------------------------------------------------
+
+    def test_a_lead_and_one_translator_name_themselves(self):
+        self.assertEqual(
+            services.default_team_group_name(self.lead, [self.tr]), "Tarek (Laila)"
+        )
+
+    def test_two_translators_get_no_guess(self):
+        """A wrong name is worse than an empty box."""
+        self.assertEqual(
+            services.default_team_group_name(self.lead, [self.tr, self.other_tr]), ""
+        )
+
+    def test_somebody_who_is_not_a_lead_gets_no_guess(self):
+        self.assertEqual(services.default_team_group_name(self.ops, [self.tr]), "")
+
+    def test_an_empty_name_falls_back_to_the_default(self):
+        room, error = services.create_team_group(self.lead, title="", members=[self.tr])
+        self.assertIsNotNone(room, error)
+        self.assertEqual(room.title, "Tarek (Laila)")
+
+    def test_a_name_that_cannot_be_guessed_is_refused(self):
+        room, error = services.create_team_group(
+            self.ops, title="", members=[self.tr]
+        )
+        self.assertIsNone(room)
+        self.assertTrue(error)
+
+    # -- who may open one --------------------------------------------------
+
+    def test_a_translator_does_not_open_work_groups(self):
+        self.assertFalse(self.tr.can_create_team_group)
+        room, error = services.create_team_group(
+            self.tr, title="حاجة", members=[self.lead]
+        )
+        self.assertIsNone(room)
+        self.assertTrue(error)
+
+    def test_the_lead_the_operation_and_the_admin_do(self):
+        for person in (self.lead, self.ops, self.admin):
+            self.assertTrue(person.can_create_team_group, person.username)
+
+    def test_a_group_with_nobody_in_it_is_refused(self):
+        room, error = services.create_team_group(self.lead, title="لوحدي", members=[])
+        self.assertIsNone(room)
+        self.assertTrue(error)
+
+    # -- what it is and is not ---------------------------------------------
+
+    def test_it_carries_no_client_and_reaches_none(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.assertTrue(room.is_team_group)
+        self.assertFalse(room.reaches_client)
+        self.assertIsNone(room.client_id)
+        self.assertIsNone(room.task_id)
+
+    def test_a_work_group_message_is_never_relayed(self):
+        from unittest import mock
+
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.client.force_login(self.tr)
+        with mock.patch("dashboard.services.relay_chat_message") as relay:
+            response = self.client.post(
+                f"/api/groups/{room.pk}/send/", {"body": "خلصت الملف"}
+            )
+        self.assertEqual(response.status_code, 200)
+        relay.assert_not_called()
+
+    def test_the_people_picked_are_in_it_and_so_is_the_one_who_opened_it(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.assertEqual(
+            sorted(m.pk for m in room.members.all()),
+            sorted([self.lead.pk, self.tr.pk]),
+        )
+
+    def test_everyone_added_is_told(self):
+        from .models import Notification
+
+        services.create_team_group(self.lead, members=[self.tr])
+        self.assertTrue(Notification.objects.filter(user=self.tr).exists())
+        self.assertFalse(Notification.objects.filter(user=self.lead).exists())
+
+    # -- what shows in the list --------------------------------------------
+
+    def test_a_translator_sees_the_groups_they_are_in_and_no_others(self):
+        mine, _ = services.create_team_group(self.lead, members=[self.tr])
+        theirs, _ = services.create_team_group(self.lead, members=[self.other_tr])
+        codes = [room.pk for room in services.groups_for(self.tr)]
+        self.assertIn(mine.pk, codes)
+        self.assertNotIn(theirs.pk, codes)
+
+    def test_the_admin_is_not_handed_every_work_group_in_the_company(self):
+        """A group is a group. The client rooms are the ones the admin oversees."""
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.assertNotIn(room.pk, [r.pk for r in services.groups_for(self.admin)])
+        # ...but it is not sealed the way a one-to-one chat is.
+        self.assertTrue(room.can_access(self.admin))
+
+    def test_the_groups_tab_opens_a_work_group(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/ops/chats/g/{room.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Tarek (Laila)")
+        self.assertContains(response, "مفيش حاجة هنا بتوصل العميل")
+
+    def test_somebody_outside_the_group_cannot_open_it(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.client.force_login(self.other_tr)
+        self.assertEqual(
+            self.client.get(f"/ops/chats/g/{room.pk}/").status_code, 404
+        )
+
+    # -- adding people afterwards ------------------------------------------
+
+    def test_a_lead_can_add_somebody_later(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.client.force_login(self.lead)
+        response = self.client.post(
+            f"/api/groups/{room.pk}/members/", {"members": [str(self.other_tr.pk)]}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.other_tr, room.members.all())
+
+    def test_a_translator_cannot_add_somebody(self):
+        room, _ = services.create_team_group(self.lead, members=[self.tr])
+        self.client.force_login(self.tr)
+        response = self.client.post(
+            f"/api/groups/{room.pk}/members/", {"members": [str(self.other_tr.pk)]}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn(self.other_tr, room.members.all())
+
+
 class ActionsFollowTheFilesTests(TestCase):
     """The two buttons under a message belong to the file, not to the words.
 

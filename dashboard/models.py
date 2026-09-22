@@ -88,6 +88,10 @@ class RoomKind(models.TextChoices):
     #: Two employees, one to one. No client anywhere near it, so nothing here
     #: is ever relayed; ``pair_key`` is what keeps a pair to a single room.
     STAFF = "staff", "Two employees, one to one"
+    #: A work group somebody opened by hand, with a name and the people they
+    #: picked. Not bound to a task and never relayed - the internal room a
+    #: team leader opens for a translator lives here.
+    TEAM = "team", "Internal work group"
     #: The team on one side, the client's WhatsApp on the other. Eagle relays
     #: between them, so the team gets a group chat without the client ever
     #: leaving WhatsApp — and without anyone's phone number being exposed.
@@ -477,6 +481,17 @@ class User(AbstractUser):
     def can_see_client_identity(self):
         """Only the admin ever sees the real client name / phone / email."""
         return self.is_admin_role
+
+    @property
+    def can_create_team_group(self):
+        """Who may open an internal work group.
+
+        A team leader opening one for a translator is the case this exists
+        for. It reaches no client, so it is not gated by the client-group
+        setting - but it is not everyone either: a translator is put into
+        groups rather than making them. One place, easy to widen.
+        """
+        return self.is_team_lead or self.is_operation or self.is_admin_role
 
     @property
     def can_manage_attendance(self):
@@ -1225,6 +1240,20 @@ class ChatRoom(models.Model):
     @property
     def is_staff_chat(self):
         return self.kind == RoomKind.STAFF
+
+    @property
+    def is_team_group(self):
+        """An internal work group: a name, some people, and no client."""
+        return self.kind == RoomKind.TEAM
+
+    @property
+    def reaches_client(self):
+        """True when what is typed here ends up on a client's phone.
+
+        The banner at the top of the room is drawn from this, and so is the
+        decision to relay. Anything that is not a client room stays inside.
+        """
+        return self.kind == RoomKind.CLIENT
 
     def other_member(self, viewer):
         """The person on the far side of a one-to-one staff chat."""

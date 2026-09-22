@@ -892,6 +892,62 @@ def group_preview(room, user):
     return {"text": text[:70], "at": last.created_at, "outgoing": not last.from_client}
 
 
+def default_team_group_name(creator, people):
+    """What a new work group is called before anybody types a name.
+
+    A team leader opening a group for one translator gets
+    "<translator> (<team leader>)" - the shape asked for, and the one that
+    makes a list of a dozen such groups readable at a glance. Anything else
+    gets nothing, because a wrong guess is worse than an empty box.
+    """
+    if creator is None or not creator.is_team_lead:
+        return ""
+    translators = [p for p in (people or []) if p is not None and p.is_translator]
+    if len(translators) != 1:
+        return ""
+    return f"{translators[0].short_name} ({creator.short_name})"
+
+
+def create_team_group(creator, title="", members=None):
+    """Open an internal work group. Returns ``(room, error_ar)``.
+
+    Nothing here reaches a client: no client, no task, no relay. That is the
+    whole point of it existing beside the client group, so the two must not
+    be collapsed into one later on.
+    """
+    if not creator.can_create_team_group:
+        return None, "مالكش صلاحية تعمل جروب شغل."
+
+    people = [m for m in (members or []) if m is not None and m.pk != creator.pk]
+    if not people:
+        return None, "اختار عضو واحد على الأقل."
+
+    title = (title or "").strip()[:120]
+    if not title:
+        title = default_team_group_name(creator, people)
+    if not title:
+        return None, "اكتب اسم للجروب."
+
+    room = ChatRoom.objects.create(kind=RoomKind.TEAM, title=title, created_by=creator)
+    room.members.add(creator, *people)
+    system_message(
+        room, key="team_group_opened",
+        body_ar="جروب شغل داخلي. مفيش حاجة هنا بتوصل العميل.",
+        body_en="An internal work group. Nothing here reaches the client.",
+    )
+    for person in people:
+        notify(
+            person,
+            level="info",
+            title_ar="اتضافت لجروب شغل",
+            title_en="Added to a work group",
+            body_ar=f"{creator.short_name} ضافك في «{title}».",
+            body_en=f"{creator.short_name} added you to \"{title}\".",
+            url=f"/ops/chats/g/{room.id}/",
+        )
+    return room, ""
+
+
 def staff_pair_key(one, two):
     """The key that makes a pair of people a single conversation."""
     low, high = sorted((int(one), int(two)))
@@ -972,17 +1028,25 @@ def staff_conversations(viewer, query=""):
 
 
 def groups_for(user, query=""):
-    """Every relayed room this person is in — task-bound or standalone.
+    """The groups this person has: internal work groups, and client rooms.
 
-    A task's client room is a group too, so it belongs in this list; leaving it
-    out would hide it from the chats page and from a room created against a
-    task that already had one.
+    Two different things share the tab while the client rooms are still in
+    use. They are told apart on screen, and by ``room.reaches_client`` in the
+    code - the banner and the relay both read it.
+
+    The membership rule is deliberately not the same for the two. A client
+    room is the company's conversation with a client, so the admin sees every
+    one of them. A work group is a group: you are in it or you are not, and a
+    list of every group in the company would be noise. The admin can still
+    open one by its URL, which ``can_access`` allows.
     """
-    from django.db.models import Max
+    from django.db.models import Max, Q as _Q
 
-    qs = ChatRoom.objects.filter(kind=RoomKind.CLIENT)
+    mine = _Q(kind=RoomKind.TEAM, members=user)
+    theirs = _Q(kind=RoomKind.CLIENT)
     if not user.is_admin_role:
-        qs = qs.filter(members=user)
+        theirs &= _Q(members=user)
+    qs = ChatRoom.objects.filter(mine | theirs)
     query = (query or "").strip()
     if query:
         qs = qs.filter(

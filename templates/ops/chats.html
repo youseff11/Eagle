@@ -55,11 +55,18 @@
       {% endfor %}
     </div>
 
-    {% if can_create_group and filter != 'staff' %}
+    {% if filter == 'groups' %}
       <div class="cchat__new">
-        <button class="btn btn--sm btn--primary grow" type="button" id="newGroupBtn">
-          {% icon "users" "ic--sm" %}<span data-ar="جروب جديد" data-en="New group">جروب جديد</span>
-        </button>
+        {% if can_create_team_group %}
+          <button class="btn btn--sm btn--primary grow" type="button" id="newTeamGroupBtn">
+            {% icon "users" "ic--sm" %}<span data-ar="جروب شغل" data-en="Work group">جروب شغل</span>
+          </button>
+        {% endif %}
+        {% if can_create_group %}
+          <button class="btn btn--sm grow" type="button" id="newGroupBtn">
+            {% icon "phone" "ic--sm" %}<span data-ar="جروب مع عميل" data-en="Client group">جروب مع عميل</span>
+          </button>
+        {% endif %}
       </div>
     {% endif %}
 
@@ -72,9 +79,17 @@
             {% elif row.is_staff %}{{ row.initials }}
             {% else %}{{ row.code|slice:"3:" }}{% endif %}
           </span>
+          {% comment %}
+          A work group and a room that relays to a client sit in the same
+          list. Which is which has to be readable before you type in it.
+          {% endcomment %}
           <span class="cthread__body">
             <span class="cthread__top">
-              <b class="{% if not row.is_staff %}mono{% endif %}">{{ row.label }}</b>
+              <b class="{% if row.is_staff or row.is_team %}{% else %}mono{% endif %}">{{ row.label }}</b>
+              {% if row.reaches_client %}
+                <span class="chip chip--sm cthread__tag"
+                      data-ar="مع العميل" data-en="With the client">مع العميل</span>
+              {% endif %}
               <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
             </span>
             <span class="cthread__snippet">
@@ -122,7 +137,8 @@
             {% elif channel == 'email' %}{% icon "mail" "ic--sm" %}Email
             {% else %}<span data-ar="مفيش قناة" data-en="No channel">مفيش قناة</span>{% endif %}
             {% if active_group and not active_person %}
-              · <span data-ar="جروب" data-en="Group">جروب</span> · {{ members|length }}
+              · {% if active_group.is_team_group %}<span data-ar="جروب شغل" data-en="Work group">جروب شغل</span>
+                {% else %}<span data-ar="جروب" data-en="Group">جروب</span>{% endif %} · {{ members|length }}
               {% if active_group.task_id %}
                 · <a class="mono" href="{% url 'dashboard:task_detail' active_group.task.code %}">{{ active_group.task.code }}</a>
               {% endif %}
@@ -149,7 +165,7 @@
         </div>
       {% endif %}
 
-      {% if active_group and not active_person %}
+      {% if active_group.reaches_client %}
         <div class="note note--warn cchat__window">
           {% icon "users" %}
           <div>
@@ -158,6 +174,15 @@
                  data-en="Anything here goes to the client's WhatsApp under your role — not your name or number.">
               أي رسالة هنا بتروح واتساب العميل باسم دورك — مش اسمك ولا رقمك.
             </div>
+          </div>
+        </div>
+      {% elif active_group.is_team_group %}
+        <div class="note cchat__window">
+          {% icon "shield-check" %}
+          <div>
+            <strong data-ar="جروب شغل داخلي" data-en="Internal work group">جروب شغل داخلي</strong>
+            <div data-ar="مفيش حاجة هنا بتوصل العميل."
+                 data-en="Nothing here reaches the client.">مفيش حاجة هنا بتوصل العميل.</div>
           </div>
         </div>
       {% endif %}
@@ -383,6 +408,63 @@
                 data-ar="إلغاء" data-en="Cancel">إلغاء</button>
         <button class="btn btn--primary" type="button" id="newGroupSave"
                 data-url="{% url 'dashboard:api_group_create' %}">
+          {% icon "plus" "ic--sm" %}<span data-ar="اعمل الجروب" data-en="Create group">اعمل الجروب</span>
+        </button>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if can_create_team_group %}
+  {% comment %}
+  A work group: a name and the people in it. No client field at all, which
+  is the difference that matters - nothing typed in here leaves the company.
+  {% endcomment %}
+  <div class="modal-backdrop hidden" id="newTeamGroupModal">
+    <div class="modal" style="text-align:start">
+      <div class="row row--tight">
+        {% icon "users" %}
+        <div class="modal__title" data-ar="جروب شغل جديد" data-en="New work group">جروب شغل جديد</div>
+        <div class="grow"></div>
+        <button class="icon-btn" type="button" id="newTeamGroupClose"
+                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
+      </div>
+
+      <p class="muted" style="font-size:.82rem"
+         data-ar="جروب داخلي بينك وبين اللي تختارهم. مفيش عميل ومفيش حاجة بتتبعت برّه."
+         data-en="An internal group between you and whoever you pick. No client, and nothing leaves the company.">
+        جروب داخلي بينك وبين اللي تختارهم. مفيش عميل ومفيش حاجة بتتبعت برّه.
+      </p>
+
+      <div class="field">
+        <label data-ar="الأعضاء" data-en="Members">الأعضاء</label>
+        <select class="input" id="teamMembers" multiple size="8">
+          {% for person in group_people %}
+            <option value="{{ person.pk }}" data-role="{{ person.role }}"
+                    data-name="{{ person.short_name }}">{{ person.short_name }} · {% role_badge person.role %}</option>
+          {% endfor %}
+        </select>
+        <small class="muted" data-ar="انت هتتضاف تلقائيًا. اضغط Ctrl عشان تختار أكتر من واحد."
+               data-en="You are added automatically. Hold Ctrl to pick more than one.">
+          انت هتتضاف تلقائيًا. اضغط Ctrl عشان تختار أكتر من واحد.
+        </small>
+      </div>
+
+      <div class="field">
+        <label data-ar="اسم الجروب" data-en="Group name">اسم الجروب</label>
+        <input class="input" id="teamTitle" maxlength="120"
+               data-lead-name="{% if user.is_team_lead %}{{ user.short_name }}{% endif %}"
+               data-ar-ph="هيتملى لوحده لما تختار مترجم" data-en-ph="Filled in when you pick a translator"
+               placeholder="هيتملى لوحده لما تختار مترجم">
+      </div>
+
+      <div class="row" style="margin-top:14px;align-items:center">
+        <div id="teamError" style="color:var(--danger,#e5484d);font-size:.8rem"></div>
+        <div class="grow"></div>
+        <button class="btn" type="button" id="newTeamGroupCancel"
+                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn--primary" type="button" id="newTeamGroupSave"
+                data-url="{% url 'dashboard:api_team_group_create' %}">
           {% icon "plus" "ic--sm" %}<span data-ar="اعمل الجروب" data-en="Create group">اعمل الجروب</span>
         </button>
       </div>
