@@ -62,11 +62,6 @@
             {% icon "users" "ic--sm" %}<span data-ar="جروب شغل" data-en="Work group">جروب شغل</span>
           </button>
         {% endif %}
-        {% if can_create_group %}
-          <button class="btn btn--sm grow" type="button" id="newGroupBtn">
-            {% icon "phone" "ic--sm" %}<span data-ar="جروب مع عميل" data-en="Client group">جروب مع عميل</span>
-          </button>
-        {% endif %}
       </div>
     {% endif %}
 
@@ -385,74 +380,6 @@
           </button>
         </div>
       </form>
-    </div>
-  </div>
-{% endif %}
-
-{% if can_create_group %}
-  {# ---- new group ------------------------------------------------------- #}
-  <div class="modal-backdrop hidden" id="newGroupModal">
-    <div class="modal" style="text-align:start">
-      <div class="row row--tight">
-        {% icon "users" %}
-        <div class="modal__title" data-ar="جروب جديد مع عميل" data-en="New client group">جروب جديد مع عميل</div>
-        <div class="grow"></div>
-        <button class="icon-btn" type="button" id="newGroupClose"
-                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
-      </div>
-
-      <p class="muted" style="font-size:.82rem"
-         data-ar="الفريق بيتكلم هنا، والعميل بيستقبل على واتساب في شاته العادي. العميل بيشوف الدور بس — مش الأسامي ولا الأرقام."
-         data-en="The team talks here and the client receives it on WhatsApp in their ordinary chat. The client sees roles only — never names or numbers.">
-        الفريق بيتكلم هنا، والعميل بيستقبل على واتساب في شاته العادي.
-      </p>
-
-      <div class="field">
-        <label data-ar="العميل" data-en="Client">العميل</label>
-        <select class="input" id="groupClient">
-          <option value=""></option>
-          {% for c in group_clients %}
-            <option value="{{ c.code }}">{{ c.code }} · {{ c|label_for:user }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="field">
-        <label data-ar="اسم الجروب (اختياري)" data-en="Group name (optional)">اسم الجروب (اختياري)</label>
-        <input class="input" id="groupTitle" maxlength="120"
-               data-ar-ph="مثلاً: ترجمة عقد الشركة" data-en-ph="e.g. Company contract translation"
-               placeholder="مثلاً: ترجمة عقد الشركة">
-      </div>
-
-      <div class="field">
-        <label data-ar="كود تاسك (اختياري)" data-en="Task code (optional)">كود تاسك (اختياري)</label>
-        <input class="input mono" id="groupTask" dir="ltr"
-               data-ar-ph="TSK-00001" data-en-ph="TSK-00001" placeholder="TSK-00001">
-      </div>
-
-      <div class="field">
-        <label data-ar="الأعضاء" data-en="Members">الأعضاء</label>
-        <select class="input" id="groupMembers" multiple size="6">
-          {% for person in group_people %}
-            <option value="{{ person.id }}">{{ person.short_name }} — {% role_badge person.role %}</option>
-          {% endfor %}
-        </select>
-        <small class="muted" data-ar="انت هتتضاف تلقائيًا. اضغط Ctrl عشان تختار أكتر من واحد."
-               data-en="You are added automatically. Hold Ctrl to pick more than one.">
-          انت هتتضاف تلقائيًا.
-        </small>
-      </div>
-
-      <div class="row" style="margin-top:14px;align-items:center">
-        <div id="groupError" style="color:var(--danger,#e5484d);font-size:.8rem"></div>
-        <div class="grow"></div>
-        <button class="btn" type="button" id="newGroupCancel"
-                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-        <button class="btn btn--primary" type="button" id="newGroupSave"
-                data-url="{% url 'dashboard:api_group_create' %}">
-          {% icon "plus" "ic--sm" %}<span data-ar="اعمل الجروب" data-en="Create group">اعمل الجروب</span>
-        </button>
-      </div>
     </div>
   </div>
 {% endif %}

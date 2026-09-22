@@ -3245,6 +3245,48 @@ class SuggestionsArchiveAndHeaderTests(TestCase):
             self.client.get(f"/ops/chats/g/{room.pk}/").status_code, 200
         )
 
+    def test_deleting_needs_the_second_flag(self):
+        """One flag says what you want. The other says you meant it."""
+        from django.core.management import call_command
+
+        room = services.ensure_room(self.task, self.RoomKind.CLIENT)
+        call_command("archive_client_rooms", delete=True)
+        self.assertTrue(self.ChatRoom.objects.filter(pk=room.pk).exists())
+        call_command("archive_client_rooms", delete=True, yes_i_am_sure=True)
+        self.assertFalse(self.ChatRoom.objects.filter(pk=room.pk).exists())
+
+    def test_deleting_the_rooms_keeps_the_client_conversation(self):
+        """The record of what was said to a client lives outside the rooms.
+
+        Inbound holds everything they sent and Outbound everything that went
+        to them. That pair is what /ops/chats/<code>/ renders, and it is why
+        deleting these rooms loses the team's copy and not the conversation.
+        """
+        from django.core.management import call_command
+        from .models import Channel, InboundMessage, OutboundMessage
+
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="عايز ترجمة",
+            sender_identity="+201000000051",
+        )
+        OutboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP,
+            to_identity="+201000000051", body="تمام",
+        )
+        services.ensure_room(self.task, self.RoomKind.CLIENT)
+        call_command("archive_client_rooms", delete=True, yes_i_am_sure=True)
+
+        self.assertEqual(
+            InboundMessage.objects.filter(client=self.client_obj).count(), 1
+        )
+        self.assertEqual(
+            OutboundMessage.objects.filter(client=self.client_obj).count(), 1
+        )
+        thread = services.client_thread(self.client_obj, self.ops)
+        bodies = [entry["body"] for entry in thread]
+        self.assertIn("عايز ترجمة", bodies)
+        self.assertIn("تمام", bodies)
+
     def test_a_work_group_is_never_archived_by_the_command(self):
         from django.core.management import call_command
 

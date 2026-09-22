@@ -949,49 +949,6 @@ def client_chat_list(request):
 
 @login_required
 @require_POST
-def group_create(request):
-    """Open a group with a client. The role gate lives in AppSettings."""
-    conf = AppSettings.load()
-    if not conf.can_create_group(request.user):
-        return JsonResponse(
-            {"ok": False, "error": "مالكش صلاحية تعمل جروب. الأدمن بيظبطها من الإعدادات."},
-            status=403,
-        )
-
-    client = Client.objects.filter(code=request.POST.get("client", "").strip()).first()
-    task = None
-    task_code = (request.POST.get("task") or "").strip()
-    if task_code:
-        task = Task.objects.filter(code=task_code).first()
-        if task is None:
-            return JsonResponse({"ok": False, "error": "التاسك دي مش موجودة."}, status=400)
-        # Attaching a task pulls its people into the group, so the person
-        # opening it has to be allowed to see that task in the first place.
-        if not task.can_view(request.user):
-            return JsonResponse(
-                {"ok": False, "error": "التاسك دي مش من حقك."}, status=403
-            )
-        if client is not None and task.client_id != client.id:
-            return JsonResponse(
-                {"ok": False, "error": "التاسك دي مش بتاعة العميل ده."}, status=400
-            )
-
-    members = list(User.objects.filter(
-        pk__in=[_int(v) for v in request.POST.getlist("members") if _int(v)],
-        is_active=True,
-    ))
-
-    room, error = services.create_client_group(
-        request.user, client,
-        title=request.POST.get("title", ""), task=task, members=members,
-    )
-    if room is None:
-        return JsonResponse({"ok": False, "error": error}, status=400)
-    return JsonResponse({"ok": True, "room": room.id, "url": f"/ops/chats/g/{room.id}/"})
-
-
-@login_required
-@require_POST
 def team_group_create(request):
     """Open an internal work group: a name, some people, and no client."""
     members = list(User.objects.filter(

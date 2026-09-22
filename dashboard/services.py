@@ -795,62 +795,6 @@ def client_rooms_for(client_id, only_open=True):
     return qs.select_related("task", "client")
 
 
-def create_client_group(user, client, title="", task=None, members=None):
-    """Open a standalone relayed group for a client. Returns ``(room, error_ar)``."""
-    conf = AppSettings.load()
-    if not conf.can_create_group(user):
-        return None, "مالكش صلاحية تعمل جروب. الأدمن بيظبطها من الإعدادات."
-    if client is None:
-        return None, "لازم تختار عميل."
-    if not client_channel(client):
-        return None, "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
-
-    # A task may only ever have one client room (the unique constraint says so),
-    # so asking for a second one joins the existing room instead of failing.
-    existing = None
-    if task is not None:
-        existing = ChatRoom.objects.filter(task=task, kind=RoomKind.CLIENT).first()
-
-    if existing is not None:
-        room, created = existing, False
-        if title and not room.title:
-            room.title = title.strip()[:120]
-            room.save(update_fields=["title"])
-    else:
-        room = ChatRoom.objects.create(
-            kind=RoomKind.CLIENT, client=client, task=task,
-            title=(title or "").strip()[:120], created_by=user,
-        )
-        created = True
-
-    people = {user}
-    people.update(m for m in (members or []) if m is not None)
-    if task is not None:
-        people.update(p for p in (task.created_by, task.team_lead) if p is not None)
-        if task.translator_accepted_at and task.translator_id:
-            people.add(task.translator)
-    # add, not set: joining an existing task room must not evict its members.
-    room.members.add(*people)
-
-    if created:
-        system_message(
-            room, key="client_room_opened",
-            body_ar="الجروب ده بيوصل العميل على واتساب. أي رسالة هنا هتروحله.",
-            body_en="This group reaches the client on WhatsApp. Anything here is sent to them.",
-        )
-    for member in room.members.exclude(pk=user.pk):
-        notify(
-            member,
-            title_ar="اتضفت في جروب عميل",
-            title_en="Added to a client group",
-            body_ar=f"{user.short_name} ضافك في جروب مع العميل {client.code}.",
-            body_en=f"{user.short_name} added you to a group with client {client.code}.",
-            level="info", url=f"/ops/chats/g/{room.id}/",
-        )
-    log(user, "group.create", client.code, room.title or "-")
-    return room, ""
-
-
 def group_thread(room, user, limit=200):
     """A group's messages in the same shape ``client_thread`` returns.
 

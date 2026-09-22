@@ -374,7 +374,10 @@ def _chat_kind(request, user):
 def _chats_context(request, kind, tabs=None):
     user = request.user
     query = request.GET.get("q", "").strip()
-    may_create = AppSettings.load().can_create_group(user)
+    # Client groups are gone: the operation talks to a client in the client's
+    # own conversation, under "Clients". What is left to create is a work
+    # group, which reaches nobody outside.
+    may_create = False
     context = {
         "conversations": _chat_sidebar(user, query, kind),
         "query": query,
@@ -394,13 +397,11 @@ def _chats_context(request, kind, tabs=None):
         "group_clients": [],
         "group_people": [],
     }
-    if may_create or user.can_create_team_group:
+    if user.can_create_team_group:
         context["group_people"] = (
             User.objects.filter(is_active=True).exclude(pk=user.pk)
             .order_by("role", "username")[:200]
         )
-    if may_create:
-        context["group_clients"] = Client.objects.filter(is_active=True).order_by("code")[:300]
     return context
 
 

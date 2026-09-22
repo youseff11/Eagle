@@ -208,7 +208,6 @@ urlpatterns = [
     path("api/clients/<str:client_code>/requirement/", api.add_requirement, name="api_requirement"),
     path("api/presence/", api.presence, name="api_presence"),
     path("api/client-chats/", api.client_chat_list, name="api_client_chat_list"),
-    path("api/groups/new/", api.group_create, name="api_group_create"),
     # Before the "<int:room_id>" routes: "team" is not a room id.
     path("api/groups/team/new/", api.team_group_create, name="api_team_group_create"),
     path("api/groups/<int:room_id>/", api.group_chat_fetch, name="api_group_chat_fetch"),
