@@ -2772,6 +2772,153 @@ class ReceiptTests(TestCase):
         self.assertIn(response.status_code, (403, 404))
 
 
+class StaffChatTests(TestCase):
+    """A line between two employees, and a page that changes with the role.
+
+    Two things are protected here. One: the same two people can only ever have
+    a single conversation, whoever opens it first. Two: it is theirs - the
+    admin opens every other room in the product, and not this one.
+    """
+
+    def setUp(self):
+        from .models import ChatRoom, RoomKind
+
+        self.ChatRoom = ChatRoom
+        self.RoomKind = RoomKind
+        self.ops = User.objects.create_user(
+            "ops_staff", password="x", role=Role.OPERATION, first_name="Omar"
+        )
+        self.admin = User.objects.create_user(
+            "admin_staff", password="x", role=Role.ADMIN, first_name="Mina"
+        )
+        self.lead = User.objects.create_user(
+            "lead_staff", password="x", role=Role.TEAM_LEAD, first_name="Laila"
+        )
+        self.tr = User.objects.create_user(
+            "tr_staff", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Tarek",
+        )
+
+    # -- the tabs ----------------------------------------------------------
+
+    def _tab_keys(self, user):
+        from .views import chat_tabs
+
+        return [tab["key"] for tab in chat_tabs(user)]
+
+    def test_a_translator_has_no_client_tab(self):
+        self.assertEqual(self._tab_keys(self.tr), ["staff", "groups"])
+        self.assertEqual(self._tab_keys(self.lead), ["staff", "groups"])
+
+    def test_the_operation_and_the_admin_keep_the_clients(self):
+        self.assertEqual(self._tab_keys(self.ops), ["clients", "staff", "groups"])
+        self.assertEqual(self._tab_keys(self.admin), ["clients", "staff", "groups"])
+
+    def test_a_translator_asking_for_the_client_tab_lands_on_staff(self):
+        """A tab they do not have is not an error - it is simply not theirs."""
+        self.client.force_login(self.tr)
+        response = self.client.get("/ops/chats/?type=clients")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["filter"], "staff")
+
+    def test_a_translator_still_cannot_open_a_client_conversation(self):
+        client_obj = Client.objects.create(name="ACME", phone="+201000000031")
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/ops/chats/{client_obj.code}/")
+        self.assertEqual(response.status_code, 404)
+
+    # -- one room per pair -------------------------------------------------
+
+    def test_both_sides_open_the_same_room(self):
+        mine = services.staff_room(self.tr, self.lead)
+        theirs = services.staff_room(self.lead, self.tr)
+        self.assertEqual(mine.pk, theirs.pk)
+        self.assertEqual(
+            self.ChatRoom.objects.filter(kind=self.RoomKind.STAFF).count(), 1
+        )
+
+    def test_the_room_holds_exactly_the_two_of_them(self):
+        room = services.staff_room(self.tr, self.lead)
+        self.assertEqual(
+            sorted(m.pk for m in room.members.all()),
+            sorted([self.tr.pk, self.lead.pk]),
+        )
+
+    def test_nobody_can_chat_with_themselves(self):
+        self.assertIsNone(services.staff_room(self.tr, self.tr))
+        self.client.force_login(self.tr)
+        self.assertEqual(
+            self.client.get(f"/ops/chats/u/{self.tr.pk}/").status_code, 404
+        )
+
+    def test_opening_the_page_is_what_creates_the_room(self):
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/ops/chats/u/{self.lead.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.ChatRoom.objects.filter(kind=self.RoomKind.STAFF).count(), 1
+        )
+        self.assertContains(response, "Laila")
+
+    # -- it is theirs ------------------------------------------------------
+
+    def test_the_admin_cannot_read_two_other_people_talking(self):
+        """Every other room in the product opens for the admin. Not this one."""
+        room = services.staff_room(self.tr, self.lead)
+        self.assertFalse(room.can_access(self.admin))
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.get(f"/api/groups/{room.pk}/").status_code, 404
+        )
+
+    def test_a_third_person_cannot_post_into_it(self):
+        room = services.staff_room(self.tr, self.lead)
+        self.client.force_login(self.ops)
+        response = self.client.post(f"/api/groups/{room.pk}/send/", {"body": "hi"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_nobody_is_added_to_a_one_to_one_chat(self):
+        room = services.staff_room(self.tr, self.lead)
+        self.client.force_login(self.lead)
+        response = self.client.post(
+            f"/api/groups/{room.pk}/members/", {"members": [str(self.ops.pk)]}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(room.members.count(), 2)
+
+    # -- nothing here reaches a client -------------------------------------
+
+    def test_a_staff_message_is_never_relayed_to_whatsapp(self):
+        """The one thing that would turn an internal line into a leak."""
+        from unittest import mock
+
+        room = services.staff_room(self.tr, self.lead)
+        self.client.force_login(self.tr)
+        with mock.patch("dashboard.services.relay_chat_message") as relay:
+            response = self.client.post(
+                f"/api/groups/{room.pk}/send/", {"body": "الملف عندي"}
+            )
+        self.assertEqual(response.status_code, 200)
+        relay.assert_not_called()
+        self.assertEqual(room.messages.count(), 1)
+
+    # -- the directory is the list -----------------------------------------
+
+    def test_somebody_never_written_to_is_still_in_the_list(self):
+        rows = services.staff_conversations(self.tr)
+        names = [row["person"].username for row in rows]
+        self.assertIn("lead_staff", names)
+        self.assertIn("ops_staff", names)
+        self.assertNotIn("tr_staff", names)
+
+    def test_whoever_was_spoken_to_last_comes_first(self):
+        room = services.staff_room(self.tr, self.ops)
+        room.messages.create(sender=self.ops, body="hi")
+        rows = services.staff_conversations(self.tr)
+        self.assertEqual(rows[0]["person"].pk, self.ops.pk)
+        self.assertEqual(rows[0]["preview"]["text"], "hi")
+
+
 class ActionsFollowTheFilesTests(TestCase):
     """The two buttons under a message belong to the file, not to the words.
 
@@ -2840,30 +2987,48 @@ class ActionsFollowTheFilesTests(TestCase):
         self.assertEqual(message.document_attachments, [contract])
 
     def test_the_chat_draws_one_pair_of_buttons_for_two_messages(self):
-        """One conversation, two messages, one file: one pair of buttons."""
-        self._message(body="ممكن سعر الترجمة؟")
+        """One conversation, two messages, one file: one pair of buttons.
+
+        Counting the words would lie here. The page also carries the
+        "convert to task" dialog and the assignment modal that sits on every
+        page, and both spell the same two labels. The markers below belong to
+        a bubble and carry a message id, so they say WHICH message got them.
+        """
+        words_only = self._message(body="ممكن سعر الترجمة؟")
         with_file = self._message(body="[document]")
         self._attach(with_file, "contract.pdf", "application/pdf")
         self.client.force_login(self.ops)
         response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "تحويل لتاسك", count=1)
+        self.assertContains(response, "data-convert=", count=1)
+        self.assertContains(
+            response, f'data-action="/api/messages/{with_file.pk}/confirm/"', count=1
+        )
+        self.assertNotContains(
+            response, f'data-action="/api/messages/{words_only.pk}/confirm/"'
+        )
 
     def test_a_letter_with_nothing_attached_shows_no_buttons(self):
+        """Checked by the letter's own markers, not by the words.
+
+        The assignment modal is rendered on every page and says "استلمت" on
+        its accept button, so looking for the word alone finds it there and
+        fails for the wrong reason.
+        """
         letter = self._message(body="just asking", channel=self.Channel.EMAIL)
         self.client.force_login(self.ops)
         response = self.client.get(f"/ops/inbox/thread/{letter.pk}/")
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "تحويل لتاسك")
-        self.assertNotContains(response, 'data-ar="استلمت"')
+        self.assertNotContains(response, f"/api/messages/{letter.pk}/confirm/")
+        self.assertNotContains(response, "mail__convert")
 
     def test_a_letter_with_a_file_shows_them(self):
         letter = self._message(body="here it is", channel=self.Channel.EMAIL)
         self._attach(letter, "contract.pdf", "application/pdf")
         self.client.force_login(self.ops)
         response = self.client.get(f"/ops/inbox/thread/{letter.pk}/")
-        self.assertContains(response, "تحويل لتاسك")
-        self.assertContains(response, 'data-ar="استلمت"')
+        self.assertContains(response, f"/api/messages/{letter.pk}/confirm/")
+        self.assertContains(response, "mail__convert")
 
 
 class PickedSourceFilesTests(TestCase):

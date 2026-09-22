@@ -13,7 +13,7 @@
      {% if active_group %}
        data-thread-url="{% url 'dashboard:api_group_chat_fetch' active_group.id %}"
        data-send-url="{% url 'dashboard:api_group_chat_send' active_group.id %}"
-       data-active="g{{ active_group.id }}"
+       data-active="{{ active_code }}"
      {% else %}
        data-thread-url="{% url 'dashboard:api_client_chat_fetch' 'CODE' %}"
        data-send-url="{% url 'dashboard:api_client_chat_send' 'CODE' %}"
@@ -29,30 +29,33 @@
   <aside class="cchat__list">
     <div class="cchat__search">
       <form method="get" class="field-icon" style="margin:0">
-        {% if filter != 'all' %}<input type="hidden" name="type" value="{{ filter }}">{% endif %}
+        <input type="hidden" name="type" value="{{ filter }}">
         {% icon "search" "ic--lead" %}
-        <input class="input" name="q" value="{{ query }}"
-               data-ar-ph="دوّر على كود عميل أو اسم جروب…" data-en-ph="Search a client code or group…"
-               placeholder="دوّر على كود عميل أو اسم جروب…">
+        {% if filter == 'staff' %}
+          <input class="input" name="q" value="{{ query }}"
+                 data-ar-ph="دوّر على اسم موظف…" data-en-ph="Search a colleague…"
+                 placeholder="دوّر على اسم موظف…">
+        {% else %}
+          <input class="input" name="q" value="{{ query }}"
+                 data-ar-ph="دوّر على كود عميل أو اسم جروب…" data-en-ph="Search a client code or group…"
+                 placeholder="دوّر على كود عميل أو اسم جروب…">
+        {% endif %}
       </form>
     </div>
 
-    {# ---- all / chats / groups ---- #}
-    {% if show_filter %}
+    {% comment %}
+    The sections this role has. A translator has no client tab at all, so
+    there is nothing here to click and be refused.
+    {% endcomment %}
     <div class="cchat__filter">
-      <a class="cchat__pill {% if filter == 'all' %}is-active{% endif %}"
-         href="?{% if query %}q={{ query }}{% endif %}"
-         data-ar="الكل" data-en="All">الكل</a>
-      <a class="cchat__pill {% if filter == 'chats' %}is-active{% endif %}"
-         href="?type=chats{% if query %}&q={{ query }}{% endif %}"
-         data-ar="شاتات" data-en="Chats">شاتات</a>
-      <a class="cchat__pill {% if filter == 'groups' %}is-active{% endif %}"
-         href="?type=groups{% if query %}&q={{ query }}{% endif %}"
-         data-ar="جروبات" data-en="Groups">جروبات</a>
+      {% for tab in tabs %}
+        <a class="cchat__pill {% if filter == tab.key %}is-active{% endif %}"
+           href="{% url 'dashboard:ops_chats' %}?type={{ tab.key }}{% if query %}&q={{ query }}{% endif %}"
+           data-ar="{{ tab.ar }}" data-en="{{ tab.en }}">{{ tab.ar }}</a>
+      {% endfor %}
     </div>
-    {% endif %}
 
-    {% if can_create_group %}
+    {% if can_create_group and filter != 'staff' %}
       <div class="cchat__new">
         <button class="btn btn--sm btn--primary grow" type="button" id="newGroupBtn">
           {% icon "users" "ic--sm" %}<span data-ar="جروب جديد" data-en="New group">جروب جديد</span>
@@ -64,12 +67,14 @@
       {% for row in conversations %}
         <a class="cthread {% if row.code == active_code %}is-active{% endif %}"
            data-code="{{ row.code }}" href="{{ row.url }}">
-          <span class="avatar {% if row.is_group %}avatar--group{% else %}avatar--brand{% endif %}">
-            {% if row.is_group %}{% icon "users" "ic--sm" %}{% else %}{{ row.code|slice:"3:" }}{% endif %}
+          <span class="avatar {% if row.is_group %}avatar--group{% elif row.is_staff %}avatar--staff{% else %}avatar--brand{% endif %}">
+            {% if row.is_group %}{% icon "users" "ic--sm" %}
+            {% elif row.is_staff %}{{ row.initials }}
+            {% else %}{{ row.code|slice:"3:" }}{% endif %}
           </span>
           <span class="cthread__body">
             <span class="cthread__top">
-              <b class="mono">{{ row.label }}</b>
+              <b class="{% if not row.is_staff %}mono{% endif %}">{{ row.label }}</b>
               <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
             </span>
             <span class="cthread__snippet">
@@ -80,7 +85,11 @@
       {% empty %}
         <div class="empty">
           {% icon "message" "ic--xl" %}
-          <span data-ar="مفيش محادثات لسه." data-en="No conversations yet.">مفيش محادثات لسه.</span>
+          {% if filter == 'staff' %}
+            <span data-ar="مفيش زمايل هنا." data-en="Nobody here yet.">مفيش زمايل هنا.</span>
+          {% else %}
+            <span data-ar="مفيش محادثات لسه." data-en="No conversations yet.">مفيش محادثات لسه.</span>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
@@ -95,18 +104,24 @@
            data-ar-title="رجوع" data-en-title="Back" title="رجوع">
           {% icon "arrow-right" %}
         </a>
-        <span class="avatar {% if active_group %}avatar--group{% else %}avatar--brand{% endif %}">
-          {% if active_group %}{% icon "users" "ic--sm" %}{% else %}{{ active.code|slice:"3:" }}{% endif %}
+        <span class="avatar {% if active_person %}avatar--staff{% elif active_group %}avatar--group{% else %}avatar--brand{% endif %}">
+          {% if active_person %}{{ active_person.initials }}
+          {% elif active_group %}{% icon "users" "ic--sm" %}
+          {% else %}{{ active.code|slice:"3:" }}{% endif %}
         </span>
         <div>
-          <div class="cchat__who mono">
-            {% if active_group %}{{ active_group.display_title }}{% else %}{{ active|label_for:user }}{% endif %}
+          <div class="cchat__who {% if not active_person %}mono{% endif %}">
+            {% if active_person %}{{ active_person.short_name }}
+            {% elif active_group %}{{ active_group.display_title }}
+            {% else %}{{ active|label_for:user }}{% endif %}
           </div>
           <div class="cchat__meta muted">
-            {% if channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}WhatsApp
+            {% if active_person %}
+              {% icon "user" "ic--sm" %}{% role_badge active_person.role %}
+            {% elif channel == 'whatsapp' %}{% icon "phone" "ic--sm" %}WhatsApp
             {% elif channel == 'email' %}{% icon "mail" "ic--sm" %}Email
             {% else %}<span data-ar="مفيش قناة" data-en="No channel">مفيش قناة</span>{% endif %}
-            {% if active_group %}
+            {% if active_group and not active_person %}
               · <span data-ar="جروب" data-en="Group">جروب</span> · {{ members|length }}
               {% if active_group.task_id %}
                 · <a class="mono" href="{% url 'dashboard:task_detail' active_group.task.code %}">{{ active_group.task.code }}</a>
@@ -115,26 +130,26 @@
           </div>
         </div>
         <div class="grow"></div>
-        {% if active_group and can_add_members %}
+        {% if active_group and can_add_members and not active_person %}
           <button class="btn btn--ghost" type="button" id="addMemberBtn">
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
           </button>
         {% endif %}
-        {% if active and show_filter %}
+        {% if active and sees_all_clients %}
           <a class="btn btn--ghost cchat__profile" href="{% url 'dashboard:client_detail' active.code %}">
             {% icon "user" "ic--sm" %}<span data-ar="ملف العميل" data-en="Client profile">ملف العميل</span>
           </a>
         {% endif %}
       </header>
 
-      {% if active_group and members %}
+      {% if active_group and members and not active_person %}
         <div class="cchat__members">
           {% icon "users" "ic--sm" %}
           {% for person in members %}<span class="chip chip--sm">{{ person.short_name }}</span>{% endfor %}
         </div>
       {% endif %}
 
-      {% if active_group %}
+      {% if active_group and not active_person %}
         <div class="note note--warn cchat__window">
           {% icon "users" %}
           <div>

@@ -22,6 +22,8 @@ urlpatterns = [
     path("ops/inbox/thread/<int:pk>/", views.ops_mail_thread, name="ops_mail_thread"),
     path("ops/chats/", views.ops_chats, name="ops_chats"),
     path("ops/chats/g/<int:room_id>/", views.ops_group_chat, name="ops_group_chat"),
+    # Before the client-code route: "u" would otherwise read as a client code.
+    path("ops/chats/u/<int:user_id>/", views.ops_staff_chat, name="ops_staff_chat"),
     path("ops/chats/<str:code>/", views.ops_chats, name="ops_chat_detail"),
     path("ops/tasks/", views.ops_tasks, name="ops_tasks"),
     path("ops/tasks/new/", views.ops_task_new, name="ops_task_new"),

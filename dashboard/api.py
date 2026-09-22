@@ -819,6 +819,25 @@ def _group_json(room, viewer):
     """A group in the same shape as a 1:1 conversation, so one list renders both."""
     preview = services.group_preview(room, viewer)
     client = room.relay_client
+    if room.kind == RoomKind.STAFF:
+        person = room.other_member(viewer)
+        return {
+            "code": f"u{person.pk}" if person else f"g{room.id}",
+            "group": False,
+            "staff": True,
+            "room": room.id,
+            "url": f"/ops/chats/u/{person.pk}/" if person else "",
+            "label": room.title_for(viewer),
+            "initials": person.initials if person else "?",
+            "client_code": "",
+            "text": preview["text"],
+            "outgoing": preview["outgoing"],
+            "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+            "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
+            "channel": "",
+            "window_open": False,
+            "minutes_left": 0,
+        }
     return {
         "code": f"g{room.id}",
         "group": True,
@@ -846,20 +865,46 @@ def client_chat_list(request):
     that own the client inbox.
     """
     query = request.GET.get("q", "")
-    kind = request.GET.get("type", "all")
+    kind = request.GET.get("type", "clients")
     sees_all_clients = request.user.is_operation or request.user.is_admin_role
+    if kind == "staff":
+        # The order the service returns is the order the page wants: spoken
+        # to most recently, then the rest of the directory. Sorting by date
+        # here would push everyone never written to into a random heap.
+        items = []
+        for row in services.staff_conversations(request.user, query):
+            person, preview = row["person"], row["preview"]
+            items.append({
+                "code": f"u{person.pk}",
+                "group": False,
+                "staff": True,
+                "room": row["room"].id if row["room"] else 0,
+                "url": f"/ops/chats/u/{person.pk}/",
+                "label": person.short_name,
+                "initials": person.initials,
+                "client_code": "",
+                "text": preview["text"],
+                "outgoing": preview["outgoing"],
+                "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+                "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
+                "channel": "",
+                "window_open": False,
+                "minutes_left": 0,
+            })
+        return JsonResponse({"ok": True, "items": items})
+
     items = []
-    if kind in ("all", "chats") and sees_all_clients:
+    if kind == "clients" and sees_all_clients:
         items += [
             _conversation_json(row, request.user)
             for row in services.client_conversations(request.user, query)[:100]
         ]
-    if kind in ("all", "groups"):
+    if kind == "groups":
         items += [
             _group_json(room, request.user)
             for room in services.groups_for(request.user, query)[:100]
         ]
-    # Newest activity first across both kinds.
+    # Newest activity first.
     items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
     return JsonResponse({"ok": True, "items": items})
 
@@ -908,9 +953,16 @@ def group_create(request):
 
 
 def _group_or_404(request, room_id):
+    """A room chat.js can drive: a client group, or a staff chat.
+
+    Both are read and written through the same two endpoints; what separates
+    them is inside ``chat_send``, which relays only a client room. A staff
+    chat reaching the relay would be an internal conversation landing on a
+    client's phone, so the kind is checked here and the relay checks it again.
+    """
     room = get_object_or_404(
         ChatRoom.objects.select_related("client", "task"),
-        pk=room_id, kind=RoomKind.CLIENT,
+        pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.STAFF),
     )
     if not room.can_access(request.user):
         raise Http404
@@ -924,6 +976,12 @@ def _group_or_404(request, room_id):
 def group_add_members(request, room_id):
     """Add people to a group. Same gate as creating one — it reaches a client."""
     room = _group_or_404(request, room_id)
+    if room.kind == RoomKind.STAFF:
+        # A one-to-one chat is one to one. A third person joining it would
+        # hand them everything the two already said to each other.
+        return JsonResponse(
+            {"ok": False, "error": "ده شات بين اتنين — مينفعش تضيف حد."}, status=400
+        )
     conf = AppSettings.load()
     if not conf.can_create_group(request.user):
         return JsonResponse(

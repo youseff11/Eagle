@@ -246,9 +246,19 @@
     // template here.
     a.href = item.url ||
       root.dataset.detailUrl.replace("CODE", encodeURIComponent(item.code));
-    var face = item.group
-      ? '<span class="avatar avatar--group">' + icon("users", "ic--sm") + "</span>"
-      : '<span class="avatar avatar--brand">' + E.escapeHtml(item.code.slice(3)) + "</span>";
+    // A colleague wears their initials, a group the users icon, a client the
+    // digits of their code. item.code is "u12" / "g7" / "CL-0002".
+    var face;
+    if (item.group) {
+      face = '<span class="avatar avatar--group">' + icon("users", "ic--sm") + "</span>";
+    } else if (item.staff) {
+      face = '<span class="avatar avatar--staff">' +
+        E.escapeHtml(item.initials || (item.label || "?").slice(0, 1).toUpperCase()) +
+        "</span>";
+    } else {
+      face = '<span class="avatar avatar--brand">' +
+        E.escapeHtml(item.code.slice(3)) + "</span>";
+    }
     a.innerHTML = face +
       '<span class="cthread__body">' +
         '<span class="cthread__top">' +
@@ -263,10 +273,11 @@
   function pollList() {
     if (!threadList) { return Promise.resolve(); }
     var listUrl = root.dataset.listUrl;
-    var kind = root.dataset.filter || "all";
-    if (kind !== "all") {
-      listUrl += (listUrl.indexOf("?") === -1 ? "?" : "&") + "type=" + kind;
-    }
+    // Always sent: there is no "everything" tab any more, and the server
+    // answers a missing type with the client list - which a translator is
+    // not allowed to see and would simply get back empty.
+    var kind = root.dataset.filter || "staff";
+    listUrl += (listUrl.indexOf("?") === -1 ? "?" : "&") + "type=" + kind;
     return E.get(listUrl).then(function (res) {
       if (!res || !res.ok) { return; }
       var empty = threadList.querySelector(".empty");

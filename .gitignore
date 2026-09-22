@@ -61,3 +61,6 @@ desktop.ini
 repomix-output.xml
 Claude outputs
 .env.example
+CLAUDE.md
+.claude
+SPEC.md

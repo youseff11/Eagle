@@ -892,6 +892,85 @@ def group_preview(room, user):
     return {"text": text[:70], "at": last.created_at, "outgoing": not last.from_client}
 
 
+def staff_pair_key(one, two):
+    """The key that makes a pair of people a single conversation."""
+    low, high = sorted((int(one), int(two)))
+    return f"{low}-{high}"
+
+
+def staff_room(viewer, other):
+    """The one-to-one room between two employees, opening it if it is new.
+
+    Keyed on the pair rather than looked up by membership: two people who open
+    each other at the same moment would both find nothing and both create a
+    room, and the unique index is what decides that race instead of luck.
+    """
+    from django.db import IntegrityError, transaction
+
+    if viewer.pk == other.pk:
+        return None
+    key = staff_pair_key(viewer.pk, other.pk)
+    room = ChatRoom.objects.filter(pair_key=key).first()
+    if room is None:
+        try:
+            with transaction.atomic():
+                room = ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=key)
+        except IntegrityError:
+            # The other side won the race. Theirs is the room.
+            room = ChatRoom.objects.get(pair_key=key)
+    # Membership is repaired every time, so a room that lost a member to a
+    # half-finished write still opens for both of them.
+    room.members.add(viewer, other)
+    return room
+
+
+def staff_conversations(viewer, query=""):
+    """Everyone in the company, with the conversation if there is one.
+
+    The directory IS the list: a person you have never written to sits in it
+    with an empty preview, so starting a chat is opening a row rather than
+    hunting through a picker. Whoever you have spoken to most recently rises
+    to the top; the rest follow by name.
+    """
+    people = User.objects.filter(is_active=True).exclude(pk=viewer.pk)
+    query = (query or "").strip()
+    if query:
+        people = people.filter(
+            Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(username__icontains=query)
+        )
+    people = list(people.order_by("role", "username")[:200])
+
+    rooms = {
+        room.pair_key: room
+        for room in ChatRoom.objects.filter(kind=RoomKind.STAFF, members=viewer)
+    }
+
+    rows = []
+    for person in people:
+        room = rooms.get(staff_pair_key(viewer.pk, person.pk))
+        preview = {"text": "", "at": None, "outgoing": False}
+        if room is not None:
+            last = room.messages.order_by("-id").first()
+            if last is not None:
+                text = last.body or _attachment_snippet(last.relay_files)
+                preview = {
+                    "text": text[:70],
+                    "at": last.created_at,
+                    "outgoing": last.sender_id == viewer.pk,
+                }
+        rows.append({"person": person, "room": room, "preview": preview})
+
+    # Two passes rather than one sort with a stand-in date: a person never
+    # written to has no time at all, and inventing one to sort by is how a
+    # silent ordering bug gets in.
+    spoken = [row for row in rows if row["preview"]["at"]]
+    fresh = [row for row in rows if not row["preview"]["at"]]
+    spoken.sort(key=lambda row: row["preview"]["at"], reverse=True)
+    return spoken + fresh
+
+
 def groups_for(user, query=""):
     """Every relayed room this person is in — task-bound or standalone.
 

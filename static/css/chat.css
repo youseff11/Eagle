@@ -68,6 +68,14 @@
   color: var(--brand);
 }
 
+/* A colleague is neither. Initials and a colour of their own, so the three
+   kinds of row in this list are told apart without reading a word. */
+.avatar--staff {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+  font-weight: 600;
+}
+
 .cchat__threads {
   overflow-y: auto;
   flex: 1;

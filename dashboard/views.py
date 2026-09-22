@@ -290,14 +290,49 @@ def ops_mail_thread(request, pk):
     })
 
 
+def chat_tabs(user):
+    """Which sections of the chats page this role gets, in order.
+
+    The first one is where the page opens. A translator has no business in a
+    directory of every client the company has ever spoken to, so that tab is
+    simply absent for them rather than present and refusing.
+    """
+    tabs = []
+    if user.is_operation or user.is_admin_role:
+        tabs.append({"key": "clients", "ar": "العملاء", "en": "Clients"})
+    tabs.append({"key": "staff", "ar": "شاتات الموظفين", "en": "Staff chats"})
+    tabs.append({"key": "groups", "ar": "الجروبات", "en": "Groups"})
+    return tabs
+
+
 def _chat_sidebar(user, query, kind):
-    """The left-hand list: 1:1 client chats and groups, newest first."""
+    """The left-hand list: clients, staff chats or groups - one at a time."""
     rows = []
     # The 1:1 list is every client the business has ever talked to. Only the
     # roles that already own the client inbox may see it — a translator who is
     # in one group must not get a directory of every client and their words.
     sees_all_clients = user.is_operation or user.is_admin_role
-    if kind in ("all", "chats") and sees_all_clients:
+    if kind == "staff":
+        # The directory is the list: somebody never written to is a row with
+        # an empty preview, so starting a chat is opening it rather than
+        # hunting through a picker.
+        for row in services.staff_conversations(user, query):
+            person = row["person"]
+            rows.append({
+                "is_group": False,
+                "is_staff": True,
+                "person": person,
+                "client": None,
+                "code": f"u{person.pk}",
+                "label": person.short_name,
+                "initials": person.initials,
+                "url": f"/ops/chats/u/{person.pk}/",
+                "preview": row["preview"],
+            })
+        # Already ordered by the service - spoken to most recently, then the
+        # rest of the directory. Sorting again by time would throw that away.
+        return rows
+    if kind == "clients" and sees_all_clients:
         for client in services.client_conversations(user, query)[:100]:
             preview = services.conversation_preview(client, user)
             rows.append({
@@ -308,7 +343,7 @@ def _chat_sidebar(user, query, kind):
                 "url": f"/ops/chats/{client.code}/",
                 "preview": preview,
             })
-    if kind in ("all", "groups"):
+    if kind == "groups":
         for room in services.groups_for(user, query)[:100]:
             client = room.relay_client
             rows.append({
@@ -324,7 +359,15 @@ def _chat_sidebar(user, query, kind):
     return rows
 
 
-def _chats_context(request, kind):
+def _chat_kind(request, user):
+    """Which tab the page is on. An unknown or forbidden one falls to the first."""
+    tabs = chat_tabs(user)
+    allowed = [tab["key"] for tab in tabs]
+    kind = request.GET.get("type", "")
+    return (kind if kind in allowed else allowed[0]), tabs
+
+
+def _chats_context(request, kind, tabs=None):
     user = request.user
     query = request.GET.get("q", "").strip()
     may_create = AppSettings.load().can_create_group(user)
@@ -332,10 +375,14 @@ def _chats_context(request, kind):
         "conversations": _chat_sidebar(user, query, kind),
         "query": query,
         "filter": kind,
+        "tabs": tabs if tabs is not None else chat_tabs(user),
         "can_create_group": may_create,
-        # Only the roles that see the whole client list get the filter — for
-        # everyone else this page is their groups and nothing else.
-        "show_filter": user.is_operation or user.is_admin_role,
+        # Every role has more than one section now, so the pills are always
+        # drawn - what changes with the role is which pills exist.
+        "show_filter": True,
+        # Seeing the client directory is what the client tab is; the template
+        # still asks separately for the bits that only that role gets.
+        "sees_all_clients": user.is_operation or user.is_admin_role,
         # Answering the client and turning their message into a task both
         # belong to the operation; a translator in a group gets neither.
         "can_convert": user.is_operation or user.is_admin_role,
@@ -363,12 +410,12 @@ def ops_chats(request, code=""):
     user = request.user
     sees_all_clients = user.is_operation or user.is_admin_role
 
-    kind = request.GET.get("type", "all")
-    if kind not in ("all", "chats", "groups"):
-        kind = "all"
-    if not sees_all_clients:
-        kind = "groups"
-    context = _chats_context(request, kind)
+    kind, tabs = _chat_kind(request, user)
+    if code:
+        # Landing straight on a client conversation means the client tab,
+        # whatever the query string says.
+        kind = "clients"
+    context = _chats_context(request, kind, tabs)
 
     active = None
     if code:
@@ -376,7 +423,7 @@ def ops_chats(request, code=""):
         if not sees_all_clients:
             raise Http404
         active = get_object_or_404(Client, code=code)
-    elif sees_all_clients:
+    elif kind == "clients" and sees_all_clients:
         first = next((r for r in context["conversations"] if not r["is_group"]), None)
         active = first["client"] if first else None
 
@@ -406,12 +453,8 @@ def ops_group_chat(request, room_id):
     if room.task_id and not room.task.can_view(user):
         raise Http404
 
-    kind = request.GET.get("type", "all")
-    if kind not in ("all", "chats", "groups"):
-        kind = "all"
-    if not (user.is_operation or user.is_admin_role):
-        kind = "groups"
-    context = _chats_context(request, kind)
+    _kind, tabs = _chat_kind(request, user)
+    context = _chats_context(request, "groups", tabs)
 
     client = room.relay_client
     members = list(room.members.all())
@@ -426,6 +469,37 @@ def ops_group_chat(request, room_id):
         "addable_people": User.objects.filter(is_active=True)
                               .exclude(pk__in=[m.pk for m in members])
                               .order_by("role", "username")[:200],
+        "has_selection": True,
+    })
+    return render(request, "ops/chats.html", context)
+
+
+@login_required
+def ops_staff_chat(request, user_id):
+    """The one-to-one conversation with one colleague.
+
+    Opening the page is what creates the room, so there is no "start a chat"
+    step: the directory row and the conversation are the same click. Nothing
+    here touches a client, so no relay and no client identity is involved.
+    """
+    user = request.user
+    other = get_object_or_404(User, pk=user_id, is_active=True)
+    if other.pk == user.pk:
+        raise Http404
+
+    room = services.staff_room(user, other)
+    _kind, tabs = _chat_kind(request, user)
+    context = _chats_context(request, "staff", tabs)
+    context.update({
+        "active": None,
+        "active_group": room,
+        "active_person": other,
+        "active_code": f"u{other.pk}",
+        "thread": services.group_thread(room, user),
+        "channel": "",
+        "members": [user, other],
+        "can_add_members": False,
+        "addable_people": [],
         "has_selection": True,
     })
     return render(request, "ops/chats.html", context)

@@ -85,6 +85,9 @@ class WordCountState(models.TextChoices):
 class RoomKind(models.TextChoices):
     OPS_LEAD = "ops_lead", "Operation + Team leader"
     GROUP = "group", "Operation + Team leader + Translator"
+    #: Two employees, one to one. No client anywhere near it, so nothing here
+    #: is ever relayed; ``pair_key`` is what keeps a pair to a single room.
+    STAFF = "staff", "Two employees, one to one"
     #: The team on one side, the client's WhatsApp on the other. Eagle relays
     #: between them, so the team gets a group chat without the client ever
     #: leaving WhatsApp — and without anyone's phone number being exposed.
@@ -1174,6 +1177,14 @@ class ChatRoom(models.Model):
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     members = models.ManyToManyField(User, related_name="chat_rooms", blank=True)
+    #: Staff chats only: "<smaller id>-<larger id>". Unique, so the same two
+    #: people can never end up with two conversations - whoever opens it
+    #: second lands in the one that already exists. NULL everywhere else,
+    #: which a unique index allows as many times as it likes.
+    pair_key = models.CharField(
+        max_length=32, blank=True, null=True, unique=True,
+        help_text="Staff chats only: the two user ids, smallest first.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1211,7 +1222,35 @@ class ChatRoom(models.Model):
         client = self.relay_client
         return client.code if client else "—"
 
+    @property
+    def is_staff_chat(self):
+        return self.kind == RoomKind.STAFF
+
+    def other_member(self, viewer):
+        """The person on the far side of a one-to-one staff chat."""
+        if self.kind != RoomKind.STAFF or viewer is None:
+            return None
+        return self.members.exclude(pk=viewer.pk).first()
+
+    def title_for(self, viewer):
+        """What this room is called on one particular screen.
+
+        A staff chat has no title of its own: it is called after whoever is
+        on the other end, so the same room reads differently to each of the
+        two people in it.
+        """
+        if self.kind == RoomKind.STAFF:
+            person = self.other_member(viewer)
+            return person.short_name if person else "—"
+        return self.display_title
+
     def can_access(self, user):
+        # A staff chat is the two people in it and nobody else - not even the
+        # admin, who can open every other room. A private line a third person
+        # reads silently is not a private line, and nothing in the product
+        # asks for one. Change this only on purpose.
+        if self.kind == RoomKind.STAFF:
+            return self.members.filter(pk=user.pk).exists()
         if user.is_admin_role:
             return True
         return self.members.filter(pk=user.pk).exists()
