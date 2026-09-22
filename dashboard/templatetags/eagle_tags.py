@@ -394,3 +394,21 @@ def get_item(mapping, key):
         return mapping.get(key)
     except AttributeError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Deadlines
+# ---------------------------------------------------------------------------
+
+@register.simple_tag
+def deadline_boxes(value=None, name="deadline"):
+    """The days / hours / minutes boxes, outside a Django form.
+
+    One screen asks for a deadline without a form behind it - the panel on
+    the task page. It borrows the widget rather than hand-rolling the same
+    three inputs, so the markup, the prefilling and the "blank means leave
+    it alone" rule stay in one place.
+    """
+    from ..forms import DeadlineInput
+
+    return DeadlineInput().render(name, value)

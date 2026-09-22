@@ -385,15 +385,18 @@
           </div>
         {% endif %}
 
+        {% comment %}
+        The client says "within three days", not "Thursday 17:30". The boxes
+        ask it the way it was said and the line underneath shows the moment
+        that comes out. Empty leaves the deadline as it is; zeros clear it.
+        {% endcomment %}
         <form class="mt" method="post" action="{% url 'dashboard:api_set_deadline' task.code %}"
-              onsubmit="event.preventDefault();Eagle.post(this.action,{deadline:this.deadline.value}).then(function(){location.reload();});">
+              onsubmit="event.preventDefault();Eagle.post(this.action,new FormData(this)).then(function(){location.reload();});">
           {% csrf_token %}
           <label class="label" data-ar="الديدلاين (من العميل)" data-en="Deadline (from the client)">الديدلاين</label>
-          <div class="row row--tight">
-            <input class="input grow" type="datetime-local" name="deadline"
-                   value="{{ task.deadline|date:'Y-m-d\TH:i' }}">
-            <button class="btn" type="submit" data-ar="حفظ" data-en="Save">حفظ</button>
-          </div>
+          {% deadline_boxes task.deadline %}
+          <button class="btn btn--block btn--sm mt" type="submit"
+                  data-ar="حفظ الديدلاين" data-en="Save the deadline">حفظ الديدلاين</button>
         </form>
 
         {% if user.is_admin_role and group_candidates %}

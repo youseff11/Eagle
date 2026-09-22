@@ -942,6 +942,72 @@ window.Eagle = (function () {
     });
   }
 
+  /* ------------------------------------------------------------- deadlines */
+
+  /* The boxes ask "in how long", because that is how a client says it. This
+     answers "which moment is that", live, underneath them - a number of
+     hours is easy to type and hard to picture, and 48 where you meant 4 is
+     otherwise a mistake you find out about two days later. */
+
+  var DEADLINE_DAYS_AR = ["الحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"];
+  var DEADLINE_DAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var DEADLINE_UNIT_MINUTES = { days: 1440, hours: 60, minutes: 1 };
+
+  function initDeadlineBoxes() {
+    function pad(number) { return (number < 10 ? "0" : "") + number; }
+
+    function speak(box) {
+      var out = $("[data-deadline-out]", box);
+      if (!out) { return; }
+
+      var total = 0, typed = false, hasClock = false, bad = false;
+      $$(".dur__num", box).forEach(function (input) {
+        var unit = input.name.split("_").pop();
+        if (unit === "hours" || unit === "minutes") { hasClock = true; }
+        var raw = (input.value || "").trim();
+        if (!raw) { return; }
+        typed = true;
+        var value = parseInt(raw, 10);
+        if (isNaN(value) || value < 0) { bad = true; return; }
+        total += value * (DEADLINE_UNIT_MINUTES[unit] || 0);
+      });
+
+      var was = $('input[type="hidden"]', box);
+      var ar, en, quiet = true;
+      if (bad) {
+        ar = "الأرقام بس.";
+        en = "Numbers only.";
+      } else if (!typed) {
+        // Blank leaves the deadline where it is - which on a new form is
+        // nowhere. Say which of the two this is.
+        ar = was && was.value ? "هيفضل زي ما هو" : "من غير ديدلاين";
+        en = was && was.value ? "Left as it is" : "No deadline";
+      } else if (total <= 0) {
+        ar = "من غير ديدلاين";
+        en = "No deadline";
+      } else {
+        var when = new Date(Date.now() + total * 60000);
+        var day = pad(when.getDate()) + "-" + pad(when.getMonth() + 1) + "-" + when.getFullYear();
+        var clock = pad(when.getHours()) + ":" + pad(when.getMinutes());
+        ar = "يعني " + DEADLINE_DAYS_AR[when.getDay()] + " " + day
+           + (hasClock ? " الساعة " + clock : "");
+        en = DEADLINE_DAYS_EN[when.getDay()] + " " + day
+           + (hasClock ? " at " + clock : "");
+        quiet = false;
+      }
+
+      out.classList.toggle("is-none", quiet);
+      out.setAttribute("data-ar", ar);
+      out.setAttribute("data-en", en);
+      out.textContent = t(ar, en);
+    }
+
+    $$("[data-deadline]").forEach(function (box) {
+      box.addEventListener("input", function () { speak(box); });
+      speak(box);
+    });
+  }
+
   /* --------------------------------------------------------- copy to clipboard */
 
   function initCopy() {
@@ -1238,6 +1304,7 @@ window.Eagle = (function () {
     initMailThread();
     initMailReply();
     initMailList();
+    initDeadlineBoxes();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",
       "الاتصال بواتساب شغال", "WhatsApp connection is working");

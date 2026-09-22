@@ -1,7 +1,10 @@
 """Forms used by the Eagle dashboard."""
 
+from datetime import datetime, timedelta
+
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
+from django.utils import timezone
 
 from .models import (
     AppSettings,
@@ -66,8 +69,197 @@ class DateTimeLocalField(forms.DateTimeField):
         super().__init__(*args, **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Deadlines
+# ---------------------------------------------------------------------------
+
+#: The units a deadline is entered in, in the order they are shown, with the
+#: label each box wears in both languages.
+DEADLINE_PARTS = (
+    ("days", "يوم", "days"),
+    ("hours", "ساعة", "hours"),
+    ("minutes", "دقيقة", "minutes"),
+)
+
+DEADLINE_SECONDS = {"days": 86400, "hours": 3600, "minutes": 60}
+
+
+class DeadlineInput(forms.Widget):
+    """Days, hours and minutes — not a calendar.
+
+    Nobody is told a date. The client says "in three days", or "by tomorrow
+    afternoon", and the calendar then makes you work out which Thursday that
+    is while they are still on the phone. So the boxes ask the question the
+    client actually answered, and the page works out the date. What gets
+    stored is the moment it lands on, exactly as before.
+
+    Three rules, the same everywhere:
+      blank    leave the deadline as it is (no deadline, on a new form)
+      zeros    no deadline
+      numbers  that long from now
+
+    Blank means "leave it alone" so that opening an old record and pressing
+    save cannot quietly wipe a deadline that has already passed — a past
+    deadline has nothing left to count down, so its boxes come up empty.
+
+    Drawn in Python rather than through a widget template: this project's
+    form renderer only sees Django's own templates, and switching
+    FORM_RENDERER across the whole site to place three <input>s is not a
+    trade worth making.
+    """
+
+    def __init__(self, attrs=None, parts=("days", "hours", "minutes")):
+        super().__init__(attrs)
+        self.parts = tuple(parts)
+
+    def value_from_datadict(self, data, files, name):
+        typed = {p: (data.get(f"{name}_{p}") or "").strip() for p in self.parts}
+        # What the deadline was when the page was drawn, so that "blank"
+        # can mean "leave it alone" without the field having to see initial.
+        typed["was"] = (data.get(f"{name}_was") or "").strip()
+        return typed
+
+    def value_omitted_from_data(self, data, files, name):
+        return all(f"{name}_{part}" not in data for part in self.parts)
+
+    def boxes(self, value):
+        """``({part: text}, was)`` — what to draw in each box."""
+        empty = {part: "" for part in self.parts}
+        if isinstance(value, dict):
+            # The form came back (invalid, most likely). Keep what was typed.
+            return {p: value.get(p, "") for p in self.parts}, value.get("was", "")
+        if not value:
+            return empty, ""
+
+        was = value.isoformat()
+        if isinstance(value, datetime):
+            left = int((value - timezone.now()).total_seconds())
+        else:
+            left = (value - timezone.localdate()).days * DEADLINE_SECONDS["days"]
+        if left <= 0:
+            # Already passed. Blank, which reads as "leave it alone".
+            return empty, was
+
+        boxes, rest = {}, left
+        for part in ("days", "hours", "minutes"):
+            size = DEADLINE_SECONDS[part]
+            if part not in self.parts:
+                continue
+            # The last box shown carries whatever the bigger ones left over,
+            # so a days-only field says "3" for anything inside the third day.
+            if part == self.parts[-1]:
+                boxes[part] = str(rest // size)
+            else:
+                boxes[part], rest = str(rest // size), rest % size
+        return boxes, was
+
+    def render(self, name, value, attrs=None, renderer=None):
+        from django.utils.html import escape
+        from django.utils.safestring import mark_safe
+
+        boxes, was = self.boxes(value)
+        cells = "".join(
+            '<label class="dur__part">'
+            f'<input class="input dur__num" type="number" min="0" step="1"'
+            f' inputmode="numeric" name="{escape(name)}_{part}"'
+            f' id="id_{escape(name)}_{part}" value="{escape(boxes.get(part, ""))}">'
+            f'<span class="dur__unit" data-ar="{escape(ar)}" data-en="{escape(en)}">'
+            f'{escape(ar)}</span>'
+            "</label>"
+            for part, ar, en in DEADLINE_PARTS if part in self.parts
+        )
+        return mark_safe(
+            '<div class="dur" data-deadline>'
+            f"{cells}"
+            f'<input type="hidden" name="{escape(name)}_was" value="{escape(was)}">'
+            '<div class="dur__out mono" data-deadline-out></div>'
+            "</div>"
+        )
+
+
+class DeadlineField(forms.Field):
+    """A deadline as "in how long", stored as the moment it lands on.
+
+    ``as_date`` for the model fields that keep a date and not a time; those
+    get the days box on its own, because hours typed into a field that
+    cannot hold them are hours quietly thrown away.
+    """
+
+    def __init__(self, *args, as_date=False, parts=("days", "hours", "minutes"), **kwargs):
+        self.as_date = as_date
+        self.parts = tuple(parts)
+        kwargs.setdefault("widget", DeadlineInput(parts=self.parts))
+        super().__init__(*args, **kwargs)
+
+    def clean(self, value):
+        if not isinstance(value, dict):
+            # Not from our widget (a test posting a datetime, say). Take it.
+            if value in self.empty_values:
+                if self.required:
+                    raise forms.ValidationError(
+                        self.error_messages["required"], code="required"
+                    )
+                return None
+            return value
+
+        total, typed = 0, False
+        for part in self.parts:
+            raw = (value.get(part) or "").strip()
+            if not raw:
+                continue
+            typed = True
+            try:
+                number = int(raw)
+            except ValueError:
+                raise forms.ValidationError("اكتب رقم صحيح.", code="invalid")
+            if number < 0:
+                raise forms.ValidationError("مفيش ديدلاين بالسالب.", code="invalid")
+            total += number * DEADLINE_SECONDS[part]
+
+        if not typed:
+            # Blank: leave whatever is there. On a new form there is nothing.
+            kept = self.was(value.get("was", ""))
+            if kept is None and self.required:
+                raise forms.ValidationError(
+                    self.error_messages["required"], code="required"
+                )
+            return kept
+        if total <= 0:
+            # Zeros, deliberately typed: no deadline.
+            if self.required:
+                raise forms.ValidationError(
+                    self.error_messages["required"], code="required"
+                )
+            return None
+
+        moment = timezone.now() + timedelta(seconds=total)
+        return timezone.localtime(moment).date() if self.as_date else moment
+
+    def was(self, raw):
+        """The deadline the page was drawn with, back from the hidden field."""
+        from django.utils.dateparse import parse_date, parse_datetime
+
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        if self.as_date:
+            return parse_date(raw)
+        moment = parse_datetime(raw)
+        if moment is not None and timezone.is_naive(moment):
+            moment = timezone.make_aware(moment, timezone.get_current_timezone())
+        return moment
+
+    def has_changed(self, initial, data):
+        # The boxes are redrawn from the deadline every time the page loads,
+        # so "same as it was" is the normal case and not a change.
+        try:
+            return self.clean(data) != initial
+        except forms.ValidationError:
+            return True
+
+
 class TaskForm(forms.ModelForm):
-    deadline = DateTimeLocalField(required=False)
+    deadline = DeadlineField(required=False)
 
     class Meta:
         model = Task
@@ -718,6 +910,10 @@ class RecruitmentQuestionForm(forms.ModelForm):
 
 
 class VacancyForm(forms.ModelForm):
+    # A vacancy closes on a day, not at a minute, so it gets the days box on
+    # its own — see DeadlineField.
+    deadline = DeadlineField(required=False, as_date=True, parts=("days",))
+
     class Meta:
         model = Vacancy
         fields = (
@@ -740,7 +936,6 @@ class VacancyForm(forms.ModelForm):
             "shifts": forms.CheckboxSelectMultiple(),
             "job_description": forms.Textarea(attrs={"class": "input", "rows": 4}),
             "requirements": forms.Textarea(attrs={"class": "input", "rows": 3}),
-            "deadline": forms.DateInput(attrs={"class": "input", "type": "date"}),
             "status": forms.Select(attrs={"class": "input"}),
         }
 
@@ -842,7 +1037,7 @@ class InterviewScoreForm(forms.ModelForm):
 
 
 class CandidateTestForm(forms.ModelForm):
-    deadline = DateTimeLocalField(required=False)
+    deadline = DeadlineField(required=False)
 
     class Meta:
         model = CandidateTest

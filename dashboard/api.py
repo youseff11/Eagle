@@ -435,15 +435,38 @@ def email_test(request):
 @api_role_required(Role.OPERATION)
 @require_POST
 def set_deadline(request, code):
+    """Set the deadline from the days / hours / minutes boxes.
+
+    Borrows the form field rather than parsing here, so the three rules —
+    blank leaves it alone, zeros clear it, numbers count from now — are
+    written down once and this page cannot drift from the others.
+
+    A plain ``deadline=<iso>`` still works, for anything that posted the old
+    way before the boxes existed.
+    """
+    from django import forms
     from django.utils.dateparse import parse_datetime
 
+    from .forms import DeadlineField
+
     task = get_object_or_404(Task, code=code)
-    raw = request.POST.get("deadline", "")
-    parsed = parse_datetime(raw) if raw else None
-    if raw and parsed is None:
-        return JsonResponse({"ok": False, "error": "bad_date"}, status=400)
-    if parsed is not None and timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    raw = request.POST.get("deadline", "").strip()
+    if raw:
+        parsed = parse_datetime(raw)
+        if parsed is None:
+            return JsonResponse({"ok": False, "error": "bad_date"}, status=400)
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    else:
+        field = DeadlineField(required=False)
+        typed = field.widget.value_from_datadict(request.POST, request.FILES, "deadline")
+        try:
+            parsed = field.clean(typed)
+        except forms.ValidationError as problem:
+            return JsonResponse(
+                {"ok": False, "error": "bad_date", "detail": problem.messages[0]},
+                status=400,
+            )
     task.deadline = parsed
     task.deadline_warned_at = None
     task.deadline_missed_notified = False

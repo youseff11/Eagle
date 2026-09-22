@@ -123,8 +123,13 @@
         </div>
         <div class="form-grid">
           <div class="field">
-            <label data-ar="آخر موعد" data-en="Deadline">آخر موعد</label>
+            <label data-ar="الإعلان يقفل بعد" data-en="Closes in">الإعلان يقفل بعد</label>
             {{ form.deadline }}
+            <small class="muted"
+                   data-ar="بالأيام. سيبها فاضية يعني سيب الميعاد زي ما هو."
+                   data-en="In days. Leave it empty to keep the date as it is.">
+              بالأيام. سيبها فاضية يعني سيب الميعاد زي ما هو.
+            </small>
           </div>
           <div class="field">
             <label data-ar="الحالة" data-en="Status">الحالة</label>

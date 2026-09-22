@@ -380,6 +380,28 @@ select.input { appearance: none; padding-inline-end: 30px;
 .switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: .87rem; }
 .switch input { width: 16px; height: 16px; accent-color: var(--brand); cursor: pointer; }
 
+/* A deadline, asked for the way it is given: in how long, not on what date.
+   Three small boxes side by side, each wearing its unit, and a line under
+   them saying which moment the numbers add up to - so nobody types 48 where
+   they meant 4 and finds out two days later. */
+.dur { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.dur__part { display: flex; align-items: center; gap: 6px; }
+.dur__num {
+  width: 72px; text-align: center; padding-inline: 8px;
+  font-variant-numeric: tabular-nums;
+}
+/* The spinners are too small to hit and the boxes are narrow without them. */
+.dur__num::-webkit-outer-spin-button,
+.dur__num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.dur__num { -moz-appearance: textfield; appearance: textfield; }
+.dur__unit { font-size: .76rem; color: var(--muted); white-space: nowrap; }
+.dur__out {
+  flex: 1 0 100%; min-height: 1.1em; margin-top: 2px;
+  font-size: .75rem; color: var(--muted);
+}
+.dur__out:empty { display: none; }
+.dur__out.is-none { color: var(--faint); }
+
 /* ----------------------------------------------------------------- badges */
 
 .badge {

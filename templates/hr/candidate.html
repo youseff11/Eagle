@@ -349,8 +349,13 @@
           {{ test_form.assignment }}
         </div>
         <div class="field">
-          <label data-ar="آخر موعد" data-en="Deadline">آخر موعد</label>
+          <label data-ar="آخر موعد للتسليم" data-en="Deadline">آخر موعد للتسليم</label>
           {{ test_form.deadline }}
+          <small class="muted"
+                 data-ar="المهلة اللي هتديها للكانديدت من دلوقتي."
+                 data-en="How long the candidate gets, starting now.">
+            المهلة اللي هتديها للكانديدت من دلوقتي.
+          </small>
         </div>
         <button class="btn btn--block" type="submit">
           {% icon "plus" "ic--sm" %}<span data-ar="سجّل" data-en="Add">سجّل</span>

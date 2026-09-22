@@ -4777,3 +4777,238 @@ class MailSeenTests(TestCase):
         self.assertEqual([i["id"] for i in data["items"]], [arrival.pk])
         self.assertIn("is-unread", data["items"][0]["html"])
         self.assertEqual(services.unseen_conversation_count(self.ops), 0)
+
+
+class DeadlineBoxesTests(TestCase):
+    """A deadline is entered as "in how long", not picked off a calendar.
+
+    Nobody is ever told a date. The client says "within three days", and the
+    calendar then made you work out which Thursday that was while they were
+    still on the phone. Since 22/09/2026 every deadline on the site asks for
+    days, hours and minutes, and stores the moment they add up to.
+
+    Three rules, the same on every screen:
+      blank    leave the deadline as it is
+      zeros    no deadline
+      numbers  that long from now
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_dl", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000044")
+
+    def _about(self, moment, expected, slack=120):
+        """``moment`` is within ``slack`` seconds of ``expected``."""
+        self.assertIsNotNone(moment)
+        self.assertLessEqual(abs((moment - expected).total_seconds()), slack)
+
+    # -- the field --------------------------------------------------------
+
+    def test_the_boxes_become_a_moment(self):
+        from .forms import TaskForm
+
+        form = TaskForm({
+            "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "deadline_days": "2", "deadline_hours": "3", "deadline_minutes": "30",
+            "word_count": "0",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self._about(
+            form.cleaned_data["deadline"],
+            timezone.now() + timedelta(days=2, hours=3, minutes=30),
+        )
+
+    def test_zeros_mean_no_deadline(self):
+        from .forms import TaskForm
+
+        form = TaskForm({
+            "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "deadline_days": "0", "deadline_hours": "0", "deadline_minutes": "0",
+            "word_count": "0",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["deadline"])
+
+    def test_blank_on_a_new_form_means_no_deadline(self):
+        from .forms import TaskForm
+
+        form = TaskForm({
+            "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "deadline_days": "", "deadline_hours": "", "deadline_minutes": "",
+            "word_count": "0",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["deadline"])
+
+    def test_words_are_refused(self):
+        from .forms import TaskForm
+
+        form = TaskForm({
+            "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "deadline_days": "بكرة", "word_count": "0",
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn("deadline", form.errors)
+
+    def test_a_negative_deadline_is_refused(self):
+        from .forms import TaskForm
+
+        form = TaskForm({
+            "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "deadline_days": "-3", "word_count": "0",
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn("deadline", form.errors)
+
+    # -- what the boxes show ----------------------------------------------
+
+    def test_the_boxes_come_back_holding_what_is_left(self):
+        from .forms import TaskForm
+
+        html = str(TaskForm(initial={
+            "deadline": timezone.now() + timedelta(days=2, hours=3, minutes=47, seconds=30),
+        })["deadline"])
+        self.assertIn('name="deadline_days" id="id_deadline_days" value="2"', html)
+        self.assertIn('name="deadline_hours" id="id_deadline_hours" value="3"', html)
+        self.assertIn('name="deadline_minutes" id="id_deadline_minutes" value="47"', html)
+
+    def test_a_deadline_that_has_passed_comes_back_empty(self):
+        from .forms import TaskForm
+
+        gone = timezone.now() - timedelta(days=1)
+        html = str(TaskForm(initial={"deadline": gone})["deadline"])
+        self.assertIn('name="deadline_days" id="id_deadline_days" value=""', html)
+        # Still remembered, so pressing save does not throw it away.
+        self.assertIn(f'name="deadline_was" value="{gone.isoformat()}"', html)
+
+    def test_no_calendar_is_left_on_the_forms(self):
+        from .forms import CandidateTestForm, TaskForm, VacancyForm
+
+        for form in (TaskForm(), CandidateTestForm(), VacancyForm()):
+            self.assertNotIn("datetime-local", str(form["deadline"]))
+            self.assertNotIn('type="date"', str(form["deadline"]))
+
+    # -- a vacancy closes on a day, so it only asks for days ---------------
+
+    def test_a_vacancy_asks_for_days_only(self):
+        from .forms import VacancyForm
+
+        html = str(VacancyForm()["deadline"])
+        self.assertIn('name="deadline_days"', html)
+        self.assertNotIn('name="deadline_hours"', html)
+
+    def test_a_vacancy_deadline_lands_on_the_right_day(self):
+        from .forms import VacancyForm
+
+        form = VacancyForm({
+            "title": "Translator", "openings": "1", "status": "draft",
+            "employment_type": "full_time", "work_mode": "office",
+            "deadline_days": "9",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["deadline"], timezone.localdate() + timedelta(days=9)
+        )
+
+    def test_saving_a_vacancy_you_did_not_touch_keeps_its_deadline(self):
+        """The one screen that edits an existing deadline, and the one that
+        could quietly lose one. A vacancy whose closing date has passed shows
+        empty boxes - so "save" with nothing typed must leave it alone."""
+        from .models import Vacancy
+
+        from .forms import VacancyForm
+
+        gone = timezone.localdate() - timedelta(days=5)
+        vacancy = Vacancy.objects.create(title="Translator", deadline=gone)
+
+        drawn = str(VacancyForm(instance=vacancy)["deadline"])
+        self.assertIn('name="deadline_days" id="id_deadline_days" value=""', drawn)
+
+        form = VacancyForm({
+            "title": "Translator", "openings": "1", "status": "draft",
+            "employment_type": "full_time", "work_mode": "office",
+            "deadline_days": "", "deadline_was": gone.isoformat(),
+        }, instance=vacancy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy.deadline, gone)
+
+    def test_a_vacancy_deadline_can_still_be_cleared(self):
+        from .models import Vacancy
+
+        from .forms import VacancyForm
+
+        gone = timezone.localdate() + timedelta(days=5)
+        vacancy = Vacancy.objects.create(title="Translator", deadline=gone)
+        form = VacancyForm({
+            "title": "Translator", "openings": "1", "status": "draft",
+            "employment_type": "full_time", "work_mode": "office",
+            "deadline_days": "0", "deadline_was": gone.isoformat(),
+        }, instance=vacancy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.deadline)
+
+    # -- the task page ----------------------------------------------------
+
+    def test_the_task_page_saves_a_deadline_from_the_boxes(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        self.client.force_login(self.ops)
+        response = self.client.post(f"/api/tasks/{task.code}/deadline/", {
+            "deadline_days": "1", "deadline_hours": "6", "deadline_minutes": "",
+        })
+        self.assertEqual(response.status_code, 200)
+        task.refresh_from_db()
+        self._about(task.deadline, timezone.now() + timedelta(days=1, hours=6))
+
+    def test_the_task_page_leaves_an_untouched_deadline_alone(self):
+        was = timezone.now() + timedelta(days=3)
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops, deadline=was,
+        )
+        self.client.force_login(self.ops)
+        self.client.post(f"/api/tasks/{task.code}/deadline/", {
+            "deadline_days": "", "deadline_hours": "", "deadline_minutes": "",
+            "deadline_was": was.isoformat(),
+        })
+        task.refresh_from_db()
+        self._about(task.deadline, was, slack=1)
+
+    def test_the_task_page_clears_on_zeros(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            deadline=timezone.now() + timedelta(days=3),
+        )
+        self.client.force_login(self.ops)
+        self.client.post(f"/api/tasks/{task.code}/deadline/", {
+            "deadline_days": "0", "deadline_hours": "0", "deadline_minutes": "0",
+        })
+        task.refresh_from_db()
+        self.assertIsNone(task.deadline)
+
+    def test_the_task_page_still_takes_a_plain_date(self):
+        """Anything that posted the old way keeps working."""
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        self.client.force_login(self.ops)
+        when = timezone.now() + timedelta(days=4)
+        self.client.post(f"/api/tasks/{task.code}/deadline/", {
+            "deadline": when.isoformat(),
+        })
+        task.refresh_from_db()
+        self._about(task.deadline, when, slack=1)
+
+    def test_the_task_page_draws_the_boxes(self):
+        task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            deadline=timezone.now() + timedelta(days=1, hours=2),
+        )
+        self.client.force_login(self.ops)
+        html = self.client.get(f"/tasks/{task.code}/").content.decode()
+        self.assertIn('name="deadline_days"', html)
+        self.assertNotIn('type="datetime-local"', html)
