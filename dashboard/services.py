@@ -641,6 +641,11 @@ def ensure_room(task, kind):
 
 
 def system_message(room, *, key, body_ar, body_en):
+    # A step whose two people are not both known has nowhere to post its note.
+    # That is an ordinary state - a task an admin opened for themselves, a
+    # task with no leader yet - and never a reason to fail the step itself.
+    if room is None:
+        return None
     return ChatMessage.objects.create(
         room=room, is_system=True, system_key=key,
         body=f"{body_ar} {body_en}",
@@ -669,7 +674,10 @@ def share_source_files(task, room=None):
     Idempotent: an inbound already shared is not shared again, so this is safe
     to call on every acceptance and to re-run over tasks that predate it.
     """
-    room = room or ensure_room(task, RoomKind.GROUP)
+    # No fallback room: a task has no room of its own now, so a caller that
+    # does not say where the files go has nowhere to put them.
+    if room is None:
+        return []
     already = set(
         room.messages.filter(inbound__isnull=False).values_list("inbound_id", flat=True)
     )
@@ -688,6 +696,10 @@ def share_source_files(task, room=None):
         shared.append(ChatMessage.objects.create(
             room=room,
             inbound=inbound,
+            # This message IS work on the task, and saying so is what lets
+            # relay_files honour the ticked files now that the room it sits
+            # in no longer belongs to the task.
+            task=task,
             sender=None,
             body="ملفات العميل الأصلية. The client's original files.",
         ))
@@ -1154,6 +1166,72 @@ def _cancel_pending(task, exclude_id=None):
 
 
 @transaction.atomic
+def task_thread(task, one, two):
+    """The chat a task's step happens in: the two people doing that step.
+
+    There is no room that belongs to a task any more. A step belongs to the
+    pair carrying it - operation and team leader, or team leader and
+    translator - and that is their own conversation, which outlives the task.
+
+    Returns ``None`` when one of the two is missing, and every caller treats
+    that as "no note to write" rather than an error: a task with no leader yet
+    is an ordinary state, not a failure.
+    """
+    if one is None or two is None or one.pk == two.pk:
+        return None
+    try:
+        return staff_room(one, two)
+    except Exception:  # noqa: BLE001 - a note must never undo a step
+        logger.exception("could not open the thread for %s", task.code)
+        return None
+
+
+def task_files_filter(task):
+    """Messages that are work on this task, under either generation of link.
+
+    New messages carry ``task`` directly. Older ones were in a room that
+    belonged to the task. Both answer, so nothing written before this goes
+    quiet - which is the difference between a migration and a data loss.
+    """
+    return Q(message__task=task) | Q(message__room__task=task)
+
+
+def tag_task_message(message):
+    """Mark a chat message as work on a task, when that is unambiguous.
+
+    Called after a message with files is sent in a one-to-one chat. If the
+    two of them have exactly one live task together, the files are that
+    task's and the link is drawn. If they have none, or more than one, the
+    link is left alone.
+
+    Guessing is refused on purpose - the same rule the inbound side already
+    follows. A file filed against the wrong task would be delivered to the
+    wrong client, and a wrong answer here is worse than no answer.
+    """
+    room = message.room
+    if room.kind != RoomKind.STAFF or message.sender_id is None:
+        return None
+    # No file, no deliverable. The guard lives here rather than in the caller:
+    # a rule that only holds while every caller remembers it is not a rule.
+    if not message.attachments.exists():
+        return None
+    other = room.members.exclude(pk=message.sender_id).first()
+    if other is None:
+        return None
+    pair = {message.sender_id, other.pk}
+    candidates = [
+        task for task in Task.objects.filter(
+            status__in=ACTIVE_TASK_STATUSES
+        ).select_related("team_lead", "translator", "created_by")
+        if pair <= {task.created_by_id, task.team_lead_id, task.translator_id}
+    ]
+    if len(candidates) != 1:
+        return None
+    message.task = candidates[0]
+    message.save(update_fields=["task"])
+    return candidates[0]
+
+
 def ai_suggestions_for(viewer, other):
     """The AI's notes on what ``other`` just handed ``viewer`` for review.
 
@@ -1316,10 +1394,10 @@ def accept_assignment(assignment, user):
         task.status = TaskStatus.LEAD_ACCEPTED
         task.lead_accepted_at = timezone.now()
         task.save(update_fields=["status", "lead_accepted_at", "updated_at"])
-        room = ensure_room(task, RoomKind.OPS_LEAD)
-        # The client-facing room opens at the same moment, so the team can talk
-        # to the client from the task page from the very first day.
-        ensure_room(task, RoomKind.CLIENT)
+        # The step belongs to the two carrying it, so the note goes in their
+        # own chat. No room is opened for the task - talking to the client is
+        # the operation's own conversation with them, under "Clients".
+        room = assignment.room or task_thread(task, task.created_by, user)
         system_message(
             room, key="lead_accepted",
             body_ar=f"{user.short_name} استلم التاسك.",
@@ -1337,16 +1415,18 @@ def accept_assignment(assignment, user):
         task.status = TaskStatus.IN_PROGRESS
         task.translator_accepted_at = timezone.now()
         task.save(update_fields=["status", "translator_accepted_at", "updated_at"])
-        room = ensure_room(task, RoomKind.GROUP)
-        # Re-run so the translator who just joined is added to the client room.
-        ensure_room(task, RoomKind.CLIENT)
-        # The client's document is the job. Leaving it to somebody to forward
-        # by hand left a translator looking at an empty group (20/09/2026).
-        share_source_files(task)
+        # The work happens between the leader and the translator, in the chat
+        # they already have. No group is opened for the task. The files went
+        # into this same chat when it was handed over and share_source_files
+        # is idempotent, so this fills a gap rather than sending them twice.
+        room = assignment.room or task_thread(
+            task, task.team_lead or task.created_by, user
+        )
+        share_source_files(task, room=room)
         system_message(
-            room, key="group_opened",
-            body_ar=f"جروب التاسك {task.code} اتفتح: أوبريشن + تيم ليدر + مترجم.",
-            body_en=f"Group chat for {task.code} opened: Operation + Team leader + Translator.",
+            room, key="work_started",
+            body_ar=f"{user.short_name} استلم {task.code} وبدأ شغل.",
+            body_en=f"{user.short_name} accepted {task.code} and started work.",
         )
         for person in (task.created_by, task.team_lead):
             notify(
@@ -1530,7 +1610,7 @@ def mark_translated(task, user):
     except Exception:
         log(user, "task.word_count.failed", task.code)
 
-    room = ensure_room(task, RoomKind.GROUP)
+    room = task_thread(task, task.team_lead, user)
     # The quality pass runs itself. A gate somebody has to remember to press
     # is a gate that gets skipped on the busy days, which are the days it is
     # for. It runs on its own thread - see ai.start_background_check.
@@ -1589,7 +1669,7 @@ def mark_reviewed(task, user):
         body_en=f"{task.code} is reviewed. You can take it over and deliver.",
         key="reviewed",
     )
-    room = ensure_room(task, RoomKind.GROUP)
+    room = task_thread(task, task.created_by, user)
     system_message(
         room, key="reviewed",
         body_ar=f"{user.short_name} \u0623\u0646\u0647\u0649 \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629. \u0627\u0644\u0623\u0648\u0628\u0631\u064a\u0634\u0646 \u064a\u0633\u062a\u0644\u0645 \u0648\u064a\u0633\u0644\u0651\u0645 \u0644\u0644\u0639\u0645\u064a\u0644.",
@@ -1639,7 +1719,7 @@ def acknowledge_handover(task, user):
     task.handover_ack_at = timezone.now()
     task.handover_ack_by = user
     task.save(update_fields=["handover_ack_at", "handover_ack_by", "updated_at"])
-    room = ensure_room(task, RoomKind.GROUP)
+    room = task_thread(task, task.team_lead, user)
     system_message(
         room, key="handover_ack",
         body_ar=f"{user.short_name} \u0627\u0633\u062a\u0644\u0645 \u0627\u0644\u062a\u0627\u0633\u0643 \u0648\u0647\u064a\u0633\u0644\u0651\u0645\u0647\u0627 \u0644\u0644\u0639\u0645\u064a\u0644.",
@@ -1658,17 +1738,23 @@ def acknowledge_handover(task, user):
 
 
 def add_group_member(task, user, person):
-    """Put somebody into the task group after it has already opened.
+    """Put somebody into a task's group - where one still exists.
 
-    An admin who claimed the client's message themselves opens a group with no
-    operation in it. This is how one joins later, which is the case the
-    workflow was written around.
+    Tasks stopped opening a group of their own: the work is a chain of
+    one-to-one chats now, and there is no room for a third person to join.
+    This keeps answering for the tasks that ran under the old shape, and
+    returns False for the ones that never had a group.
+
+    Somebody who needs bringing into a live job goes into a work group
+    instead - see ``create_team_group``.
     """
     if not user.is_admin_role:
         return False
     if person is None or not person.is_active:
         return False
-    room = ensure_room(task, RoomKind.GROUP)
+    room = task.rooms.filter(kind=RoomKind.GROUP).first()
+    if room is None:
+        return False
     if room.members.filter(pk=person.pk).exists():
         return True
     room.members.add(person)
@@ -1714,7 +1800,7 @@ def send_back_for_revision(task, user, reason=""):
         "status", "revision_count", "returned_at", "reviewed_at",
         "handover_ack_at", "handover_ack_by", "updated_at",
     ])
-    room = ensure_room(task, RoomKind.GROUP)
+    room = task_thread(task, task.translator, user)
     system_message(
         room, key="returned",
         body_ar=f"{user.short_name} رجّع الترجمة للتعديل. {reason}".strip(),
@@ -1799,9 +1885,13 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
     channel = client_channel(client)
     target = client.phone if channel == Channel.WHATSAPP else client.email
 
+    # The ids come from the browser, so they are fetched again and checked
+    # against this task. That check is what stops a file from another job
+    # being sent to this client - and it has to accept both links now, since
+    # a task's files no longer live in a room that belongs to it.
     attachments = list(
         ChatAttachment.objects.filter(
-            id__in=list(attachment_ids or []), message__room__task=task
+            task_files_filter(task), id__in=list(attachment_ids or [])
         ).order_by("id")
     )
 

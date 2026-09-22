@@ -206,13 +206,18 @@ def collect_texts(task):
     what the client sent. Both are best-effort - a PDF or a scan reads as
     nothing, and the check then reports that instead of guessing.
     """
-    from .models import ChatAttachment, RoomKind
+    from django.db.models import Q
+
+    from .models import ChatAttachment
 
     translated = ""
-    room = task.rooms.filter(kind=RoomKind.GROUP).first()
-    if room is not None and task.translator_id:
+    if task.translator_id:
+        # Wherever the translator put them: tagged onto the message for a task
+        # running under the new shape, or in the task's own old room for one
+        # that predates it.
         latest = ChatAttachment.objects.filter(
-            message__room=room, message__sender=task.translator
+            (Q(message__task=task) | Q(message__room__task=task))
+            & Q(message__sender=task.translator)
         ).order_by("-id")[:3]
         translated = "\n\n".join(
             extract_text(a.file, a.original_name) for a in latest

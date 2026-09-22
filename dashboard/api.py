@@ -747,6 +747,12 @@ def chat_send(request, room_id):
     if voice is not None:
         voice_error = _store_voice(message, voice)
 
+    # Files handed over in a one-to-one chat are work on a task when the two
+    # of them have exactly one running between them. See tag_task_message -
+    # it refuses to guess, which is why this can be automatic at all.
+    if uploads or voice is not None:
+        services.tag_task_message(message)
+
     # A client room is a relay: whatever lands here goes on to the client's
     # WhatsApp. A failure is recorded on the message, never swallowed.
     relay_error = ""

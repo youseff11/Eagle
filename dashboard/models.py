@@ -1305,6 +1305,16 @@ class ChatRoom(models.Model):
 
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")
+    #: Which task this message is work on, when it is work on one.
+    #:
+    #: A task used to own a room, so "which task is this file for" was the
+    #: same question as "which room is it in". The work happens in the chat
+    #: between two people now, and that chat outlives any one task - so the
+    #: link has to be on the message itself. Null means ordinary talk.
+    task = models.ForeignKey(
+        "Task", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="chat_messages", db_index=True,
+    )
     sender = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="chat_messages"
     )
@@ -1346,18 +1356,25 @@ class ChatMessage(models.Model):
     def relay_files(self):
         """Attachments to show — the client's own when this mirrors an inbound.
 
-        In a *task* group the operation may have ticked only some of the
-        client's files when they made the task; the translator should then see
-        exactly those. The client room is deliberately left alone: it is the
-        record of what the client actually sent, and hiding half of it there
-        would make the conversation lie.
+        Where this is internal work on a task, the operation may have ticked
+        only some of the client's files when they made it; whoever is working
+        should then see exactly those. The client room is deliberately left
+        alone: it is the record of what the client actually sent, and hiding
+        half of it there would make the conversation lie.
+
+        The test is the room's kind, not a particular kind of room. It used to
+        read ``== GROUP`` because a task owned a group; the work moved into
+        the one-to-one chats, and a rule written around the old room would
+        have gone quietly false - with the client's other files travelling to
+        a translator who was never meant to see them.
         """
         if not self.inbound_id:
             return self.attachments.all()
 
         files = self.inbound.attachments.all()
-        task = self.room.task if self.room_id else None
-        if task and self.room.kind == RoomKind.GROUP and task.source_files.exists():
+        task = self.task or (self.room.task if self.room_id else None)
+        internal = self.room_id and self.room.kind != RoomKind.CLIENT
+        if task and internal and task.source_files.exists():
             files = files.filter(tasks=task)
         return files
 

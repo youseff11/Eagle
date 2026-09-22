@@ -698,13 +698,9 @@ def task_detail(request, code):
     # Tasks that were already running when the client room shipped never got
     # one. Backfill on first view — guarded by exists() so an ordinary GET
     # stays read-only once the room is there.
-    if (
-        task.status in ACTIVE_TASK_STATUSES
-        and task.rooms.exists()
-        and not task.rooms.filter(kind=RoomKind.CLIENT).exists()
-    ):
-        services.ensure_room(task, RoomKind.CLIENT)
-
+    # No room is opened for a task any more. The ones a task already has stay
+    # readable here; talking to the client is the operation's own conversation
+    # with them, under "Clients".
     rooms = list(services.rooms_for(task, user))
     active_room = None
     room_id = request.GET.get("room")

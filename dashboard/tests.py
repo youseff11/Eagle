@@ -64,13 +64,16 @@ class WorkflowTests(TestCase):
         self.assertTrue(ok)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.IN_PROGRESS)
-        # ops+lead, the full group, and the relayed client room.
-        self.assertEqual(task.rooms.count(), 3)
-        client_room = task.rooms.get(kind=RoomKind.CLIENT)
-        # The client room is the operation's and the leader's. A translator
-        # never talks to a client, not even after accepting.
-        self.assertNotIn(self.tr, client_room.members.all())
-        self.assertIn(self.lead, client_room.members.all())
+        # A task owns no room at all now: the work runs through the chat
+        # between whichever two people are carrying each step.
+        self.assertEqual(task.rooms.count(), 0)
+        with_lead = services.staff_room(self.ops, self.lead)
+        with_translator = services.staff_room(self.lead, self.tr)
+        self.assertTrue(with_lead.messages.exists())
+        self.assertTrue(with_translator.messages.exists())
+        # The rule that room carried still holds, and holds harder: there is
+        # no room a translator could be in with a client at all.
+        self.assertNotIn(self.tr, with_lead.members.all())
 
         services.mark_translated(task, self.tr)
         task.refresh_from_db()
@@ -2419,14 +2422,15 @@ class SourceFilesReachTheTranslatorTests(TestCase):
         )
 
     def _accept(self):
+        """The files go to the chat the hand-off went through."""
         assignment = services.assign_to_translator(self.task, self.tr, self.ops)
         services.accept_assignment(assignment, self.tr)
-        return self.task.rooms.get(kind=RoomKind.GROUP)
+        return services.staff_room(self.ops, self.tr)
 
     def _shared(self, room):
         return [m for m in room.messages.all() if not m.is_system]
 
-    def test_accepting_puts_the_client_file_in_the_group(self):
+    def test_accepting_puts_the_client_file_in_the_chat(self):
         room = self._accept()
         shared = self._shared(room)
         self.assertEqual(len(shared), 1)
@@ -2449,8 +2453,8 @@ class SourceFilesReachTheTranslatorTests(TestCase):
 
     def test_sharing_again_does_not_double_the_file(self):
         room = self._accept()
-        services.share_source_files(self.task)
-        services.share_source_files(self.task)
+        services.share_source_files(self.task, room=room)
+        services.share_source_files(self.task, room=room)
         self.assertEqual(room.messages.filter(inbound__isnull=False).count(), 1)
 
     def test_a_client_message_with_no_file_is_not_shared(self):
@@ -2551,26 +2555,56 @@ class HandoverTests(TestCase):
         self.assertNotIn(self.lead.id, told)
 
     # -- the rooms ---------------------------------------------------------
-    def test_the_translator_is_not_in_the_client_room(self):
-        task = self._reviewed_task()
-        room = task.rooms.get(kind=RoomKind.CLIENT)
-        self.assertNotIn(self.tr, room.members.all())
-        self.assertIn(self.lead, room.members.all())
+    def test_no_room_of_the_task_reaches_the_client(self):
+        """The rule that a translator never talks to a client, made structural.
 
-    def test_an_admin_can_add_an_operation_to_the_group_afterwards(self):
+        It used to be enforced by keeping them out of the task's client room.
+        There is no such room now - talking to a client is the operation's own
+        conversation under "Clients", and nothing a task opens goes near it.
+        """
+        from .models import RoomKind
+
+        task = self._reviewed_task()
+        self.assertEqual(task.rooms.count(), 0)
+        self.assertNotIn(
+            self.tr, services.staff_room(self.ops, self.lead).members.all()
+        )
+        rooms = services.groups_for(self.tr)
+        self.assertFalse([r for r in rooms if r.kind == RoomKind.CLIENT])
+
+    def test_a_task_has_no_group_for_anybody_to_join(self):
+        """The case this used to cover has moved, it did not disappear.
+
+        An admin who took the client's message themselves used to open a task
+        group with no operation in it, and this was how one joined later.
+        Tasks have no group now, so the answer is no - and bringing somebody
+        into a live job is what a work group is for.
+        """
         admin = User.objects.create_user("owner_h", password="x", role=Role.ADMIN)
         other = User.objects.create_user("ops_h2", password="x", role=Role.OPERATION)
         task = self._reviewed_task()
-        self.assertTrue(services.add_group_member(task, admin, other))
-        self.assertIn(other, task.rooms.get(kind=RoomKind.GROUP).members.all())
-        # Twice is not an error, and does not add a second row.
-        self.assertTrue(services.add_group_member(task, admin, other))
+        self.assertFalse(services.add_group_member(task, admin, other))
+
+        group, error = services.create_team_group(
+            admin, title="تسليم TSK", members=[other, self.lead]
+        )
+        self.assertIsNotNone(group, error)
+        self.assertIn(other, group.members.all())
 
     def test_only_an_admin_adds_somebody_to_a_group(self):
+        """Still the admin's alone, tested where a group actually exists."""
+        from .models import RoomKind
+
         other = User.objects.create_user("ops_h3", password="x", role=Role.OPERATION)
         task = self._reviewed_task()
+        room = services.ensure_room(task, RoomKind.GROUP)
         self.assertFalse(services.add_group_member(task, self.lead, other))
-        self.assertNotIn(other, task.rooms.get(kind=RoomKind.GROUP).members.all())
+        self.assertNotIn(other, room.members.all())
+        admin = User.objects.create_user("owner_h3", password="x", role=Role.ADMIN)
+        self.assertTrue(services.add_group_member(task, admin, other))
+        self.assertIn(other, room.members.all())
+        # Twice is not an error, and does not add a second row.
+        self.assertTrue(services.add_group_member(task, admin, other))
 
     # -- the automatic AI check -------------------------------------------
     def test_the_ai_check_starts_itself_when_the_translator_finishes(self):
@@ -2917,6 +2951,185 @@ class StaffChatTests(TestCase):
         rows = services.staff_conversations(self.tr)
         self.assertEqual(rows[0]["person"].pk, self.ops.pk)
         self.assertEqual(rows[0]["preview"]["text"], "hi")
+
+
+class TaskWithoutAGroupTests(TestCase):
+    """A task no longer owns a room. Everything that read one must still read.
+
+    This is the change with the most reach: word counting, the AI check and
+    the delivery all used to find a task's files by asking which room they
+    were in. The room is gone, so the link moved onto the message - and every
+    one of those three has to answer either way, or a job half-way through
+    the change goes quiet.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import (
+            Channel, ChatAttachment, ChatMessage, ChatRoom, InboundMessage,
+            MessageAttachment, RoomKind, TaskStatus,
+        )
+
+        self.ContentFile = ContentFile
+        self.ChatAttachment = ChatAttachment
+        self.ChatMessage = ChatMessage
+        self.ChatRoom = ChatRoom
+        self.RoomKind = RoomKind
+        self.TaskStatus = TaskStatus
+        self.ops = User.objects.create_user(
+            "ops_ng", password="x", role=Role.OPERATION, first_name="Omar"
+        )
+        self.lead = User.objects.create_user(
+            "lead_ng", password="x", role=Role.TEAM_LEAD, first_name="Laila"
+        )
+        self.tr = User.objects.create_user(
+            "tr_ng", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Tarek",
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000061")
+        self.inbound = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="[document]",
+            sender_identity="+201000000061",
+        )
+        MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"src", name="source.pdf"),
+            original_name="source.pdf", size=3, mime="application/pdf",
+        )
+        self.task = services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops,
+            messages=[self.inbound],
+        )
+
+    def _run_to_translator(self):
+        services.accept_assignment(
+            services.assign_to_lead(self.task, self.lead, self.ops), self.lead
+        )
+        services.accept_assignment(
+            services.assign_to_translator(self.task, self.tr, self.lead), self.tr
+        )
+        self.task.refresh_from_db()
+
+    def _hand_back(self, name="translated.docx"):
+        """The translator sending the finished file in the leader's chat."""
+        room = services.staff_room(self.tr, self.lead)
+        message = self.ChatMessage.objects.create(room=room, sender=self.tr, body="")
+        self.ChatAttachment.objects.create(
+            message=message, file=self.ContentFile(b"done", name=name),
+            original_name=name, size=4,
+        )
+        services.tag_task_message(message)
+        return message
+
+    # -- no room belongs to a task -----------------------------------------
+
+    def test_running_a_task_opens_no_room_of_its_own(self):
+        self._run_to_translator()
+        self.assertEqual(self.task.rooms.count(), 0)
+
+    def test_the_work_happens_in_the_two_chats_instead(self):
+        self._run_to_translator()
+        with_lead = services.staff_room(self.ops, self.lead)
+        with_translator = services.staff_room(self.lead, self.tr)
+        self.assertTrue(with_lead.messages.exists())
+        self.assertTrue(with_translator.messages.exists())
+        names = [
+            f.original_name
+            for m in with_translator.messages.all()
+            for f in m.relay_files
+        ]
+        self.assertIn("source.pdf", names)
+
+    def test_adding_a_member_answers_no_where_there_is_no_group(self):
+        admin = User.objects.create_user("admin_ng", password="x", role=Role.ADMIN)
+        self._run_to_translator()
+        self.assertFalse(services.add_group_member(self.task, admin, self.ops))
+
+    # -- the file finds its task -------------------------------------------
+
+    def test_a_file_handed_back_is_tagged_with_the_task(self):
+        self._run_to_translator()
+        message = self._hand_back()
+        message.refresh_from_db()
+        self.assertEqual(message.task_id, self.task.pk)
+
+    def test_two_live_tasks_between_the_same_two_people_are_not_guessed(self):
+        """The same rule the inbound side follows: no guessing which job."""
+        self._run_to_translator()
+        second = services.create_task(
+            client=self.client_obj, title="Second", created_by=self.ops,
+        )
+        second.team_lead = self.lead
+        second.translator = self.tr
+        second.status = self.TaskStatus.IN_PROGRESS
+        second.save()
+        message = self._hand_back()
+        message.refresh_from_db()
+        self.assertIsNone(message.task_id)
+
+    def test_ordinary_talk_is_never_tagged(self):
+        self._run_to_translator()
+        room = services.staff_room(self.tr, self.lead)
+        message = self.ChatMessage.objects.create(
+            room=room, sender=self.tr, body="صباح الخير"
+        )
+        services.tag_task_message(message)
+        message.refresh_from_db()
+        self.assertIsNone(message.task_id)
+
+    # -- the three readers still read --------------------------------------
+
+    def test_the_word_count_finds_the_translated_file(self):
+        from . import wordcount
+
+        self._run_to_translator()
+        self._hand_back()
+        found = [a.original_name for a in wordcount.translated_attachments(self.task)]
+        self.assertEqual(found, ["translated.docx"])
+
+    def test_the_ai_check_reads_the_translated_file(self):
+        from . import ai
+
+        self._run_to_translator()
+        self._hand_back(name="translated.txt")
+        _source, translated = ai.collect_texts(self.task)
+        self.assertIn("done", translated)
+
+    def test_the_delivery_can_only_pick_this_task_files(self):
+        """The filter is what stops another job's file reaching this client."""
+        self._run_to_translator()
+        mine = self._hand_back()
+        stranger_room = services.staff_room(self.ops, self.tr)
+        stranger = self.ChatMessage.objects.create(
+            room=stranger_room, sender=self.tr, body=""
+        )
+        self.ChatAttachment.objects.create(
+            message=stranger, file=self.ContentFile(b"no", name="other.docx"),
+            original_name="other.docx", size=2,
+        )
+        allowed = self.ChatAttachment.objects.filter(
+            services.task_files_filter(self.task)
+        )
+        names = sorted(a.original_name for a in allowed)
+        self.assertEqual(names, ["translated.docx"])
+        self.assertEqual(mine.task_id, self.task.pk)
+
+    def test_a_task_from_before_the_change_still_answers(self):
+        """Its files are in its own old room, and nothing was backfilled."""
+        from . import wordcount
+
+        self.task.translator = self.tr
+        self.task.save(update_fields=["translator"])
+        old_room = services.ensure_room(self.task, self.RoomKind.GROUP)
+        message = self.ChatMessage.objects.create(
+            room=old_room, sender=self.tr, body=""
+        )
+        self.ChatAttachment.objects.create(
+            message=message, file=self.ContentFile(b"old", name="legacy.docx"),
+            original_name="legacy.docx", size=3,
+        )
+        self.assertIsNone(message.task_id)
+        found = [a.original_name for a in wordcount.translated_attachments(self.task)]
+        self.assertEqual(found, ["legacy.docx"])
 
 
 class SuggestionsArchiveAndHeaderTests(TestCase):
@@ -3569,7 +3782,7 @@ class PickedSourceFilesTests(TestCase):
             task.source_files.set(picked)
         assignment = services.assign_to_translator(task, self.tr, self.ops)
         services.accept_assignment(assignment, self.tr)
-        return task, task.rooms.get(kind=RoomKind.GROUP)
+        return task, services.staff_room(self.ops, self.tr)
 
     def _names(self, room):
         shared = [m for m in room.messages.all() if not m.is_system]
@@ -3583,11 +3796,30 @@ class PickedSourceFilesTests(TestCase):
         _task, room = self._task()
         self.assertEqual(sorted(self._names(room)), ["contract.pdf", "selfie.jpg"])
 
-    def test_the_client_room_still_shows_what_the_client_actually_sent(self):
-        """The picker trims the task group. It must not edit the record."""
+    def test_the_record_of_what_the_client_sent_is_not_trimmed(self):
+        """The picker decides what the translator works on. Nothing else.
+
+        It must never edit the record of what the client actually sent, and
+        that record is the inbound message itself - which is what is left now
+        that the task has no room of its own.
+        """
+        _task, room = self._task(picked=[self.contract])
+        self.assertEqual(self._names(room), ["contract.pdf"])
+        kept = sorted(a.original_name for a in self.inbound.attachments.all())
+        self.assertEqual(kept, ["contract.pdf", "selfie.jpg"])
+
+    def test_a_room_that_reaches_the_client_is_never_trimmed(self):
+        """The same rule from the other side, and the reason it is a rule.
+
+        The filter follows the room's kind. Hiding half of what a client sent
+        inside the conversation they can read would make it lie, so a client
+        room shows everything - ticked or not.
+        """
+        from .models import RoomKind
+
         task, _room = self._task(picked=[self.contract])
+        client_room = services.ensure_room(task, RoomKind.CLIENT)
         services.mirror_inbound_to_room(self.inbound)
-        client_room = task.rooms.get(kind=RoomKind.CLIENT)
         names = [
             f.original_name
             for m in client_room.messages.filter(inbound=self.inbound)

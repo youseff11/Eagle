@@ -208,14 +208,24 @@ def source_attachments(task):
 
 
 def translated_attachments(task):
-    """The files the translator uploaded into the task's internal room."""
+    """The files the translator handed over, wherever they put them.
+
+    Tagged onto the message for a task running under the current shape, or in
+    the task's own old room for one that predates it. Both answer, so a job
+    caught half-way across the change still counts.
+    """
+    from django.db.models import Q
+
     from .models import ChatAttachment
 
     if not task.translator_id:
         return []
     return (
         ChatAttachment.objects
-        .filter(message__room__task=task, message__sender_id=task.translator_id)
+        .filter(
+            (Q(message__task=task) | Q(message__room__task=task))
+            & Q(message__sender_id=task.translator_id)
+        )
         .order_by("-id")[:10]
     )
 
