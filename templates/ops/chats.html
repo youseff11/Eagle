@@ -125,9 +125,18 @@
           {% else %}{{ active.code|slice:"3:" }}{% endif %}
         </span>
         <div>
+          {% comment %}
+          The admin is the one role allowed to know who the client is, so
+          their header leads with the name and keeps the code beside it in
+          small type. Everybody else reads the code, as they always have -
+          this is how it is written, not who may see it.
+          {% endcomment %}
           <div class="cchat__who {% if not active_person %}mono{% endif %}">
             {% if active_person %}{{ active_person.short_name }}
             {% elif active_group %}{{ active_group.display_title }}
+            {% elif user.can_see_client_identity and active.name %}
+              <span class="cchat__name">{{ active.name }}</span>
+              <span class="cchat__code mono">({{ active.code }})</span>
             {% else %}{{ active|label_for:user }}{% endif %}
           </div>
           <div class="cchat__meta muted">
@@ -185,6 +194,39 @@
                  data-en="Nothing here reaches the client.">مفيش حاجة هنا بتوصل العميل.</div>
           </div>
         </div>
+      {% endif %}
+
+      {% comment %}
+      What the AI noticed about the translation this person just handed over.
+      Suggestions - the review is still yours. Drawn only for the team leader
+      and never written into the room, so it is not a public correction.
+      {% endcomment %}
+      {% if ai_notes %}
+        <details class="note ai-notes" open>
+          <summary>
+            {% icon "sparkles" "ic--sm" %}
+            <strong data-ar="اقتراحات الـAI" data-en="AI suggestions">اقتراحات الـAI</strong>
+            <span class="chip chip--sm mono">{{ ai_notes.task.code }}</span>
+            <span class="chip chip--sm">{{ ai_notes.issues|length }}</span>
+          </summary>
+          <div class="ai-notes__hint muted"
+               data-ar="دي اقتراحات مش تصحيحات. المراجعة قرارك إنت، ومحدش غيرك شايف الكلام ده."
+               data-en="Suggestions, not corrections. The review is yours, and nobody else sees this.">
+            دي اقتراحات مش تصحيحات. المراجعة قرارك إنت، ومحدش غيرك شايف الكلام ده.
+          </div>
+          <ul class="ai-notes__list">
+            {% for issue in ai_notes.issues %}
+              <li>
+                {% if issue.location %}<b class="mono">{{ issue.location }}</b> · {% endif %}
+                {{ issue.issue }}
+                {% if issue.severity %}<span class="chip chip--sm">{{ issue.severity }}</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          <a class="btn btn--sm" href="{% url 'dashboard:task_detail' ai_notes.task.code %}">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="افتح التاسك" data-en="Open the task">افتح التاسك</span>
+          </a>
+        </details>
       {% endif %}
 
       {# WhatsApp only allows free text within 24h of the client's last message. #}

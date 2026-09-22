@@ -2919,6 +2919,157 @@ class StaffChatTests(TestCase):
         self.assertEqual(rows[0]["preview"]["text"], "hi")
 
 
+class SuggestionsArchiveAndHeaderTests(TestCase):
+    """The last three: AI suggestions, the old rooms, and the header.
+
+    The thread running through all three is who is allowed to see what. The
+    suggestions are one person's. The archive hides rooms without destroying
+    them. The header names the client for the one role that may know.
+    """
+
+    def setUp(self):
+        from .models import AICheckResult, ChatRoom, RoomKind, TaskStatus
+
+        self.AICheckResult = AICheckResult
+        self.ChatRoom = ChatRoom
+        self.RoomKind = RoomKind
+        self.TaskStatus = TaskStatus
+        self.admin = User.objects.create_user(
+            "admin_s7", password="x", role=Role.ADMIN, first_name="Mina"
+        )
+        self.ops = User.objects.create_user(
+            "ops_s7", password="x", role=Role.OPERATION, first_name="Omar"
+        )
+        self.lead = User.objects.create_user(
+            "lead_s7", password="x", role=Role.TEAM_LEAD, first_name="Laila"
+        )
+        self.other_lead = User.objects.create_user(
+            "lead2_s7", password="x", role=Role.TEAM_LEAD, first_name="Hana"
+        )
+        self.tr = User.objects.create_user(
+            "tr_s7", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Tarek",
+        )
+        self.client_obj = Client.objects.create(
+            name="ACME Legal", phone="+201000000051"
+        )
+        self.task = services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops,
+        )
+        self.task.team_lead = self.lead
+        self.task.translator = self.tr
+        self.task.status = self.TaskStatus.UNDER_REVIEW
+        self.task.save()
+
+    def _notes(self, status=None):
+        return self.AICheckResult.objects.create(
+            task=self.task,
+            status=status or self.AICheckResult.Status.ISSUES,
+            summary="fine",
+            issues=[{"location": "p2", "issue": "رقم مختلف", "severity": "high"}],
+        )
+
+    # -- the suggestions belong to one person ------------------------------
+
+    def test_the_lead_gets_the_notes_on_what_was_handed_to_them(self):
+        self._notes()
+        notes = services.ai_suggestions_for(self.lead, self.tr)
+        self.assertIsNotNone(notes)
+        self.assertEqual(notes["task"].pk, self.task.pk)
+        self.assertEqual(len(notes["issues"]), 1)
+
+    def test_the_translator_never_sees_them(self):
+        """An automatic critique in a shared chat is a public correction."""
+        self._notes()
+        self.assertIsNone(services.ai_suggestions_for(self.tr, self.lead))
+
+    def test_another_lead_does_not_see_them_either(self):
+        self._notes()
+        self.assertIsNone(services.ai_suggestions_for(self.other_lead, self.tr))
+
+    def test_a_clean_check_shows_nothing(self):
+        self._notes(status=self.AICheckResult.Status.CLEAN)
+        self.assertIsNone(services.ai_suggestions_for(self.lead, self.tr))
+
+    def test_nothing_is_written_into_the_shared_room(self):
+        self._notes()
+        room = services.staff_room(self.lead, self.tr)
+        blob = " ".join(m.body for m in room.messages.all())
+        self.assertNotIn("رقم مختلف", blob)
+
+    def test_the_panel_is_drawn_in_the_lead_chat(self):
+        self._notes()
+        self.client.force_login(self.lead)
+        response = self.client.get(f"/ops/chats/u/{self.tr.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "اقتراحات الـAI")
+        self.assertContains(response, "رقم مختلف")
+
+    def test_the_same_page_shows_the_translator_nothing(self):
+        self._notes()
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/ops/chats/u/{self.lead.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "رقم مختلف")
+
+    # -- archived, not deleted ---------------------------------------------
+
+    def test_archiving_takes_a_room_out_of_the_list_and_keeps_it(self):
+        from django.core.management import call_command
+
+        room = services.ensure_room(self.task, self.RoomKind.CLIENT)
+        room.members.add(self.ops)
+        self.assertIn(room.pk, [r.pk for r in services.groups_for(self.ops)])
+
+        call_command("archive_client_rooms")
+        room.refresh_from_db()
+        self.assertTrue(room.is_archived)
+        self.assertNotIn(room.pk, [r.pk for r in services.groups_for(self.ops)])
+        # Still there, still openable. Archiving is not deleting.
+        self.assertTrue(self.ChatRoom.objects.filter(pk=room.pk).exists())
+        self.client.force_login(self.ops)
+        self.assertEqual(
+            self.client.get(f"/ops/chats/g/{room.pk}/").status_code, 200
+        )
+
+    def test_a_work_group_is_never_archived_by_the_command(self):
+        from django.core.management import call_command
+
+        group, _ = services.create_team_group(self.lead, members=[self.tr])
+        call_command("archive_client_rooms")
+        group.refresh_from_db()
+        self.assertFalse(group.is_archived)
+        self.assertIn(group.pk, [r.pk for r in services.groups_for(self.tr)])
+
+    def test_it_can_be_undone(self):
+        from django.core.management import call_command
+
+        room = services.ensure_room(self.task, self.RoomKind.CLIENT)
+        room.members.add(self.ops)
+        call_command("archive_client_rooms")
+        call_command("archive_client_rooms", undo=True)
+        room.refresh_from_db()
+        self.assertFalse(room.is_archived)
+        self.assertIn(room.pk, [r.pk for r in services.groups_for(self.ops)])
+
+    # -- the header --------------------------------------------------------
+
+    def test_the_admin_reads_the_name_with_the_code_beside_it(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ACME Legal")
+        self.assertContains(response, f"({self.client_obj.code})")
+
+    def test_the_operation_still_reads_the_code_alone(self):
+        """A display change, not a permission change."""
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "ACME Legal")
+        self.assertContains(response, self.client_obj.code)
+
+
 class HandoffInChatTests(TestCase):
     """Handing a task over is a conversation, not a pop-up.
 

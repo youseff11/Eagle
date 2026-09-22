@@ -76,6 +76,45 @@
   font-weight: 600;
 }
 
+/* The header names the client for the one role allowed to know it. The name
+   leads, the code follows it quietly - the code is the thing everybody else
+   works from, so it stays visible rather than being replaced. */
+.cchat__name { font-weight: 600; }
+
+.cchat__code {
+  font-size: .78em;
+  opacity: .62;
+  margin-inline-start: 4px;
+}
+
+/* Suggestions from the automatic check. Folded open, easy to fold away, and
+   never mistaken for the conversation itself. */
+.ai-notes { display: block; margin: 8px 12px 0; }
+
+.ai-notes > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ai-notes > summary::-webkit-details-marker { display: none; }
+
+.ai-notes__hint { font-size: .78rem; margin-top: 6px; }
+
+.ai-notes__list {
+  margin: 8px 0 10px;
+  padding-inline-start: 18px;
+  font-size: .84rem;
+  display: grid;
+  gap: 6px;
+}
+
+/* A row that reaches a client is not a row that stays inside. Say so on the
+   row itself, before anybody types in the wrong one. */
+.cthread__tag { flex: none; }
+
 .cchat__threads {
   overflow-y: auto;
   flex: 1;

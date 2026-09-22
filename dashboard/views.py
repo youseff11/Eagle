@@ -513,6 +513,10 @@ def ops_staff_chat(request, user_id):
         "members": [user, other],
         "can_add_members": False,
         "addable_people": [],
+        # Suggestions on what this person just handed over for review. Only
+        # the team leader ever gets them, and they are not written into the
+        # room - see services.ai_suggestions_for.
+        "ai_notes": services.ai_suggestions_for(user, other),
         "has_selection": True,
     })
     return render(request, "ops/chats.html", context)

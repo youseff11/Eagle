@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from .models import (
     ACTIVE_TASK_STATUSES,
+    AICheckResult,
     AppSettings,
     Assignment,
     AssignmentStatus,
@@ -1051,7 +1052,8 @@ def groups_for(user, query=""):
     theirs = _Q(kind=RoomKind.CLIENT)
     if not user.is_admin_role:
         theirs &= _Q(members=user)
-    qs = ChatRoom.objects.filter(mine | theirs)
+    # Archived rooms stay readable by their URL and stay out of the list.
+    qs = ChatRoom.objects.filter(mine | theirs).exclude(is_archived=True)
     query = (query or "").strip()
     if query:
         qs = qs.filter(
@@ -1152,6 +1154,33 @@ def _cancel_pending(task, exclude_id=None):
 
 
 @transaction.atomic
+def ai_suggestions_for(viewer, other):
+    """The AI's notes on what ``other`` just handed ``viewer`` for review.
+
+    Suggestions, and only that: the person reading them decides. They are
+    shown to the team leader alone and never written into the shared room -
+    an automated critique of somebody's work, landing in the chat they read
+    every day, is not a review, it is a public correction.
+
+    Returns ``None`` when there is nothing to show, which is most of the time.
+    """
+    if viewer is None or other is None or not viewer.is_team_lead:
+        return None
+    task = (
+        Task.objects.filter(
+            team_lead=viewer, translator=other, status=TaskStatus.UNDER_REVIEW
+        )
+        .order_by("-translated_at", "-id")
+        .first()
+    )
+    if task is None:
+        return None
+    result = task.ai_checks.order_by("-created_at").first()
+    if result is None or result.status != AICheckResult.Status.ISSUES:
+        return None
+    return {"task": task, "result": result, "issues": result.issues or []}
+
+
 def notify_in_chat(to_user, from_user, *, body_ar, body_en, key):
     """Say it in the one-to-one chat the two of them already use.
 

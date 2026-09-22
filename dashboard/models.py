@@ -1214,6 +1214,10 @@ class ChatRoom(models.Model):
         max_length=32, blank=True, null=True, unique=True,
         help_text="Staff chats only: the two user ids, smallest first.",
     )
+    #: Out of the lists, still readable. Archiving rather than deleting is the
+    #: rule here: these rooms hold real conversations with real clients, and a
+    #: row removed to tidy a list cannot be got back.
+    is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
