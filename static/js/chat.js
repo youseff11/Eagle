@@ -674,20 +674,36 @@
     if (teamError) { teamError.textContent = ""; }
   }
 
-  /* Mirrors services.default_team_group_name - keep the two in step. A team
-     leader picking exactly one translator gets "<translator> (<leader>)".
-     The server computes the same name when the box is left empty, so this is
-     a convenience, never the only place the rule lives. */
+  /* Mirrors services.default_team_group_name - keep the two in step.
+
+     "<translator> (<team leader>)", so both have to be known: one translator
+     among the people picked, and a team leader - you, if you are one, and
+     otherwise the single leader you picked. That second path is what lets an
+     admin open the group for a pair without losing the name.
+
+     The server works the same name out when the box is left empty, so this
+     is a convenience and never the only place the rule lives. */
+  function pickedWithRole(role) {
+    return Array.prototype.filter.call(
+      (teamPicker && teamPicker.selectedOptions) || [],
+      function (opt) { return opt.dataset.role === role; }
+    );
+  }
+
   function suggestTeamName() {
     if (!teamTitle || !teamPicker || teamTitleTouched) { return; }
-    var lead = teamTitle.dataset.leadName || "";
-    if (!lead) { return; }
-    var picked = Array.prototype.filter.call(
-      teamPicker.selectedOptions || [],
-      function (opt) { return opt.dataset.role === "translator"; }
-    );
-    teamTitle.value = picked.length === 1
-      ? picked[0].dataset.name + " (" + lead + ")"
+    var translators = pickedWithRole("translator");
+    if (translators.length !== 1) { teamTitle.value = ""; return; }
+
+    var lead = "";
+    if (teamTitle.dataset.meIsLead) {
+      lead = teamTitle.dataset.me || "";
+    } else {
+      var leads = pickedWithRole("team_lead");
+      if (leads.length === 1) { lead = leads[0].dataset.name || ""; }
+    }
+    teamTitle.value = lead
+      ? translators[0].dataset.name + " (" + lead + ")"
       : "";
   }
 

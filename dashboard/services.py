@@ -857,17 +857,32 @@ def group_preview(room, user):
 def default_team_group_name(creator, people):
     """What a new work group is called before anybody types a name.
 
-    A team leader opening a group for one translator gets
-    "<translator> (<team leader>)" - the shape asked for, and the one that
-    makes a list of a dozen such groups readable at a glance. Anything else
-    gets nothing, because a wrong guess is worse than an empty box.
+    The shape asked for is "<translator> (<team leader>)", which makes a list
+    of a dozen such groups readable at a glance. So both have to be known:
+
+    * one translator among the people picked, and
+    * a team leader - whoever is opening the group when they are one, and
+      otherwise the single team leader they picked.
+
+    That second path is what lets an admin open the group for a pair without
+    losing the name. Anything ambiguous returns nothing: two translators, two
+    leaders or none at all, because a wrong name is worse than an empty box.
     """
-    if creator is None or not creator.is_team_lead:
+    if creator is None:
         return ""
-    translators = [p for p in (people or []) if p is not None and p.is_translator]
+    people = [p for p in (people or []) if p is not None]
+    translators = [p for p in people if p.is_translator]
     if len(translators) != 1:
         return ""
-    return f"{translators[0].short_name} ({creator.short_name})"
+
+    if creator.is_team_lead:
+        lead = creator
+    else:
+        leads = [p for p in people if p.is_team_lead]
+        if len(leads) != 1:
+            return ""
+        lead = leads[0]
+    return f"{translators[0].short_name} ({lead.short_name})"
 
 
 def create_team_group(creator, title="", members=None):

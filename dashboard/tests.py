@@ -3529,6 +3529,9 @@ class TeamGroupTests(TestCase):
         self.lead = User.objects.create_user(
             "lead_tg", password="x", role=Role.TEAM_LEAD, first_name="Laila"
         )
+        self.other_lead = User.objects.create_user(
+            "lead2_tg", password="x", role=Role.TEAM_LEAD, first_name="Hana"
+        )
         self.tr = User.objects.create_user(
             "tr_tg", password="x", role=Role.TRANSLATOR,
             team_lead=self.lead, first_name="Tarek",
@@ -3551,8 +3554,34 @@ class TeamGroupTests(TestCase):
             services.default_team_group_name(self.lead, [self.tr, self.other_tr]), ""
         )
 
-    def test_somebody_who_is_not_a_lead_gets_no_guess(self):
+    def test_an_admin_takes_the_lead_from_the_people_picked(self):
+        """Opening the group for a pair should not lose the name.
+
+        The name is "<translator> (<team leader>)". When whoever opens it is
+        not a leader, the leader they picked is the one that belongs in it.
+        """
+        self.assertEqual(
+            services.default_team_group_name(self.admin, [self.tr, self.lead]),
+            "Tarek (Laila)",
+        )
+
+    def test_with_no_lead_anywhere_there_is_no_guess(self):
         self.assertEqual(services.default_team_group_name(self.ops, [self.tr]), "")
+
+    def test_two_leads_are_as_ambiguous_as_two_translators(self):
+        self.assertEqual(
+            services.default_team_group_name(
+                self.admin, [self.tr, self.lead, self.other_lead]
+            ),
+            "",
+        )
+
+    def test_the_admin_path_creates_the_group_with_that_name(self):
+        room, error = services.create_team_group(
+            self.admin, title="", members=[self.tr, self.lead]
+        )
+        self.assertIsNotNone(room, error)
+        self.assertEqual(room.title, "Tarek (Laila)")
 
     def test_an_empty_name_falls_back_to_the_default(self):
         room, error = services.create_team_group(self.lead, title="", members=[self.tr])

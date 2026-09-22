@@ -422,9 +422,11 @@
       <div class="field">
         <label data-ar="اسم الجروب" data-en="Group name">اسم الجروب</label>
         <input class="input" id="teamTitle" maxlength="120"
-               data-lead-name="{% if user.is_team_lead %}{{ user.short_name }}{% endif %}"
-               data-ar-ph="هيتملى لوحده لما تختار مترجم" data-en-ph="Filled in when you pick a translator"
-               placeholder="هيتملى لوحده لما تختار مترجم">
+               data-me="{{ user.short_name }}"
+               data-me-is-lead="{% if user.is_team_lead %}1{% endif %}"
+               data-ar-ph="هيتملى لوحده لما تختار مترجم وتيم ليدر"
+               data-en-ph="Filled in once a translator and a team leader are picked"
+               placeholder="هيتملى لوحده لما تختار مترجم وتيم ليدر">
       </div>
 
       <div class="row" style="margin-top:14px;align-items:center">
