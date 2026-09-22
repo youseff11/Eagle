@@ -194,6 +194,23 @@ window.Eagle = (function () {
     $("#assignNote").textContent = pending.note || "";
     $("#assignOpen").setAttribute("href", pending.task_url);
 
+    // Reading the files is not answering the hand-off: the window keeps
+    // running, and the visit is recorded so "they opened it and said nothing"
+    // is a fact rather than a guess.
+    var files = $("#assignFiles");
+    var reason = $("#assignReason");
+    if (reason) { reason.value = ""; }
+    if (files) {
+      files.classList.toggle("hidden", !pending.files_url);
+      files.onclick = function () {
+        post(pending.open_url, {}).then(function (res) {
+          window.location.href = (res && res.url) || pending.files_url;
+        }).catch(function () {
+          window.location.href = pending.files_url;
+        });
+      };
+    }
+
     var accept = $("#assignAccept");
     accept.onclick = function () {
       accept.disabled = true;
@@ -215,7 +232,30 @@ window.Eagle = (function () {
     };
     var decline = $("#assignDecline");
     decline.onclick = function () {
-      post(cfg.declineUrl.replace("0", pending.id), {}).then(function () { hidePending(); });
+      // A refusal has to say why: without one the sender only learns it came
+      // back, and has to go and ask before they can do anything about it.
+      var why = reason ? reason.value.trim() : "";
+      if (!why) {
+        if (reason) { reason.focus(); }
+        toast({
+          level: "warning",
+          title: t("اكتب سبب الرفض", "Say why"),
+          body: t("اللي بعتلك محتاج يعرف يعمل إيه بعد كده.",
+                  "The sender needs to know what to do next.")
+        });
+        return;
+      }
+      decline.disabled = true;
+      post(cfg.declineUrl.replace("0", pending.id), { reason: why })
+        .then(function (res) {
+          decline.disabled = false;
+          if (res && res.ok) { hidePending(); return; }
+          toast({
+            level: "danger",
+            title: t("مقدرتش أرفض", "Could not decline"),
+            body: (res && res.error) || ""
+          });
+        }).catch(function () { decline.disabled = false; });
     };
 
     beep(3, 980);

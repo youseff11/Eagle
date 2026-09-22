@@ -646,8 +646,13 @@ def system_message(room, *, key, body_ar, body_en):
     )
 
 
-def share_source_files(task):
-    """Put the client's original files into the task group.
+def share_source_files(task, room=None):
+    """Put the client's original files into a room - the task group by default.
+
+    ``room`` is what lets the same mechanism drop the files into the one-to-one
+    chat of whoever the task was just handed to. The mechanism itself does not
+    change, and that matters: it is the tested path that carries the documents
+    across without carrying the client's name or number with them.
 
     The translator never sees the inbound message itself - it carries the
     client's name and number, and the whole dashboard is built on them seeing
@@ -663,7 +668,7 @@ def share_source_files(task):
     Idempotent: an inbound already shared is not shared again, so this is safe
     to call on every acceptance and to re-run over tasks that predate it.
     """
-    room = ensure_room(task, RoomKind.GROUP)
+    room = room or ensure_room(task, RoomKind.GROUP)
     already = set(
         room.messages.filter(inbound__isnull=False).values_list("inbound_id", flat=True)
     )
@@ -1147,6 +1152,64 @@ def _cancel_pending(task, exclude_id=None):
 
 
 @transaction.atomic
+def notify_in_chat(to_user, from_user, *, body_ar, body_en, key):
+    """Say it in the one-to-one chat the two of them already use.
+
+    The way back up the chain is the same line the task came down. Best
+    effort: a note that will not write must never undo the step that produced
+    it - the task has already moved, and losing that would be far worse.
+    """
+    if to_user is None or from_user is None or to_user.pk == from_user.pk:
+        return None
+    try:
+        room = staff_room(from_user, to_user)
+        if room is None:
+            return None
+        return system_message(room, key=key, body_ar=body_ar, body_en=body_en)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not write the chat note (%s)", key)
+        return None
+
+
+def post_handoff(assignment, by_user):
+    """Put the task and its files into the chat between the two of them.
+
+    Everything the person needs in order to answer is in one place: what the
+    task is, and the documents themselves. Opening a file here is not
+    accepting - the window is what accepting is - so they can read before
+    they decide instead of accepting blind to stop a countdown.
+
+    Best effort on purpose. A hand-off that fails to post is still a valid
+    hand-off with a live window; losing the assignment because a chat message
+    would not write would be far worse than a card that is missing.
+    """
+    task = assignment.task
+    if by_user is None or assignment.assignee_id == getattr(by_user, "pk", None):
+        return None
+    try:
+        room = staff_room(by_user, assignment.assignee)
+        if room is None:
+            return None
+        system_message(
+            room, key="handoff",
+            body_ar=(
+                f"{by_user.short_name} سلّمك التاسك {task.code} "
+                f"({task.client.code}). افتح الملفات وقرر قبل ما الوقت يخلص."
+            ),
+            body_en=(
+                f"{by_user.short_name} handed you task {task.code} "
+                f"({task.client.code}). Open the files and decide before the window closes."
+            ),
+        )
+        share_source_files(task, room=room)
+        assignment.room = room
+        assignment.save(update_fields=["room"])
+        return room
+    except Exception:  # noqa: BLE001 - never lose the assignment over a message
+        logger.exception("could not post the hand-off for %s", task.code)
+        return None
+
+
 def assign_to_lead(task, lead, by_user, note=""):
     conf = AppSettings.load()
     _cancel_pending(task)
@@ -1157,6 +1220,7 @@ def assign_to_lead(task, lead, by_user, note=""):
         expires_at=now + timedelta(seconds=conf.response_window_seconds),
         note=note,
     )
+    post_handoff(assignment, by_user)
     task.team_lead = lead
     task.status = TaskStatus.AWAITING_LEAD
     task.lead_accepted_at = None
@@ -1185,6 +1249,7 @@ def assign_to_translator(task, translator, by_user, note=""):
         expires_at=now + timedelta(seconds=conf.response_window_seconds),
         note=note,
     )
+    post_handoff(assignment, by_user)
     task.translator = translator
     task.status = TaskStatus.AWAITING_TRANSLATOR
     task.translator_accepted_at = None
@@ -1284,6 +1349,9 @@ def expire_assignment(assignment):
     conf = AppSettings.load()
     assignment.status = AssignmentStatus.EXPIRED
     assignment.responded_at = timezone.now()
+    # An expiry is a refusal with a reason written for them: the sender needs
+    # the same sentence either way to know what happened and what to do next.
+    assignment.reason = "مارّدش في الوقت المحدد."
     task = assignment.task
 
     if not assignment.penalty_applied:
@@ -1293,7 +1361,15 @@ def expire_assignment(assignment):
             reason_en=f"No response within {conf.response_window_seconds}s on {task.code}",
             reason_ar=f"لم يرد خلال {conf.response_window_seconds} ثانية على {task.code}",
         )
-    assignment.save(update_fields=["status", "responded_at", "penalty_applied"])
+    assignment.save(
+        update_fields=["status", "responded_at", "penalty_applied", "reason"]
+    )
+    if assignment.room_id:
+        system_message(
+            assignment.room, key="handoff_expired",
+            body_ar=f"الوقت خلص على {task.code} — رجعت للي بعتها.",
+            body_en=f"The window closed on {task.code} - it went back to the sender.",
+        )
 
     notify(
         assignment.assignee,
@@ -1341,12 +1417,22 @@ def expire_assignment(assignment):
     return assignment
 
 
-def decline_assignment(assignment, user):
+def decline_assignment(assignment, user, reason=""):
+    """Refuse a hand-off. A reason is required - returns ``(ok, error_ar)``.
+
+    Without one the sender learns only that it came back, and has to go and
+    ask before they can do anything about it. The reason is what turns a
+    refusal into something the next person can act on.
+    """
     if assignment.assignee_id != user.id or assignment.status != AssignmentStatus.PENDING:
-        return False
+        return False, "التسليمة دي مش مستنية ردك."
+    reason = (reason or "").strip()[:250]
+    if not reason:
+        return False, "اكتب سبب الرفض."
     assignment.status = AssignmentStatus.DECLINED
     assignment.responded_at = timezone.now()
-    assignment.save(update_fields=["status", "responded_at"])
+    assignment.reason = reason
+    assignment.save(update_fields=["status", "responded_at", "reason"])
     task = assignment.task
     if assignment.target_role == Role.TEAM_LEAD:
         task.status = TaskStatus.NEW
@@ -1362,12 +1448,20 @@ def decline_assignment(assignment, user):
         target,
         title_ar="تم رفض التاسك",
         title_en="Assignment declined",
-        body_ar=f"{user.short_name} رفض التاسك {task.code}.",
-        body_en=f"{user.short_name} declined task {task.code}.",
+        body_ar=f"{user.short_name} رفض التاسك {task.code}: {reason}",
+        body_en=f"{user.short_name} declined task {task.code}: {reason}",
         level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
     )
-    log(user, "assignment.decline", task.code)
-    return True
+    # The refusal belongs in the conversation the hand-off arrived in, so the
+    # sender reads it where they sent it rather than in a notification alone.
+    if assignment.room_id:
+        system_message(
+            assignment.room, key="handoff_declined",
+            body_ar=f"{user.short_name} رفض {task.code}: {reason}",
+            body_en=f"{user.short_name} declined {task.code}: {reason}",
+        )
+    log(user, "assignment.decline", task.code, reason)
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +1511,16 @@ def mark_translated(task, user):
         ai.start_background_check(task)
     except Exception:  # noqa: BLE001 - never block a handover on the check
         log(user, "task.ai_check.failed_to_start", task.code)
+
+    # The way back up is the same line the task came down: the person who
+    # handed it over is told in the conversation they handed it over in, not
+    # only in a notification they may never open.
+    notify_in_chat(
+        task.team_lead, user,
+        body_ar=f"خلصت ترجمة {task.code}. جاهزة للمراجعة.",
+        body_en=f"{task.code} is translated and ready for review.",
+        key="translated",
+    )
     system_message(
         room, key="translated",
         body_ar=f"{user.short_name} خلص الترجمة وبعت الملفات للمراجعة.",
@@ -1448,6 +1552,14 @@ def mark_reviewed(task, user):
     task.status = TaskStatus.REVIEWED
     task.reviewed_at = timezone.now()
     task.save(update_fields=["status", "reviewed_at", "updated_at"])
+    # The last leg up: whoever opened the task hears it from the team leader
+    # in their own conversation, and then delivers to the client.
+    notify_in_chat(
+        task.created_by, user,
+        body_ar=f"راجعت {task.code} وخلصت. تقدر تستلمها وتبعتها للعميل.",
+        body_en=f"{task.code} is reviewed. You can take it over and deliver.",
+        key="reviewed",
+    )
     room = ensure_room(task, RoomKind.GROUP)
     system_message(
         room, key="reviewed",

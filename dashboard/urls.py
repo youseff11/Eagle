@@ -181,6 +181,10 @@ urlpatterns = [
     path("api/prefs/", api.set_prefs, name="api_prefs"),
     path("api/assignments/<int:pk>/accept/", api.accept_assignment, name="api_accept"),
     path("api/assignments/<int:pk>/decline/", api.decline_assignment, name="api_decline"),
+    path(
+        "api/assignments/<int:pk>/files/",
+        api.open_assignment_files, name="api_assignment_files",
+    ),
     path("api/tasks/<str:code>/assign-lead/", api.assign_lead, name="api_assign_lead"),
     path(
         "api/tasks/<str:code>/assign-translator/",

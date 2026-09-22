@@ -69,6 +69,11 @@ def _pending_json(assignment, viewer):
         "seconds_left": assignment.seconds_left,
         "window": AppSettings.load().response_window_seconds,
         "assigned_by": assignment.assigned_by.short_name if assignment.assigned_by else "",
+        # Where the files were dropped, so they can be read before deciding.
+        "files_url": (
+            f"/ops/chats/g/{assignment.room_id}/" if assignment.room_id else ""
+        ),
+        "open_url": f"/api/assignments/{assignment.id}/files/",
         "priority": task.priority,
         "deadline": (
             timezone.localtime(task.deadline).strftime("%Y-%m-%d %H:%M")
@@ -254,9 +259,34 @@ def accept_assignment(request, pk):
 @login_required
 @require_POST
 def decline_assignment(request, pk):
+    """Refuse a hand-off. The reason is not optional - see the service."""
     assignment = get_object_or_404(Assignment, pk=pk)
-    ok = services.decline_assignment(assignment, request.user)
-    return JsonResponse({"ok": ok, "task": assignment.task.code})
+    ok, error = services.decline_assignment(
+        assignment, request.user, reason=request.POST.get("reason", "")
+    )
+    return JsonResponse(
+        {"ok": ok, "error": error, "task": assignment.task.code},
+        status=200 if ok else 400,
+    )
+
+
+@login_required
+@require_POST
+def open_assignment_files(request, pk):
+    """Record that the assignee opened the files, without deciding anything.
+
+    Looking is not accepting. Keeping the two apart is what lets somebody read
+    a contract before they commit to it, instead of accepting blind because a
+    countdown is running.
+    """
+    assignment = get_object_or_404(Assignment, pk=pk)
+    if assignment.assignee_id != request.user.pk:
+        raise Http404
+    if assignment.opened_at is None:
+        assignment.opened_at = timezone.now()
+        assignment.save(update_fields=["opened_at"])
+    url = f"/ops/chats/g/{assignment.room_id}/" if assignment.room_id else ""
+    return JsonResponse({"ok": True, "url": url})
 
 
 @api_role_required(Role.OPERATION)

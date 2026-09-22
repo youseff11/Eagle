@@ -1131,6 +1131,20 @@ class Assignment(models.Model):
     responded_at = models.DateTimeField(null=True, blank=True)
     penalty_applied = models.BooleanField(default=False)
     note = models.CharField(max_length=250, blank=True)
+    #: Why it was refused. Required when a person declines, and written by the
+    #: sweep when the window runs out - a sender who only learns "refused"
+    #: cannot decide what to do next, which is the whole point of asking.
+    reason = models.CharField(max_length=250, blank=True)
+    #: When the assignee opened the files. Looking is not accepting: the two
+    #: are recorded separately on purpose, so "they saw it and said nothing"
+    #: is a fact rather than a guess.
+    opened_at = models.DateTimeField(null=True, blank=True)
+    #: The one-to-one chat this hand-off was posted into, so the files and the
+    #: decision live in the same conversation the two of them already use.
+    room = models.ForeignKey(
+        "ChatRoom", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="assignments",
+    )
 
     class Meta:
         ordering = ("-assigned_at",)

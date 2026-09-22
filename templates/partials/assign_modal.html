@@ -32,6 +32,26 @@
       <div class="muted" id="assignNote" style="font-size:.8rem"></div>
     </div>
 
+    {% comment %}
+    Reading before deciding. The files were dropped into the chat between the
+    two of you when the task was handed over, so this opens them - it does not
+    answer the hand-off, and the window keeps running.
+    {% endcomment %}
+    <button class="btn btn--ghost hidden" id="assignFiles" type="button"
+            style="margin-top:10px">
+      {% icon "paperclip" "ic--sm" %}<span data-ar="شوف الملفات الأول"
+        data-en="Read the files first">شوف الملفات الأول</span>
+    </button>
+
+    <div class="field" style="margin-top:10px;text-align:start">
+      <label data-ar="سبب الرفض (لازم لو هترفض)"
+             data-en="Reason (required to decline)">سبب الرفض (لازم لو هترفض)</label>
+      <input class="input" id="assignReason" maxlength="250"
+             data-ar-ph="مشغول بتاسك تانية / مش تخصصي…"
+             data-en-ph="Busy with another task / not my field…"
+             placeholder="مشغول بتاسك تانية / مش تخصصي…">
+    </div>
+
     <div class="row" style="margin-top:16px;justify-content:center">
       <button class="btn btn--ok" id="assignAccept" type="button">
         {% icon "check" %}<span data-ar="استلمت" data-en="Accept">استلمت</span>

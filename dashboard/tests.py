@@ -2919,6 +2919,188 @@ class StaffChatTests(TestCase):
         self.assertEqual(rows[0]["preview"]["text"], "hi")
 
 
+class HandoffInChatTests(TestCase):
+    """Handing a task over is a conversation, not a pop-up.
+
+    The response window, the accept, the decline and the penalty already
+    existed on ``Assignment``. What is tested here is the three things that
+    did not: the files land in the chat between the two of them, reading them
+    is not answering, and a refusal has to say why.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import (
+            AssignmentStatus, Channel, ChatRoom, InboundMessage,
+            MessageAttachment, RoomKind,
+        )
+
+        self.AssignmentStatus = AssignmentStatus
+        self.ChatRoom = ChatRoom
+        self.RoomKind = RoomKind
+        self.ops = User.objects.create_user(
+            "ops_ho", password="x", role=Role.OPERATION, first_name="Omar"
+        )
+        self.lead = User.objects.create_user(
+            "lead_ho", password="x", role=Role.TEAM_LEAD, first_name="Laila"
+        )
+        self.tr = User.objects.create_user(
+            "tr_ho", password="x", role=Role.TRANSLATOR,
+            team_lead=self.lead, first_name="Tarek",
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000041")
+        self.inbound = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="[document]",
+            sender_identity="+201000000041",
+        )
+        MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"x", name="contract.pdf"),
+            original_name="contract.pdf", size=1, mime="application/pdf",
+        )
+        self.task = services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops,
+            messages=[self.inbound],
+        )
+
+    def _hand_to_lead(self):
+        return services.assign_to_lead(self.task, self.lead, self.ops)
+
+    # -- the files arrive where the person is ------------------------------
+
+    def test_the_files_land_in_the_chat_between_the_two_of_them(self):
+        assignment = self._hand_to_lead()
+        room = assignment.room
+        self.assertIsNotNone(room)
+        self.assertEqual(room.kind, self.RoomKind.STAFF)
+        self.assertEqual(
+            sorted(m.pk for m in room.members.all()),
+            sorted([self.ops.pk, self.lead.pk]),
+        )
+        names = [
+            f.original_name
+            for message in room.messages.all()
+            for f in message.relay_files
+        ]
+        self.assertEqual(names, ["contract.pdf"])
+
+    def test_the_client_name_does_not_travel_with_the_files(self):
+        """The document is the job. The client's identity is not."""
+        assignment = self._hand_to_lead()
+        blob = " ".join(m.body for m in assignment.room.messages.all())
+        self.assertNotIn("ACME", blob)
+        self.assertNotIn("+201000000041", blob)
+        self.assertIn(self.task.code, blob)
+
+    def test_the_translator_gets_the_same_hand_off_from_the_lead(self):
+        services.accept_assignment(self._hand_to_lead(), self.lead)
+        assignment = services.assign_to_translator(self.task, self.tr, self.lead)
+        self.assertIsNotNone(assignment.room)
+        self.assertEqual(
+            sorted(m.pk for m in assignment.room.members.all()),
+            sorted([self.lead.pk, self.tr.pk]),
+        )
+
+    # -- reading is not answering ------------------------------------------
+
+    def test_opening_the_files_does_not_accept_the_task(self):
+        assignment = self._hand_to_lead()
+        self.client.force_login(self.lead)
+        response = self.client.post(f"/api/assignments/{assignment.pk}/files/")
+        self.assertEqual(response.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertIsNotNone(assignment.opened_at)
+        self.assertEqual(assignment.status, self.AssignmentStatus.PENDING)
+
+    def test_nobody_else_can_open_them(self):
+        assignment = self._hand_to_lead()
+        self.client.force_login(self.tr)
+        response = self.client.post(f"/api/assignments/{assignment.pk}/files/")
+        self.assertEqual(response.status_code, 404)
+
+    # -- a refusal has to say why ------------------------------------------
+
+    def test_a_refusal_without_a_reason_is_refused(self):
+        assignment = self._hand_to_lead()
+        ok, error = services.decline_assignment(assignment, self.lead, reason="")
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, self.AssignmentStatus.PENDING)
+
+    def test_the_endpoint_refuses_an_empty_reason_too(self):
+        """The rule lives in the service, and the endpoint must not route past it."""
+        assignment = self._hand_to_lead()
+        self.client.force_login(self.lead)
+        response = self.client.post(f"/api/assignments/{assignment.pk}/decline/", {})
+        self.assertEqual(response.status_code, 400)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, self.AssignmentStatus.PENDING)
+
+    def test_the_reason_is_kept_and_said_in_the_chat(self):
+        assignment = self._hand_to_lead()
+        ok, _ = services.decline_assignment(
+            assignment, self.lead, reason="مشغول بتاسك تانية"
+        )
+        self.assertTrue(ok)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.reason, "مشغول بتاسك تانية")
+        blob = " ".join(m.body for m in assignment.room.messages.all())
+        self.assertIn("مشغول بتاسك تانية", blob)
+
+    def test_a_refusal_sends_it_back_to_whoever_handed_it_over(self):
+        from .models import Notification
+
+        assignment = self._hand_to_lead()
+        services.decline_assignment(assignment, self.lead, reason="مش تخصصي")
+        self.task.refresh_from_db()
+        self.assertIsNone(self.task.team_lead_id)
+        note = Notification.objects.filter(user=self.ops).last()
+        self.assertIn("مش تخصصي", note.body_ar)
+
+    # -- the window closing is a refusal with a reason written for them ----
+
+    def test_running_out_of_time_writes_the_reason_itself(self):
+        assignment = self._hand_to_lead()
+        assignment.expires_at = timezone.now() - timedelta(seconds=1)
+        assignment.save(update_fields=["expires_at"])
+        services.sweep_expired_assignments()
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, self.AssignmentStatus.EXPIRED)
+        self.assertTrue(assignment.reason)
+        self.task.refresh_from_db()
+        self.assertIsNone(self.task.team_lead_id)
+
+    def test_the_chat_says_the_window_closed(self):
+        assignment = self._hand_to_lead()
+        assignment.expires_at = timezone.now() - timedelta(seconds=1)
+        assignment.save(update_fields=["expires_at"])
+        services.sweep_expired_assignments()
+        blob = " ".join(m.body for m in assignment.room.messages.all())
+        self.assertIn("الوقت خلص", blob)
+
+    # -- the way back up ---------------------------------------------------
+
+    def test_finishing_tells_the_lead_in_their_own_chat(self):
+        services.accept_assignment(self._hand_to_lead(), self.lead)
+        assignment = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(assignment, self.tr)
+        services.mark_translated(self.task, self.tr)
+        room = services.staff_room(self.tr, self.lead)
+        blob = " ".join(m.body for m in room.messages.all())
+        self.assertIn(self.task.code, blob)
+        self.assertIn("جاهزة للمراجعة", blob)
+
+    def test_the_review_tells_whoever_opened_the_task(self):
+        services.accept_assignment(self._hand_to_lead(), self.lead)
+        assignment = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(assignment, self.tr)
+        services.mark_translated(self.task, self.tr)
+        services.mark_reviewed(self.task, self.lead)
+        room = services.staff_room(self.lead, self.ops)
+        blob = " ".join(m.body for m in room.messages.all())
+        self.assertIn("تقدر تستلمها وتبعتها للعميل", blob)
+
+
 class TeamGroupTests(TestCase):
     """A work group is a name, the people in it, and no client.
 
