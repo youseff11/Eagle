@@ -167,6 +167,30 @@ strong, b { font-weight: 620; }
   font-size: .64rem; color: var(--faint); text-transform: uppercase;
   letter-spacing: .14em; padding: 16px 10px 6px; font-weight: 600;
 }
+
+/* The sections fold. An admin's nav is thirty-odd links; as eight headings
+   with one of them open it is a list you read rather than a wall you scroll
+   past. The section holding the current page is opened server-side, so
+   nothing moves after the page paints, and whatever you open or close
+   yourself is remembered by the browser. */
+.nav__group { min-width: 0; }
+.nav__head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 10px; margin-top: 4px;
+  border-radius: var(--r-sm); cursor: pointer;
+  list-style: none; user-select: none;
+  transition: background .14s, color .14s;
+}
+.nav__head::-webkit-details-marker { display: none; }
+.nav__head:hover { background: var(--surface-2); color: var(--muted); }
+.nav__group:first-child .nav__head { margin-top: 0; }
+.nav__chev { margin-inline-start: auto; opacity: .6; transition: transform .16s; }
+.nav__group[open] .nav__chev { transform: rotate(180deg); }
+/* What the section is holding while it is shut - the mail badge has to stay
+   visible when the section it lives in is closed. */
+.nav__head .nav__roll { margin-inline-start: 0; }
+.nav__group[open] .nav__roll { display: none; }
+.nav__items { display: flex; flex-direction: column; gap: 2px; padding-bottom: 4px; }
 .nav__item {
   position: relative; display: flex; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: var(--r-sm);
@@ -189,8 +213,17 @@ strong, b { font-weight: 620; }
 }
 .nav__count.is-hot { background: var(--danger); color: #fff; }
 
+/* Everything that sits under the nav, pinned to the bottom of the rail. */
+.side-foot { margin-top: auto; padding-top: 14px; }
+.side-legal {
+  display: flex; flex-wrap: wrap; gap: 3px 10px;
+  padding: 0 10px 10px; font-size: .67rem; line-height: 1.6;
+}
+.side-legal a { color: var(--faint); }
+.side-legal a:hover { color: var(--muted); text-decoration: underline; }
+
 .side-user {
-  margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border-soft);
+  padding-top: 12px; border-top: 1px solid var(--border-soft);
   display: flex; align-items: center; gap: 10px;
 }
 .side-user__meta { min-width: 0; flex: 1; }

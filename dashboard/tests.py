@@ -5012,3 +5012,215 @@ class DeadlineBoxesTests(TestCase):
         html = self.client.get(f"/tasks/{task.code}/").content.decode()
         self.assertIn('name="deadline_days"', html)
         self.assertNotIn('type="datetime-local"', html)
+
+
+class NavTests(TestCase):
+    """The left-hand nav, now that it is a list and not two hundred <a> tags.
+
+    On 23/09/2026 it had two sections headed "الأدمن", two headed
+    "الحسابات", three links hanging under no heading at all, "كشف الشهر"
+    and "المخالفات" listed twice for an admin, and a "جروبات العملاء" link
+    pointing at a feature that had been removed. Every one of those is a
+    thing a test can see, once the nav is written down in one place.
+    """
+
+    def _user(self, name, role, **extra):
+        return User.objects.create_user(name, password="x", role=role, **extra)
+
+    def _everyone(self):
+        return [
+            self._user("nav_admin", Role.ADMIN),
+            self._user("nav_ops", Role.OPERATION),
+            self._user("nav_lead", Role.TEAM_LEAD),
+            self._user("nav_tr", Role.TRANSLATOR),
+            self._user("nav_hr", Role.HR),
+            self._user("nav_rev", Role.REVIEWER),
+            self._user("nav_acc", Role.ACCOUNTING),
+        ]
+
+    # -- the shape of it --------------------------------------------------
+
+    def test_every_link_goes_somewhere(self):
+        from . import nav
+
+        for user in self._everyone():
+            for group in nav.sidebar(user):
+                for item in group["items"]:
+                    self.assertTrue(
+                        item["href"].startswith("/"),
+                        f"{user.role}: {item['ar']} has no url",
+                    )
+
+    def test_no_page_is_listed_twice(self):
+        from . import nav
+
+        for user in self._everyone():
+            seen = []
+            for group in nav.sidebar(user):
+                seen += [item["href"] for item in group["items"]]
+            doubled = {href for href in seen if seen.count(href) > 1}
+            self.assertEqual(doubled, set(), f"{user.role} sees these twice")
+
+    def test_no_heading_is_used_twice(self):
+        from . import nav
+
+        for user in self._everyone():
+            headings = [group["ar"] for group in nav.sidebar(user)]
+            self.assertEqual(
+                len(headings), len(set(headings)), f"{user.role}: {headings}"
+            )
+
+    def test_no_label_is_used_twice(self):
+        """Two links reading the same thing is the same confusion."""
+        from . import nav
+
+        for user in self._everyone():
+            labels = []
+            for group in nav.sidebar(user):
+                labels += [item["ar"] for item in group["items"]]
+            doubled = {word for word in labels if labels.count(word) > 1}
+            self.assertEqual(doubled, set(), f"{user.role} sees these twice")
+
+    def test_no_group_is_empty(self):
+        from . import nav
+
+        for user in self._everyone():
+            for group in nav.sidebar(user):
+                self.assertTrue(group["items"], f"{user.role}: {group['ar']} is empty")
+
+    def test_everybody_gets_something(self):
+        from . import nav
+
+        for user in self._everyone():
+            self.assertTrue(nav.sidebar(user), f"{user.role} has no nav at all")
+
+    def test_every_icon_is_in_the_sprite(self):
+        """verify.py used to check this by reading the template. The names
+        live in Python now, so the check moves here rather than lapsing."""
+        import re
+
+        from django.conf import settings
+
+        from . import nav
+
+        sprite = (settings.BASE_DIR / "templates" / "partials" / "icons.html").read_text(
+            encoding="utf-8"
+        )
+        known = set(re.findall(r'id="i-([a-z0-9-]+)"', sprite))
+        self.assertTrue(known, "no icons found in the sprite")
+        for user in self._everyone():
+            for group in nav.groups_for(user):
+                for item in group["items"]:
+                    self.assertIn(item.icon, known, f"{item.ar} wants a missing icon")
+
+    # -- who sees what ----------------------------------------------------
+
+    def test_a_translator_sees_no_back_office(self):
+        from . import nav
+
+        hrefs = [
+            item["href"]
+            for group in nav.sidebar(self._user("nav_tr2", Role.TRANSLATOR))
+            for item in group["items"]
+        ]
+        for href in hrefs:
+            self.assertFalse(
+                href.startswith(("/admin", "/hr", "/accounts")), href
+            )
+
+    def test_the_orphan_links_have_a_heading_now(self):
+        """Leave requests, salary plans and hiring approvals used to hang in
+        the middle of the nav with no heading over them."""
+        from . import nav
+
+        admin = self._user("nav_admin2", Role.ADMIN)
+        where = {}
+        for group in nav.sidebar(admin):
+            for item in group["items"]:
+                where[item["ar"]] = group["ar"]
+        self.assertEqual(where["طلبات الإجازة"], "إدارة الحضور")
+        self.assertEqual(where["خطط الرواتب"], "الموظفين")
+        self.assertEqual(where["موافقات التعيين"], "التوظيف")
+
+    def test_the_client_groups_link_is_gone(self):
+        """The feature was taken out; the link outlived it by two weeks."""
+        from . import nav
+
+        for user in self._everyone():
+            labels = [
+                item["ar"] for group in nav.sidebar(user) for item in group["items"]
+            ]
+            self.assertNotIn("جروبات العملاء", labels)
+
+    # -- which section opens ----------------------------------------------
+
+    def test_the_section_holding_the_page_is_the_open_one(self):
+        from . import nav
+
+        groups = nav.sidebar(self._user("nav_ops2", Role.OPERATION), "ops_tasks")
+        opened = [group["key"] for group in groups if group["open"]]
+        self.assertEqual(opened, ["work"])
+
+    def test_a_page_that_is_in_no_section_still_opens_one(self):
+        from . import nav
+
+        groups = nav.sidebar(self._user("nav_ops3", Role.OPERATION), "home")
+        self.assertEqual(sum(1 for group in groups if group["open"]), 1)
+        self.assertTrue(groups[0]["open"])
+
+    def test_a_task_page_lights_the_tasks_link(self):
+        from . import nav
+
+        for role, label in (
+            (Role.OPERATION, "التاسكات"),
+            (Role.TEAM_LEAD, "تاسكاتي"),
+            (Role.TRANSLATOR, "شغلي"),
+        ):
+            user = self._user(f"nav_task_{role}", role)
+            here = [
+                item["ar"]
+                for group in nav.sidebar(user, "task_detail")
+                for item in group["items"] if item["here"]
+            ]
+            self.assertEqual(here, [label])
+
+    def test_a_mail_conversation_lights_the_mailbox(self):
+        from . import nav
+
+        here = [
+            item["ar"]
+            for group in nav.sidebar(self._user("nav_ops4", Role.OPERATION),
+                                     "ops_mail_thread")
+            for item in group["items"] if item["here"]
+        ]
+        self.assertEqual(here, ["ميلات واردة"])
+
+    # -- and on the page --------------------------------------------------
+
+    def test_the_page_draws_folding_sections(self):
+        from . import nav
+
+        admin = self._user("nav_admin3", Role.ADMIN)
+        self.client.force_login(admin)
+        html = self.client.get("/ops/tasks/").content.decode()
+
+        groups = nav.sidebar(admin, "ops_tasks")
+        self.assertEqual(html.count('class="nav__group" data-nav-group'), len(groups))
+        # Exactly one starts open, and it is the one the page is in.
+        self.assertEqual(html.count('" open>'), 1)
+        self.assertIn('data-nav-group="work" open>', html)
+        # Every link is inside a section now - nothing hangs loose.
+        self.assertEqual(
+            html.count('class="nav__item'),
+            sum(len(group["items"]) for group in groups),
+        )
+
+    def test_the_legal_pages_left_the_nav_but_not_the_page(self):
+        admin = self._user("nav_admin4", Role.ADMIN)
+        self.client.force_login(admin)
+        html = self.client.get("/ops/tasks/").content.decode()
+        self.assertIn("side-legal", html)
+        for url in ("/privacy/", "/terms/", "/data-deletion/"):
+            self.assertIn(f'href="{url}"', html)
+        # ...and not as full rows in the nav any more.
+        self.assertNotIn("سياسة الخصوصية", html)

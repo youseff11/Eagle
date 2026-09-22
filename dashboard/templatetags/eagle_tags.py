@@ -412,3 +412,22 @@ def deadline_boxes(value=None, name="deadline"):
     from ..forms import DeadlineInput
 
     return DeadlineInput().render(name, value)
+
+
+# ---------------------------------------------------------------------------
+# The left-hand navigation
+# ---------------------------------------------------------------------------
+
+@register.simple_tag
+def nav_groups(user, url_name=""):
+    """The sidebar's groups for this person — see ``dashboard/nav.py``.
+
+    A tag rather than a context processor: the nav is thirty reversed urls
+    and only one template wants them, so the login page and the public
+    pages should not be paying for it on every request.
+    """
+    from .. import nav
+
+    if not getattr(user, "is_authenticated", False):
+        return []
+    return nav.sidebar(user, url_name or "")

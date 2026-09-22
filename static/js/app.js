@@ -329,6 +329,7 @@ window.Eagle = (function () {
           node.classList.toggle("is-hot", value > 0);
           node.classList.toggle("hidden", value === 0);
         });
+        rollUpNavCounts();
 
         showPending(data.pending);
       })
@@ -942,6 +943,70 @@ window.Eagle = (function () {
     });
   }
 
+  /* ------------------------------------------------------------ nav groups */
+
+  /* The nav's sections fold. The one holding the page you are on is opened by
+     the server, so nothing moves after the paint; anything you open or shut
+     yourself is remembered in this browser. localStorage and not a cookie:
+     it is a per-screen preference that the server has no use for, and a
+     cookie would ride along on every request for the rest of the year. */
+
+  var NAV_OPEN_KEY = "eagle_nav_open";
+
+  function navOpenState() {
+    try { return JSON.parse(localStorage.getItem(NAV_OPEN_KEY)) || {}; }
+    catch (error) { return {}; }
+  }
+
+  /* A closed section still has to say what is waiting inside it - the mail
+     badge is the whole reason anyone looks at the nav. */
+  function rollUpNavCounts() {
+    $$("[data-nav-group]").forEach(function (group) {
+      var roll = $("[data-nav-roll]", group);
+      if (!roll) { return; }
+      var total = 0;
+      $$("[data-counter]", group).forEach(function (node) {
+        total += Number(node.textContent) || 0;
+      });
+      roll.textContent = total;
+      roll.classList.toggle("is-hot", total > 0);
+      roll.classList.toggle("hidden", total === 0);
+    });
+  }
+
+  function initNavGroups() {
+    var groups = $$("[data-nav-group]");
+    if (!groups.length) { return; }
+
+    var saved = navOpenState();
+    var settling = true;
+
+    groups.forEach(function (group) {
+      var key = group.getAttribute("data-nav-group");
+      var standingHere = !!$(".nav__item.is-active", group);
+      // The section you are standing in opens whatever was saved: a nav
+      // that hides the page you are looking at is worse than no nav.
+      if (!standingHere && saved[key] === false) { group.open = false; }
+      if (!standingHere && saved[key] === true) { group.open = true; }
+
+      group.addEventListener("toggle", function () {
+        if (settling) { return; }
+        var now = navOpenState();
+        now[key] = group.open;
+        try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(now)); }
+        catch (error) { /* private window: this session only, then */ }
+        rollUpNavCounts();
+      });
+    });
+
+    // Everything shut is a nav you have to click twice to use.
+    if (!groups.some(function (group) { return group.open; })) {
+      groups[0].open = true;
+    }
+    setTimeout(function () { settling = false; }, 0);
+    rollUpNavCounts();
+  }
+
   /* ------------------------------------------------------------- deadlines */
 
   /* The boxes ask "in how long", because that is how a client says it. This
@@ -1304,6 +1369,7 @@ window.Eagle = (function () {
     initMailThread();
     initMailReply();
     initMailList();
+    initNavGroups();
     initDeadlineBoxes();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",

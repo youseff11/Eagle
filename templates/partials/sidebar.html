@@ -4,241 +4,66 @@
     <img src="{% static 'img/logo-removebg-preview.png' %}" alt="Eagle Operation">
   </a>
 
+  {% comment %}
+  What goes in the nav, in what order, under which heading, and who may see
+  it, all live in dashboard/nav.py - not here. This file only draws it.
+
+  That is deliberate. As two hundred lines of hand-written <a> tags this
+  list quietly grew two sections headed "الأدمن", two headed "الحسابات",
+  three links with no heading at all, and a link to a feature that had been
+  removed. As a list in Python it is something a test can read.
+
+  The sections fold, and the one holding the page you are on is opened here,
+  server-side, so nothing jumps after the page paints.
+  {% endcomment %}
   <nav class="nav">
-
-    {% if user.is_operation or user.is_admin_role %}
-      <div class="nav__label" data-ar="الأوبريشن" data-en="Operation">الأوبريشن</div>
-
-      <a class="nav__item {% if url_name == 'ops_inbox' or url_name == 'ops_mail_thread' %}is-active{% endif %}" href="{% url 'dashboard:ops_inbox' %}">
-        {% icon "mail" %}
-        <span data-ar="ميلات واردة" data-en="Incoming mail">ميلات واردة</span>
-        <span class="nav__count hidden" data-counter="inbox">0</span>
-      </a>
-      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_chat_detail' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
-        {% icon "message" %}
-        <span data-ar="شات العملاء (واتساب)" data-en="Client chat (WhatsApp)">شات العملاء (واتساب)</span>
-      </a>
-      <a class="nav__item {% if url_name == 'ops_tasks' or url_name == 'ops_task_new' %}is-active{% endif %}" href="{% url 'dashboard:ops_tasks' %}">
-        {% icon "layers" %}
-        <span data-ar="التاسكات" data-en="Tasks">التاسكات</span>
-        <span class="nav__count hidden" data-counter="new_tasks">0</span>
-      </a>
-      <a class="nav__item {% if url_name == 'ops_team' %}is-active{% endif %}" href="{% url 'dashboard:ops_team' %}">
-        {% icon "users" %}
-        <span data-ar="حالة الفرق" data-en="Team status">حالة الفرق</span>
-      </a>
-    {% endif %}
-
-    {% if user.is_team_lead %}
-      <div class="nav__label" data-ar="التيم ليدر" data-en="Team leader">التيم ليدر</div>
-      <a class="nav__item {% if url_name == 'lead_home' %}is-active{% endif %}" href="{% url 'dashboard:lead_home' %}">
-        {% icon "target" %}
-        <span data-ar="تاسكاتي" data-en="My tasks">تاسكاتي</span>
-        <span class="nav__count hidden" data-counter="open">0</span>
-      </a>
-      <a class="nav__item {% if url_name == 'lead_translators' %}is-active{% endif %}" href="{% url 'dashboard:lead_translators' %}">
-        {% icon "users" %}
-        <span data-ar="حالة المترجمين" data-en="Translator status">حالة المترجمين</span>
-      </a>
-      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
-        {% icon "users" %}
-        <span data-ar="جروبات العملاء" data-en="Client groups">جروبات العملاء</span>
-      </a>
-    {% endif %}
-
-    {% if user.is_translator %}
-      <div class="nav__label" data-ar="المترجم" data-en="Translator">المترجم</div>
-      <a class="nav__item {% if url_name == 'translator_home' %}is-active{% endif %}" href="{% url 'dashboard:translator_home' %}">
-        {% icon "pen" %}
-        <span data-ar="شغلي" data-en="My work">شغلي</span>
-        <span class="nav__count hidden" data-counter="open">0</span>
-      </a>
-      <a class="nav__item {% if url_name == 'ops_chats' or url_name == 'ops_group_chat' %}is-active{% endif %}" href="{% url 'dashboard:ops_chats' %}">
-        {% icon "users" %}
-        <span data-ar="جروبات العملاء" data-en="Client groups">جروبات العملاء</span>
-      </a>
-      <a class="nav__item {% if url_name == 'translator_payroll' %}is-active{% endif %}" href="{% url 'dashboard:translator_payroll' %}">
-        {% icon "archive" %}
-        <span data-ar="مستحقاتي" data-en="My payroll">مستحقاتي</span>
-      </a>
-    {% endif %}
-
-    {% if user.can_recruit %}
-      <div class="nav__label" data-ar="التوظيف" data-en="Recruitment">التوظيف</div>
-      <a class="nav__item {% if url_name == 'hr_recruitment' %}is-active{% endif %}" href="{% url 'dashboard:hr_recruitment' %}">
-        {% icon "chart" %}<span data-ar="لوحة التوظيف" data-en="Recruitment board">لوحة التوظيف</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_vacancies' or url_name == 'hr_vacancy' %}is-active{% endif %}" href="{% url 'dashboard:hr_vacancies' %}">
-        {% icon "layers" %}<span data-ar="الوظائف" data-en="Vacancies">الوظائف</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_candidates' or url_name == 'hr_candidate' or url_name == 'hr_hire' %}is-active{% endif %}" href="{% url 'dashboard:hr_candidates' %}">
-        {% icon "contact" %}<span data-ar="المرشحين" data-en="Candidates">المرشحين</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_questions' %}is-active{% endif %}" href="{% url 'dashboard:hr_questions' %}">
-        {% icon "list-checks" %}<span data-ar="بنك الأسئلة" data-en="Question bank">بنك الأسئلة</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_employees' or url_name == 'hr_employee' %}is-active{% endif %}" href="{% url 'dashboard:hr_employees' %}">
-        {% icon "users" %}<span data-ar="الموظفين" data-en="Employees">الموظفين</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_recruitment_settings' %}is-active{% endif %}" href="{% url 'dashboard:hr_recruitment_settings' %}">
-        {% icon "shield" %}<span data-ar="إعدادات التوظيف" data-en="Recruitment settings">إعدادات التوظيف</span>
-      </a>
-
-      <div class="nav__label" data-ar="شؤون الموظفين" data-en="People">شؤون الموظفين</div>
-      <a class="nav__item {% if url_name == 'hr_probation' %}is-active{% endif %}" href="{% url 'dashboard:hr_probation' %}">
-        {% icon "hand" %}<span data-ar="فترة الاختبار" data-en="Probation">فترة الاختبار</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_performance' %}is-active{% endif %}" href="{% url 'dashboard:hr_performance' %}">
-        {% icon "target" %}<span data-ar="الأداء" data-en="Performance">الأداء</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_complaints' %}is-active{% endif %}" href="{% url 'dashboard:hr_complaints' %}">
-        {% icon "thumbs-down" %}<span data-ar="شكاوى العملاء" data-en="Complaints">شكاوى العملاء</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_salary_requests' %}is-active{% endif %}" href="{% url 'dashboard:hr_salary_requests' %}">
-        {% icon "archive" %}<span data-ar="طلبات تغيير الراتب" data-en="Salary requests">طلبات تغيير الراتب</span>
-      </a>
-    {% endif %}
-
-    {% if user.can_manage_attendance %}
-      <a class="nav__item {% if url_name == 'hr_leave' %}is-active{% endif %}" href="{% url 'dashboard:hr_leave' %}">
-        {% icon "calendar" %}<span data-ar="طلبات الإجازة" data-en="Leave requests">طلبات الإجازة</span>
-      </a>
-    {% endif %}
-
-    {% if user.can_approve_hiring %}
-      <a class="nav__item {% if url_name == 'hr_salary_plans' %}is-active{% endif %}" href="{% url 'dashboard:hr_salary_plans' %}">
-        {% icon "sliders" %}<span data-ar="خطط الرواتب" data-en="Salary plans">خطط الرواتب</span>
-      </a>
-    {% endif %}
-
-    {% if user.can_approve_hiring %}
-      <a class="nav__item {% if url_name == 'hr_approvals' %}is-active{% endif %}" href="{% url 'dashboard:hr_approvals' %}">
-        {% icon "user-check" %}<span data-ar="موافقات التعيين" data-en="Hiring approvals">موافقات التعيين</span>
-      </a>
-    {% endif %}
-
-    {% if user.is_reviewer %}
-      <div class="nav__label" data-ar="المراجعة" data-en="Review">المراجعة</div>
-      <a class="nav__item {% if url_name == 'reviewer_tests' or url_name == 'hr_test_score' %}is-active{% endif %}" href="{% url 'dashboard:reviewer_tests' %}">
-        {% icon "check-circle" %}<span data-ar="اختبارات المرشحين" data-en="Candidate tests">اختبارات المرشحين</span>
-      </a>
-    {% endif %}
-
-    {% if user.is_accounting %}
-      <div class="nav__label" data-ar="الحسابات" data-en="Accounts">الحسابات</div>
-      <a class="nav__item {% if url_name == 'accounts_overview' %}is-active{% endif %}" href="{% url 'dashboard:accounts_overview' %}">
-        {% icon "calendar" %}<span data-ar="كشف الشهر" data-en="Monthly payroll">كشف الشهر</span>
-      </a>
-      <a class="nav__item {% if url_name == 'accounts_violations' %}is-active{% endif %}" href="{% url 'dashboard:accounts_violations' %}">
-        {% icon "alert" %}<span data-ar="المخالفات والخصومات" data-en="Violations">المخالفات والخصومات</span>
-      </a>
-    {% endif %}
-
-    {# Attendance is everybody's — the only page in the app that is. #}
-    {% if user.attendance_enabled %}
-      <div class="nav__label" data-ar="الحضور" data-en="Attendance">الحضور</div>
-      <a class="nav__item {% if url_name == 'my_attendance' %}is-active{% endif %}" href="{% url 'dashboard:my_attendance' %}">
-        {% icon "timer" %}
-        <span data-ar="حضوري" data-en="My attendance">حضوري</span>
-      </a>
-      <a class="nav__item {% if url_name == 'my_leave' %}is-active{% endif %}" href="{% url 'dashboard:my_leave' %}">
-        {% icon "calendar" %}
-        <span data-ar="إجازاتي" data-en="My leave">إجازاتي</span>
-      </a>
-    {% endif %}
-
-    {% if user.can_manage_attendance %}
-      <div class="nav__label" data-ar="إدارة الحضور" data-en="Workforce">إدارة الحضور</div>
-      <a class="nav__item {% if url_name == 'hr_attendance' or url_name == 'hr_attendance_day' %}is-active{% endif %}" href="{% url 'dashboard:hr_attendance' %}">
-        {% icon "users" %}<span data-ar="لوحة الحضور" data-en="Attendance board">لوحة الحضور</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_schedules' %}is-active{% endif %}" href="{% url 'dashboard:hr_schedules' %}">
-        {% icon "calendar" %}<span data-ar="جداول العمل" data-en="Schedules">جداول العمل</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_report' %}is-active{% endif %}" href="{% url 'dashboard:hr_report' %}">
-        {% icon "chart" %}<span data-ar="التقرير الشهري" data-en="Monthly report">التقرير الشهري</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_overtime' %}is-active{% endif %}" href="{% url 'dashboard:hr_overtime' %}">
-        {% icon "clock" %}<span data-ar="الأوفرتايم" data-en="Overtime">الأوفرتايم</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_offices' %}is-active{% endif %}" href="{% url 'dashboard:hr_offices' %}">
-        {% icon "map-pin" %}<span data-ar="مواقع المكاتب" data-en="Offices">مواقع المكاتب</span>
-      </a>
-      <a class="nav__item {% if url_name == 'hr_devices' %}is-active{% endif %}" href="{% url 'dashboard:hr_devices' %}">
-        {% icon "shield-check" %}<span data-ar="أجهزة الحضور" data-en="Devices">أجهزة الحضور</span>
-      </a>
-    {% endif %}
-
-    {% if not user.is_translator %}
-      <div class="nav__label" data-ar="العملاء" data-en="Clients">العملاء</div>
-      <a class="nav__item {% if url_name == 'client_list' or url_name == 'client_detail' %}is-active{% endif %}" href="{% url 'dashboard:client_list' %}">
-        {% icon "tag" %}
-        <span data-ar="أكواد العملاء" data-en="Client codes">أكواد العملاء</span>
-      </a>
-    {% endif %}
-
-    {% if user.is_admin_role %}
-      <div class="nav__label" data-ar="الأدمن" data-en="Admin">الأدمن</div>
-      <a class="nav__item {% if url_name == 'admin_overview' %}is-active{% endif %}" href="{% url 'dashboard:admin_overview' %}">
-        {% icon "chart" %}<span data-ar="نظرة عامة" data-en="Overview">نظرة عامة</span>
-      </a>
-      <a class="nav__item {% if url_name == 'admin_users' or url_name == 'admin_user_edit' or url_name == 'admin_user_new' %}is-active{% endif %}" href="{% url 'dashboard:admin_users' %}">
-        {% icon "contact" %}<span data-ar="الموظفين والشيفتات" data-en="Staff & shifts">الموظفين والشيفتات</span>
-      </a>
-      <a class="nav__item {% if url_name == 'admin_clients' %}is-active{% endif %}" href="{% url 'dashboard:admin_clients' %}">
-        {% icon "archive" %}<span data-ar="بيانات العملاء" data-en="Client records">بيانات العملاء</span>
-      </a>
-      <div class="nav__label" data-ar="الحسابات" data-en="Accounts">الحسابات</div>
-      <a class="nav__item {% if url_name == 'accounts_overview' or url_name == 'accounts_line' or url_name == 'accounts_salary' %}is-active{% endif %}" href="{% url 'dashboard:accounts_overview' %}">
-        {% icon "calendar" %}<span data-ar="كشف الشهر" data-en="Monthly payroll">كشف الشهر</span>
-      </a>
-      <a class="nav__item {% if url_name == 'accounts_attendance' %}is-active{% endif %}" href="{% url 'dashboard:accounts_attendance' %}">
-        {% icon "timer" %}<span data-ar="الحضور والإنتاج" data-en="Attendance">الحضور والإنتاج</span>
-      </a>
-      <a class="nav__item {% if url_name == 'accounts_violations' %}is-active{% endif %}" href="{% url 'dashboard:accounts_violations' %}">
-        {% icon "alert" %}<span data-ar="المخالفات والخصومات" data-en="Violations">المخالفات والخصومات</span>
-      </a>
-      <a class="nav__item {% if url_name == 'accounts_rules' %}is-active{% endif %}" href="{% url 'dashboard:accounts_rules' %}">
-        {% icon "list-checks" %}<span data-ar="قواعد الحساب" data-en="Payroll rules">قواعد الحساب</span>
-      </a>
-
-      <div class="nav__label" data-ar="الأدمن" data-en="Admin">الأدمن</div>
-      <a class="nav__item {% if url_name == 'admin_settings' %}is-active{% endif %}" href="{% url 'dashboard:admin_settings' %}">
-        {% icon "sliders" %}<span data-ar="الإعدادات و AI" data-en="Settings & AI">الإعدادات و AI</span>
-      </a>
-      <a class="nav__item {% if url_name == 'admin_simulate' %}is-active{% endif %}" href="{% url 'dashboard:admin_simulate' %}">
-        {% icon "beaker" %}<span data-ar="محاكاة رسالة" data-en="Simulate message">محاكاة رسالة</span>
-      </a>
-      <a class="nav__item {% if url_name == 'admin_audit' %}is-active{% endif %}" href="{% url 'dashboard:admin_audit' %}">
-        {% icon "history" %}<span data-ar="سجل النشاط" data-en="Audit log">سجل النشاط</span>
-      </a>
-    {% endif %}
-
-    <div class="nav__label" data-ar="حسابي" data-en="Account">حسابي</div>
-    <a class="nav__item {% if url_name == 'notifications' %}is-active{% endif %}" href="{% url 'dashboard:notifications' %}">
-      {% icon "bell" %}<span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>
-    </a>
-
-    {# The public legal pages — same links the login page shows. #}
-    <div class="nav__label" data-ar="الصفحات القانونية" data-en="Legal">الصفحات القانونية</div>
-    <a class="nav__item {% if url_name == 'privacy' %}is-active{% endif %}" href="{% url 'dashboard:privacy' %}">
-      {% icon "shield" %}<span data-ar="سياسة الخصوصية" data-en="Privacy policy">سياسة الخصوصية</span>
-    </a>
-    <a class="nav__item {% if url_name == 'terms' %}is-active{% endif %}" href="{% url 'dashboard:terms' %}">
-      {% icon "file" %}<span data-ar="شروط الخدمة" data-en="Terms of service">شروط الخدمة</span>
-    </a>
-    <a class="nav__item {% if url_name == 'data_deletion' %}is-active{% endif %}" href="{% url 'dashboard:data_deletion' %}">
-      {% icon "trash" %}<span data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</span>
-    </a>
+    {% nav_groups user url_name as groups %}
+    {% for group in groups %}
+      <details class="nav__group" data-nav-group="{{ group.key }}"{% if group.open %} open{% endif %}>
+        <summary class="nav__label nav__head">
+          <span data-ar="{{ group.ar }}" data-en="{{ group.en }}">{{ group.ar }}</span>
+          <span class="nav__count nav__roll hidden" data-nav-roll>0</span>
+          {% icon "chevron-down" "ic--sm nav__chev" %}
+        </summary>
+        <div class="nav__items">
+          {% for item in group.items %}
+            <a class="nav__item {% if item.here %}is-active{% endif %}" href="{{ item.href }}">
+              {% icon item.icon %}
+              <span data-ar="{{ item.ar }}" data-en="{{ item.en }}">{{ item.ar }}</span>
+              {% if item.counter %}
+                <span class="nav__count hidden" data-counter="{{ item.counter }}">0</span>
+              {% endif %}
+            </a>
+          {% endfor %}
+        </div>
+      </details>
+    {% endfor %}
   </nav>
 
-  <div class="side-user">
-    <div class="avatar avatar--brand">{{ user.initials }}</div>
-    <div class="side-user__meta">
-      <div class="side-user__name">{{ user.short_name }}</div>
-      <div class="row row--tight">
-        {% role_badge user.role %}
-        {% if user.is_translator or user.is_team_lead %}{% stars_html user.rating %}{% endif %}
+  <div class="side-foot">
+    {% comment %}
+    The three public legal pages. They have to be reachable - the WhatsApp
+    and Facebook reviews ask for them - and they are read about once. As
+    three full nav rows under their own heading they were costing every
+    person four lines of the nav on every page of the site.
+    {% endcomment %}
+    <div class="side-legal">
+      <a href="{% url 'dashboard:privacy' %}"
+         data-ar="الخصوصية" data-en="Privacy">الخصوصية</a>
+      <a href="{% url 'dashboard:terms' %}"
+         data-ar="الشروط" data-en="Terms">الشروط</a>
+      <a href="{% url 'dashboard:data_deletion' %}"
+         data-ar="حذف البيانات" data-en="Data deletion">حذف البيانات</a>
+    </div>
+
+    <div class="side-user">
+      <div class="avatar avatar--brand">{{ user.initials }}</div>
+      <div class="side-user__meta">
+        <div class="side-user__name">{{ user.short_name }}</div>
+        <div class="row row--tight">
+          {% role_badge user.role %}
+          {% if user.is_translator or user.is_team_lead %}{% stars_html user.rating %}{% endif %}
+        </div>
       </div>
     </div>
   </div>
