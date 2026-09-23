@@ -67,9 +67,17 @@
       </div>
       <div class="files">
         {% for attachment in task_files %}
-          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
-             title="{{ attachment.pretty_size }}">
-            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+          {% if attachment|is_image_file %}
+            {# A photo in the job is shown as a photo. #}
+            <a class="task-thumb" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+               title="{{ attachment.original_name }}">
+              <img src="{{ attachment.file.url }}" alt="{{ attachment.original_name }}" loading="lazy">
+            </a>
+          {% else %}
+            <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+               title="{{ attachment.pretty_size }}">
+              {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+          {% endif %}
         {% endfor %}
       </div>
     </div>

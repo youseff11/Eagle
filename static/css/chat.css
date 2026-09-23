@@ -471,8 +471,22 @@
 .bub__time { font-size: 10.5px; }
 
 /* Ticks: grey while it is on its way, blue once it has been read. */
-.tick { display: inline-flex; color: var(--muted); }
+.tick { display: inline-flex; align-items: center; color: var(--muted); }
 .tick--read { color: var(--accent); }
+/* Big enough to read at a glance: the footer text is 10.5px, and an icon
+   that size made two checks look like one smudge. */
+.tick .ic { width: 17px; height: 17px; stroke-width: 2.3; }
+.cthread__snippet .tick .ic { width: 16px; height: 16px; }
+
+/* "Select files": the whole file is the target, not only the tiny box -
+   a tap on a photo ticks it instead of opening it (chat.js). */
+.cchat__stream.is-picking .bub__file { cursor: pointer; }
+.cchat__stream.is-picking .bub__file--img .bub__pick { width: 22px; height: 22px; }
+.cchat__stream.is-picking .bub__file.is-picked {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  background: var(--brand-soft);
+}
 
 /* -- select files, then one task out of them ------------------------------ */
 

@@ -6900,3 +6900,41 @@ class TaskLanguageTests(TestCase):
         })
         task = Task.objects.latest("id")
         self.assertEqual((task.source_lang, task.target_lang), ("EN", "FR"))
+
+
+class PhotoToTaskTests(TestCase):
+    """A photo the client sent becomes a task like any other file."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_ph", password="x", role=Role.OPERATION)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000103")
+        self.msg = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="[image]",
+            sender_identity="+201000000103",
+        )
+        self.photo = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"jpg", name="id-card.jpg"),
+            original_name="id-card.jpg", size=3, mime="image/jpeg",
+        )
+
+    def test_the_photo_gets_the_convert_button_and_a_checkbox(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.acme.code}/")
+        self.assertContains(response, f'data-convert="{self.msg.pk}"')
+        self.assertContains(response, f'class="bub__pick" type="checkbox" value="{self.photo.pk}"')
+
+    def test_the_photo_becomes_the_tasks_file(self):
+        self.client.force_login(self.ops)
+        self.client.post("/ops/tasks/new/", {
+            "messages": str(self.msg.pk), "files": str(self.photo.pk),
+            "client": self.acme.pk, "title": "ID card", "description": "",
+            "source_lang": "AR", "target_lang": "EN", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        })
+        task = Task.objects.latest("id")
+        self.assertEqual([a.pk for a in services.task_source_files(task)], [self.photo.pk])
+        page = self.client.get(f"/tasks/{task.code}/")
+        self.assertContains(page, "task-thumb")

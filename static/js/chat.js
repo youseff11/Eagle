@@ -1083,6 +1083,8 @@
   function restorePicks() {
     pickBoxes().forEach(function (box) {
       box.checked = !box.disabled && !!picked[box.value];
+      var holder = box.closest && box.closest(".bub__file");
+      if (holder) { holder.classList.toggle("is-picked", box.checked); }
     });
     if (picking()) { fillDays(); drawPickBar(); }
   }
@@ -1110,7 +1112,25 @@
       if (!box || !box.classList || !box.classList.contains("bub__pick")) { return; }
       if (box.checked) { picked[box.value] = box.dataset.message; }
       else { delete picked[box.value]; }
+      var holder = box.closest && box.closest(".bub__file");
+      if (holder) { holder.classList.toggle("is-picked", box.checked); }
       drawPickBar();
+    });
+
+    /* While picking, a tap anywhere on a file - a photo above all, where the
+       box is small and the picture is a link - ticks it instead of opening
+       it. Photos go into a task exactly like any other file. */
+    stream.addEventListener("click", function (event) {
+      if (!picking()) { return; }
+      var target = event.target;
+      if (target.classList && target.classList.contains("bub__pick")) { return; }
+      var holder = target.closest && target.closest(".bub__file");
+      if (!holder) { return; }
+      var box = holder.querySelector(".bub__pick");
+      if (!box || box.disabled) { return; }
+      event.preventDefault();
+      box.checked = !box.checked;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
 
