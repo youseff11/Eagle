@@ -217,6 +217,10 @@ urlpatterns = [
     path("api/client-chats/", api.client_chat_list, name="api_client_chat_list"),
     path("api/chats/forward/", api.chat_forward, name="api_chat_forward"),
     path("api/chats/react/", api.chat_react, name="api_chat_react"),
+    path("api/calls/start/", api.call_start, name="api_call_start"),
+    path("api/calls/<int:pk>/answer/", api.call_answer, name="api_call_answer"),
+    path("api/calls/<int:pk>/end/", api.call_end, name="api_call_end"),
+    path("api/calls/<int:pk>/signals/", api.call_signals, name="api_call_signals"),
     path("api/search/tasks/", api.search_tasks, name="api_search_tasks"),
     # Before the "<int:room_id>" routes: "team" is not a room id.
     path("api/groups/team/new/", api.team_group_create, name="api_team_group_create"),

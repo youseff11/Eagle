@@ -3320,6 +3320,180 @@ def toggle_reaction(user, source_code, uid, kind):
     return True, "", reactions_for(field, [row.pk], user).get(row.pk, [])
 
 
+# ---------------------------------------------------------------------------
+# Calls between colleagues
+# ---------------------------------------------------------------------------
+#
+# Browser to browser (WebRTC). The server keeps the record and passes the two
+# browsers' connection details between them; the heartbeat is how a callee
+# learns their phone is ringing. See ``CallSession``.
+
+#: How long a call rings before it is a missed call.
+CALL_RING_SECONDS = 45
+
+
+def ice_servers():
+    """Where the browsers look for a path to each other.
+
+    A public STUN server finds the way on most networks. Some offices and
+    mobile carriers need a TURN relay as well; set EAGLE_TURN_URL (and
+    EAGLE_TURN_USER / EAGLE_TURN_PASSWORD) and it is handed out too.
+    """
+    import os
+
+    servers = [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]
+    turn = os.environ.get("EAGLE_TURN_URL", "").strip()
+    if turn:
+        servers.append({
+            "urls": [turn],
+            "username": os.environ.get("EAGLE_TURN_USER", ""),
+            "credential": os.environ.get("EAGLE_TURN_PASSWORD", ""),
+        })
+    return servers
+
+
+def _expire_ringing():
+    """Calls nobody answered in time become missed calls - with their note."""
+    from .models import CallSession
+
+    cutoff = timezone.now() - timedelta(seconds=CALL_RING_SECONDS)
+    for call in CallSession.objects.filter(
+        status=CallSession.Status.RINGING, created_at__lt=cutoff
+    ).select_related("caller", "callee", "room"):
+        end_call(call, call.caller, reason="missed")
+
+
+def start_call(caller, callee, video=False):
+    """Ring a colleague. Returns ``(call, error_ar)``."""
+    from .models import CallSession
+
+    if callee is None or not callee.is_active or callee.pk == caller.pk:
+        return None, "مينفعش تكلم الشخص ده."
+    _expire_ringing()
+    busy = CallSession.objects.filter(
+        Q(caller__in=[caller, callee]) | Q(callee__in=[caller, callee]),
+        status__in=[CallSession.Status.RINGING, CallSession.Status.ACTIVE],
+    )
+    for call in busy.select_related("caller", "callee", "room"):
+        # A call of your own still open (a tab closed mid-call) is not a
+        # reason to stay unreachable: it is closed now. Theirs means busy.
+        if caller.pk in (call.caller_id, call.callee_id):
+            end_call(call, caller, reason="ended")
+        else:
+            return None, f"{callee.short_name} في مكالمة تانية دلوقتي."
+    room = staff_room(caller, callee)
+    call = CallSession.objects.create(
+        room=room, caller=caller, callee=callee, video=bool(video)
+    )
+    return call, ""
+
+
+def call_for(user, pk):
+    """The call, if this person is one of its two ends."""
+    from .models import CallSession
+
+    return CallSession.objects.filter(
+        Q(caller=user) | Q(callee=user), pk=pk
+    ).select_related("caller", "callee", "room").first()
+
+
+def answer_call(call, user):
+    from .models import CallSession
+
+    if call.callee_id != user.pk or call.status != CallSession.Status.RINGING:
+        return False
+    call.status = CallSession.Status.ACTIVE
+    call.answered_at = timezone.now()
+    call.save(update_fields=["status", "answered_at"])
+    return True
+
+
+def _clock(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def end_call(call, user, reason="ended"):
+    """Hang up, decline, or give up ringing. Writes one line into the chat.
+
+    ``reason`` is "ended", "declined" or "missed". Idempotent: a call already
+    over is left as it was, so both ends hanging up at once write one note.
+    """
+    from .models import CallSession
+
+    if not call.is_open:
+        return False
+    now = timezone.now()
+    if call.status == CallSession.Status.ACTIVE:
+        status = CallSession.Status.ENDED
+    elif reason == "declined" and user.pk == call.callee_id:
+        status = CallSession.Status.DECLINED
+    else:
+        status = CallSession.Status.MISSED
+    moved = CallSession.objects.filter(
+        pk=call.pk, status__in=[CallSession.Status.RINGING, CallSession.Status.ACTIVE]
+    ).update(status=status, ended_at=now)
+    if not moved:
+        return False
+    call.status, call.ended_at = status, now
+
+    kind_ar = "مكالمة فيديو" if call.video else "مكالمة صوتية"
+    kind_en = "Video call" if call.video else "Voice call"
+    if status == CallSession.Status.ENDED:
+        body = f"{kind_ar} · {_clock((now - call.answered_at).total_seconds())}"
+    elif status == CallSession.Status.DECLINED:
+        body = f"{kind_ar} · اترفضت"
+    else:
+        body = f"{kind_ar} فايتة"
+        notify(
+            call.callee, level="warning",
+            title_ar="مكالمة فايتة", title_en=f"Missed {kind_en.lower()}",
+            body_ar=f"{call.caller.short_name} كلمك ومردتش.",
+            body_en=f"{call.caller.short_name} called you.",
+            url=f"/ops/chats/u/{call.caller_id}/",
+        )
+    # Written as the caller's message, so it lands in the chat like WhatsApp's
+    # call line: counted as unread for the other one, ticked for the caller.
+    ChatMessage.objects.create(room=call.room, sender=call.caller, body=body)
+    return True
+
+
+def incoming_call(user):
+    """The call ringing for this person right now, for the heartbeat."""
+    from .models import CallSession
+
+    cutoff = timezone.now() - timedelta(seconds=CALL_RING_SECONDS)
+    call = (
+        CallSession.objects.filter(
+            callee=user, status=CallSession.Status.RINGING, created_at__gte=cutoff
+        ).select_related("caller").order_by("-id").first()
+    )
+    if call is None:
+        return None
+    return {
+        "id": call.id, "video": call.video,
+        "from": call.caller.short_name, "initials": call.caller.initials,
+        "chat_url": f"/ops/chats/u/{call.caller_id}/",
+    }
+
+
+def post_signal(call, user, kind, payload):
+    from .models import CallSignal
+
+    if kind not in CallSignal.Kind.values or not call.is_open:
+        return None
+    payload = (payload or "")[:65536]
+    return CallSignal.objects.create(call=call, sender=user, kind=kind, payload=payload)
+
+
+def signals_for(call, user, after=0):
+    """What the other end has sent since ``after``, oldest first."""
+    return list(
+        call.signals.filter(id__gt=after).exclude(sender=user)
+        .values("id", "kind", "payload")
+    )
+
+
 def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
                         reply_preview="", force_channel="", subject="",

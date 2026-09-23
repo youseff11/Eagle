@@ -146,6 +146,8 @@ def heartbeat(request):
     # Every role has the chats page, so every role gets its badge: messages
     # waiting in any tab of it that this person has not opened yet.
     data["counters"]["chats"] = services.unread_chat_total(user)
+    # A colleague calling: every page rings (static/js/calls.js).
+    data["call"] = services.incoming_call(user)
     return JsonResponse(data)
 
 
@@ -1071,6 +1073,76 @@ def client_chat_list(request):
     # Newest activity first.
     items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
     return JsonResponse({"ok": True, "items": items})
+
+
+# ---------------------------------------------------------------------------
+# Calls between colleagues (the media itself is browser to browser)
+# ---------------------------------------------------------------------------
+
+def _call_json(call, viewer):
+    other = call.other(viewer)
+    return {
+        "id": call.id, "status": call.status, "video": call.video,
+        "caller": call.caller_id == viewer.pk,
+        "other": other.short_name, "initials": other.initials,
+        "answered_at": call.answered_at.isoformat() if call.answered_at else "",
+    }
+
+
+@login_required
+@require_POST
+def call_start(request):
+    callee = User.objects.filter(pk=_int(request.POST.get("user")), is_active=True).first()
+    call, error = services.start_call(
+        request.user, callee, video=request.POST.get("video") == "1"
+    )
+    if call is None:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    return JsonResponse({
+        "ok": True, "call": _call_json(call, request.user),
+        "ice": services.ice_servers(),
+    })
+
+
+@login_required
+@require_POST
+def call_answer(request, pk):
+    call = services.call_for(request.user, pk)
+    if call is None:
+        raise Http404
+    ok = services.answer_call(call, request.user)
+    return JsonResponse({
+        "ok": ok, "call": _call_json(call, request.user), "ice": services.ice_servers(),
+        "error": "" if ok else "المكالمة خلصت.",
+    }, status=200 if ok else 400)
+
+
+@login_required
+@require_POST
+def call_end(request, pk):
+    call = services.call_for(request.user, pk)
+    if call is None:
+        raise Http404
+    services.end_call(call, request.user, reason=request.POST.get("reason", "ended"))
+    return JsonResponse({"ok": True, "call": _call_json(call, request.user)})
+
+
+@login_required
+def call_signals(request, pk):
+    """GET: what the other end sent since ``after`` (and the call's state).
+    POST: one offer / answer / network candidate for the other end."""
+    call = services.call_for(request.user, pk)
+    if call is None:
+        raise Http404
+    if request.method == "POST":
+        row = services.post_signal(
+            call, request.user, request.POST.get("kind", ""), request.POST.get("payload", "")
+        )
+        return JsonResponse({"ok": row is not None}, status=200 if row else 400)
+    return JsonResponse({
+        "ok": True, "call": _call_json(call, request.user),
+        "signals": services.signals_for(call, request.user, _int(request.GET.get("after"), 0)),
+    })
 
 
 @login_required

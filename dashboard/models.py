@@ -1857,6 +1857,72 @@ class ChatReaction(models.Model):
         return f"{self.user_id} {self.kind}"
 
 
+class CallSession(models.Model):
+    """One call between two colleagues, placed from their staff chat.
+
+    Browser to browser (WebRTC); this row is only the bookkeeping - who rang
+    whom, whether it was answered, how long it ran - plus the mailbox the two
+    browsers pass their connection details through (``CallSignal``). No audio
+    or video ever touches the server.
+
+    Staff only. A call with a client runs on WhatsApp's own calling, which
+    Meta has to switch on for the number first - see claude/calls.md.
+    """
+
+    class Status(models.TextChoices):
+        RINGING = "ringing", "Ringing"
+        ACTIVE = "active", "Active"
+        ENDED = "ended", "Ended"
+        MISSED = "missed", "Missed"
+        DECLINED = "declined", "Declined"
+
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="calls")
+    caller = models.ForeignKey(User, on_delete=models.CASCADE, related_name="calls_made")
+    callee = models.ForeignKey(User, on_delete=models.CASCADE, related_name="calls_received")
+    video = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.RINGING, db_index=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-id",)
+
+    def __str__(self):
+        return f"call {self.pk} {self.caller_id}->{self.callee_id} {self.status}"
+
+    @property
+    def is_open(self):
+        return self.status in (self.Status.RINGING, self.Status.ACTIVE)
+
+    def other(self, user):
+        return self.callee if user.pk == self.caller_id else self.caller
+
+
+class CallSignal(models.Model):
+    """One message between the two browsers setting a call up.
+
+    An offer, an answer, or a network candidate - opaque JSON the server only
+    stores and hands to the other side, oldest first.
+    """
+
+    class Kind(models.TextChoices):
+        OFFER = "offer", "Offer"
+        ANSWER = "answer", "Answer"
+        ICE = "ice", "ICE candidate"
+
+    call = models.ForeignKey(CallSession, on_delete=models.CASCADE, related_name="signals")
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    payload = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+
+
 class AuditLog(models.Model):
     actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     action = models.CharField(max_length=80)

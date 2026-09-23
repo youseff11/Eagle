@@ -161,6 +161,15 @@
           </div>
         </div>
         <div class="grow"></div>
+        {% if active_person %}
+          {% comment %}Calls: colleague to colleague, browser to browser (calls.js).{% endcomment %}
+          <button class="icon-btn cchat__call" type="button" data-call-user="{{ active_person.pk }}"
+                  data-call-name="{{ active_person.short_name }}" data-call-initials="{{ active_person.initials }}"
+                  data-ar-title="مكالمة صوتية" data-en-title="Voice call" title="مكالمة صوتية">{% icon "phone" %}</button>
+          <button class="icon-btn cchat__call" type="button" data-call-user="{{ active_person.pk }}" data-call-video="1"
+                  data-call-name="{{ active_person.short_name }}" data-call-initials="{{ active_person.initials }}"
+                  data-ar-title="مكالمة فيديو" data-en-title="Video call" title="مكالمة فيديو">{% icon "video" %}</button>
+        {% endif %}
         {% if active_group and can_add_members and not active_person %}
           <button class="btn btn--ghost" type="button" id="addMemberBtn">
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>

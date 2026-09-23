@@ -7079,3 +7079,96 @@ class ReactionTests(TestCase):
         self.assertContains(page, 'href="#r-like"')
         self.assertContains(page, 'id="reactPicker"')
         self.assertContains(page, 'id="r-love"')
+
+
+class CallTests(TestCase):
+    """Calls between colleagues: the record, the ringing, the note in the chat."""
+
+    def setUp(self):
+        self.a = User.objects.create_user("call_a", password="x", role=Role.OPERATION)
+        self.b = User.objects.create_user("call_b", password="x", role=Role.TRANSLATOR)
+        self.c = User.objects.create_user("call_c", password="x", role=Role.TRANSLATOR)
+
+    def test_a_call_rings_the_other_side(self):
+        call, error = services.start_call(self.a, self.b)
+        self.assertEqual(error, "")
+        self.assertEqual(services.incoming_call(self.b)["id"], call.pk)
+        self.assertIsNone(services.incoming_call(self.a))
+
+    def test_the_heartbeat_carries_the_ring(self):
+        call, _e = services.start_call(self.a, self.b, video=True)
+        self.client.force_login(self.b)
+        data = self.client.get("/api/heartbeat/").json()
+        self.assertEqual(data["call"]["id"], call.pk)
+        self.assertTrue(data["call"]["video"])
+
+    def test_answer_then_hang_up_writes_the_call_line(self):
+        from .models import CallSession
+
+        call, _e = services.start_call(self.a, self.b)
+        self.assertTrue(services.answer_call(call, self.b))
+        self.assertTrue(services.end_call(call, self.a))
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallSession.Status.ENDED)
+        room = services.staff_room(self.a, self.b)
+        self.assertTrue(room.messages.filter(body__startswith="مكالمة صوتية ·").exists())
+        # Both ends hanging up at once write one line, not two.
+        self.assertFalse(services.end_call(call, self.b))
+        self.assertEqual(room.messages.count(), 1)
+
+    def test_only_the_callee_answers(self):
+        call, _e = services.start_call(self.a, self.b)
+        self.assertFalse(services.answer_call(call, self.a))
+
+    def test_declined_and_missed(self):
+        from .models import CallSession, Notification
+
+        call, _e = services.start_call(self.a, self.b)
+        services.end_call(call, self.b, reason="declined")
+        self.assertEqual(call.status, CallSession.Status.DECLINED)
+        second, _e = services.start_call(self.a, self.b)
+        services.end_call(second, self.a, reason="missed")
+        self.assertEqual(second.status, CallSession.Status.MISSED)
+        self.assertTrue(Notification.objects.filter(user=self.b, title_ar="مكالمة فايتة").exists())
+
+    def test_a_call_nobody_answers_expires(self):
+        from .models import CallSession
+
+        call, _e = services.start_call(self.a, self.b)
+        CallSession.objects.filter(pk=call.pk).update(
+            created_at=timezone.now() - timedelta(seconds=services.CALL_RING_SECONDS + 5)
+        )
+        self.assertIsNone(services.incoming_call(self.b))
+        services.start_call(self.c, self.a)
+        call.refresh_from_db()
+        self.assertEqual(call.status, CallSession.Status.MISSED)
+
+    def test_busy(self):
+        services.start_call(self.a, self.b)
+        call, error = services.start_call(self.c, self.b)
+        self.assertIsNone(call)
+        self.assertTrue(error)
+
+    def test_signals_pass_to_the_other_side_only(self):
+        call, _e = services.start_call(self.a, self.b)
+        self.client.force_login(self.a)
+        self.client.post(f"/api/calls/{call.pk}/signals/", {"kind": "offer", "payload": "{}"})
+        self.assertEqual(self.client.get(f"/api/calls/{call.pk}/signals/").json()["signals"], [])
+        self.client.force_login(self.b)
+        got = self.client.get(f"/api/calls/{call.pk}/signals/").json()["signals"]
+        self.assertEqual([s["kind"] for s in got], ["offer"])
+
+    def test_a_stranger_cannot_touch_the_call(self):
+        call, _e = services.start_call(self.a, self.b)
+        self.client.force_login(self.c)
+        self.assertEqual(self.client.get(f"/api/calls/{call.pk}/signals/").status_code, 404)
+        self.assertEqual(self.client.post(f"/api/calls/{call.pk}/end/").status_code, 404)
+
+    def test_the_start_endpoint_and_the_buttons(self):
+        self.client.force_login(self.a)
+        response = self.client.post("/api/calls/start/", {"user": self.b.pk, "video": "1"})
+        self.assertTrue(response.json()["ok"])
+        self.assertTrue(response.json()["ice"])
+        page = self.client.get(f"/ops/chats/u/{self.b.pk}/")
+        self.assertContains(page, f'data-call-user="{self.b.pk}"')
+        self.assertContains(page, 'id="callOverlay"')

@@ -375,6 +375,8 @@ window.Eagle = (function () {
         rollUpNavCounts();
 
         showPending(data.pending);
+        // A colleague calling - static/js/calls.js rings on any page.
+        if (window.EagleCalls) { window.EagleCalls.incoming(data.call); }
       })
       .catch(function () { /* offline: try again on the next tick */ });
   }

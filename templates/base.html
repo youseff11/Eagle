@@ -51,6 +51,7 @@
 <div class="toasts" id="toasts"></div>
 
 {% include "partials/assign_modal.html" %}
+{% if user.is_authenticated %}{% include "partials/call_overlay.html" %}{% endif %}
 
 <script>
   window.EAGLE_CFG = {
@@ -68,6 +69,7 @@
   };
 </script>
 <script src="{% static 'js/app.js' %}"></script>
+{% if user.is_authenticated %}<script src="{% static 'js/calls.js' %}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

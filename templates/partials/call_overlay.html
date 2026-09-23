@@ -1,0 +1,32 @@
+{% load eagle_tags %}{% comment %}
+A call between two colleagues - ringing, calling and in progress. On every
+page, because a call can come in anywhere; static/js/calls.js drives it and
+the heartbeat is what tells it a call is ringing. The audio and video go
+browser to browser - nothing here ever reaches a client.
+{% endcomment %}
+<div class="call hidden" id="callOverlay" role="dialog" aria-live="assertive"
+     data-start-url="{% url 'dashboard:api_call_start' %}"
+     data-answer-url="{% url 'dashboard:api_call_answer' 0 %}"
+     data-end-url="{% url 'dashboard:api_call_end' 0 %}"
+     data-signals-url="{% url 'dashboard:api_call_signals' 0 %}">
+  <div class="call__stage">
+    <video class="call__remote hidden" id="callRemote" autoplay playsinline></video>
+    <video class="call__self hidden" id="callSelf" autoplay playsinline muted></video>
+    <audio id="callAudio" autoplay></audio>
+    <div class="call__card">
+      <span class="avatar avatar--staff call__face" id="callFace">?</span>
+      <div class="call__who" id="callWho">—</div>
+      <div class="call__state" id="callState"></div>
+    </div>
+  </div>
+  <div class="call__bar">
+    <button class="call__btn call__btn--ok hidden" type="button" id="callAccept"
+            data-ar-title="رد" data-en-title="Answer" title="رد">{% icon "phone" %}</button>
+    <button class="call__btn hidden" type="button" id="callMute"
+            data-ar-title="كتم المايك" data-en-title="Mute" title="كتم المايك">{% icon "mic" %}</button>
+    <button class="call__btn hidden" type="button" id="callCam"
+            data-ar-title="قفل الكاميرا" data-en-title="Camera off" title="قفل الكاميرا">{% icon "video" %}</button>
+    <button class="call__btn call__btn--end" type="button" id="callHang"
+            data-ar-title="إنهاء" data-en-title="Hang up" title="إنهاء">{% icon "phone-off" %}</button>
+  </div>
+</div>
