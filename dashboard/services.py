@@ -2685,6 +2685,47 @@ def record_whatsapp_status(wamid, status, error=""):
 
 
 # ---------------------------------------------------------------------------
+# A task's own files, and its text without the placeholders
+# ---------------------------------------------------------------------------
+
+#: What the webhook writes as the body of a file sent with no caption
+#: (``webhooks._body_of``): "[document]", "[image]"... Useful in a chat
+#: bubble next to the file, meaningless as a task's description.
+_PLACEHOLDER_LINE = r"^\s*\[[a-z_]+\]\s*$"
+
+
+def clean_client_text(text):
+    """The client's text with the "[document]" / "[image]" lines taken out."""
+    import re
+
+    lines = [
+        line for line in (text or "").splitlines()
+        if not re.match(_PLACEHOLDER_LINE, line)
+    ]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def task_source_files(task):
+    """The client files this task is about, for the top of the task page.
+
+    The ones the operation ticked when making it; nothing ticked means every
+    file on the messages it was made from - the same rule
+    ``share_source_files`` uses for what reaches the translator, so the page
+    and the chat never disagree about what the job is. Voice notes are left
+    out: they are talk, not a document to translate.
+    """
+    picked = list(task.source_files.select_related("message").order_by("message__received_at", "id"))
+    if not picked:
+        from .models import MessageAttachment
+
+        picked = list(
+            MessageAttachment.objects.filter(message__task=task)
+            .select_related("message").order_by("message__received_at", "id")
+        )
+    return [a for a in picked if not a.is_audio]
+
+
+# ---------------------------------------------------------------------------
 # Finding a task from the nav search
 # ---------------------------------------------------------------------------
 

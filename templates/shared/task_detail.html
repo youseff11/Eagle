@@ -53,7 +53,27 @@
       </div>
     </div>
   </div>
-  {% if task.description %}<div class="msg-item__text mt">{{ task.description }}</div>{% endif %}
+  {% if task_description %}<div class="msg-item__text mt">{{ task_description }}</div>{% endif %}
+  {% comment %}
+  The files the job is. Shown to everyone who can open the task - the
+  translator included - because they are what the task is about. Only the
+  files: the client's own messages stay in the operation's card below.
+  {% endcomment %}
+  {% if task_files %}
+    <div class="task-files mt">
+      <div class="label">
+        {% icon "paperclip" "ic--sm" %}<span data-ar="ملفات التاسك" data-en="Task files">ملفات التاسك</span>
+        <span class="chip chip--sm">{{ task_files|length }}</span>
+      </div>
+      <div class="files">
+        {% for attachment in task_files %}
+          <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+             title="{{ attachment.pretty_size }}">
+            {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 </div>
 
 {% if pending %}
@@ -703,7 +723,7 @@
             {% if message.channel == 'whatsapp' %}{% icon "phone" %}{% else %}{% icon "mail" %}{% endif %}
             <div>
               <div class="note__where mono">{{ message.get_channel_display }} · {{ message.received_at|date:"m-d H:i" }}</div>
-              <div>{{ message.body|truncatechars:220 }}</div>
+              {% with text=message.body|client_text %}{% if text %}<div>{{ text|truncatechars:220 }}</div>{% endif %}{% endwith %}
               {% if message.attachments.all %}
                 <div class="files">
                   {% for attachment in message.attachments.all %}

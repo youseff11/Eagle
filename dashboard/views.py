@@ -650,15 +650,19 @@ def ops_task_new(request):
 
     initial = {}
     if message:
-        if len(messages) == 1:
-            title = message.subject or message.body[:60] or "Translation request"
-            description = message.body
-        else:
-            # Several messages: the texts in the order they were sent, and a
-            # title that says what the job is rather than whichever line
+        # "[document]" is what the webhook writes for a file with no caption.
+        # It says nothing in a task, so it goes; the files are on the task.
+        texts = [services.clean_client_text(m.body) for m in messages]
+        description = "\n\n".join(text for text in texts if text)
+        files = len(picked) or sum(len(m.attachments.all()) for m in messages)
+        if len(messages) == 1 and (message.subject or texts[0]):
+            title = message.subject or texts[0][:60]
+        elif files:
+            # A title that says what the job is rather than whichever line
             # happened to come first.
-            title = f"{len(picked) or len(messages)} ملفات من {message.client_code}"
-            description = "\n\n".join(m.body for m in messages if m.body)
+            title = f"{files} ملفات من {message.client_code}"
+        else:
+            title = "Translation request"
         initial = {
             "client": message.client_id,
             "title": title.strip(),
@@ -868,6 +872,11 @@ def task_detail(request, code):
             task.source_messages.prefetch_related("attachments")
             if (user.is_operation or user.is_admin_role) else []
         ),
+        # The job's files, at the top of the page, for everyone on the task.
+        # Files only - the client's messages (their name, their number) stay
+        # in the operation's card further down.
+        "task_files": services.task_source_files(task),
+        "task_description": services.clean_client_text(task.description),
         "conf": AppSettings.load(),
         # Who may settle a disputed word count: the people who can see both
         # the client's file and the translator's, never the translator.

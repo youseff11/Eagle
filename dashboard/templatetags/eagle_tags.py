@@ -421,6 +421,14 @@ def deadline_boxes(value=None, name="deadline", scope=""):
 # The left-hand navigation
 # ---------------------------------------------------------------------------
 
+@register.filter
+def client_text(text):
+    """A client's message without the "[document]" / "[image]" placeholder lines."""
+    from ..services import clean_client_text
+
+    return clean_client_text(text)
+
+
 @register.simple_tag
 def nav_search(user):
     """What the search box at the top of the nav can find - see ``nav.search_index``."""

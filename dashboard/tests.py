@@ -6477,3 +6477,63 @@ class TaskSearchTests(TestCase):
         items = response.json()["items"]
         self.assertEqual([i["code"] for i in items], [self.menu.code])
         self.assertEqual(items[0]["href"], f"/tasks/{self.menu.code}/")
+
+
+class TaskPageFilesTests(TestCase):
+    """The task's files sit under its title, for everyone on the task - and
+    "[document]" is not a description."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_tp", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_tp", password="x", role=Role.TRANSLATOR)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000096")
+        self.msg = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="[document]",
+            sender_identity="+201000000096",
+        )
+        self.contract = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"c", name="contract.pdf"),
+            original_name="contract.pdf", size=1,
+        )
+        self.stamp = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"s", name="stamp.jpg"),
+            original_name="stamp.jpg", size=1,
+        )
+        self.task = services.create_task(
+            client=self.acme, title="5 files", created_by=self.ops,
+            description="[document]\n[image]", messages=[self.msg],
+        )
+        self.task.translator = self.tr
+        self.task.save(update_fields=["translator"])
+
+    def test_every_file_when_none_was_picked(self):
+        names = [a.original_name for a in services.task_source_files(self.task)]
+        self.assertEqual(names, ["contract.pdf", "stamp.jpg"])
+
+    def test_only_the_picked_ones_when_some_were(self):
+        self.task.source_files.set([self.contract])
+        names = [a.original_name for a in services.task_source_files(self.task)]
+        self.assertEqual(names, ["contract.pdf"])
+
+    def test_the_translator_sees_the_files_on_the_page(self):
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/tasks/{self.task.code}/")
+        self.assertContains(response, "contract.pdf")
+        self.assertContains(response, "task-files")
+
+    def test_the_placeholders_are_not_the_description(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/tasks/{self.task.code}/")
+        self.assertNotContains(response, "[document]")
+        self.assertEqual(services.clean_client_text("[document]\nplease by Sunday\n[image]"),
+                         "please by Sunday")
+
+    def test_a_new_task_from_files_is_not_titled_document(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/tasks/new/?message={self.msg.pk}")
+        form = response.context["form"]
+        self.assertNotIn("[document]", form.initial["title"])
+        self.assertEqual(form.initial["description"], "")
