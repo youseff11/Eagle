@@ -286,6 +286,34 @@
 .bub__file a { color: var(--brand); text-decoration: none; }
 .bub__file a:hover { text-decoration: underline; }
 
+/* A photo in a bubble: the picture itself, not its file name. */
+.bub__file--img {
+  position: relative;
+  display: block;
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+}
+.bub__img { display: block; line-height: 0; }
+.bub__img img {
+  display: block;
+  max-width: min(280px, 100%);
+  max-height: 320px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-2, rgba(127, 127, 127, .10));
+}
+.bub__file--img a:hover { text-decoration: none; }
+/* In "select files" mode the tick sits on the photo's corner. */
+.bub__file--img .bub__pick {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+}
+
 /* -- replying ------------------------------------------------------------- */
 
 /* The bubble is the drag surface, so the row has to position the button, and

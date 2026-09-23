@@ -2330,7 +2330,23 @@ def _attachment_snippet(attachments):
     # getattr: a ChatAttachment shares the audio behaviour without the columns.
     if any(getattr(a, "is_voice", False) or a.is_audio for a in rows):
         return "رسالة صوتية"
+    if all(is_image(a) for a in rows):
+        return "صورة" if len(rows) == 1 else f"{len(rows)} صور"
     return f"{len(rows)} ملف"
+
+
+#: What a browser draws in an <img> everywhere. SVG is left out on purpose:
+#: it is a document that can carry script, not a picture, and it stays a link.
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
+
+
+def is_image(attachment):
+    """True when the file can be shown in the bubble instead of as a link."""
+    mime = (getattr(attachment, "mime", "") or "").lower()
+    name = (attachment.original_name or attachment.file.name or "").lower()
+    if mime == "image/svg+xml" or name.endswith(".svg"):
+        return False
+    return mime.startswith("image/") or name.endswith(_IMAGE_EXTENSIONS)
 
 
 def _file_json(attachment):
@@ -2351,6 +2367,8 @@ def _file_json(attachment):
         "voice": getattr(attachment, "is_voice", False),
         "audio": attachment.is_audio,
         "length": attachment.pretty_duration,
+        # A photo is shown as a photo; anything else stays a link.
+        "image": is_image(attachment),
     }
 
 
@@ -2374,7 +2392,7 @@ def conversation_preview(client, user):
             "receipt": out.wa_receipt if out.status == OutboundMessage.Status.SENT else "",
         }
     if last:
-        text = last.body or _attachment_snippet(last.attachments.all())
+        text = clean_client_text(last.body) or _attachment_snippet(last.attachments.all())
         return {"text": text[:70], "at": last.received_at, "outgoing": False}
     return {"text": "", "at": None, "outgoing": False}
 
@@ -2389,7 +2407,9 @@ def client_thread(client, user, limit=200):
             "kind": "in",
             "id": row.id,
             "uid": f"in-{row.id}",
-            "body": row.body,
+            # "[image]" is what the webhook writes for a file with no caption;
+            # with the picture right there in the bubble it only says it twice.
+            "body": clean_client_text(row.body) if files else row.body,
             "subject": row.subject,
             "channel": row.channel,
             "at": row.received_at,

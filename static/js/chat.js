@@ -129,6 +129,14 @@
                 "Already in " + msg.task_code)) + '"'
             : "") + ">";
       }
+      // A photo is shown as a photo - mirrors _client_bubble.html.
+      if (f.image && f.url) {
+        parts.push('<div class="bub__file bub__file--img">' + pick +
+          '<a class="bub__img" href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' +
+            esc(f.name) + '"><img src="' + esc(f.url) + '" alt="' + esc(f.name) +
+            '" loading="lazy"></a></div>');
+        return;
+      }
       parts.push('<div class="bub__file">' + pick + icon("paperclip", "ic--sm") + label + "</div>");
     });
 

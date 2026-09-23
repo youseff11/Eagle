@@ -6740,3 +6740,58 @@ class ResetTasksTests(TestCase):
             "/panel/reset-tasks/",
             [i["href"] for g in nav.sidebar(self.ops) for i in g["items"]],
         )
+
+
+class ImagesInChatTests(TestCase):
+    """A photo in the chat is shown as a photo, not as a file name."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_img", password="x", role=Role.OPERATION)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000099")
+        self.msg = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="[image]",
+            sender_identity="+201000000099",
+        )
+        self.photo = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"jpg", name="1020211601072499.jpg"),
+            original_name="1020211601072499.jpg", size=3, mime="image/jpeg",
+        )
+
+    def _entry(self):
+        return next(e for e in services.client_thread(self.acme, self.ops)
+                    if e["uid"] == f"in-{self.msg.pk}")
+
+    def test_the_file_is_marked_as_an_image(self):
+        self.assertTrue(self._entry()["files"][0]["image"])
+
+    def test_the_placeholder_text_goes_when_the_picture_is_there(self):
+        self.assertEqual(self._entry()["body"], "")
+
+    def test_a_pdf_and_an_svg_stay_links(self):
+        from django.core.files.base import ContentFile
+        from .models import MessageAttachment
+
+        pdf = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"p", name="a.pdf"),
+            original_name="a.pdf", size=1, mime="application/pdf",
+        )
+        svg = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"<svg/>", name="a.svg"),
+            original_name="a.svg", size=6, mime="image/svg+xml",
+        )
+        self.assertFalse(services.is_image(pdf))
+        self.assertFalse(services.is_image(svg))
+
+    def test_the_bubble_draws_the_picture(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.acme.code}/")
+        self.assertContains(response, "bub__img")
+        self.assertContains(response, f'<img src="{self.photo.file.url}"')
+        self.assertNotContains(response, "[image]")
+
+    def test_the_list_says_photo(self):
+        preview = services.conversation_preview(self.acme, self.ops)
+        self.assertEqual(preview["text"], "صورة")

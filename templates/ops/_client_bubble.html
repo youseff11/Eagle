@@ -39,7 +39,7 @@ Expects: entry (dict from services.client_thread)
           {% include "partials/voice.html" with url=f.url length=f.length %}
         </div>
       {% else %}
-        <div class="bub__file">
+        <div class="bub__file{% if f.image and f.url %} bub__file--img{% endif %}">
           {% if entry.actions and can_convert and f.id %}
             {% comment %}
             The "select files" mode: tick files across any number of the
@@ -51,9 +51,16 @@ Expects: entry (dict from services.client_thread)
                    data-message="{{ entry.id }}"
                    {% if entry.task_code %}disabled data-ar-title="الملف ده في تاسك {{ entry.task_code }}" data-en-title="Already in {{ entry.task_code }}" title="الملف ده في تاسك {{ entry.task_code }}"{% endif %}>
           {% endif %}
-          {% icon "paperclip" "ic--sm" %}
-          {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
-          {% else %}<span>{{ f.name }}</span>{% endif %}
+          {% if f.image and f.url %}
+            {% comment %}A photo is shown as a photo; clicking it opens it full size.{% endcomment %}
+            <a class="bub__img" href="{{ f.url }}" target="_blank" rel="noopener" title="{{ f.name }}">
+              <img src="{{ f.url }}" alt="{{ f.name }}" loading="lazy">
+            </a>
+          {% else %}
+            {% icon "paperclip" "ic--sm" %}
+            {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
+            {% else %}<span>{{ f.name }}</span>{% endif %}
+          {% endif %}
         </div>
       {% endif %}
     {% endfor %}
