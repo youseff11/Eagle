@@ -74,12 +74,16 @@ def _pending_json(assignment, viewer):
         "window": AppSettings.load().response_window_seconds,
         "assigned_by": assignment.assigned_by.short_name if assignment.assigned_by else "",
         # Where the files were dropped, so they can be read before deciding.
-        "files_url": services.room_url_for(assignment.room, viewer),
+        # "Read the files first" opens a page of the job itself - files,
+        # description and time left - not the chat they were dropped in.
+        "files_url": f"/assignments/{assignment.id}/",
         "open_url": f"/api/assignments/{assignment.id}/files/",
         "priority": task.priority,
         # The date that governs whoever is being asked to take this on: a
         # translator is shown theirs, never what the client was promised.
         "deadline": _stamp(task.deadline_for(viewer)),
+        # For the live "time left" line under it.
+        "deadline_iso": task.deadline_for(viewer).isoformat() if task.deadline_for(viewer) else "",
         "note": assignment.note,
     }
 
@@ -290,8 +294,7 @@ def open_assignment_files(request, pk):
     if assignment.opened_at is None:
         assignment.opened_at = timezone.now()
         assignment.save(update_fields=["opened_at"])
-    url = services.room_url_for(assignment.room, request.user)
-    return JsonResponse({"ok": True, "url": url})
+    return JsonResponse({"ok": True, "url": f"/assignments/{assignment.id}/"})
 
 
 @api_role_required(Role.OPERATION)

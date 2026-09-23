@@ -180,6 +180,7 @@ urlpatterns = [
     path("api/attendance/punch/", api.attendance_punch, name="api_attendance_punch"),
     path("api/notifications/read/", api.mark_notifications_read, name="api_notifications_read"),
     path("api/prefs/", api.set_prefs, name="api_prefs"),
+    path("assignments/<int:pk>/", views.assignment_preview, name="assignment_preview"),
     path("api/assignments/<int:pk>/accept/", api.accept_assignment, name="api_accept"),
     path("api/assignments/<int:pk>/decline/", api.decline_assignment, name="api_decline"),
     path(

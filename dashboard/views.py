@@ -893,6 +893,44 @@ def task_detail(request, code):
 
 
 @login_required
+def assignment_preview(request, pk):
+    """Read the job before taking it: its files, its text, its deadline.
+
+    What "شوف الملفات الأول" in the hand-off popup opens. It used to open the
+    chat the files were dropped in, which was a page away from the one thing
+    wanted - so the files, the description and the time left are put on one
+    page of their own, with accept and decline right there.
+
+    Only the person it was handed to (and the admin). Opening it is recorded
+    as having looked - never as having answered; the window keeps running.
+    """
+    from .models import Assignment
+
+    assignment = get_object_or_404(
+        Assignment.objects.select_related("task", "task__client", "assigned_by"), pk=pk
+    )
+    user = request.user
+    if assignment.assignee_id != user.pk and not user.is_admin_role:
+        raise Http404
+    task = assignment.task
+    pending = assignment.status == AssignmentStatus.PENDING and not assignment.is_expired
+    if pending and assignment.assignee_id == user.pk and assignment.opened_at is None:
+        assignment.opened_at = timezone.now()
+        assignment.save(update_fields=["opened_at"])
+
+    deadline = task.deadline_for(user)
+    return render(request, "shared/assignment_preview.html", {
+        "assignment": assignment,
+        "task": task,
+        "pending": pending,
+        "task_files": services.task_source_files(task),
+        "task_description": services.clean_client_text(task.description),
+        "deadline": deadline,
+        "deadline_iso": deadline.isoformat() if deadline else "",
+    })
+
+
+@login_required
 @require_POST
 def task_word_count(request, code):
     """Recount from the files, or accept a number a person stands behind."""

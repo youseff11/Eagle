@@ -422,6 +422,14 @@ def deadline_boxes(value=None, name="deadline", scope=""):
 # ---------------------------------------------------------------------------
 
 @register.filter
+def is_image_file(attachment):
+    """True when the attachment can be drawn as a picture - see services.is_image."""
+    from ..services import is_image
+
+    return is_image(attachment)
+
+
+@register.filter
 def client_text(text):
     """A client's message without the "[document]" / "[image]" placeholder lines."""
     from ..services import clean_client_text

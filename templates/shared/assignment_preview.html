@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}{{ task.code }}{% endblock %}
+{% block page_title %}<span class="mono">{{ task.code }}</span>{% endblock %}
+
+{% block content %}
+{% comment %}
+The job, before it is taken: what "شوف الملفات الأول" in the hand-off popup
+opens. data-id tells app.js not to draw the popup over this page - the same
+countdown, accept and decline are here already.
+{% endcomment %}
+<div class="assign-preview" id="assignPreview"
+     data-id="{{ assignment.id }}"
+     data-pending="{% if pending %}1{% endif %}"
+     data-seconds="{{ assignment.seconds_left }}"
+     data-deadline="{{ deadline_iso }}"
+     data-task-url="{% url 'dashboard:task_detail' task.code %}">
+
+  <div class="page-head">
+    <h1>{{ task.title }}</h1>
+    <span class="page-head__sub mono">{{ task.code }} · {{ task.client|label_for:user }}
+      · {{ task.source_lang|default:"—" }} → {{ task.target_lang|default:"—" }}</span>
+  </div>
+
+  <div class="grid grid--main">
+    <div>
+      <div class="card">
+        <div class="card__head">
+          {% icon "paperclip" %}
+          <h3 data-ar="ملفات التاسك" data-en="Task files">ملفات التاسك</h3>
+          <span class="chip chip--sm">{{ task_files|length }}</span>
+        </div>
+        {% if task_files %}
+          <div class="preview-files">
+            {% for attachment in task_files %}
+              {% with image=attachment|is_image_file %}
+                <a class="preview-file{% if image %} preview-file--img{% endif %}"
+                   href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                  {% if image %}
+                    <img src="{{ attachment.file.url }}" alt="{{ attachment.original_name }}" loading="lazy">
+                  {% else %}
+                    {% icon "paperclip" "ic--lg" %}
+                  {% endif %}
+                  <span class="preview-file__name">{{ attachment.original_name|default:attachment.file.name }}</span>
+                  <span class="preview-file__size muted mono">{{ attachment.pretty_size }}</span>
+                </a>
+              {% endwith %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty">
+            {% icon "paperclip" "ic--xl" %}
+            <span data-ar="التاسك دي مفيهاش ملفات من العميل." data-en="This task carries no client files.">التاسك دي مفيهاش ملفات من العميل.</span>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          {% icon "list-checks" %}
+          <h3 data-ar="الوصف" data-en="Description">الوصف</h3>
+        </div>
+        {% if task_description %}
+          <div class="msg-item__text">{{ task_description }}</div>
+        {% else %}
+          <div class="muted" data-ar="مفيش وصف مكتوب." data-en="No description.">مفيش وصف مكتوب.</div>
+        {% endif %}
+        {% if assignment.note %}
+          <div class="note mt">
+            {% icon "message" %}
+            <div>
+              <div class="note__where">{{ assignment.assigned_by.short_name|default:"—" }}</div>
+              <div>{{ assignment.note }}</div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="sticky-side">
+      <div class="card">
+        <div class="kv">
+          <span data-ar="من" data-en="From">من</span>
+          <strong>{{ assignment.assigned_by.short_name|default:"—" }}</strong>
+        </div>
+        <div class="kv">
+          <span data-ar="الديدلاين" data-en="Deadline">الديدلاين</span>
+          <strong class="mono">{% if deadline %}{{ deadline|date:"Y-m-d H:i" }}{% else %}—{% endif %}</strong>
+        </div>
+        <div class="deadline-left" id="previewDeadlineLeft"></div>
+      </div>
+
+      {% if pending %}
+        <div class="card preview-decide">
+          <div class="row row--tight">
+            {% icon "timer" %}
+            <strong data-ar="باقي على تأكيد الاستلام" data-en="Time left to confirm">باقي على تأكيد الاستلام</strong>
+            <span class="badge badge--wait mono" id="previewSeconds">{{ assignment.seconds_left }}s</span>
+          </div>
+          <p class="muted" style="font-size:.8rem"
+             data-ar="فتح الصفحة دي مش استلام — العداد لسه شغال."
+             data-en="Opening this page is not accepting - the timer is still running.">
+            فتح الصفحة دي مش استلام — العداد لسه شغال.
+          </p>
+          <div class="field">
+            <label data-ar="سبب الرفض (لازم لو هترفض)" data-en="Reason (required to decline)">سبب الرفض (لازم لو هترفض)</label>
+            <input class="input" id="previewReason" maxlength="250"
+                   data-ar-ph="مشغول بتاسك تانية / مش تخصصي…" data-en-ph="Busy with another task / not my field…"
+                   placeholder="مشغول بتاسك تانية / مش تخصصي…">
+          </div>
+          <div class="row">
+            <button class="btn btn--ok grow" type="button" id="previewAccept">
+              {% icon "check" %}<span data-ar="استلمت" data-en="Accept">استلمت</span>
+            </button>
+            <button class="btn btn--danger" type="button" id="previewDecline">
+              {% icon "x" %}<span data-ar="رفض" data-en="Decline">رفض</span>
+            </button>
+          </div>
+        </div>
+      {% else %}
+        <div class="note">
+          {% icon "info" %}
+          <div data-ar="التسليم ده اتقفل (اتستلم أو اترفض أو الوقت خلص)."
+               data-en="This hand-off is closed (accepted, declined or timed out).">
+            التسليم ده اتقفل (اتستلم أو اترفض أو الوقت خلص).
+          </div>
+        </div>
+        {% if assignment.status == 'accepted' %}
+          <a class="btn btn--primary" href="{% url 'dashboard:task_detail' task.code %}">
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="افتح التاسك" data-en="Open the task">افتح التاسك</span>
+          </a>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

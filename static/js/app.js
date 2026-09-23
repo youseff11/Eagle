@@ -179,10 +179,52 @@ window.Eagle = (function () {
 
   /* ------------------------------------------------- 60s assignment modal */
 
+  /* "باقي يومين و3 ساعات" until the deadline - or how late it already is.
+     Counted in the browser from the ISO time the server sends, so it keeps
+     moving between polls. */
+  function deadlineLeft(iso) {
+    if (!iso) { return { text: "", late: false }; }
+    var ms = new Date(iso).getTime() - Date.now();
+    if (isNaN(ms)) { return { text: "", late: false }; }
+    var late = ms < 0;
+    var minutes = Math.floor(Math.abs(ms) / 60000);
+    var days = Math.floor(minutes / 1440);
+    var hours = Math.floor((minutes % 1440) / 60);
+    var mins = minutes % 60;
+    var ar = [], en = [];
+    if (days) { ar.push(days + " يوم"); en.push(days + (days === 1 ? " day" : " days")); }
+    if (hours) { ar.push(hours + " ساعة"); en.push(hours + (hours === 1 ? " hour" : " hours")); }
+    if (!days && (mins || !hours)) {
+      ar.push(mins + " دقيقة"); en.push(mins + (mins === 1 ? " minute" : " minutes"));
+    }
+    var span = t(ar.join(" و"), en.join(" "));
+    return {
+      late: late,
+      text: late ? t("الديدلاين فات من " + span, "Deadline passed " + span + " ago")
+                 : t("باقي " + span + " على الديدلاين", span + " left until the deadline")
+    };
+  }
+
+  function paintDeadlineLeft(node, iso) {
+    if (!node) { return; }
+    var left = deadlineLeft(iso);
+    node.textContent = left.text;
+    node.classList.toggle("hidden", !left.text);
+    node.classList.toggle("is-late", left.late);
+  }
+
   function showPending(pending) {
     if (!pending) { hidePending(); return; }
     if (state.pendingId === pending.id) { return; }
+    // Already on this hand-off's own page: the countdown, accept and decline
+    // are on the page itself, so the popup would only cover them.
+    var preview = $("#assignPreview");
+    if (preview && preview.getAttribute("data-id") === String(pending.id)) {
+      state.pendingId = pending.id;
+      return;
+    }
     state.pendingId = pending.id;
+    state.pendingDeadline = pending.deadline_iso || "";
 
     var backdrop = $("#assignModal");
     if (!backdrop) { return; }
@@ -270,6 +312,7 @@ window.Eagle = (function () {
 
     function paint() {
       if (!ring || !num) { return; }
+      paintDeadlineLeft($("#assignDeadlineLeft"), state.pendingDeadline);
       num.textContent = Math.max(0, left);
       ring.style.setProperty("--pct", Math.max(0, (left / total) * 100));
       ring.classList.toggle("is-critical", left <= 15);
@@ -1207,6 +1250,82 @@ window.Eagle = (function () {
      from here so the backup that comes back can be saved as a file and the
      page can then move on; a refusal (wrong password) comes back as the
      page itself, and only its error line is lifted out of it. */
+  /* -------------------------------------------------- hand-off preview page */
+
+  /* /assignments/<id>/: the job's files and text, the time left to confirm,
+     the time left to the deadline, and the two answers - the popup's job,
+     on a page where the files can actually be read. */
+  function initAssignPreview() {
+    var root = $("#assignPreview");
+    if (!root) { return; }
+    var id = root.getAttribute("data-id");
+    var deadline = root.getAttribute("data-deadline") || "";
+    var taskUrl = root.getAttribute("data-task-url");
+    var leftNode = $("#previewDeadlineLeft");
+    paintDeadlineLeft(leftNode, deadline);
+    setInterval(function () { paintDeadlineLeft(leftNode, deadline); }, 30000);
+
+    if (!root.getAttribute("data-pending")) { return; }
+    var seconds = Number(root.getAttribute("data-seconds")) || 0;
+    var secNode = $("#previewSeconds");
+    var accept = $("#previewAccept");
+    var decline = $("#previewDecline");
+    var reason = $("#previewReason");
+
+    function closed(message) {
+      if (accept) { accept.disabled = true; }
+      if (decline) { decline.disabled = true; }
+      toast({ level: "danger", title: message });
+    }
+
+    var timer = setInterval(function () {
+      seconds -= 1;
+      if (secNode) {
+        secNode.textContent = Math.max(0, seconds) + "s";
+        secNode.classList.toggle("is-critical", seconds <= 15);
+      }
+      if (seconds <= 0) {
+        clearInterval(timer);
+        closed(t("الوقت خلص — التاسك رجعت لمين بعتها.", "Time is up - the task went back."));
+      }
+    }, 1000);
+
+    if (accept) {
+      accept.addEventListener("click", function () {
+        accept.disabled = true;
+        post(cfg.acceptUrl.replace("0", id), {}).then(function (res) {
+          if (res && res.ok) {
+            clearInterval(timer);
+            window.location.href = taskUrl;
+            return;
+          }
+          closed(t("الوقت خلص", "Too late"));
+        }).catch(function () { accept.disabled = false; });
+      });
+    }
+    if (decline) {
+      decline.addEventListener("click", function () {
+        var why = reason ? reason.value.trim() : "";
+        if (!why) {
+          if (reason) { reason.focus(); }
+          toast({ level: "warning", title: t("اكتب سبب الرفض", "Say why") });
+          return;
+        }
+        decline.disabled = true;
+        post(cfg.declineUrl.replace("0", id), { reason: why }).then(function (res) {
+          if (res && res.ok) {
+            clearInterval(timer);
+            window.location.href = "/";
+            return;
+          }
+          decline.disabled = false;
+          toast({ level: "danger", title: t("مقدرتش أرفض", "Could not decline"),
+                  body: (res && res.error) || "" });
+        }).catch(function () { decline.disabled = false; });
+      });
+    }
+  }
+
   function initResetTasks() {
     var form = $("#resetTasksForm");
     if (!form) { return; }
@@ -1655,6 +1774,7 @@ window.Eagle = (function () {
     initNavGroups();
     initNavSearch();
     initResetTasks();
+    initAssignPreview();
     initDeadlineBoxes();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",

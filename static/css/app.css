@@ -592,6 +592,30 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .reset-counts b { font-size: 1.2rem; }
 .reset-error { margin-top: 10px; color: var(--danger); font-size: .85rem; font-weight: 600; }
 
+/* Time left until the deadline - in the hand-off popup and on its page. */
+.deadline-left {
+  margin-top: 6px; padding: 6px 10px; border-radius: var(--r-sm);
+  background: var(--brand-soft); color: var(--heading); font-size: .82rem; font-weight: 600;
+}
+.deadline-left.is-late { background: var(--danger-soft); color: var(--danger); }
+
+/* The hand-off's own page: the job's files as tiles, pictures as pictures. */
+.preview-files { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.preview-file {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 12px 10px; min-height: 120px; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); text-decoration: none;
+}
+.preview-file:hover { border-color: var(--brand-line); }
+.preview-file .ic { color: var(--brand); }
+.preview-file--img { padding: 6px; justify-content: flex-start; }
+.preview-file--img img { width: 100%; height: 130px; object-fit: cover; border-radius: 6px; }
+.preview-file__name { font-size: .78rem; word-break: break-all; }
+.preview-file__size { font-size: .68rem; }
+.preview-decide { border-color: var(--brand-line); }
+#previewSeconds.is-critical { background: var(--danger-soft); color: var(--danger); }
+
 /* --------------------------------------------------------------- the mail
    /ops/inbox/ is e-mail and nothing else, so it is shaped like a mailbox:
    one list, hairlines between letters, unread carrying weight rather than a

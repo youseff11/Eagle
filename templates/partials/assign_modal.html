@@ -29,18 +29,20 @@
         <span data-ar="الديدلاين" data-en="Deadline">الديدلاين</span>
         <strong class="mono" id="assignDeadline">—</strong>
       </div>
+      {# How long is left until then, counted live: "باقي يومين و3 ساعات". #}
+      <div class="deadline-left" id="assignDeadlineLeft"></div>
       <div class="muted" id="assignNote" style="font-size:.8rem"></div>
     </div>
 
     {% comment %}
-    Reading before deciding. The files were dropped into the chat between the
-    two of you when the task was handed over, so this opens them - it does not
-    answer the hand-off, and the window keeps running.
+    Reading before deciding. Opens the job's own page (/assignments/<id>/):
+    its files, its description and the time left. It does not answer the
+    hand-off, and the window keeps running.
     {% endcomment %}
     <button class="btn btn--ghost hidden" id="assignFiles" type="button"
             style="margin-top:10px">
-      {% icon "paperclip" "ic--sm" %}<span data-ar="شوف الملفات الأول"
-        data-en="Read the files first">شوف الملفات الأول</span>
+      {% icon "paperclip" "ic--sm" %}<span data-ar="شوف الملفات والتفاصيل الأول"
+        data-en="See the files and details first">شوف الملفات والتفاصيل الأول</span>
     </button>
 
     <div class="field" style="margin-top:10px;text-align:start">

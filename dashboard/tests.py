@@ -6635,13 +6635,13 @@ class LeadTranslatorGroupTests(TestCase):
         blob = " ".join(self._group().messages.values_list("body", flat=True))
         self.assertIn(self.task.code, blob)
 
-    def test_the_prompt_links_the_group(self):
+    def test_the_prompt_links_the_jobs_own_page(self):
         from .api import _pending_json
 
         assignment = self._hand_over()
         self.assertEqual(
             _pending_json(assignment, self.tr)["files_url"],
-            f"/ops/chats/g/{self._group().pk}/",
+            f"/assignments/{assignment.pk}/",
         )
 
     def test_the_operation_and_the_leader_still_talk_privately(self):
@@ -6795,3 +6795,66 @@ class ImagesInChatTests(TestCase):
     def test_the_list_says_photo(self):
         preview = services.conversation_preview(self.acme, self.ops)
         self.assertEqual(preview["text"], "صورة")
+
+
+class AssignmentPreviewTests(TestCase):
+    """"شوف الملفات" opens the job itself: files, description, time left."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_pv", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_pv", password="x", role=Role.TEAM_LEAD)
+        self.other = User.objects.create_user("lead_pv2", password="x", role=Role.TEAM_LEAD)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000100")
+        msg = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="please by Sunday\n[document]",
+            sender_identity="+201000000100",
+        )
+        MessageAttachment.objects.create(
+            message=msg, file=ContentFile(b"c", name="contract.pdf"),
+            original_name="contract.pdf", size=1,
+        )
+        self.task = services.create_task(
+            client=self.acme, title="Contract", created_by=self.ops,
+            description="please by Sunday", messages=[msg],
+            deadline=timezone.now() + timedelta(days=2, hours=3),
+        )
+        self.assignment = services.assign_to_lead(self.task, self.lead, self.ops)
+
+    def test_the_page_shows_files_description_and_the_decision(self):
+        self.client.force_login(self.lead)
+        response = self.client.get(f"/assignments/{self.assignment.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "contract.pdf")
+        self.assertContains(response, "please by Sunday")
+        self.assertContains(response, 'id="previewAccept"')
+        self.assertContains(response, 'data-deadline="')
+
+    def test_opening_it_is_looking_not_answering(self):
+        from .models import AssignmentStatus as Status
+
+        self.client.force_login(self.lead)
+        self.client.get(f"/assignments/{self.assignment.pk}/")
+        self.assignment.refresh_from_db()
+        self.assertIsNotNone(self.assignment.opened_at)
+        self.assertEqual(self.assignment.status, Status.PENDING)
+
+    def test_nobody_else_opens_it(self):
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.get(f"/assignments/{self.assignment.pk}/").status_code, 404
+        )
+
+    def test_the_popup_carries_the_deadline_for_the_countdown(self):
+        from .api import _pending_json
+
+        data = _pending_json(self.assignment, self.lead)
+        self.assertEqual(data["files_url"], f"/assignments/{self.assignment.pk}/")
+        self.assertTrue(data["deadline_iso"])
+
+    def test_the_open_files_call_points_at_the_page(self):
+        self.client.force_login(self.lead)
+        response = self.client.post(f"/api/assignments/{self.assignment.pk}/files/")
+        self.assertEqual(response.json()["url"], f"/assignments/{self.assignment.pk}/")
