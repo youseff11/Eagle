@@ -88,7 +88,7 @@
         {% for task in tasks %}
           <li>
             <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
-            <span class="grow">{{ task.title|truncatechars:26 }}</span>
+            <span class="grow">{{ task.title|truncatechars:26 }} {% origin_badge task.origin %}</span>
             {% status_badge task.status %}
           </li>
         {% empty %}

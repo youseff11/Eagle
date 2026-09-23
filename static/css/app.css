@@ -511,6 +511,11 @@ select.input { appearance: none; padding-inline-end: 30px;
 .badge--prio-urgent { background: var(--danger-soft); color: var(--danger); }
 .badge--prio-high { background: var(--warn-soft); color: var(--warn); }
 .badge--prio-low, .badge--prio-normal { display: none; }
+/* Where the task's request came in. */
+.badge--origin { gap: 4px; padding: 2px 7px; vertical-align: middle; }
+.badge--origin .ic { width: 12px; height: 12px; }
+.badge--wa { background: var(--ok-soft); color: var(--ok); }
+.badge--mail { background: var(--info-soft); color: var(--info); }
 
 .chip {
   display: inline-flex; align-items: center; gap: 5px;

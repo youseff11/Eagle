@@ -717,6 +717,7 @@ def ops_task_new(request):
             source_lang=form.cleaned_data["source_lang"],
             target_lang=form.cleaned_data["target_lang"],
             messages=messages or None,
+            origin=from_task.origin if from_task is not None else "",
         )
         if picked:
             task.source_files.set(picked)

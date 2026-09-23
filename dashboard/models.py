@@ -1015,6 +1015,15 @@ class Task(models.Model):
     status = models.CharField(
         max_length=24, choices=TaskStatus.choices, default=TaskStatus.NEW, db_index=True
     )
+    #: Where the request came in - WhatsApp or e-mail - stamped once when the
+    #: task is made. Kept as a column rather than read off ``source_messages``
+    #: because a message already behind one task stays with it, so a second
+    #: task on the same material would otherwise have no source at all.
+    #: Blank means it was typed in by hand.
+    origin = models.CharField(
+        max_length=12, choices=Channel.choices, blank=True, default="",
+        help_text="The channel the client's request arrived on. Blank = typed by hand.",
+    )
 
     #: The client files the operation ticked when they turned the message into
     #: this task. Empty means "everything the client sent" - which is what

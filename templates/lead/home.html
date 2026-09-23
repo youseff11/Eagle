@@ -40,7 +40,7 @@
         <tbody>
         {% for task in open_tasks %}
           <tr>
-            <td class="mono">{{ task.code }}</td>
+            <td><span class="mono">{{ task.code }}</span> {% origin_badge task.origin %}</td>
             <td class="mono">{{ task.client|label_for:user }}</td>
             <td>{% status_badge task.status %}</td>
             <td>{{ task.translator.short_name|default:"—" }}</td>

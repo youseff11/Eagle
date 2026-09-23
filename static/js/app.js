@@ -1127,7 +1127,8 @@ window.Eagle = (function () {
       return tasks.map(function (task) {
         var status = state.lang === "ar" ? task.status_ar : task.status_en;
         return '<a class="nav-search__row" role="option" href="' +
-          escapeHtml(task.href) + '">' + svgIcon("layers", "ic--sm") +
+          escapeHtml(task.href) + '">' +
+          svgIcon(task.origin === "whatsapp" ? "message" : task.origin === "email" ? "mail" : "layers", "ic--sm") +
           '<span class="nav-search__body"><b><span class="mono">' + escapeHtml(task.code) +
           "</span> " + escapeHtml(task.title) + "</b>" +
           '<span class="nav-search__where">' +

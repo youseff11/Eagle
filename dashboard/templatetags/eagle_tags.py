@@ -143,6 +143,25 @@ def priority_badge(priority):
     )
 
 
+#: task origin -> (css modifier, icon, arabic label, english label)
+ORIGIN_MAP = {
+    "whatsapp": ("wa", "message", "واتساب", "WhatsApp"),
+    "email": ("mail", "mail", "ميل", "Email"),
+}
+
+
+@register.simple_tag
+def origin_badge(origin):
+    """Where the task's request came in. Nothing for a task typed by hand."""
+    if origin not in ORIGIN_MAP:
+        return ""
+    css, name, ar, en = ORIGIN_MAP[origin]
+    return mark_safe(
+        f'<span class="badge badge--origin badge--{css}">{icon(name, "ic--sm")}'
+        f'<span data-ar="{escape(ar)}" data-en="{escape(en)}">{escape(ar)}</span></span>'
+    )
+
+
 @register.simple_tag
 def day_status_badge(status):
     css, ar, en = DAY_STATUS_MAP.get(status, ("", status, status))

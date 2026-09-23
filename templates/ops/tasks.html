@@ -52,7 +52,7 @@
       {% for task in tasks %}
         <tr>
           <td class="mono">{{ task.code }}</td>
-          <td>{{ task.title }} {% priority_badge task.priority %}</td>
+          <td>{{ task.title }} {% origin_badge task.origin %} {% priority_badge task.priority %}</td>
           <td class="mono">{{ task.client|label_for:user }}</td>
           <td>{% status_badge task.status %}</td>
           <td>{{ task.team_lead.short_name|default:"—" }}</td>

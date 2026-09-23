@@ -33,7 +33,7 @@
 <div class="card" style="margin-bottom:14px">
   <div class="row row--between">
     <div>
-      <h2 style="margin:0">{{ task.title }}</h2>
+      <h2 style="margin:0">{{ task.title }} {% origin_badge task.origin %}</h2>
       <div class="muted mono" style="font-size:.82rem">
         {{ task.client|label_for:user }} · {{ task.source_lang|default:"—" }} → {{ task.target_lang|default:"—" }}
       </div>

@@ -1860,12 +1860,22 @@ def decline_assignment(assignment, user, reason=""):
 
 @transaction.atomic
 def create_task(*, client, title, created_by, description="", deadline=None,
-                priority="normal", source_lang="", target_lang="", messages=None):
+                priority="normal", source_lang="", target_lang="", messages=None,
+                origin=""):
+    # The request's own channel wins over anything passed in: it is the fact.
+    # ``origin`` is for the case with no messages - a follow-up on a task that
+    # already had them.
+    for message in messages or []:
+        if message.channel in (Channel.WHATSAPP, Channel.EMAIL):
+            origin = message.channel
+            break
+    if origin not in (Channel.WHATSAPP, Channel.EMAIL):
+        origin = ""
     task = Task.objects.create(
         client=client, title=title, created_by=created_by,
         description=description, deadline=deadline, priority=priority,
         source_lang=source_lang, target_lang=target_lang,
-        status=TaskStatus.NEW,
+        status=TaskStatus.NEW, origin=origin,
     )
     for message in messages or []:
         # A message already behind a task stays with that one: a new request
@@ -2959,6 +2969,7 @@ def search_tasks(user, query, limit=8):
         {
             "code": task.code,
             "title": task.title,
+            "origin": task.origin,
             "status_ar": STATUS_MAP.get(task.status, ("", task.status, ""))[1],
             "status_en": task.get_status_display(),
             "client": task.client.label_for(user) if task.client_id else "",

@@ -17,7 +17,7 @@ countdown, accept and decline are here already.
      data-task-url="{% url 'dashboard:task_detail' task.code %}">
 
   <div class="page-head">
-    <h1>{{ task.title }}</h1>
+    <h1>{{ task.title }} {% origin_badge task.origin %}</h1>
     <span class="page-head__sub mono">{{ task.code }} · {{ task.client|label_for:user }}
       · {{ task.source_lang|default:"—" }} → {{ task.target_lang|default:"—" }}</span>
   </div>

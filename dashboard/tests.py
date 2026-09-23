@@ -7172,3 +7172,81 @@ class CallTests(TestCase):
         page = self.client.get(f"/ops/chats/u/{self.b.pk}/")
         self.assertContains(page, f'data-call-user="{self.b.pk}"')
         self.assertContains(page, 'id="callOverlay"')
+
+
+class TaskOriginTests(TestCase):
+    """A task says where its request came in - WhatsApp or e-mail."""
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.ops = User.objects.create_user("ops_origin", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(
+            name="ACME", phone="+201000000091", email="acme@example.com"
+        )
+        self.wa = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="contract",
+            sender_identity=self.client_obj.phone,
+        )
+        self.mail = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, subject="Letter", body="letter",
+            sender_identity=self.client_obj.email,
+        )
+
+    def _post(self, extra):
+        self.client.force_login(self.ops)
+        data = {
+            "client": self.client_obj.pk, "title": "Job", "description": "",
+            "source_lang": "", "target_lang": "", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        }
+        data.update(extra)
+        response = self.client.post("/ops/tasks/new/", data)
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        return Task.objects.latest("id")
+
+    def test_whatsapp_message_makes_a_whatsapp_task(self):
+        task = self._post({"messages": str(self.wa.pk)})
+        self.assertEqual(task.origin, "whatsapp")
+
+    def test_email_message_makes_an_email_task(self):
+        task = self._post({"messages": str(self.mail.pk)})
+        self.assertEqual(task.origin, "email")
+
+    def test_task_typed_by_hand_has_no_origin(self):
+        task = self._post({})
+        self.assertEqual(task.origin, "")
+
+    def test_follow_up_task_keeps_the_origin(self):
+        first = self._post({"messages": str(self.mail.pk)})
+        # The letter is already behind the first task, so the second has no
+        # message of its own - the origin has to come across from ``from``.
+        second = self._post({"from": first.code})
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(second.origin, "email")
+
+    def test_badge_is_drawn_beside_the_title(self):
+        wa_task = services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops, messages=[self.wa],
+        )
+        services.create_task(
+            client=self.client_obj, title="Letter", created_by=self.ops, messages=[self.mail],
+        )
+        services.create_task(client=self.client_obj, title="Manual", created_by=self.ops)
+
+        self.client.force_login(self.ops)
+        page = self.client.get("/ops/tasks/").content.decode()
+        self.assertEqual(page.count("badge--origin badge--wa"), 1)
+        self.assertEqual(page.count("badge--origin badge--mail"), 1)
+        self.assertIn('data-ar="واتساب"', page)
+        self.assertIn('data-ar="ميل"', page)
+
+        detail = self.client.get(f"/tasks/{wa_task.code}/").content.decode()
+        self.assertIn("badge--origin badge--wa", detail)
+
+    def test_nav_search_carries_the_origin(self):
+        task = services.create_task(
+            client=self.client_obj, title="Searchable", created_by=self.ops, messages=[self.wa],
+        )
+        rows = services.search_tasks(self.ops, "Searchable")
+        self.assertEqual([r["origin"] for r in rows if r["code"] == task.code], ["whatsapp"])

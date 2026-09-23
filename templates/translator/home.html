@@ -39,7 +39,7 @@
             </span>
             {% endwith %}
           </div>
-          <div>{{ task.title }}</div>
+          <div>{{ task.title }} {% origin_badge task.origin %}</div>
           <small class="muted mono">
             {{ task.client|label_for:user }} · {{ task.source_lang }} → {{ task.target_lang }}
           </small>
