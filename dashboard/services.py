@@ -20,6 +20,7 @@ from .models import (
     AuditLog,
     Channel,
     ChatMessage,
+    ChatRead,
     ChatRoom,
     Client,
     InboundMessage,
@@ -924,11 +925,16 @@ def group_thread(room, user, limit=200):
         .prefetch_related("attachments", "inbound__attachments")
         .order_by("-id")[:limit]
     )
+    rows = list(reversed(list(rows)))
+    # Ticks on the viewer's own messages: seen by the others, or - in a room
+    # that relays - read on the client's phone.
+    receipts = room_receipts(room, user, rows) if user is not None else {}
     items = []
-    for row in reversed(list(rows)):
+    for row in rows:
         if row.is_system:
             continue
         quoted = row.reply_to
+        receipt, seen_by = receipts.get(row.id, ("", []))
         items.append({
             "quote": _quote_text(quoted),
             "quote_who": (
@@ -948,6 +954,9 @@ def group_thread(room, user, limit=200):
             "is_delivery": False,
             "task_code": room.task.code if room.task_id else "",
             "files": [_file_json(a) for a in row.relay_files],
+            "mine": user is not None and row.sender_id == user.pk,
+            "receipt": receipt,
+            "seen_by": seen_by,
         })
     return items
 
@@ -2312,6 +2321,7 @@ def client_thread(client, user, limit=200):
             "has_docs": any(not f["audio"] for f in files),
             "claimed_by": row.claimed_by.short_name if row.claimed_by_id else "",
             "has_task": bool(row.task_id),
+            "receipt": "",
         })
 
     # WhatsApp only, to match the inbound side: an e-mailed delivery has no
@@ -2348,6 +2358,9 @@ def client_thread(client, user, limit=200):
             "reply_to": row.reply_to_wamid or "",
             "quote": row.reply_preview or "",
             "files": files,
+            # Delivered / read on the client's phone, as WhatsApp reported it.
+            # Only a message that actually left can have got anywhere.
+            "receipt": row.wa_receipt if row.status == OutboundMessage.Status.SENT else "",
         })
 
     items.sort(key=lambda entry: entry["at"])
@@ -2380,6 +2393,271 @@ def _resolve_quotes(items):
     for entry in items:
         entry.setdefault("quote", "")
         entry.setdefault("quote_who", "")
+
+
+# ---------------------------------------------------------------------------
+# Unread counters and "seen"
+# ---------------------------------------------------------------------------
+#
+# One cursor per (person, conversation) - see ``ChatRead``. Unread is every
+# message past it that somebody else wrote; "seen" on a message you wrote is
+# the other side's cursor having passed it. For a client it is WhatsApp that
+# says so, through the status events on the webhook.
+
+#: How far a message got on the client's phone. Meta does not promise to send
+#: the events in order, so a late "delivered" must never undo a "read".
+RECEIPT_RANK = {"": 0, "sent": 0, "delivered": 1, "read": 2}
+
+#: The rooms the chats page lists. Task rooms live on the task page.
+CHAT_ROOM_KINDS = (RoomKind.STAFF, RoomKind.TEAM, RoomKind.CLIENT)
+
+
+def _read_cursor(user, *, room=None, client=None):
+    """This person's cursor on one conversation, made on first use."""
+    from django.db import IntegrityError
+
+    lookup = {"user": user, "room": room} if room is not None else {
+        "user": user, "client": client,
+    }
+    row = ChatRead.objects.filter(**lookup).first()
+    if row is None:
+        try:
+            with transaction.atomic():
+                row = ChatRead.objects.create(**lookup)
+        except IntegrityError:
+            # Two tabs opening the same conversation at once. Theirs is ours.
+            row = ChatRead.objects.get(**lookup)
+    return row
+
+
+def _advance(row, upto):
+    """Move a cursor up to ``upto`` - never back. True when it moved.
+
+    A conditional UPDATE rather than read-compare-save: two tabs polling the
+    same conversation must not be able to walk the cursor backwards.
+    """
+    if not upto or upto <= row.last_read_id:
+        return False
+    moved = ChatRead.objects.filter(pk=row.pk, last_read_id__lt=upto).update(
+        last_read_id=upto, updated_at=timezone.now()
+    )
+    if moved:
+        row.last_read_id = upto
+    return bool(moved)
+
+
+def mark_room_read(user, room):
+    """``user`` has read this room up to its newest message."""
+    from django.db.models import Max
+
+    if user is None or room is None:
+        return False
+    top = room.messages.aggregate(top=Max("id"))["top"] or 0
+    return _advance(_read_cursor(user, room=room), top)
+
+
+def _wa_inbound(client, user):
+    """The client's WhatsApp messages this person is allowed to know about."""
+    qs = InboundMessage.objects.filter(client=client, channel=Channel.WHATSAPP)
+    if not user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+    return qs
+
+
+def mark_client_read(user, client, receipt=True):
+    """``user`` opened the conversation with this client. True when it moved.
+
+    When it moved, the client is told too: WhatsApp's read receipt on the
+    newest message turns every tick before it blue on their phone. That was
+    a decision (23/09/2026), not a default - pass ``receipt=False`` to read
+    without telling.
+    """
+    if user is None or client is None:
+        return False
+    if not (user.is_operation or user.is_admin_role):
+        return False
+    newest = _wa_inbound(client, user).order_by("-id").values_list(
+        "id", "external_id"
+    ).first()
+    if not newest:
+        return False
+    moved = _advance(_read_cursor(user, client=client), newest[0])
+    if moved and receipt and newest[1]:
+        send_read_receipt(newest[1])
+    return moved
+
+
+def send_read_receipt(wamid):
+    """Tell WhatsApp the client's message was read. Best effort, off-thread.
+
+    The chat polls every few seconds and the Graph API can take the full
+    timeout to answer, so the call must not sit inside the request. The
+    settings are read here, on the request's own thread - the worker thread
+    only makes the HTTP call and never touches the database.
+    """
+    import json
+    import threading
+
+    from . import whatsapp
+
+    conf = AppSettings.load()
+    if not (wamid and conf.whatsapp_access_token and conf.whatsapp_phone_number_id):
+        return False
+    url = (
+        f"{whatsapp.GRAPH_HOST}/{whatsapp._version(conf)}/"
+        f"{whatsapp.sender_id(conf)}/messages"
+    )
+    token = conf.whatsapp_access_token
+    body = json.dumps({
+        "messaging_product": "whatsapp", "status": "read", "message_id": wamid,
+    }).encode("utf-8")
+
+    def _go():
+        try:
+            whatsapp._call(
+                url, token=token, data=body,
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+        except Exception:  # a receipt that did not land is not worth a crash
+            logger.info("WhatsApp read receipt for %s did not go through.", wamid)
+
+    threading.Thread(target=_go, daemon=True).start()
+    return True
+
+
+def unread_by_client(user, client_ids=None):
+    """{client id: messages from that client this person has not read}."""
+    from collections import Counter
+
+    from django.db.models import BigIntegerField, F, OuterRef, Subquery, Value
+    from django.db.models.functions import Coalesce
+
+    if not (user.is_operation or user.is_admin_role):
+        return {}
+    qs = InboundMessage.objects.filter(channel=Channel.WHATSAPP, client__isnull=False)
+    if not user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+    if client_ids is not None:
+        qs = qs.filter(client_id__in=list(client_ids))
+    # Somebody who joins the company does not owe it every message sent
+    # before they arrived.
+    if user.date_joined:
+        qs = qs.filter(created_at__gte=user.date_joined)
+    cursor = ChatRead.objects.filter(
+        user=user, client_id=OuterRef("client_id")
+    ).values("last_read_id")[:1]
+    qs = qs.alias(
+        read_upto=Coalesce(Subquery(cursor), Value(0), output_field=BigIntegerField())
+    ).filter(id__gt=F("read_upto"))
+    return dict(Counter(qs.order_by().values_list("client_id", flat=True)))
+
+
+def unread_by_room(user, room_ids):
+    """{room id: messages there this person has not read}.
+
+    Their own messages and the system lines do not count - nobody needs to
+    be told about what they just said, or that a group was opened.
+    """
+    from collections import Counter
+
+    from django.db.models import BigIntegerField, F, OuterRef, Subquery, Value
+    from django.db.models.functions import Coalesce
+
+    room_ids = list(room_ids)
+    if not room_ids:
+        return {}
+    qs = ChatMessage.objects.filter(room_id__in=room_ids, is_system=False).exclude(
+        sender=user
+    )
+    if user.date_joined:
+        qs = qs.filter(created_at__gte=user.date_joined)
+    cursor = ChatRead.objects.filter(
+        user=user, room_id=OuterRef("room_id")
+    ).values("last_read_id")[:1]
+    qs = qs.alias(
+        read_upto=Coalesce(Subquery(cursor), Value(0), output_field=BigIntegerField())
+    ).filter(id__gt=F("read_upto"))
+    return dict(Counter(qs.order_by().values_list("room_id", flat=True)))
+
+
+def listed_room_ids(user):
+    """Every room this person's chats page lists, in any tab."""
+    mine = Q(members=user, kind__in=CHAT_ROOM_KINDS)
+    if user.is_admin_role:
+        mine |= Q(kind=RoomKind.CLIENT)
+    return list(
+        ChatRoom.objects.filter(mine).exclude(is_archived=True)
+        .values_list("id", flat=True).distinct()
+    )
+
+
+def unread_chat_total(user):
+    """The sidebar badge: everything unread across every tab of the chats."""
+    total = sum(unread_by_client(user).values())
+    total += sum(unread_by_room(user, listed_room_ids(user)).values())
+    return total
+
+
+def room_receipts(room, viewer, rows):
+    """{message id: (receipt, [names who read it])} for the viewer's own messages.
+
+    In a staff chat or a work group, a message has been seen once everybody
+    else in the room has read past it. The names are kept for a group, where
+    "two of three" is worth being able to find out. A room that relays to a
+    client is read on the client's phone, so WhatsApp's own receipt wins.
+    """
+    mine = [row for row in rows if row.sender_id == viewer.pk and not row.is_system]
+    if not mine:
+        return {}
+    if room.reaches_client:
+        return {row.id: (row.relay_receipt, []) for row in mine}
+
+    others = [m for m in room.members.all() if m.pk != viewer.pk]
+    cursors = dict(
+        ChatRead.objects.filter(room=room, user__in=others)
+        .values_list("user_id", "last_read_id")
+    )
+    out = {}
+    for row in mine:
+        readers = [m for m in others if cursors.get(m.pk, 0) >= row.id]
+        seen = bool(others) and len(readers) == len(others)
+        out[row.id] = ("read" if seen else "", [m.short_name for m in readers])
+    return out
+
+
+def record_whatsapp_status(wamid, status, error=""):
+    """Fold one WhatsApp status event into the message it is about.
+
+    ``delivered`` and ``read`` only ever move a message forward. ``failed``
+    is Meta changing its mind after accepting the send (an expired window,
+    a blocked number), so the message is marked failed with Meta's reason -
+    unless it was already read, which no later failure can make untrue.
+    Returns how many rows it touched.
+    """
+    status = (status or "").strip().lower()
+    if not wamid:
+        return 0
+    if status == "failed":
+        reason = (error or "WhatsApp reported the message as not delivered.")[:500]
+        touched = OutboundMessage.objects.filter(provider_id=wamid).exclude(
+            wa_receipt="read"
+        ).update(status=OutboundMessage.Status.FAILED, error_message=reason)
+        touched += ChatMessage.objects.filter(relay_wamid=wamid).exclude(
+            relay_receipt="read"
+        ).update(relay_status="failed", relay_error=reason)
+        return touched
+
+    rank = RECEIPT_RANK.get(status, 0)
+    if not rank:
+        return 0
+    behind = [key for key, value in RECEIPT_RANK.items() if value < rank]
+    touched = OutboundMessage.objects.filter(
+        provider_id=wamid, wa_receipt__in=behind
+    ).update(wa_receipt=status)
+    touched += ChatMessage.objects.filter(
+        relay_wamid=wamid, relay_receipt__in=behind
+    ).update(relay_receipt=status)
+    return touched
 
 
 def send_client_message(client, user, body="", uploads=None, voice=None,

@@ -1408,6 +1408,10 @@ class ChatMessage(models.Model):
     #: WhatsApp's own id for the relayed copy of this message. Kept so a reply
     #: to it can quote it on the client's phone, not only in our own UI.
     relay_wamid = models.CharField(max_length=190, blank=True)
+    #: How far the relayed copy got on the client's phone, as WhatsApp reports
+    #: it back: "" (sent), "delivered" or "read". Only ever moves forward -
+    #: see ``services.record_whatsapp_status``.
+    relay_receipt = models.CharField(max_length=10, blank=True)
     reply_to = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="replies",
@@ -1460,6 +1464,54 @@ class ChatAttachment(PlayableFile, models.Model):
 
     def __str__(self):
         return self.original_name or self.file.name
+
+
+class ChatRead(models.Model):
+    """How far one person has read one conversation.
+
+    A cursor, not a row per message: "everything up to message N" is what a
+    chat means by read, and it keeps the unread count one comparison instead
+    of a join against every message ever sent.
+
+    Two kinds of conversation, so two targets and exactly one of them set:
+
+    * ``room``   - a staff chat or a group. ``last_read_id`` is a ChatMessage id.
+    * ``client`` - the 1:1 WhatsApp conversation with a client. There is no
+      room behind it (the thread is built from InboundMessage rows), so
+      ``last_read_id`` is an InboundMessage id.
+
+    Per person, like ``MailRead`` and for the same reason: the operation room
+    shares one client line, and a colleague opening a conversation must not
+    clear *your* counter. The same rows are what "seen" is drawn from - the
+    other side of a staff chat has read your message when their cursor has
+    passed it.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="chat_reads")
+    room = models.ForeignKey(
+        ChatRoom, null=True, blank=True, on_delete=models.CASCADE, related_name="reads"
+    )
+    client = models.ForeignKey(
+        Client, null=True, blank=True, on_delete=models.CASCADE, related_name="chat_reads"
+    )
+    last_read_id = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "room"], name="uniq_chat_read_room",
+                condition=models.Q(room__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["user", "client"], name="uniq_chat_read_client",
+                condition=models.Q(client__isnull=False),
+            ),
+        ]
+
+    def __str__(self):
+        target = f"room {self.room_id}" if self.room_id else f"client {self.client_id}"
+        return f"{self.user_id} · {target} · {self.last_read_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -1686,6 +1738,11 @@ class OutboundMessage(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.SENT)
     error_message = models.TextField(blank=True)
     provider_id = models.CharField(max_length=190, blank=True)
+    #: What WhatsApp last told us about this message on the client's phone:
+    #: "" (sent, nothing heard yet), "delivered" or "read". The webhook's
+    #: status events land here; it only ever moves forward, because Meta does
+    #: not promise to deliver them in order.
+    wa_receipt = models.CharField(max_length=10, blank=True)
     #: Quoting a message, WhatsApp-style: the id we replied to plus a snippet
     #: of it, so the thread can show the quote without a second lookup.
     reply_to_wamid = models.CharField(max_length=190, blank=True)

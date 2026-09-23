@@ -326,7 +326,11 @@ def _chat_sidebar(user, query, kind):
         # The directory is the list: somebody never written to is a row with
         # an empty preview, so starting a chat is opening it rather than
         # hunting through a picker.
-        for row in services.staff_conversations(user, query):
+        people = services.staff_conversations(user, query)
+        unread = services.unread_by_room(
+            user, [row["room"].id for row in people if row["room"] is not None]
+        )
+        for row in people:
             person = row["person"]
             rows.append({
                 "is_group": False,
@@ -338,12 +342,15 @@ def _chat_sidebar(user, query, kind):
                 "initials": person.initials,
                 "url": f"/ops/chats/u/{person.pk}/",
                 "preview": row["preview"],
+                "unread": unread.get(row["room"].id, 0) if row["room"] else 0,
             })
         # Already ordered by the service - spoken to most recently, then the
         # rest of the directory. Sorting again by time would throw that away.
         return rows
     if kind == "clients" and sees_all_clients:
-        for client in services.client_conversations(user, query)[:100]:
+        clients = list(services.client_conversations(user, query)[:100])
+        unread = services.unread_by_client(user, [c.pk for c in clients])
+        for client in clients:
             preview = services.conversation_preview(client, user)
             rows.append({
                 "is_group": False,
@@ -352,9 +359,12 @@ def _chat_sidebar(user, query, kind):
                 "label": client.label_for(user),
                 "url": f"/ops/chats/{client.code}/",
                 "preview": preview,
+                "unread": unread.get(client.pk, 0),
             })
     if kind == "groups":
-        for room in services.groups_for(user, query)[:100]:
+        rooms = list(services.groups_for(user, query)[:100])
+        unread = services.unread_by_room(user, [room.id for room in rooms])
+        for room in rooms:
             client = room.relay_client
             rows.append({
                 "is_group": True,
@@ -368,6 +378,7 @@ def _chat_sidebar(user, query, kind):
                 "label": room.display_title,
                 "url": f"/ops/chats/g/{room.id}/",
                 "preview": services.group_preview(room, user),
+                "unread": unread.get(room.id, 0),
             })
     rows.sort(key=lambda r: r["preview"]["at"] or timezone.now(), reverse=True)
     return rows
@@ -428,19 +439,21 @@ def ops_chats(request, code=""):
     sees_all_clients = user.is_operation or user.is_admin_role
 
     kind, tabs = _chat_kind(request, user)
+    active = None
     if code:
         # Landing straight on a client conversation means the client tab,
         # whatever the query string says.
         kind = "clients"
-    context = _chats_context(request, kind, tabs)
-
-    active = None
-    if code:
         # A 1:1 client conversation is not theirs to open.
         if not sees_all_clients:
             raise Http404
         active = get_object_or_404(Client, code=code)
-    elif kind == "clients" and sees_all_clients:
+        # Opened on purpose, so it is read - before the list is built, so its
+        # own row does not come back with a counter on it.
+        services.mark_client_read(user, active)
+    context = _chats_context(request, kind, tabs)
+
+    if active is None and kind == "clients" and sees_all_clients:
         first = next((r for r in context["conversations"] if not r["is_group"]), None)
         active = first["client"] if first else None
 
@@ -470,6 +483,7 @@ def ops_group_chat(request, room_id):
     if room.task_id and not room.task.can_view(user):
         raise Http404
 
+    services.mark_room_read(user, room)
     _kind, tabs = _chat_kind(request, user)
     context = _chats_context(request, "groups", tabs)
 
@@ -512,6 +526,7 @@ def ops_staff_chat(request, user_id):
         raise Http404
 
     room = services.staff_room(user, other)
+    services.mark_room_read(user, room)
     _kind, tabs = _chat_kind(request, user)
     context = _chats_context(request, "staff", tabs)
     context.update({
@@ -559,49 +574,95 @@ def _task_counters():
     }
 
 
-def _picked_attachments(message, raw_values):
-    """The attachment rows named in ``raw_values`` — but only this message's own.
+def _ids(raw_values):
+    """Ints out of repeated fields and/or comma-joined strings, in order, once."""
+    ids = []
+    for value in raw_values or []:
+        for chunk in str(value).replace(" ", "").split(","):
+            if chunk.isdigit() and int(chunk) not in ids:
+                ids.append(int(chunk))
+    return ids
+
+
+def _picked_attachments(messages, raw_values):
+    """The attachment rows named in ``raw_values`` - but only these messages' own.
 
     Takes either the repeated ``files=`` checkboxes the mail page posts or one
     comma-joined string, because the chat builds the link in JavaScript.
+    ``messages`` is one message or several: the chat can now tick files
+    across a whole run of them and make one task out of the lot.
 
     The ids come from the browser, so the rows are re-fetched against the
-    message rather than trusted: an id from somebody else's conversation must
+    messages rather than trusted: an id from somebody else's conversation must
     not be able to walk a file into a task it has nothing to do with.
     """
-    if not message or not raw_values:
+    from .models import MessageAttachment
+
+    if isinstance(messages, InboundMessage):
+        messages = [messages]
+    messages = [m for m in (messages or []) if m is not None]
+    ids = _ids(raw_values)
+    if not messages or not ids:
         return []
-    ids = []
-    for value in raw_values:
-        for chunk in str(value).replace(" ", "").split(","):
-            if chunk.isdigit():
-                ids.append(int(chunk))
+    return list(
+        MessageAttachment.objects.filter(message__in=messages, pk__in=ids).order_by("id")
+    )
+
+
+def _source_messages(request):
+    """The client messages a new task is being made from - one, or a run of them.
+
+    ``message=`` is the button under one message; ``messages=`` is the chat's
+    "select files" mode, which can span as many messages as the client sent.
+    Read from the query string and the form both, because the form posts back
+    to the URL it was opened on.
+
+    Every message has to be one this person may see, and they all have to be
+    the same client's: a task has one client, and a stray id from another
+    conversation must not be able to join it.
+    """
+    raw = []
+    for source in (request.GET, request.POST):
+        raw += source.getlist("message") + source.getlist("messages")
+    ids = _ids(raw)
     if not ids:
         return []
-    return list(message.attachments.filter(pk__in=ids))
+    qs = InboundMessage.objects.filter(pk__in=ids).select_related("client")
+    if not request.user.is_admin_role:
+        qs = qs.filter(is_rate_blocked=False)
+    rows = list(qs.prefetch_related("attachments").order_by("received_at", "id"))
+    if not rows:
+        return []
+    owner = rows[0].client_id
+    return [row for row in rows if row.client_id == owner]
 
 
 @role_required(Role.OPERATION)
 def ops_task_new(request):
-    message = None
-    message_id = request.GET.get("message") or request.POST.get("message")
-    if message_id:
-        message = InboundMessage.objects.filter(pk=message_id).first()
-        if message and message.is_rate_blocked and not request.user.is_admin_role:
-            message = None
+    messages = _source_messages(request)
+    message = messages[0] if messages else None
 
     # Which of the client's files the operation ticked. Nothing ticked means
     # all of them, which is what it meant before the picker existed.
     source = request.POST if request.method == "POST" else request.GET
-    picked = _picked_attachments(message, source.getlist("files"))
+    picked = _picked_attachments(messages, source.getlist("files"))
     picked_ids = ",".join(str(row.pk) for row in picked)
 
     initial = {}
     if message:
+        if len(messages) == 1:
+            title = message.subject or message.body[:60] or "Translation request"
+            description = message.body
+        else:
+            # Several messages: the texts in the order they were sent, and a
+            # title that says what the job is rather than whichever line
+            # happened to come first.
+            title = f"{len(picked) or len(messages)} ملفات من {message.client_code}"
+            description = "\n\n".join(m.body for m in messages if m.body)
         initial = {
             "client": message.client_id,
-            "title": (message.subject or message.body[:60] or "Translation request").strip(),
-            "description": message.body,
+            "title": title.strip(),
+            "description": description,
         }
 
     form = TaskForm(request.POST or None, initial=initial)
@@ -615,18 +676,20 @@ def ops_task_new(request):
             priority=form.cleaned_data["priority"],
             source_lang=form.cleaned_data["source_lang"],
             target_lang=form.cleaned_data["target_lang"],
-            messages=[message] if message else None,
+            messages=messages or None,
         )
         if picked:
             task.source_files.set(picked)
-        if message and not message.claimed_by_id:
-            services.claim_message(message, request.user)
+        for row in messages:
+            if not row.claimed_by_id:
+                services.claim_message(row, request.user)
         flash.success(request, f"{task.code}")
         return redirect("dashboard:task_detail", code=task.code)
 
     return render(request, "ops/task_form.html", {
         "form": form,
         "source_message": message,
+        "source_messages": messages,
         "picked_files": picked,
         "picked_ids": picked_ids,
     })

@@ -157,6 +157,20 @@ def whatsapp_hook(request):
             to_number_id = str((value.get("metadata") or {}).get("phone_number_id", ""))
             for_recruitment = _is_recruitment_line(conf, to_number_id)
 
+            # What happened to messages *we* sent: delivered, then read, on
+            # the client's phone - the ticks in the chat. Recruitment keeps no
+            # outbound rows of this kind, so its statuses simply match nothing.
+            for event in value.get("statuses", []) or []:
+                errors = event.get("errors") or [{}]
+                first = errors[0] if isinstance(errors[0], dict) else {}
+                reason = (
+                    (first.get("error_data") or {}).get("details")
+                    or first.get("title") or first.get("message") or ""
+                )
+                services.record_whatsapp_status(
+                    event.get("id", ""), event.get("status", ""), error=reason,
+                )
+
             for message in value.get("messages", []) or []:
                 sender = message.get("from", "")
                 if for_recruitment:

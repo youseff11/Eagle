@@ -13,7 +13,9 @@
     <form method="post">
       {% csrf_token %}
       {% if source_message %}
-        <input type="hidden" name="message" value="{{ source_message.pk }}">
+        {% for row in source_messages %}
+          <input type="hidden" name="messages" value="{{ row.pk }}">
+        {% endfor %}
         {# The files ticked on the way here, carried through the POST. #}
         {% for attachment in picked_files %}
           <input type="hidden" name="files" value="{{ attachment.pk }}">
@@ -96,21 +98,33 @@
       <div class="card">
         <div class="card__head">
           {% icon "message" %}
-          <h3 data-ar="الرسالة الأصلية" data-en="Source message">الرسالة الأصلية</h3>
+          {% if source_messages|length > 1 %}
+            <h3 data-ar="رسايل العميل" data-en="Client messages">رسايل العميل</h3>
+            <span class="chip chip--sm">{{ source_messages|length }}</span>
+          {% else %}
+            <h3 data-ar="الرسالة الأصلية" data-en="Source message">الرسالة الأصلية</h3>
+          {% endif %}
         </div>
         <div class="row row--tight" style="margin-bottom:8px">
           <strong class="mono">{{ source_message.client_code }}</strong>
           <span class="chip">{{ source_message.get_channel_display }}</span>
         </div>
-        <div class="msg-item__text">{{ source_message.body }}</div>
-        {% if source_message.attachments.all %}
-          <div class="files">
-            {% for attachment in source_message.attachments.all %}
-              <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
-                {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
-            {% endfor %}
+        {% for row in source_messages %}
+          <div class="src-msg">
+            {% if source_messages|length > 1 %}
+              <div class="muted mono src-msg__at">{{ row.received_at|date:"d/m H:i" }}</div>
+            {% endif %}
+            {% if row.body %}<div class="msg-item__text">{{ row.body }}</div>{% endif %}
+            {% if row.attachments.all %}
+              <div class="files">
+                {% for attachment in row.attachments.all %}
+                  <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                    {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+                {% endfor %}
+              </div>
+            {% endif %}
           </div>
-        {% endif %}
+        {% endfor %}
       </div>
 
       {# Which files the translator will get. Say it before the task exists. #}
@@ -126,11 +140,11 @@
                 {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
             {% endfor %}
           </div>
-        {% elif source_message.attachments.all %}
+        {% elif source_message.attachments.all or source_messages|length > 1 %}
           <div class="muted"
-               data-ar="كل ملفات الرسالة — مااختارتش ملفات معينة."
-               data-en="Every file on the message — nothing specific was picked.">
-            كل ملفات الرسالة — مااختارتش ملفات معينة.
+               data-ar="كل ملفات الرسايل — مااختارتش ملفات معينة."
+               data-en="Every file on the messages — nothing specific was picked.">
+            كل ملفات الرسايل — مااختارتش ملفات معينة.
           </div>
         {% else %}
           <div class="muted" data-ar="الرسالة دي مفيهاش ملفات."

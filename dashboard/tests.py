@@ -5210,8 +5210,11 @@ class NavTests(TestCase):
         self.assertEqual(html.count('" open>'), 1)
         self.assertIn('data-nav-group="work" open>', html)
         # Every link is inside a section now - nothing hangs loose.
+        # '<a class="nav__item' and not 'class="nav__item': the second one
+        # also matches each section's own <div class="nav__items"> wrapper,
+        # which counted every section as one extra link (45 != 37).
         self.assertEqual(
-            html.count('class="nav__item'),
+            html.count('<a class="nav__item'),
             sum(len(group["items"]) for group in groups),
         )
 
@@ -5614,15 +5617,25 @@ class FilesArriveOnHandoffTests(TestCase):
         """Accepting runs in one transaction. A file row that blew up used
         to take the acceptance down with it - and the person who pressed
         the button would be left with a live window and a penalty coming."""
+        import logging
         from unittest import mock
 
         task, _message = self._task_with_a_file()
         assignment = services.assign_to_lead(task, self.lead, self.ops)
 
-        with mock.patch.object(
-            services, "share_source_files", side_effect=RuntimeError("disk")
-        ), self.assertLogs("dashboard", level="ERROR"):
-            ok, _why = services.accept_assignment(assignment, self.lead)
+        # Core.settings_test switches logging off wholesale, and assertLogs
+        # hears nothing while it is off - so this test failed under the fast
+        # settings only, with the code doing exactly what it should. Turned
+        # back on for the length of the check, and off again after.
+        previous = logging.root.manager.disable
+        logging.disable(logging.NOTSET)
+        try:
+            with mock.patch.object(
+                services, "share_source_files", side_effect=RuntimeError("disk")
+            ), self.assertLogs("dashboard", level="ERROR"):
+                ok, _why = services.accept_assignment(assignment, self.lead)
+        finally:
+            logging.disable(previous)
 
         self.assertTrue(ok)
         task.refresh_from_db()
@@ -5678,3 +5691,364 @@ class FilesArriveOnHandoffTests(TestCase):
         self.assertEqual(task.assignments.count(), before)
         task.refresh_from_db()
         self.assertIsNone(task.translator_id)
+
+
+class ChatUnreadTests(TestCase):
+    """The counter on a conversation: what came in that *you* have not opened.
+
+    Per person, like the mail badge - a colleague reading the client's
+    conversation must not clear yours. And only reading clears it: a poll
+    from a phone showing the list, or a tab in the background, is not reading.
+    """
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.Channel = Channel
+        self.InboundMessage = InboundMessage
+        self.ops = User.objects.create_user("ops_unread", password="x", role=Role.OPERATION)
+        self.ops2 = User.objects.create_user("ops_unread2", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_unread", password="x", role=Role.TRANSLATOR)
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000070")
+
+    def _in(self, body="hi", blocked=False, wamid=""):
+        return self.InboundMessage.objects.create(
+            client=self.client_obj, channel=self.Channel.WHATSAPP, body=body,
+            sender_identity="+201000000070", is_rate_blocked=blocked,
+            external_id=wamid,
+        )
+
+    def _row(self, response, code):
+        return next(i for i in response.json()["items"] if i["code"] == code)
+
+    def test_new_client_messages_count_until_opened(self):
+        self._in("one")
+        self._in("two")
+        self.assertEqual(services.unread_by_client(self.ops), {self.client_obj.pk: 2})
+        services.mark_client_read(self.ops, self.client_obj)
+        self.assertEqual(services.unread_by_client(self.ops), {})
+
+    def test_reading_is_per_person(self):
+        self._in()
+        services.mark_client_read(self.ops, self.client_obj)
+        self.assertEqual(services.unread_by_client(self.ops), {})
+        self.assertEqual(services.unread_by_client(self.ops2), {self.client_obj.pk: 1})
+
+    def test_only_what_arrived_after_the_cursor_counts(self):
+        self._in("old")
+        services.mark_client_read(self.ops, self.client_obj)
+        self._in("new")
+        self.assertEqual(services.unread_by_client(self.ops), {self.client_obj.pk: 1})
+
+    def test_a_rate_blocked_message_is_not_counted_for_the_operation(self):
+        self._in("price?", blocked=True)
+        self.assertEqual(services.unread_by_client(self.ops), {})
+
+    def test_a_translator_has_no_client_counter(self):
+        self._in()
+        self.assertEqual(services.unread_by_client(self.tr), {})
+
+    def test_the_list_carries_the_counter(self):
+        self._in()
+        self._in()
+        self.client.force_login(self.ops)
+        response = self.client.get("/api/client-chats/?type=clients")
+        self.assertEqual(self._row(response, self.client_obj.code)["unread"], 2)
+
+    def test_polling_without_read_does_not_clear_it(self):
+        self._in()
+        self.client.force_login(self.ops)
+        self.client.get(f"/api/client-chats/{self.client_obj.code}/")
+        self.assertEqual(services.unread_by_client(self.ops), {self.client_obj.pk: 1})
+
+    def test_polling_with_read_clears_it(self):
+        self._in()
+        self.client.force_login(self.ops)
+        self.client.get(f"/api/client-chats/{self.client_obj.code}/?read=1")
+        self.assertEqual(services.unread_by_client(self.ops), {})
+
+    def test_opening_the_conversation_clears_it(self):
+        self._in()
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(services.unread_by_client(self.ops), {})
+
+    def test_the_cursor_never_moves_back(self):
+        first = self._in()
+        self._in()
+        services.mark_client_read(self.ops, self.client_obj)
+        row = services._read_cursor(self.ops, client=self.client_obj)
+        self.assertFalse(services._advance(row, first.pk))
+        row.refresh_from_db()
+        self.assertGreater(row.last_read_id, first.pk)
+
+    def test_staff_chat_counts_the_other_persons_messages_only(self):
+        from .models import ChatMessage
+
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.tr, body="hello")
+        ChatMessage.objects.create(room=room, sender=self.ops, body="mine")
+        self.assertEqual(services.unread_by_room(self.ops, [room.id]), {room.id: 1})
+        self.assertEqual(services.unread_by_room(self.tr, [room.id]), {room.id: 1})
+        services.mark_room_read(self.ops, room)
+        self.assertEqual(services.unread_by_room(self.ops, [room.id]), {})
+
+    def test_system_lines_do_not_count(self):
+        room, _error = services.create_team_group(self.ops, "Team", [self.tr])
+        # create_team_group writes a system line; nobody needs a counter for it.
+        self.assertEqual(services.unread_by_room(self.tr, [room.id]), {})
+
+    def test_the_heartbeat_badge_adds_every_tab_up(self):
+        from .models import ChatMessage
+
+        self._in()
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.tr, body="hello")
+        self.client.force_login(self.ops)
+        counters = self.client.get("/api/heartbeat/").json()["counters"]
+        self.assertEqual(counters["chats"], 2)
+
+    def test_opening_a_staff_chat_clears_it(self):
+        from .models import ChatMessage
+
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.tr, body="hello")
+        self.client.force_login(self.ops)
+        self.client.get(f"/ops/chats/u/{self.tr.pk}/")
+        self.assertEqual(services.unread_by_room(self.ops, [room.id]), {})
+
+    def test_opening_the_chat_tells_whatsapp_it_was_read(self):
+        """Decided 23/09/2026: the client sees the blue ticks too."""
+        from unittest import mock
+
+        app = AppSettings.load()
+        app.whatsapp_access_token = "token"
+        app.whatsapp_phone_number_id = "111"
+        app.save()
+        self._in(wamid="wamid.client.1")
+        with mock.patch("dashboard.services.send_read_receipt") as receipt:
+            services.mark_client_read(self.ops, self.client_obj)
+            services.mark_client_read(self.ops, self.client_obj)
+        # Once: the second open had nothing new to tell.
+        receipt.assert_called_once_with("wamid.client.1")
+
+    def test_no_receipt_without_whatsapp_settings(self):
+        self.assertFalse(services.send_read_receipt("wamid.x"))
+
+
+class ChatSeenTests(TestCase):
+    """The ticks under your own message: sent, delivered, read."""
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_seen", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_seen", password="x", role=Role.TRANSLATOR)
+        self.lead = User.objects.create_user("lead_seen", password="x", role=Role.TEAM_LEAD)
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000071")
+
+    def _mine(self, thread):
+        return [e for e in thread if e["mine"]]
+
+    def test_a_staff_message_is_seen_once_the_other_side_reads_it(self):
+        from .models import ChatMessage
+
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.ops, body="are you there")
+        self.assertEqual(self._mine(services.group_thread(room, self.ops))[0]["receipt"], "")
+        services.mark_room_read(self.tr, room)
+        self.assertEqual(self._mine(services.group_thread(room, self.ops))[0]["receipt"], "read")
+
+    def test_the_other_persons_message_carries_no_ticks_for_me(self):
+        from .models import ChatMessage
+
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.tr, body="hi")
+        services.mark_room_read(self.ops, room)
+        entry = services.group_thread(room, self.ops)[0]
+        self.assertFalse(entry["mine"])
+        self.assertEqual(entry["receipt"], "")
+
+    def test_a_group_message_is_seen_only_when_everyone_read_it(self):
+        from .models import ChatMessage
+
+        room, _error = services.create_team_group(self.lead, "Team", [self.tr, self.ops])
+        ChatMessage.objects.create(room=room, sender=self.lead, body="plan")
+        services.mark_room_read(self.tr, room)
+        entry = self._mine(services.group_thread(room, self.lead))[0]
+        self.assertEqual(entry["receipt"], "")
+        self.assertEqual(entry["seen_by"], [self.tr.short_name])
+        services.mark_room_read(self.ops, room)
+        entry = self._mine(services.group_thread(room, self.lead))[0]
+        self.assertEqual(entry["receipt"], "read")
+
+    def _outbound(self, wamid="wamid.out.1"):
+        from .models import Channel, OutboundMessage
+
+        return OutboundMessage.objects.create(
+            client=self.client_obj, kind=OutboundMessage.Kind.CHAT,
+            channel=Channel.WHATSAPP, body="done", provider_id=wamid,
+            status=OutboundMessage.Status.SENT,
+        )
+
+    def test_whatsapp_statuses_move_the_client_ticks_forward(self):
+        row = self._outbound()
+        services.record_whatsapp_status("wamid.out.1", "delivered")
+        row.refresh_from_db()
+        self.assertEqual(row.wa_receipt, "delivered")
+        services.record_whatsapp_status("wamid.out.1", "read")
+        row.refresh_from_db()
+        self.assertEqual(row.wa_receipt, "read")
+
+    def test_a_late_delivered_never_undoes_read(self):
+        row = self._outbound()
+        services.record_whatsapp_status("wamid.out.1", "read")
+        services.record_whatsapp_status("wamid.out.1", "delivered")
+        row.refresh_from_db()
+        self.assertEqual(row.wa_receipt, "read")
+
+    def test_a_failed_status_marks_the_message_failed(self):
+        from .models import OutboundMessage
+
+        row = self._outbound()
+        services.record_whatsapp_status("wamid.out.1", "failed", error="Re-engagement")
+        row.refresh_from_db()
+        self.assertEqual(row.status, OutboundMessage.Status.FAILED)
+        self.assertIn("Re-engagement", row.error_message)
+
+    def test_the_thread_shows_the_receipt(self):
+        self._outbound()
+        services.record_whatsapp_status("wamid.out.1", "read")
+        out = [e for e in services.client_thread(self.client_obj, self.ops) if e["kind"] == "out"]
+        self.assertEqual(out[0]["receipt"], "read")
+
+    def test_the_webhook_folds_statuses_in(self):
+        import json
+
+        row = self._outbound()
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": "111"},
+            "statuses": [{"id": "wamid.out.1", "status": "read",
+                          "recipient_id": "201000000071"}],
+        }}]}]}
+        response = self.client.post(
+            "/webhooks/whatsapp/", data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        row.refresh_from_db()
+        self.assertEqual(row.wa_receipt, "read")
+
+    def test_the_bubble_draws_blue_ticks(self):
+        from .models import Channel, InboundMessage
+
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="hi",
+            sender_identity="+201000000071",
+        )
+        self._outbound()
+        services.record_whatsapp_status("wamid.out.1", "read")
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertContains(response, "tick--read")
+
+
+class MultiFileTaskTests(TestCase):
+    """Tick files across several of the client's messages; get one task."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_multi", password="x", role=Role.OPERATION)
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000072")
+        self.other_client = Client.objects.create(name="OTHER", phone="+201000000073")
+
+        def message(client, body):
+            return InboundMessage.objects.create(
+                client=client, channel=Channel.WHATSAPP, body=body,
+                sender_identity=client.phone,
+            )
+
+        def attach(msg, name):
+            return MessageAttachment.objects.create(
+                message=msg, file=ContentFile(b"x", name=name),
+                original_name=name, size=1,
+            )
+
+        self.first = message(self.client_obj, "contract")
+        self.second = message(self.client_obj, "stamps")
+        self.stranger = message(self.other_client, "not yours")
+        self.contract = attach(self.first, "contract.pdf")
+        self.cover = attach(self.first, "cover.jpg")
+        self.stamps = attach(self.second, "stamps.pdf")
+        self.secret = attach(self.stranger, "secret.pdf")
+
+    def _post(self, messages, files):
+        self.client.force_login(self.ops)
+        return self.client.post("/ops/tasks/new/", {
+            "messages": ",".join(str(m.pk) for m in messages),
+            "files": ",".join(str(f.pk) for f in files),
+            "client": self.client_obj.pk,
+            "title": "Bundle",
+            "description": "",
+            "source_lang": "", "target_lang": "", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        })
+
+    def test_files_from_two_messages_make_one_task(self):
+        response = self._post([self.first, self.second], [self.contract, self.stamps])
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        task = Task.objects.latest("id")
+        self.assertEqual(
+            sorted(a.original_name for a in task.source_files.all()),
+            ["contract.pdf", "stamps.pdf"],
+        )
+        self.assertEqual(
+            sorted(task.source_messages.values_list("pk", flat=True)),
+            sorted([self.first.pk, self.second.pk]),
+        )
+
+    def test_both_messages_are_claimed(self):
+        self._post([self.first, self.second], [self.contract, self.stamps])
+        self.first.refresh_from_db()
+        self.second.refresh_from_db()
+        self.assertEqual(self.first.claimed_by, self.ops)
+        self.assertEqual(self.second.claimed_by, self.ops)
+
+    def test_another_clients_message_cannot_join(self):
+        self._post([self.first, self.stranger], [self.contract, self.secret])
+        task = Task.objects.latest("id")
+        self.assertEqual(
+            [a.original_name for a in task.source_files.all()], ["contract.pdf"]
+        )
+        self.stranger.refresh_from_db()
+        self.assertIsNone(self.stranger.task_id)
+
+    def test_the_form_prefills_from_several_messages(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(
+            f"/ops/tasks/new/?messages={self.first.pk},{self.second.pk}"
+            f"&files={self.contract.pk},{self.stamps.pk}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["source_messages"]), 2)
+        self.assertContains(response, "stamps")
+        self.assertContains(response, f'name="messages" value="{self.second.pk}"')
+
+    def test_the_chat_draws_a_checkbox_per_file(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertContains(response, 'class="bub__pick"', count=3)
+        self.assertContains(response, 'id="pickToggle"')
+
+    def test_a_file_already_in_a_task_is_locked(self):
+        services.create_task(
+            client=self.client_obj, title="Old", created_by=self.ops,
+            messages=[self.second],
+        )
+        self.client.force_login(self.ops)
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        self.assertContains(response, f'value="{self.stamps.pk}"')
+        html = response.content.decode()
+        box = html[html.index(f'value="{self.stamps.pk}"'):][:200]
+        self.assertIn("disabled", box)

@@ -113,7 +113,18 @@
       var label = f.url
         ? '<a href="' + esc(f.url) + '" target="_blank" rel="noopener">' + esc(f.name) + "</a>"
         : "<span>" + esc(f.name) + "</span>";
-      parts.push('<div class="bub__file">' + icon("paperclip", "ic--sm") + label + "</div>");
+      // The "select files" checkbox - mirrors the one in _client_bubble.html.
+      // A file already in a task is shown locked, never ticked.
+      var pick = "";
+      if (msg.actions && f.id) {
+        pick = '<input class="bub__pick" type="checkbox" value="' + esc(String(f.id)) +
+          '" data-message="' + esc(String(msg.id)) + '"' +
+          (msg.task_code
+            ? ' disabled title="' + esc(E.t("الملف ده في تاسك " + msg.task_code,
+                "Already in " + msg.task_code)) + '"'
+            : "") + ">";
+      }
+      parts.push('<div class="bub__file">' + pick + icon("paperclip", "ic--sm") + label + "</div>");
     });
 
     // What the operation does with a client's files, where the files are.
@@ -152,10 +163,7 @@
     if (msg.task_code) { foot.push('<span class="mono muted">' + esc(msg.task_code) + "</span>"); }
     if (msg.sender) { foot.push('<span class="muted">' + esc(msg.sender) + "</span>"); }
     foot.push('<span class="bub__time mono">' + esc(msg.time) + "</span>");
-    if (msg.kind === "out") {
-      if (msg.status === "sent") { foot.push(icon("check", "ic--sm")); }
-      else if (msg.status === "failed") { foot.push(icon("alert", "ic--sm")); }
-    }
+    if (msg.kind === "out") { foot.push(ticksHtml(msg)); }
     parts.push('<div class="bub__foot">' + foot.join("") + "</div>");
 
     if (msg.error) { parts.push('<div class="bub__error">' + esc(msg.error) + "</div>"); }
@@ -169,12 +177,36 @@
       '<div class="bub__box">' + parts.join("") + "</div></div>";
   }
 
+  /** Mirrors templates/ops/_ticks.html - keep the two in step.
+      One grey check: it left. Two grey: it reached the client's phone.
+      Two blue: it was read - by the client, or by everyone else in the room. */
+  function ticksHtml(msg) {
+    var esc = E.escapeHtml;
+    var who = (msg.seen_by || []).join(E.t("، ", ", "));
+    var seenTitle = who ? E.t("شافها: ", "Seen by: ") + who : "";
+    if (msg.status === "failed") { return icon("alert", "ic--sm"); }
+    if (msg.receipt === "read") {
+      return '<span class="tick tick--read" title="' +
+        esc(seenTitle || E.t("اتقرت", "Read")) + '">' + icon("check-double", "ic--sm") + "</span>";
+    }
+    if (msg.receipt === "delivered") {
+      return '<span class="tick" title="' + esc(E.t("وصلت", "Delivered")) + '">' +
+        icon("check-double", "ic--sm") + "</span>";
+    }
+    if (msg.status === "sent" || msg.mine) {
+      return '<span class="tick" title="' + esc(seenTitle || E.t("اتبعتت", "Sent")) + '">' +
+        icon("check", "ic--sm") + "</span>";
+    }
+    return "";
+  }
+
   /** Cheap fingerprint so a poll only touches the DOM when something moved.
       Keep in step with data-sig in _client_bubble.html. */
   function signature(msg) {
     return [msg.status || "", (msg.body || "").length, (msg.files || []).length,
       msg.error ? 1 : 0, msg.quote ? 1 : 0,
-      msg.claimed_by ? 1 : 0, msg.task_code ? 1 : 0].join("|");
+      msg.claimed_by ? 1 : 0, msg.task_code ? 1 : 0,
+      msg.receipt || "", (msg.seen_by || []).length].join("|");
   }
 
   function renderMessages(messages) {
@@ -214,6 +246,7 @@
     });
 
     if (added && stick) { toBottom(); }
+    restorePicks();
     return added;
   }
 
@@ -228,9 +261,19 @@
 
   /* ------------------------------------------------------------ polling */
 
+  /* Is the conversation actually in front of somebody? Only then does a poll
+     count as reading it. On a phone the list and the room are two screens,
+     and a background tab polls just the same - neither is reading. */
+  function onScreen() {
+    return !!(stream && stream.offsetParent !== null &&
+      document.visibilityState === "visible");
+  }
+
   function pollThread() {
     if (!activeCode || busy) { return Promise.resolve(); }
-    return E.get(urlFor(root.dataset.threadUrl, activeCode)).then(function (res) {
+    var url = urlFor(root.dataset.threadUrl, activeCode);
+    if (onScreen()) { url += (url.indexOf("?") === -1 ? "?" : "&") + "read=1"; }
+    return E.get(url).then(function (res) {
       if (!res || !res.ok) { return; }
       renderMessages(res.messages);
       applyClientState(res.client);
@@ -265,7 +308,10 @@
           '<b class="mono">' + E.escapeHtml(item.label) + "</b>" +
           '<span class="muted mono cthread__time"></span>' +
         "</span>" +
-        '<span class="cthread__snippet"></span>' +
+        '<span class="cthread__line">' +
+          '<span class="cthread__snippet"></span>' +
+          '<span class="cthread__unread hidden"></span>' +
+        "</span>" +
       "</span>";
     return a;
   }
@@ -298,9 +344,30 @@
             E.escapeHtml(item.text);
         }
         if (time) { time.textContent = item.time; }
+        drawUnread(row, item);
         threadList.appendChild(row);
       });
     }).catch(function () {});
+  }
+
+  /* The green counter on a row. The conversation on screen is being read
+     as it arrives, so it never shows one - the server catches up on the
+     next poll, and until then the number would only flicker. */
+  function drawUnread(row, item) {
+    var badge = row.querySelector(".cthread__unread");
+    if (!badge) {
+      // A row drawn by an older page: give it the slot rather than skip it.
+      var line = row.querySelector(".cthread__snippet");
+      if (!line) { return; }
+      badge = document.createElement("span");
+      badge.className = "cthread__unread hidden";
+      line.parentNode.insertBefore(badge, line.nextSibling);
+    }
+    var n = Number(item.unread) || 0;
+    if (item.code === activeCode && onScreen()) { n = 0; }
+    badge.textContent = n > 99 ? "99+" : String(n);
+    badge.classList.toggle("hidden", n === 0);
+    row.classList.toggle("has-unread", n > 0);
   }
 
   function tick() {
@@ -876,6 +943,105 @@
     });
     convertModal.addEventListener("click", function (event) {
       if (event.target === convertModal) { showConvert(false); }
+    });
+  }
+
+  /* ------------------------------------------- select files -> one task */
+
+  /* The client sends a contract in one message, the stamps in the next and
+     two more pages an hour later. "تحديد ملفات" puts a checkbox on every
+     file in the conversation; whatever is ticked, across any number of
+     messages, becomes one task. The server re-checks every id against the
+     messages and the client, so this only has to be convenient. */
+
+  var pickToggle = document.getElementById("pickToggle");
+  var pickBar = document.getElementById("pickBar");
+  var pickCount = document.getElementById("pickCount");
+  var pickAll = document.getElementById("pickAll");
+  var pickCancel = document.getElementById("pickCancel");
+  var pickConvert = document.getElementById("pickConvert");
+  //: file id -> message id, for everything ticked. Survives a poll redraw.
+  var picked = {};
+
+  function picking() {
+    return !!(stream && stream.classList.contains("is-picking"));
+  }
+
+  function pickBoxes() {
+    return stream ? Array.prototype.slice.call(stream.querySelectorAll(".bub__pick")) : [];
+  }
+
+  function drawPickBar() {
+    var n = Object.keys(picked).length;
+    if (pickCount) { pickCount.textContent = String(n); }
+    if (pickConvert) { pickConvert.disabled = n === 0; }
+    if (pickAll) {
+      var free = pickBoxes().filter(function (box) { return !box.disabled; });
+      var all = free.length > 0 && free.every(function (box) { return box.checked; });
+      pickAll.textContent = all ? E.t("شيل الكل", "Clear all") : E.t("تحديد الكل", "Select all");
+      pickAll.dataset.ar = all ? "شيل الكل" : "تحديد الكل";
+      pickAll.dataset.en = all ? "Clear all" : "Select all";
+    }
+  }
+
+  function restorePicks() {
+    pickBoxes().forEach(function (box) {
+      box.checked = !box.disabled && !!picked[box.value];
+    });
+    if (picking()) { drawPickBar(); }
+  }
+
+  function setPicking(on) {
+    if (!stream || !pickBar) { return; }
+    stream.classList.toggle("is-picking", on);
+    pickBar.classList.toggle("hidden", !on);
+    if (composer) { composer.classList.toggle("hidden", on); }
+    if (pickToggle) { pickToggle.classList.toggle("is-on", on); }
+    if (!on) { picked = {}; }
+    restorePicks();
+    drawPickBar();
+  }
+
+  if (pickToggle) {
+    pickToggle.addEventListener("click", function () { setPicking(!picking()); });
+  }
+  if (pickCancel) { pickCancel.addEventListener("click", function () { setPicking(false); }); }
+
+  if (stream) {
+    stream.addEventListener("change", function (event) {
+      var box = event.target;
+      if (!box || !box.classList || !box.classList.contains("bub__pick")) { return; }
+      if (box.checked) { picked[box.value] = box.dataset.message; }
+      else { delete picked[box.value]; }
+      drawPickBar();
+    });
+  }
+
+  if (pickAll) {
+    pickAll.addEventListener("click", function () {
+      var free = pickBoxes().filter(function (box) { return !box.disabled; });
+      var all = free.length > 0 && free.every(function (box) { return box.checked; });
+      free.forEach(function (box) {
+        box.checked = !all;
+        if (box.checked) { picked[box.value] = box.dataset.message; }
+        else { delete picked[box.value]; }
+      });
+      drawPickBar();
+    });
+  }
+
+  if (pickConvert) {
+    pickConvert.addEventListener("click", function () {
+      var files = Object.keys(picked);
+      if (!files.length || !taskNewUrl) { return; }
+      var messages = [];
+      files.forEach(function (id) {
+        if (messages.indexOf(picked[id]) === -1) { messages.push(picked[id]); }
+      });
+      window.location.href = taskNewUrl +
+        (taskNewUrl.indexOf("?") === -1 ? "?" : "&") +
+        "messages=" + encodeURIComponent(messages.join(",")) +
+        "&files=" + encodeURIComponent(files.join(","));
     });
   }
 

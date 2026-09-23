@@ -8,7 +8,7 @@ Expects: entry (dict from services.client_thread)
      data-body="{{ entry.body|slice:':90' }}"
      data-who="{% if entry.kind == 'in' %}العميل{% else %}{{ entry.sender }}{% endif %}"
      {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
-     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}">
+     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}|{{ entry.receipt|default_if_none:'' }}|{{ entry.seen_by|length }}">
   <button class="bub__reply" type="button" data-reply="{{ entry.uid }}"
           data-ar-title="رد" data-en-title="Reply" title="رد">{% icon "reply" "ic--sm" %}</button>
   <div class="bub__box">
@@ -33,6 +33,17 @@ Expects: entry (dict from services.client_thread)
         </div>
       {% else %}
         <div class="bub__file">
+          {% if entry.actions and can_convert and f.id %}
+            {% comment %}
+            The "select files" mode: tick files across any number of the
+            client's messages and make one task of them. Hidden until the mode
+            is on. A file already inside a task stays unticked and locked -
+            turning it into a second task would quietly take it out of the first.
+            {% endcomment %}
+            <input class="bub__pick" type="checkbox" value="{{ f.id }}"
+                   data-message="{{ entry.id }}"
+                   {% if entry.task_code %}disabled data-ar-title="الملف ده في تاسك {{ entry.task_code }}" data-en-title="Already in {{ entry.task_code }}" title="الملف ده في تاسك {{ entry.task_code }}"{% endif %}>
+          {% endif %}
           {% icon "paperclip" "ic--sm" %}
           {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
           {% else %}<span>{{ f.name }}</span>{% endif %}
@@ -73,11 +84,7 @@ Expects: entry (dict from services.client_thread)
       {% if entry.task_code %}<span class="mono muted">{{ entry.task_code }}</span>{% endif %}
       {% if entry.sender %}<span class="muted">{{ entry.sender }}</span>{% endif %}
       <span class="bub__time mono">{{ entry.at|date:"H:i" }}</span>
-      {% if entry.kind == 'out' %}
-        {% if entry.status == 'sent' %}{% icon "check" "ic--sm" %}
-        {% elif entry.status == 'failed' %}{% icon "alert" "ic--sm" %}
-        {% endif %}
-      {% endif %}
+      {% if entry.kind == 'out' %}{% include "ops/_ticks.html" %}{% endif %}
     </div>
 
     {% if entry.error %}<div class="bub__error">{{ entry.error }}</div>{% endif %}

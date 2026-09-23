@@ -1,0 +1,8 @@
+{% load eagle_tags %}{% comment %}
+The ticks under one of our own messages, WhatsApp-style:
+  one grey check   - it left
+  two grey checks  - it reached the client's phone
+  two blue checks  - it was read (by the client, or by everybody else in the room)
+Mirrored by ticksHtml() in chat.js - keep the two in step.
+Expects: entry (dict from services.client_thread / services.group_thread)
+{% endcomment %}{% if entry.status == 'failed' %}{% icon "alert" "ic--sm" %}{% elif entry.receipt == 'read' %}<span class="tick tick--read" data-ar-title="{% if entry.seen_by %}شافها: {{ entry.seen_by|join:'، ' }}{% else %}اتقرت{% endif %}" data-en-title="{% if entry.seen_by %}Seen by: {{ entry.seen_by|join:', ' }}{% else %}Read{% endif %}" title="{% if entry.seen_by %}شافها: {{ entry.seen_by|join:'، ' }}{% else %}اتقرت{% endif %}">{% icon "check-double" "ic--sm" %}</span>{% elif entry.receipt == 'delivered' %}<span class="tick" data-ar-title="وصلت" data-en-title="Delivered" title="وصلت">{% icon "check-double" "ic--sm" %}</span>{% elif entry.status == 'sent' or entry.mine %}<span class="tick" data-ar-title="{% if entry.seen_by %}شافها: {{ entry.seen_by|join:'، ' }}{% else %}اتبعتت{% endif %}" data-en-title="{% if entry.seen_by %}Seen by: {{ entry.seen_by|join:', ' }}{% else %}Sent{% endif %}" title="{% if entry.seen_by %}شافها: {{ entry.seen_by|join:'، ' }}{% else %}اتبعتت{% endif %}">{% icon "check" "ic--sm" %}</span>{% endif %}

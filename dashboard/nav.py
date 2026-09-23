@@ -62,7 +62,7 @@ def groups_for(user):
         work += [
             Item("ops_inbox", "ميلات واردة", "Incoming mail", "mail",
                  counter="inbox", also=("ops_mail_thread",)),
-            Item("ops_chats", "الشاتات", "Chats", "message",
+            Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
                  also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
             Item("ops_tasks", "التاسكات", "Tasks", "layers", counter="new_tasks",
                  also=("ops_task_new", "task_detail", "task_requirement",
@@ -74,14 +74,14 @@ def groups_for(user):
             Item("lead_home", "تاسكاتي", "My tasks", "target", counter="open",
                  also=("task_detail", "task_requirement", "task_word_count")),
             Item("lead_translators", "حالة المترجمين", "Translator status", "users"),
-            Item("ops_chats", "الشاتات", "Chats", "message",
+            Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
                  also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
         ]
     if user.is_translator:
         work += [
             Item("translator_home", "شغلي", "My work", "pen", counter="open",
                  also=("task_detail", "task_requirement", "task_word_count")),
-            Item("ops_chats", "الشاتات", "Chats", "message",
+            Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
                  also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
         ]
     out.append(_group("work", "الشغل", "Work", work))

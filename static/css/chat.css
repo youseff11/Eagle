@@ -160,6 +160,36 @@
   text-overflow: ellipsis;
 }
 
+/* The snippet and the unread counter share the second line: the counter
+   holds its size, the snippet gives way and ellipsizes. */
+.cthread__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cthread__line .cthread__snippet { flex: 1; min-width: 0; }
+
+.cthread__unread {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--ok);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A conversation waiting on you reads louder than one that is not. */
+.cthread.has-unread .cthread__top b { color: var(--heading, inherit); font-weight: 700; }
+.cthread.has-unread .cthread__snippet { color: var(--text); }
+.cthread.has-unread .cthread__time { color: var(--ok); }
+
 /* -- the room ------------------------------------------------------------- */
 
 .cchat__room {
@@ -411,6 +441,42 @@
 }
 
 .bub__time { font-size: 10.5px; }
+
+/* Ticks: grey while it is on its way, blue once it has been read. */
+.tick { display: inline-flex; color: var(--muted); }
+.tick--read { color: var(--accent); }
+
+/* -- select files, then one task out of them ------------------------------ */
+
+.bub__pick {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+.cchat__stream.is-picking .bub__pick { display: inline-block; }
+.cchat__stream.is-picking .bub__pick:disabled { cursor: not-allowed; opacity: .45; }
+
+.cchat__pickbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-block-start: 1px solid var(--border);
+  background: var(--brand-soft);
+  font-size: 12.5px;
+}
+
+#pickToggle.is-on {
+  color: var(--brand);
+  border-color: var(--brand-line);
+  background: var(--brand-soft);
+}
 
 .bub__error {
   margin-block-start: 5px;

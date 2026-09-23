@@ -67,7 +67,7 @@
 
     <div class="cchat__threads" id="threadList">
       {% for row in conversations %}
-        <a class="cthread {% if row.code == active_code %}is-active{% endif %}"
+        <a class="cthread {% if row.code == active_code %}is-active{% endif %}{% if row.unread %}{% if row.code != active_code or not has_selection %} has-unread{% endif %}{% endif %}"
            data-code="{{ row.code }}" href="{{ row.url }}">
           <span class="avatar {% if row.is_group %}avatar--group{% elif row.is_staff %}avatar--staff{% else %}avatar--brand{% endif %}">
             {% if row.is_group %}{% icon "users" "ic--sm" %}
@@ -87,8 +87,18 @@
               {% endif %}
               <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
             </span>
-            <span class="cthread__snippet">
-              {% if row.preview.outgoing %}{% icon "check" "ic--sm" %}{% endif %}{{ row.preview.text }}
+            <span class="cthread__line">
+              <span class="cthread__snippet">
+                {% if row.preview.outgoing %}{% icon "check" "ic--sm" %}{% endif %}{{ row.preview.text }}
+              </span>
+              {% comment %}
+              Messages in here this person has not opened yet. Theirs alone:
+              a colleague reading the conversation does not clear it. The one
+              on screen is being read, so it never carries a number.
+              {% endcomment %}
+              <span class="cthread__unread{% if not row.unread %} hidden{% elif row.code == active_code and has_selection %} hidden{% endif %}"
+                    data-ar-title="رسايل مااتقرتش" data-en-title="Unread messages"
+                    title="رسايل مااتقرتش">{% if row.unread > 99 %}99+{% else %}{{ row.unread }}{% endif %}</span>
             </span>
           </span>
         </a>
@@ -153,6 +163,14 @@
         {% if active_group and can_add_members and not active_person %}
           <button class="btn btn--ghost" type="button" id="addMemberBtn">
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
+          </button>
+        {% endif %}
+        {% if active and can_convert and not active_group %}
+          <button class="btn btn--ghost" type="button" id="pickToggle"
+                  data-ar-title="حدد ملفات من كذا رسالة وحوّلها لتاسك واحدة"
+                  data-en-title="Tick files across several messages and turn them into one task"
+                  title="حدد ملفات من كذا رسالة وحوّلها لتاسك واحدة">
+            {% icon "list-checks" "ic--sm" %}<span data-ar="تحديد ملفات" data-en="Select files">تحديد ملفات</span>
           </button>
         {% endif %}
         {% if active and sees_all_clients %}
@@ -239,6 +257,26 @@
       <div class="cchat__stream" id="chatStream">
         {% for entry in thread %}{% include "ops/_client_bubble.html" %}{% endfor %}
       </div>
+
+      {% if active and can_convert and not active_group %}
+        {% comment %}
+        The "select files" bar. Replaces the composer while it is on, so it is
+        plain that ticking is what the screen is for right now.
+        {% endcomment %}
+        <div class="cchat__pickbar hidden" id="pickBar">
+          {% icon "paperclip" "ic--sm" %}
+          <span><b class="mono" id="pickCount">0</b>
+            <span data-ar="ملف متحدد" data-en="selected">ملف متحدد</span></span>
+          <button class="btn btn--sm btn--ghost" type="button" id="pickAll"
+                  data-ar="تحديد الكل" data-en="Select all">تحديد الكل</button>
+          <span class="grow"></span>
+          <button class="btn btn--sm" type="button" id="pickCancel"
+                  data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+          <button class="btn btn--sm btn--primary" type="button" id="pickConvert" disabled>
+            {% icon "arrow-right" "ic--sm" %}<span data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</span>
+          </button>
+        </div>
+      {% endif %}
 
       {# What you are replying to, shown above the box until you send or cancel. #}
       <div class="cchat__replybar hidden" id="replyBar">

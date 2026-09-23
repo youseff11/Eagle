@@ -518,6 +518,9 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .msg-item.is-blocked { border-color: var(--danger-soft); background: var(--danger-soft); }
 .msg-item__body { flex: 1; min-width: 0; }
 .msg-item__text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
+/* Several client messages feeding one task, each with its own files. */
+.src-msg + .src-msg { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.src-msg__at { font-size: .72rem; margin-bottom: 4px; }
 
 /* --------------------------------------------------------------- the mail
    /ops/inbox/ is e-mail and nothing else, so it is shaped like a mailbox:

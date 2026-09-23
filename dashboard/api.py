@@ -141,6 +141,9 @@ def heartbeat(request):
             ).count(),
             "rating": float(user.rating),
         }
+    # Every role has the chats page, so every role gets its badge: messages
+    # waiting in any tab of it that this person has not opened yet.
+    data["counters"]["chats"] = services.unread_chat_total(user)
     return JsonResponse(data)
 
 
@@ -925,10 +928,14 @@ def _thread_entry_json(entry, viewer):
         "time": timezone.localtime(entry["at"]).strftime("%H:%M"),
         "date": timezone.localtime(entry["at"]).strftime("%Y-%m-%d"),
         "files": entry.get("files", []),
+        # The ticks: "" (sent), "delivered" or "read" - see services.
+        "mine": entry.get("mine", False),
+        "receipt": entry.get("receipt", ""),
+        "seen_by": entry.get("seen_by", []),
     }
 
 
-def _conversation_json(client, viewer):
+def _conversation_json(client, viewer, unread=0):
     preview = services.conversation_preview(client, viewer)
     return {
         "code": client.code,
@@ -943,10 +950,11 @@ def _conversation_json(client, viewer):
         "channel": services.client_channel(client),
         "window_open": client.reply_window_open,
         "minutes_left": client.reply_window_minutes_left,
+        "unread": unread,
     }
 
 
-def _group_json(room, viewer):
+def _group_json(room, viewer, unread=0):
     """A group in the same shape as a 1:1 conversation, so one list renders both."""
     preview = services.group_preview(room, viewer)
     client = room.relay_client
@@ -968,6 +976,7 @@ def _group_json(room, viewer):
             "channel": "",
             "window_open": False,
             "minutes_left": 0,
+            "unread": unread,
         }
     return {
         "code": f"g{room.id}",
@@ -985,6 +994,7 @@ def _group_json(room, viewer):
         "channel": services.client_channel(client) if client else "",
         "window_open": client.reply_window_open if client else False,
         "minutes_left": client.reply_window_minutes_left if client else 0,
+        "unread": unread,
     }
 
 
@@ -1005,7 +1015,11 @@ def client_chat_list(request):
         # to most recently, then the rest of the directory. Sorting by date
         # here would push everyone never written to into a random heap.
         items = []
-        for row in services.staff_conversations(request.user, query):
+        people = services.staff_conversations(request.user, query)
+        unread = services.unread_by_room(
+            request.user, [row["room"].id for row in people if row["room"] is not None]
+        )
+        for row in people:
             person, preview = row["person"], row["preview"]
             items.append({
                 "code": f"u{person.pk}",
@@ -1023,19 +1037,24 @@ def client_chat_list(request):
                 "channel": "",
                 "window_open": False,
                 "minutes_left": 0,
+                "unread": unread.get(row["room"].id, 0) if row["room"] else 0,
             })
         return JsonResponse({"ok": True, "items": items})
 
     items = []
     if kind == "clients" and sees_all_clients:
+        clients = list(services.client_conversations(request.user, query)[:100])
+        unread = services.unread_by_client(request.user, [c.pk for c in clients])
         items += [
-            _conversation_json(row, request.user)
-            for row in services.client_conversations(request.user, query)[:100]
+            _conversation_json(row, request.user, unread.get(row.pk, 0))
+            for row in clients
         ]
     if kind == "groups":
+        rooms = list(services.groups_for(request.user, query)[:100])
+        unread = services.unread_by_room(request.user, [room.id for room in rooms])
         items += [
-            _group_json(room, request.user)
-            for room in services.groups_for(request.user, query)[:100]
+            _group_json(room, request.user, unread.get(room.id, 0))
+            for room in rooms
         ]
     # Newest activity first.
     items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
@@ -1173,6 +1192,11 @@ def group_add_members(request, room_id):
 @require_GET
 def group_chat_fetch(request, room_id):
     room = _group_or_404(request, room_id)
+    # ``read=1`` is chat.js saying the conversation is on screen and the tab
+    # is in front. Polling alone is not reading: a phone showing the list, or
+    # a tab left in the background, fetches the same thread.
+    if request.GET.get("read") == "1":
+        services.mark_room_read(request.user, room)
     return JsonResponse({
         "ok": True,
         "client": _group_json(room, request.user),
@@ -1190,6 +1214,8 @@ def group_chat_send(request, room_id):
     room = _group_or_404(request, room_id)
     response = chat_send(request, room_id)
     ok = response.status_code == 200
+    # Answering a conversation is having read it.
+    services.mark_room_read(request.user, room)
     payload = {
         "ok": ok,
         "error": "",
@@ -1215,6 +1241,9 @@ def group_chat_send(request, room_id):
 @require_GET
 def client_chat_fetch(request, client_code):
     client = _client_or_404(request, client_code)
+    # See group_chat_fetch: only a conversation actually on screen is read.
+    if request.GET.get("read") == "1":
+        services.mark_client_read(request.user, client)
     entries = services.client_thread(client, request.user)
     return JsonResponse({
         "ok": True,
@@ -1270,6 +1299,8 @@ def client_chat_send(request, client_code):
         force_channel=Channel.WHATSAPP,
     )
     payload = {"ok": ok, "error": error}
+    # Answering a conversation is having read it.
+    services.mark_client_read(request.user, client)
     if outbound is not None:
         # Re-render the whole thread tail so a failed send still shows up.
         entries = services.client_thread(client, request.user)
