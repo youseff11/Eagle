@@ -1804,6 +1804,59 @@ class OutboundAttachment(PlayableFile, models.Model):
         return self.original_name or self.file.name
 
 
+class ChatReaction(models.Model):
+    """One person's reaction to one message - like, love, laugh...
+
+    One per person per message, WhatsApp-style: reacting again with the same
+    one takes it back, and a different one replaces it. Exactly one of the
+    three targets is set, because a conversation is drawn from three kinds of
+    row: room messages, and a client's own messages and ours on the 1:1 line.
+
+    Internal only. Nothing here is relayed to a client's WhatsApp - they are
+    the team's marks on the conversation, like the ticks.
+    """
+
+    class Kind(models.TextChoices):
+        LIKE = "like", "Like"
+        LOVE = "love", "Love"
+        LAUGH = "laugh", "Laugh"
+        WOW = "wow", "Wow"
+        SAD = "sad", "Sad"
+        DONE = "done", "Done"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="chat_reactions")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    message = models.ForeignKey(
+        ChatMessage, null=True, blank=True, on_delete=models.CASCADE, related_name="reactions"
+    )
+    inbound = models.ForeignKey(
+        InboundMessage, null=True, blank=True, on_delete=models.CASCADE, related_name="reactions"
+    )
+    outbound = models.ForeignKey(
+        OutboundMessage, null=True, blank=True, on_delete=models.CASCADE, related_name="reactions"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "message"], name="uniq_reaction_message",
+                condition=models.Q(message__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["user", "inbound"], name="uniq_reaction_inbound",
+                condition=models.Q(inbound__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["user", "outbound"], name="uniq_reaction_outbound",
+                condition=models.Q(outbound__isnull=False),
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.kind}"
+
+
 class AuditLog(models.Model):
     actor = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     action = models.CharField(max_length=80)

@@ -122,11 +122,13 @@
       // A file already in a task is shown locked, never ticked.
       var pick = "";
       if (msg.actions && f.id) {
+        // A file already in a task can be ticked too: it becomes a new request.
         pick = '<input class="bub__pick" type="checkbox" value="' + esc(String(f.id)) +
           '" data-message="' + esc(String(msg.id)) + '"' +
           (msg.task_code
-            ? ' disabled title="' + esc(E.t("الملف ده في تاسك " + msg.task_code,
-                "Already in " + msg.task_code)) + '"'
+            ? ' data-in-task="' + esc(msg.task_code) + '" title="' +
+              esc(E.t("في " + msg.task_code + " — هتبقى طلب جديد",
+                "In " + msg.task_code + " - becomes a new request")) + '"'
             : "") + ">";
       }
       // A photo is shown as a photo - mirrors _client_bubble.html.
@@ -154,7 +156,12 @@
               esc(E.t("استلمت", "Received")) + "</span></button>"
         ];
         if (msg.task_code) {
+          // Already a task - it can still be the material of a new one.
           acts.push('<span class="chip chip--sm mono">' + esc(msg.task_code) + "</span>");
+          acts.push('<button class="btn btn--sm" type="button" data-convert="' +
+            esc(String(msg.id)) + '">' + icon("plus", "ic--sm") +
+            '<span data-ar="طلب جديد" data-en="New request">' +
+              esc(E.t("طلب جديد", "New request")) + "</span></button>");
         } else {
           acts.push('<button class="btn btn--sm" type="button" data-convert="' +
             esc(String(msg.id)) + '">' + icon("arrow-right", "ic--sm") +
@@ -180,6 +187,7 @@
     parts.push('<div class="bub__foot">' + foot.join("") + "</div>");
 
     if (msg.error) { parts.push('<div class="bub__error">' + esc(msg.error) + "</div>"); }
+    parts.push(reactsHtml(msg));
 
     return '<div class="' + cls + '" data-uid="' + esc(msg.uid) + '"' +
       ' data-date="' + esc(msg.date || "") + '"' +
@@ -188,11 +196,27 @@
       '<button class="bub__reply" type="button" data-reply="' + esc(msg.uid) + '" ' +
         'data-ar-title="رد" data-en-title="Reply" title="' + esc(E.t("رد", "Reply")) + '">' +
         icon("reply", "ic--sm") + "</button>" +
+      '<button class="bub__reply bub__react" type="button" data-react-open="' + esc(msg.uid) + '" ' +
+        'data-ar-title="رياكت" data-en-title="React" title="' + esc(E.t("رياكت", "React")) + '">' +
+        icon("smile", "ic--sm") + "</button>" +
       '<button class="bub__reply bub__fwd" type="button" data-forward="' + esc(msg.uid) + '" ' +
         'data-ar-title="تحويل" data-en-title="Forward" title="' + esc(E.t("تحويل", "Forward")) + '">' +
         icon("forward", "ic--sm") + "</button>" +
       '<span class="bub__sel" aria-hidden="true">' + icon("check", "ic--sm") + "</span>" +
       '<div class="bub__box">' + parts.join("") + "</div></div>";
+  }
+
+  /** Mirrors templates/ops/_reactions.html - keep the two in step. */
+  function reactsHtml(msg) {
+    var list = msg.reactions || [];
+    if (!list.length) { return ""; }
+    return '<div class="bub__reacts">' + list.map(function (r) {
+      return '<button class="react-pill' + (r.mine ? " is-mine" : "") + '" type="button"' +
+        ' data-react-kind="' + E.escapeHtml(r.kind) + '" data-react-uid="' + E.escapeHtml(msg.uid) + '"' +
+        ' title="' + E.escapeHtml((r.who || []).join(E.t("، ", ", "))) + '">' +
+        icon(r.icon, "ic--sm") +
+        (r.count > 1 ? '<span class="mono">' + r.count + "</span>" : "") + "</button>";
+    }).join("") + "</div>";
   }
 
   /** Mirrors templates/ops/_ticks.html - keep the two in step.
@@ -224,7 +248,7 @@
     return [msg.status || "", (msg.body || "").length, (msg.files || []).length,
       msg.error ? 1 : 0, msg.quote ? 1 : 0,
       msg.claimed_by ? 1 : 0, msg.task_code ? 1 : 0,
-      msg.receipt || "", (msg.seen_by || []).length].join("|");
+      msg.receipt || "", (msg.seen_by || []).length, msg.reactions_sig || ""].join("|");
   }
 
   function renderMessages(messages) {
@@ -501,7 +525,8 @@
   if (stream) {
     stream.addEventListener("click", function (event) {
       var button = event.target.closest && event.target.closest(".bub__reply");
-      if (button && !button.classList.contains("bub__fwd")) { setReply(button.closest(".bub")); }
+      if (button && !button.classList.contains("bub__fwd") &&
+          !button.classList.contains("bub__react")) { setReply(button.closest(".bub")); }
     });
   }
 
@@ -1362,6 +1387,111 @@
         });
       });
     }
+  }
+
+  /* -------------------------------------------------------------- reactions */
+
+  /* The smile beside a bubble (or a long press on a phone) opens one small
+     picker next to it; a tap on a pill under a message adds or takes back
+     your own. The server answers with that message's reactions, which are
+     drawn at once - the next poll then finds the same fingerprint and leaves
+     the bubble alone. */
+
+  var picker = document.getElementById("reactPicker");
+  var pickerUid = "";
+
+  function closePicker() {
+    if (picker) { picker.classList.add("hidden"); }
+    pickerUid = "";
+  }
+
+  function openPicker(bubble) {
+    if (!picker || !bubble) { return; }
+    pickerUid = bubble.dataset.uid || "";
+    var box = bubble.querySelector(".bub__box") || bubble;
+    var rect = box.getBoundingClientRect();
+    picker.classList.remove("hidden");
+    var width = picker.offsetWidth;
+    var left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2),
+      window.innerWidth - width - 8);
+    var top = rect.top - picker.offsetHeight - 6;
+    if (top < 8) { top = rect.bottom + 6; }
+    picker.style.left = left + "px";
+    picker.style.top = top + "px";
+  }
+
+  function paintReactions(uid, reactions, sig) {
+    var bubble = stream && stream.querySelector('[data-uid="' + uid + '"]');
+    if (!bubble) { return; }
+    var box = bubble.querySelector(".bub__box");
+    var old = box && box.querySelector(".bub__reacts");
+    if (old) { old.remove(); }
+    var html = reactsHtml({ uid: uid, reactions: reactions });
+    if (box && html) { box.insertAdjacentHTML("beforeend", html); }
+    // Keep the fingerprint in step, so the next poll does not redraw it.
+    var parts = (bubble.dataset.sig || "").split("|");
+    parts[parts.length - 1] = sig || "";
+    bubble.dataset.sig = parts.join("|");
+  }
+
+  function react(uid, kind) {
+    if (!picker || !uid || !kind) { return; }
+    var data = new FormData();
+    data.append("source", activeCode);
+    data.append("uid", uid);
+    data.append("kind", kind);
+    E.post(picker.dataset.url, data).then(function (res) {
+      if (res && res.ok) { paintReactions(res.uid, res.reactions, res.reactions_sig); }
+    }).catch(function () {});
+  }
+
+  if (picker && stream) {
+    stream.addEventListener("click", function (event) {
+      var open = event.target.closest && event.target.closest("[data-react-open]");
+      if (open) {
+        event.preventDefault();
+        openPicker(open.closest(".bub"));
+        return;
+      }
+      var pill = event.target.closest && event.target.closest("[data-react-kind]");
+      if (pill && !selecting() && !picking()) {
+        react(pill.getAttribute("data-react-uid"), pill.getAttribute("data-react-kind"));
+      }
+    });
+    picker.addEventListener("click", function (event) {
+      var btn = event.target.closest && event.target.closest("[data-react-pick]");
+      if (!btn) { return; }
+      react(pickerUid, btn.getAttribute("data-react-pick"));
+      closePicker();
+    });
+    document.addEventListener("click", function (event) {
+      if (picker.classList.contains("hidden")) { return; }
+      if (picker.contains(event.target)) { return; }
+      if (event.target.closest && event.target.closest("[data-react-open]")) { return; }
+      closePicker();
+    });
+    stream.addEventListener("scroll", closePicker, { passive: true });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { closePicker(); }
+    });
+
+    /* Phones have no hover, so no smile button: hold a bubble for half a
+       second instead. Moving the finger (a scroll or a swipe-to-reply)
+       cancels it. */
+    var hold = null;
+    stream.addEventListener("touchstart", function (event) {
+      if (selecting() || picking() || event.touches.length !== 1) { return; }
+      var bubble = event.target.closest && event.target.closest(".bub");
+      if (!bubble || (event.target.closest && event.target.closest("a, button, audio, .voice"))) {
+        return;
+      }
+      clearTimeout(hold);
+      hold = setTimeout(function () { hold = null; openPicker(bubble); }, 500);
+    }, { passive: true });
+    ["touchmove", "touchend", "touchcancel"].forEach(function (name) {
+      stream.addEventListener(name, function () { clearTimeout(hold); hold = null; },
+        { passive: true });
+    });
   }
 
   /* --------------------------------------------------------------- init */

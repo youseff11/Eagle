@@ -9,9 +9,11 @@ Expects: entry (dict from services.client_thread)
      data-body="{{ entry.body|slice:':90' }}"
      data-who="{% if entry.kind == 'in' %}العميل{% else %}{{ entry.sender }}{% endif %}"
      {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
-     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}|{{ entry.receipt|default_if_none:'' }}|{{ entry.seen_by|length }}">
+     data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}|{{ entry.receipt|default_if_none:'' }}|{{ entry.seen_by|length }}|{{ entry.reactions_sig }}">
   <button class="bub__reply" type="button" data-reply="{{ entry.uid }}"
           data-ar-title="رد" data-en-title="Reply" title="رد">{% icon "reply" "ic--sm" %}</button>
+  <button class="bub__reply bub__react" type="button" data-react-open="{{ entry.uid }}"
+          data-ar-title="رياكت" data-en-title="React" title="رياكت">{% icon "smile" "ic--sm" %}</button>
   <button class="bub__reply bub__fwd" type="button" data-forward="{{ entry.uid }}"
           data-ar-title="تحويل" data-en-title="Forward" title="تحويل">{% icon "forward" "ic--sm" %}</button>
   <span class="bub__sel" aria-hidden="true">{% icon "check" "ic--sm" %}</span>
@@ -44,12 +46,12 @@ Expects: entry (dict from services.client_thread)
             {% comment %}
             The "select files" mode: tick files across any number of the
             client's messages and make one task of them. Hidden until the mode
-            is on. A file already inside a task stays unticked and locked -
-            turning it into a second task would quietly take it out of the first.
+            is on. A file already inside a task can be ticked too - a new task
+            on it is a new request, and the old task keeps it as well.
             {% endcomment %}
             <input class="bub__pick" type="checkbox" value="{{ f.id }}"
                    data-message="{{ entry.id }}"
-                   {% if entry.task_code %}disabled data-ar-title="الملف ده في تاسك {{ entry.task_code }}" data-en-title="Already in {{ entry.task_code }}" title="الملف ده في تاسك {{ entry.task_code }}"{% endif %}>
+                   {% if entry.task_code %}data-in-task="{{ entry.task_code }}" data-ar-title="في {{ entry.task_code }} — هتبقى طلب جديد" data-en-title="In {{ entry.task_code }} - becomes a new request" title="في {{ entry.task_code }} — هتبقى طلب جديد"{% endif %}>
           {% endif %}
           {% if f.image and f.url %}
             {% comment %}A photo is shown as a photo; clicking it opens it full size.{% endcomment %}
@@ -80,6 +82,10 @@ Expects: entry (dict from services.client_thread)
         </button>
         {% if entry.task_code %}
           <span class="chip chip--sm mono">{{ entry.task_code }}</span>
+          {# Already a task - it can still be the material of a new one. #}
+          <button class="btn btn--sm" type="button" data-convert="{{ entry.id }}">
+            {% icon "plus" "ic--sm" %}<span data-ar="طلب جديد" data-en="New request">طلب جديد</span>
+          </button>
         {% else %}
           <button class="btn btn--sm" type="button" data-convert="{{ entry.id }}">
             {% icon "arrow-right" "ic--sm" %}<span data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</span>
@@ -102,5 +108,6 @@ Expects: entry (dict from services.client_thread)
     </div>
 
     {% if entry.error %}<div class="bub__error">{{ entry.error }}</div>{% endif %}
+    {% include "ops/_reactions.html" %}
   </div>
 </div>

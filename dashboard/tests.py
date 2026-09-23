@@ -6046,17 +6046,19 @@ class MultiFileTaskTests(TestCase):
         self.assertContains(response, 'class="bub__pick"', count=3)
         self.assertContains(response, 'id="pickToggle"')
 
-    def test_a_file_already_in_a_task_is_locked(self):
+    def test_a_file_already_in_a_task_can_start_a_new_request(self):
+        """It used to be locked. A second job on the same material - another
+        language, say - is an ordinary request now (23/09/2026)."""
         services.create_task(
             client=self.client_obj, title="Old", created_by=self.ops,
             messages=[self.second],
         )
         self.client.force_login(self.ops)
         response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
-        self.assertContains(response, f'value="{self.stamps.pk}"')
         html = response.content.decode()
-        box = html[html.index(f'value="{self.stamps.pk}"'):][:200]
-        self.assertIn("disabled", box)
+        box = html[html.index(f'value="{self.stamps.pk}"'):][:250]
+        self.assertNotIn("disabled", box)
+        self.assertIn("data-in-task", box)
 
 
 class ListTicksTests(TestCase):
@@ -6938,3 +6940,139 @@ class PhotoToTaskTests(TestCase):
         self.assertEqual([a.pk for a in services.task_source_files(task)], [self.photo.pk])
         page = self.client.get(f"/tasks/{task.code}/")
         self.assertContains(page, "task-thumb")
+
+
+class NewRequestSameMaterialTests(TestCase):
+    """A new task on the same files, with the first task left exactly as it was."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_nr", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_nr", password="x", role=Role.TEAM_LEAD)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000104")
+        self.msg = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="[document]",
+            sender_identity="+201000000104",
+        )
+        self.contract = MessageAttachment.objects.create(
+            message=self.msg, file=ContentFile(b"c", name="contract.pdf"),
+            original_name="contract.pdf", size=1,
+        )
+        self.first = services.create_task(
+            client=self.acme, title="Contract EN", created_by=self.ops, messages=[self.msg],
+        )
+
+    def _post(self, **extra):
+        self.client.force_login(self.ops)
+        data = {
+            "client": self.acme.pk, "title": "Contract FR", "description": "",
+            "source_lang": "AR", "target_lang": "FR", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        }
+        data.update(extra)
+        self.client.post("/ops/tasks/new/", data)
+        return Task.objects.latest("id")
+
+    def test_the_form_starts_from_the_old_tasks_files(self):
+        self.client.force_login(self.ops)
+        page = self.client.get(f"/ops/tasks/new/?from={self.first.code}")
+        self.assertContains(page, "contract.pdf")
+        self.assertContains(page, f'name="from" value="{self.first.code}"')
+        self.assertIn("طلب جديد", page.context["form"].initial["title"])
+
+    def test_the_new_task_gets_the_files_and_the_old_one_keeps_them(self):
+        second = self._post(**{"from": self.first.code})
+        self.assertNotEqual(second.pk, self.first.pk)
+        self.assertEqual([a.pk for a in services.task_source_files(second)], [self.contract.pk])
+        self.msg.refresh_from_db()
+        self.assertEqual(self.msg.task_id, self.first.pk)
+        self.assertEqual([a.pk for a in services.task_source_files(self.first)], [self.contract.pk])
+
+    def test_from_the_chat_button_too(self):
+        second = self._post(message=str(self.msg.pk))
+        self.assertEqual([a.pk for a in services.task_source_files(second)], [self.contract.pk])
+        self.msg.refresh_from_db()
+        self.assertEqual(self.msg.task_id, self.first.pk)
+
+    def test_the_files_reach_whoever_takes_the_new_one(self):
+        second = self._post(**{"from": self.first.code})
+        # The first task already shared the file into the ops-lead chat.
+        services.accept_assignment(services.assign_to_lead(self.first, self.lead, self.ops), self.lead)
+        services.accept_assignment(services.assign_to_lead(second, self.lead, self.ops), self.lead)
+        room = services.staff_room(self.ops, self.lead)
+        shared_for = set(
+            room.messages.filter(inbound=self.msg).values_list("task_id", flat=True)
+        )
+        self.assertEqual(shared_for, {self.first.pk, second.pk})
+
+    def test_the_word_count_reads_the_new_tasks_files(self):
+        from . import wordcount
+
+        second = self._post(**{"from": self.first.code})
+        self.assertEqual([a.pk for a in wordcount.source_attachments(second)], [self.contract.pk])
+
+
+class ReactionTests(TestCase):
+    """Like, love... on a message: one per person, toggled, and only where you can read."""
+
+    def setUp(self):
+        from .models import Channel, ChatMessage, InboundMessage
+
+        self.ops = User.objects.create_user("ops_rx", password="x", role=Role.OPERATION)
+        self.ops2 = User.objects.create_user("ops_rx2", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_rx", password="x", role=Role.TRANSLATOR)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000105")
+        self.inbound = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="hello",
+            sender_identity="+201000000105",
+        )
+        self.room = services.staff_room(self.ops, self.tr)
+        self.said = ChatMessage.objects.create(room=self.room, sender=self.tr, body="done")
+
+    def test_a_reaction_on_a_staff_message(self):
+        ok, _e, reactions = services.toggle_reaction(
+            self.ops, f"u{self.tr.pk}", f"g{self.room.id}-{self.said.pk}", "love")
+        self.assertTrue(ok)
+        self.assertEqual([(r["kind"], r["count"], r["mine"]) for r in reactions], [("love", 1, True)])
+
+    def test_the_same_again_takes_it_back_and_another_replaces_it(self):
+        uid = f"g{self.room.id}-{self.said.pk}"
+        services.toggle_reaction(self.ops, f"u{self.tr.pk}", uid, "like")
+        _ok, _e, reactions = services.toggle_reaction(self.ops, f"u{self.tr.pk}", uid, "love")
+        self.assertEqual([r["kind"] for r in reactions], ["love"])
+        _ok, _e, reactions = services.toggle_reaction(self.ops, f"u{self.tr.pk}", uid, "love")
+        self.assertEqual(reactions, [])
+
+    def test_a_reaction_on_a_client_message_counts_people(self):
+        services.toggle_reaction(self.ops, self.acme.code, f"in-{self.inbound.pk}", "like")
+        _ok, _e, reactions = services.toggle_reaction(
+            self.ops2, self.acme.code, f"in-{self.inbound.pk}", "like")
+        self.assertEqual(reactions[0]["count"], 2)
+        entry = next(e for e in services.client_thread(self.acme, self.ops)
+                     if e["uid"] == f"in-{self.inbound.pk}")
+        self.assertEqual(entry["reactions_sig"], "like2m")
+
+    def test_nobody_reacts_where_they_cannot_read(self):
+        ok, _e, _r = services.toggle_reaction(
+            self.tr, self.acme.code, f"in-{self.inbound.pk}", "like")
+        self.assertFalse(ok)
+        ok, _e, _r = services.toggle_reaction(
+            self.ops2, f"u{self.tr.pk}", f"g{self.room.id}-{self.said.pk}", "like")
+        self.assertFalse(ok)
+
+    def test_an_unknown_reaction_is_refused(self):
+        ok, _e, _r = services.toggle_reaction(
+            self.ops, f"u{self.tr.pk}", f"g{self.room.id}-{self.said.pk}", "angry")
+        self.assertFalse(ok)
+
+    def test_the_endpoint_and_the_bubble(self):
+        self.client.force_login(self.ops)
+        response = self.client.post("/api/chats/react/", {
+            "source": f"u{self.tr.pk}", "uid": f"g{self.room.id}-{self.said.pk}", "kind": "like",
+        })
+        self.assertEqual(response.json()["reactions_sig"], "like1m")
+        page = self.client.get(f"/ops/chats/u/{self.tr.pk}/")
+        self.assertContains(page, 'class="react-pill is-mine"')
+        self.assertContains(page, 'id="reactPicker"')

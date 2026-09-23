@@ -208,6 +208,7 @@ def collect_texts(task):
     """
     from django.db.models import Q
 
+    from . import wordcount
     from .models import ChatAttachment
 
     translated = ""
@@ -225,8 +226,7 @@ def collect_texts(task):
 
     source = "\n\n".join(
         extract_text(a.file, a.original_name)
-        for message in task.source_messages.prefetch_related("attachments")
-        for a in message.attachments.all()
+        for a in wordcount.source_attachments(task)
     ).strip()
     return source, translated
 

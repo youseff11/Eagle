@@ -772,6 +772,19 @@ def share_files_quietly(task, room):
         return []
 
 
+def task_inbounds(task):
+    """Every client message a task was made from.
+
+    A message belongs to the *first* task made from it (``InboundMessage.task``).
+    A second request on the same material - the same contract, another
+    language - does not take the message away from the first; it holds the
+    files through ``source_files`` instead. So "this task's messages" is both.
+    """
+    return InboundMessage.objects.filter(
+        Q(task=task) | Q(attachments__tasks=task)
+    ).distinct()
+
+
 def share_source_files(task, room=None):
     """Put the client's original files into a room - the task group by default.
 
@@ -798,8 +811,14 @@ def share_source_files(task, room=None):
     # does not say where the files go has nowhere to put them.
     if room is None:
         return []
+    # Already shared *for this task*. The same message can be the material
+    # of two tasks now, and sharing it for the first must not stop it being
+    # shared for the second. Rows from before the link existed (task NULL)
+    # still count, so nothing old is posted twice.
     already = set(
-        room.messages.filter(inbound__isnull=False).values_list("inbound_id", flat=True)
+        room.messages.filter(inbound__isnull=False)
+        .filter(Q(task=task) | Q(task__isnull=True))
+        .values_list("inbound_id", flat=True)
     )
     # When the operation ticked specific files while making the task, only
     # those cross. Nothing ticked means everything, which is what every task
@@ -807,7 +826,7 @@ def share_source_files(task, room=None):
     picked = set(task.source_files.values_list("id", flat=True))
 
     shared = []
-    for inbound in task.source_messages.prefetch_related("attachments"):
+    for inbound in task_inbounds(task).prefetch_related("attachments"):
         files = list(inbound.attachments.all())
         if picked:
             files = [f for f in files if f.id in picked]
@@ -930,6 +949,7 @@ def group_thread(room, user, limit=200):
     # Ticks on the viewer's own messages: seen by the others, or - in a room
     # that relays - read on the client's phone.
     receipts = room_receipts(room, user, rows) if user is not None else {}
+    reacts = reactions_for("message", [row.id for row in rows], user)
     items = []
     for row in rows:
         if row.is_system:
@@ -959,6 +979,8 @@ def group_thread(room, user, limit=200):
             "receipt": receipt,
             "seen_by": seen_by,
             "forwarded": row.forwarded,
+            "reactions": reacts.get(row.id, []),
+            "reactions_sig": reactions_sig(reacts.get(row.id, [])),
         })
     return items
 
@@ -1846,8 +1868,11 @@ def create_task(*, client, title, created_by, description="", deadline=None,
         status=TaskStatus.NEW,
     )
     for message in messages or []:
-        message.task = task
-        message.save(update_fields=["task"])
+        # A message already behind a task stays with that one: a new request
+        # on the same material reaches its files through ``source_files``.
+        if message.task_id is None:
+            message.task = task
+            message.save(update_fields=["task"])
     log(created_by, "task.create", task.code)
     return task
 
@@ -2475,6 +2500,13 @@ def client_thread(client, user, limit=200):
 
     items.sort(key=lambda entry: entry["at"])
     _resolve_quotes(items)
+    # Reactions, one query per side.
+    ins = reactions_for("inbound", [e["id"] for e in items if e["kind"] == "in"], user)
+    outs = reactions_for("outbound", [e["id"] for e in items if e["kind"] == "out"], user)
+    for entry in items:
+        found = (ins if entry["kind"] == "in" else outs).get(entry["id"], [])
+        entry["reactions"] = found
+        entry["reactions_sig"] = reactions_sig(found)
     return items
 
 
@@ -3175,6 +3207,115 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
     if relay_error:
         return False, f"اتحوّلت للجروب بس مروحتش للعميل: {relay_error}"[:300], url
     return True, "", url
+
+
+# ---------------------------------------------------------------------------
+# Reactions
+# ---------------------------------------------------------------------------
+
+#: (key, icon in the sprite, Arabic, English), in the order the picker shows
+#: them. Icons rather than emoji: the codebase carries no emoji (verify.py),
+#: and a drawn icon follows the theme like everything else on the page.
+REACTIONS = (
+    ("like", "thumbs-up", "لايك", "Like"),
+    ("love", "heart", "حب", "Love"),
+    ("laugh", "smile", "ضحك", "Laugh"),
+    ("wow", "surprised", "واو", "Wow"),
+    ("sad", "frown", "زعلان", "Sad"),
+    ("done", "check-circle", "تمام", "Done"),
+)
+_REACTION_ORDER = {key: index for index, (key, *_rest) in enumerate(REACTIONS)}
+_REACTION_ICON = {key: icon for key, icon, _ar, _en in REACTIONS}
+
+
+def reactions_for(field, ids, viewer):
+    """{target id: [{kind, icon, count, mine, who}]} for the ids given.
+
+    ``field`` is "message", "inbound" or "outbound" - which kind of row the
+    ids are. One query for a whole thread.
+    """
+    from .models import ChatReaction
+
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    rows = (
+        ChatReaction.objects.filter(**{f"{field}_id__in": ids})
+        .select_related("user").order_by("created_at")
+    )
+    grouped = {}
+    for row in rows:
+        target = getattr(row, f"{field}_id")
+        kinds = grouped.setdefault(target, {})
+        entry = kinds.setdefault(row.kind, {
+            "kind": row.kind, "icon": _REACTION_ICON.get(row.kind, "thumbs-up"),
+            "count": 0, "mine": False, "who": [],
+        })
+        entry["count"] += 1
+        entry["who"].append(row.user.short_name)
+        if viewer is not None and row.user_id == viewer.pk:
+            entry["mine"] = True
+    return {
+        target: sorted(kinds.values(), key=lambda e: _REACTION_ORDER.get(e["kind"], 99))
+        for target, kinds in grouped.items()
+    }
+
+
+def reactions_sig(reactions):
+    """A short fingerprint of a message's reactions, so a poll redraws the
+    bubble when they change - and only then. Same in the template and JS."""
+    return ",".join(
+        f"{r['kind']}{r['count']}{'m' if r['mine'] else ''}" for r in reactions or []
+    )
+
+
+def toggle_reaction(user, source_code, uid, kind):
+    """React to one message. Returns ``(ok, error_ar, reactions)``.
+
+    Same one again takes it back; a different one replaces it. The message is
+    looked up *inside* the conversation it is said to be from, so an id from
+    somewhere this person cannot see finds nothing.
+    """
+    from .models import ChatReaction
+
+    if kind not in _REACTION_ORDER:
+        return False, "رياكت مش معروف.", []
+    source = _chat_ref(user, source_code)
+    if source is None:
+        return False, "المحادثة دي مش متاحة ليك.", []
+    side, _, raw = str(uid or "").rpartition("-")
+    if not raw.isdigit():
+        return False, "الرسالة مش موجودة.", []
+    pk = int(raw)
+    where, target = source
+    field, row = None, None
+    if where == "client":
+        if side == "in":
+            field, row = "inbound", _wa_inbound(target, user).filter(pk=pk).first()
+        elif side == "out":
+            field, row = "outbound", OutboundMessage.objects.filter(pk=pk, client=target).first()
+    elif side == f"g{target.pk}":
+        field, row = "message", target.messages.filter(pk=pk, is_system=False).first()
+    if row is None:
+        return False, "الرسالة مش موجودة.", []
+
+    lookup = {"user": user, field: row}
+    existing = ChatReaction.objects.filter(**lookup).first()
+    if existing is not None and existing.kind == kind:
+        existing.delete()
+    elif existing is not None:
+        existing.kind = kind
+        existing.save(update_fields=["kind"])
+    else:
+        from django.db import IntegrityError
+
+        try:
+            with transaction.atomic():
+                ChatReaction.objects.create(kind=kind, **lookup)
+        except IntegrityError:
+            # A double tap raced itself; the first one stands.
+            pass
+    return True, "", reactions_for(field, [row.pk], user).get(row.pk, [])
 
 
 def send_client_message(client, user, body="", uploads=None, voice=None,

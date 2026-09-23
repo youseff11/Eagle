@@ -645,13 +645,36 @@ def _source_messages(request):
 
 @role_required(Role.OPERATION)
 def ops_task_new(request):
+    source = request.POST if request.method == "POST" else request.GET
+
+    # "طلب جديد على نفس الملفات": a new task on a finished (or running) one's
+    # material - the same contract into another language, say. It starts
+    # from that task's messages and files; everything else is a fresh task.
+    from_code = (request.GET.get("from") or request.POST.get("from") or "").strip()
+    from_task = Task.objects.filter(code=from_code).select_related("client").first() \
+        if from_code else None
+
     messages = _source_messages(request)
+    if from_task is not None and not messages:
+        messages = list(
+            services.task_inbounds(from_task).select_related("client")
+            .prefetch_related("attachments").order_by("received_at", "id")
+        )
+        if not request.user.is_admin_role:
+            messages = [m for m in messages if not m.is_rate_blocked]
     message = messages[0] if messages else None
 
     # Which of the client's files the operation ticked. Nothing ticked means
     # all of them, which is what it meant before the picker existed.
-    source = request.POST if request.method == "POST" else request.GET
-    picked = _picked_attachments(messages, source.getlist("files"))
+    raw_files = source.getlist("files")
+    if from_task is not None and not raw_files:
+        raw_files = [str(a.pk) for a in services.task_source_files(from_task)]
+    picked = _picked_attachments(messages, raw_files)
+    # A message already behind a task stays with it (services.create_task),
+    # so a new task on it has to name its files - "nothing ticked" would
+    # otherwise leave it with none at all.
+    if not picked and any(m.task_id for m in messages):
+        picked = [a for m in messages for a in m.attachments.all()]
     picked_ids = ",".join(str(row.pk) for row in picked)
 
     initial = {}
@@ -674,6 +697,13 @@ def ops_task_new(request):
             "title": title.strip(),
             "description": description,
         }
+    if from_task is not None:
+        initial.update({
+            "client": from_task.client_id,
+            "title": f"طلب جديد — {from_task.title}"[:200],
+            "description": services.clean_client_text(from_task.description),
+            "source_lang": from_task.source_lang,
+        })
 
     form = TaskForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
@@ -704,6 +734,7 @@ def ops_task_new(request):
         "quick_languages": QUICK_LANGUAGES,
         "source_message": message,
         "source_messages": messages,
+        "from_task": from_task,
         "picked_files": picked,
         "picked_ids": picked_ids,
     })
@@ -879,9 +910,10 @@ def task_detail(request, code):
         "client_channel": services.client_channel(task.client),
         "client_reachable": bool(task.client.phone or task.client.email),
         "source_messages": (
-            task.source_messages.prefetch_related("attachments")
+            services.task_inbounds(task).prefetch_related("attachments")
             if (user.is_operation or user.is_admin_role) else []
         ),
+        "can_new_request": user.is_operation or user.is_admin_role,
         # The job's files, at the top of the page, for everyone on the task.
         # Files only - the client's messages (their name, their number) stay
         # in the operation's card further down.

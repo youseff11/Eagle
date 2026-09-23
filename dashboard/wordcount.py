@@ -201,9 +201,17 @@ def _sum_attachments(attachments):
 
 
 def source_attachments(task):
-    """The files the client sent, through the messages this task came from."""
+    """The client's files this task is about.
+
+    The ones ticked when it was made - which is also how a second request on
+    the same material holds its files - and otherwise every file on the
+    messages it came from.
+    """
     from .models import MessageAttachment
 
+    picked = task.source_files.select_related("message")
+    if picked.exists():
+        return picked
     return MessageAttachment.objects.filter(message__task=task).select_related("message")
 
 

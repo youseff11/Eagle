@@ -934,6 +934,8 @@ def _thread_entry_json(entry, viewer):
         "receipt": entry.get("receipt", ""),
         "seen_by": entry.get("seen_by", []),
         "forwarded": entry.get("forwarded", False),
+        "reactions": entry.get("reactions", []),
+        "reactions_sig": entry.get("reactions_sig", ""),
     }
 
 
@@ -1069,6 +1071,22 @@ def client_chat_list(request):
     # Newest activity first.
     items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
     return JsonResponse({"ok": True, "items": items})
+
+
+@login_required
+@require_POST
+def chat_react(request):
+    """Like, love... on one message. Same one again takes it back."""
+    ok, error, reactions = services.toggle_reaction(
+        request.user,
+        request.POST.get("source", ""),
+        request.POST.get("uid", ""),
+        request.POST.get("kind", ""),
+    )
+    return JsonResponse({
+        "ok": ok, "error": error, "uid": request.POST.get("uid", ""),
+        "reactions": reactions, "reactions_sig": services.reactions_sig(reactions),
+    }, status=200 if ok else 400)
 
 
 @login_required

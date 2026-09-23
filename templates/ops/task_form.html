@@ -12,6 +12,17 @@
   <div class="card">
     <form method="post">
       {% csrf_token %}
+      {% if from_task %}
+        <input type="hidden" name="from" value="{{ from_task.code }}">
+        <div class="note mt" style="margin-bottom:12px">
+          {% icon "layers" %}
+          <div>
+            <span data-ar="طلب جديد على نفس ملفات" data-en="A new request on the files of">طلب جديد على نفس ملفات</span>
+            <a class="mono" href="{% url 'dashboard:task_detail' from_task.code %}">{{ from_task.code }}</a>
+            — <span data-ar="التاسك القديمة مش بتتلمس." data-en="The old task is left as it is.">التاسك القديمة مش بتتلمس.</span>
+          </div>
+        </div>
+      {% endif %}
       {% if source_message %}
         {% for row in source_messages %}
           <input type="hidden" name="messages" value="{{ row.pk }}">

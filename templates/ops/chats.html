@@ -296,6 +296,21 @@
         </div>
       {% endif %}
 
+      {% comment %}
+      The reaction picker - one, moved next to whichever bubble asked for it
+      (the smile button on hover, or a long press on a phone). Internal only:
+      nothing here reaches a client's WhatsApp.
+      {% endcomment %}
+      <div class="react-picker hidden" id="reactPicker" role="menu"
+           data-url="{% url 'dashboard:api_chat_react' %}">
+        <button type="button" data-react-pick="like" title="لايك" data-ar-title="لايك" data-en-title="Like">{% icon "thumbs-up" %}</button>
+        <button type="button" data-react-pick="love" title="حب" data-ar-title="حب" data-en-title="Love">{% icon "heart" %}</button>
+        <button type="button" data-react-pick="laugh" title="ضحك" data-ar-title="ضحك" data-en-title="Laugh">{% icon "smile" %}</button>
+        <button type="button" data-react-pick="wow" title="واو" data-ar-title="واو" data-en-title="Wow">{% icon "surprised" %}</button>
+        <button type="button" data-react-pick="sad" title="زعلان" data-ar-title="زعلان" data-en-title="Sad">{% icon "frown" %}</button>
+        <button type="button" data-react-pick="done" title="تمام" data-ar-title="تمام" data-en-title="Done">{% icon "check-circle" %}</button>
+      </div>
+
       {# Forwarding: tap bubbles to pick them, then choose where they go. #}
       <div class="cchat__pickbar hidden" id="selectBar">
         {% icon "forward" "ic--sm" %}

@@ -777,3 +777,58 @@ html.chat-locked body {
 .fwd-row__body b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fwd-row__body .muted { font-size: 11px; }
 .fwd-hint { font-size: .78rem; margin: 0 0 8px; }
+
+/* -- reactions ------------------------------------------------------------ */
+
+.bub__react { margin-inline: 0 6px; }
+.bub--out .bub__react { margin-inline: 6px 0; }
+
+/* The pills under a message: one per kind, yours marked. */
+.bub__reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-block-start: 6px; }
+.react-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.react-pill .ic { width: 15px; height: 15px; }
+.react-pill:hover { border-color: var(--brand-line); }
+.react-pill.is-mine { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+.react-pill[data-react-kind="love"] .ic { color: #e5484d; }
+
+/* The picker: fixed, placed by chat.js next to the bubble that asked. */
+.react-picker {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .25);
+}
+.react-picker.hidden { display: none; }
+.react-picker button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease;
+}
+.react-picker button .ic { width: 21px; height: 21px; }
+.react-picker button:hover { background: var(--brand-soft); color: var(--brand); transform: scale(1.18); }
+.react-picker button[data-react-pick="love"]:hover { color: #e5484d; }
+@media (prefers-reduced-motion: reduce) { .react-picker button:hover { transform: none; } }

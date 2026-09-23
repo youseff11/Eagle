@@ -59,6 +59,17 @@
   translator included - because they are what the task is about. Only the
   files: the client's own messages stay in the operation's card below.
   {% endcomment %}
+  {% if can_new_request %}
+    {% comment %}
+    The same material, a new job: another language, a second copy, a revised
+    request. Opens the new-task form already holding this task's files.
+    {% endcomment %}
+    <div class="row mt">
+      <a class="btn btn--sm" href="{% url 'dashboard:ops_task_new' %}?from={{ task.code }}">
+        {% icon "plus" "ic--sm" %}<span data-ar="طلب جديد على نفس الملفات" data-en="New request, same files">طلب جديد على نفس الملفات</span>
+      </a>
+    </div>
+  {% endif %}
   {% if task_files %}
     <div class="task-files mt">
       <div class="label">
