@@ -616,6 +616,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .preview-decide { border-color: var(--brand-line); }
 #previewSeconds.is-critical { background: var(--danger-soft); color: var(--danger); }
 
+/* One-tap languages under the task form's two language fields. */
+.lang-picks { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.lang-pick { cursor: pointer; font-family: inherit; direction: ltr; }
+.lang-pick:hover { border-color: var(--brand-line); }
+.lang-pick.is-on { background: var(--brand-soft); border-color: var(--brand); color: var(--heading); font-weight: 600; }
+
 /* --------------------------------------------------------------- the mail
    /ops/inbox/ is e-mail and nothing else, so it is shaped like a mailbox:
    one list, hairlines between letters, unread carrying weight rather than a

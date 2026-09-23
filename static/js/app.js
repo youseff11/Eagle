@@ -1326,6 +1326,39 @@ window.Eagle = (function () {
     }
   }
 
+  /* The one-tap language buttons on the task form: fill the field, and mark
+     which one is in it - typing by hand keeps the marks honest too. */
+  function initLangPicks() {
+    var picks = $$("[data-lang-pick]");
+    if (!picks.length) { return; }
+    function mark(fieldId) {
+      var field = document.getElementById(fieldId);
+      var value = field ? field.value.trim().toUpperCase() : "";
+      picks.forEach(function (btn) {
+        if (btn.getAttribute("data-lang-target") === fieldId) {
+          btn.classList.toggle("is-on", btn.getAttribute("data-lang-pick") === value);
+        }
+      });
+    }
+    var fields = {};
+    picks.forEach(function (btn) {
+      var id = btn.getAttribute("data-lang-target");
+      fields[id] = true;
+      btn.addEventListener("click", function () {
+        var field = document.getElementById(id);
+        if (!field) { return; }
+        field.value = btn.getAttribute("data-lang-pick");
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        mark(id);
+      });
+    });
+    Object.keys(fields).forEach(function (id) {
+      var field = document.getElementById(id);
+      if (field) { field.addEventListener("input", function () { mark(id); }); }
+      mark(id);
+    });
+  }
+
   function initResetTasks() {
     var form = $("#resetTasksForm");
     if (!form) { return; }
@@ -1774,6 +1807,7 @@ window.Eagle = (function () {
     initNavGroups();
     initNavSearch();
     initResetTasks();
+    initLangPicks();
     initAssignPreview();
     initDeadlineBoxes();
     initCopy();

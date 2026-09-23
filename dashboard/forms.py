@@ -264,6 +264,81 @@ class DeadlineField(forms.Field):
             return True
 
 
+#: Languages offered on the task form - (code, Arabic, English). The code is
+#: what is stored, so every task reads "EN → AR" the same way, and a list
+#: filtered by language finds all of them. Free text is still allowed: a pair
+#: that is not here can be typed, and it is then offered next time too
+#: (``language_choices``).
+LANGUAGES = (
+    ("AR", "العربية", "Arabic"),
+    ("EN", "الإنجليزية", "English"),
+    ("FR", "الفرنسية", "French"),
+    ("DE", "الألمانية", "German"),
+    ("IT", "الإيطالية", "Italian"),
+    ("ES", "الإسبانية", "Spanish"),
+    ("PT", "البرتغالية", "Portuguese"),
+    ("RU", "الروسية", "Russian"),
+    ("TR", "التركية", "Turkish"),
+    ("ZH", "الصينية", "Chinese"),
+    ("JA", "اليابانية", "Japanese"),
+    ("KO", "الكورية", "Korean"),
+    ("FA", "الفارسية", "Persian"),
+    ("UR", "الأردو", "Urdu"),
+    ("HI", "الهندية", "Hindi"),
+    ("HE", "العبرية", "Hebrew"),
+    ("NL", "الهولندية", "Dutch"),
+    ("SV", "السويدية", "Swedish"),
+    ("EL", "اليونانية", "Greek"),
+    ("PL", "البولندية", "Polish"),
+    ("ID", "الإندونيسية", "Indonesian"),
+    ("MS", "الماليزية", "Malay"),
+)
+
+#: The ones drawn as one-tap buttons under the two fields.
+QUICK_LANGUAGES = ("AR", "EN", "FR", "DE", "IT", "ES")
+
+
+def _language_code(value):
+    """"en", "English", "انجليزي", "الإنجليزية" -> "EN". Anything else as typed.
+
+    Arabic is compared with its alefs, ya and ta marbuta folded and a leading
+    "ال" dropped, so "الانجليزيه" and "إنجليزي" land on the same code.
+    """
+    import re
+
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+
+    def forms_of(text):
+        """The word with and without a leading "ال", its endings trimmed."""
+        text = re.sub(r"[\u064B-\u0652\u0640]", "", text.lower().strip())
+        text = re.sub("[\u0623\u0625\u0622]", "\u0627", text)
+        text = text.replace("\u0629", "\u0647").replace("\u0649", "\u064a")
+        out = set()
+        for word in (text, text[2:] if text.startswith("\u0627\u0644") else text):
+            out.add(re.sub(r"(\u064a\u0647|\u064a)$", "", word))
+        return out
+
+    wanted = forms_of(raw)
+    for code, ar, en in LANGUAGES:
+        if wanted & ({code.lower()} | forms_of(en) | forms_of(ar)):
+            return code
+    return raw.upper() if len(raw) <= 3 else raw
+
+
+def language_choices():
+    """The list offered in the fields: the known languages, then any other
+    value already used on a task, so a pair typed once is offered again."""
+    known = {code for code, _ar, _en in LANGUAGES}
+    rows = [{"code": code, "ar": ar, "en": en} for code, ar, en in LANGUAGES]
+    used = set()
+    for pair in Task.objects.values_list("source_lang", "target_lang").distinct()[:500]:
+        used.update(v.strip() for v in pair if v and v.strip())
+    rows += [{"code": v, "ar": v, "en": v} for v in sorted(used - known)]
+    return rows
+
+
 class TaskForm(forms.ModelForm):
     deadline = DeadlineField(required=False)
 
@@ -280,8 +355,16 @@ class TaskForm(forms.ModelForm):
             "client": forms.Select(attrs={"class": "input"}),
             "title": forms.TextInput(attrs={"class": "input"}),
             "description": forms.Textarea(attrs={"class": "input", "rows": 3}),
-            "source_lang": forms.TextInput(attrs={"class": "input", "placeholder": "EN"}),
-            "target_lang": forms.TextInput(attrs={"class": "input", "placeholder": "AR"}),
+            # ``list`` ties both to the <datalist> on the page: a dropdown of
+            # suggestions that still lets anything be typed.
+            "source_lang": forms.TextInput(attrs={
+                "class": "input", "placeholder": "EN", "list": "langOptions",
+                "autocomplete": "off", "dir": "ltr",
+            }),
+            "target_lang": forms.TextInput(attrs={
+                "class": "input", "placeholder": "AR", "list": "langOptions",
+                "autocomplete": "off", "dir": "ltr",
+            }),
             "priority": forms.Select(attrs={"class": "input"}),
             "word_count": forms.NumberInput(
                 attrs={"class": "input", "dir": "ltr", "min": 0, "placeholder": "3000"}
@@ -291,6 +374,13 @@ class TaskForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["client"].queryset = Client.objects.filter(is_active=True)
+
+    # Whatever was typed - "en", "English", "انجليزي" - is kept as the code.
+    def clean_source_lang(self):
+        return _language_code(self.cleaned_data.get("source_lang"))
+
+    def clean_target_lang(self):
+        return _language_code(self.cleaned_data.get("target_lang"))
 
 
 class ClientForm(forms.ModelForm):

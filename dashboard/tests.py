@@ -6858,3 +6858,45 @@ class AssignmentPreviewTests(TestCase):
         self.client.force_login(self.lead)
         response = self.client.post(f"/api/assignments/{self.assignment.pk}/files/")
         self.assertEqual(response.json()["url"], f"/assignments/{self.assignment.pk}/")
+
+
+class TaskLanguageTests(TestCase):
+    """Suggested languages on the task form, stored as one code whatever was typed."""
+
+    def test_whatever_is_typed_is_kept_as_the_code(self):
+        from .forms import _language_code
+
+        for typed, code in [("en", "EN"), ("English", "EN"), ("انجليزي", "EN"),
+                            ("الإنجليزية", "EN"), ("فرنسي", "FR"), ("ألماني", "DE"),
+                            ("zh", "ZH"), ("", "")]:
+            self.assertEqual(_language_code(typed), code, typed)
+
+    def test_an_unknown_language_is_kept_as_typed(self):
+        from .forms import _language_code
+
+        self.assertEqual(_language_code("Swahili"), "Swahili")
+
+    def test_a_language_already_used_is_offered_again(self):
+        from .forms import language_choices
+
+        ops = User.objects.create_user("ops_lang", password="x", role=Role.OPERATION)
+        acme = Client.objects.create(name="ACME", phone="+201000000101")
+        task = services.create_task(client=acme, title="x", created_by=ops)
+        task.source_lang = "Swahili"
+        task.save(update_fields=["source_lang"])
+        self.assertIn("Swahili", [row["code"] for row in language_choices()])
+
+    def test_the_form_offers_the_list_and_saves_the_code(self):
+        ops = User.objects.create_user("ops_lang2", password="x", role=Role.OPERATION)
+        acme = Client.objects.create(name="ACME", phone="+201000000102")
+        self.client.force_login(ops)
+        page = self.client.get("/ops/tasks/new/")
+        self.assertContains(page, 'id="langOptions"')
+        self.assertContains(page, 'data-lang-pick="FR"')
+        self.client.post("/ops/tasks/new/", {
+            "client": acme.pk, "title": "Menu", "description": "",
+            "source_lang": "english", "target_lang": "فرنسي", "priority": "normal",
+            "deadline": "", "word_count": "0",
+        })
+        task = Task.objects.latest("id")
+        self.assertEqual((task.source_lang, task.target_lang), ("EN", "FR"))

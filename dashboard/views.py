@@ -696,8 +696,12 @@ def ops_task_new(request):
         flash.success(request, f"{task.code}")
         return redirect("dashboard:task_detail", code=task.code)
 
+    from .forms import QUICK_LANGUAGES, language_choices
+
     return render(request, "ops/task_form.html", {
         "form": form,
+        "languages": language_choices(),
+        "quick_languages": QUICK_LANGUAGES,
         "source_message": message,
         "source_messages": messages,
         "picked_files": picked,

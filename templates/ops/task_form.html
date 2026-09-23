@@ -40,14 +40,37 @@
       </div>
 
       <div class="form-grid">
+        {% comment %}
+        Suggestions, not a fixed list: the dropdown offers the known languages
+        (and any pair already used on a task), the buttons fill the common
+        ones in one tap, and anything else can still be typed. Whatever is
+        typed - "en", "انجليزي" - is saved as the code (forms._language_code).
+        {% endcomment %}
         <div class="field">
           <label data-ar="من لغة" data-en="Source language">من لغة</label>
           {{ form.source_lang }}
+          <div class="lang-picks">
+            {% for code in quick_languages %}
+              <button class="chip chip--sm lang-pick" type="button"
+                      data-lang-pick="{{ code }}" data-lang-target="{{ form.source_lang.id_for_label }}">{{ code }}</button>
+            {% endfor %}
+          </div>
         </div>
         <div class="field">
           <label data-ar="للغة" data-en="Target language">للغة</label>
           {{ form.target_lang }}
+          <div class="lang-picks">
+            {% for code in quick_languages %}
+              <button class="chip chip--sm lang-pick" type="button"
+                      data-lang-pick="{{ code }}" data-lang-target="{{ form.target_lang.id_for_label }}">{{ code }}</button>
+            {% endfor %}
+          </div>
         </div>
+        <datalist id="langOptions">
+          {% for lang in languages %}
+            <option value="{{ lang.code }}">{% if lang.ar != lang.code %}{{ lang.ar }} · {{ lang.en }}{% endif %}</option>
+          {% endfor %}
+        </datalist>
         <div class="field">
           <label data-ar="الأولوية" data-en="Priority">الأولوية</label>
           {{ form.priority }}
