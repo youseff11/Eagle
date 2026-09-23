@@ -1271,6 +1271,69 @@ def _cancel_pending(task, exclude_id=None):
 
 
 @transaction.atomic
+def lead_translator_group(lead, translator):
+    """The work group of one team leader and one translator - found, or opened.
+
+    Decided 23/09/2026: a task the leader hands a translator lives in *their
+    group*, the one named "مترجم: <translator> · ليدر: <leader>", not in the
+    private one-to-one chat. The private chat stays theirs for anything else.
+
+    Found in this order, so nobody ends up with a second group for the same
+    pair: the group carrying exactly that name; else a group of just the two
+    of them; else a new one, opened the way the leader would open it by hand
+    (``create_team_group`` - same name, same note, same "you were added").
+    Archived groups are not reused.
+    """
+    title = default_team_group_name(lead, [translator])
+    rooms = list(
+        ChatRoom.objects.filter(kind=RoomKind.TEAM, is_archived=False, members=lead)
+        .filter(members=translator).order_by("id")
+    )
+    for room in rooms:
+        if room.title == title:
+            return room
+    for room in rooms:
+        if room.members.count() == 2:
+            return room
+    room, _error = create_team_group(lead, title, [translator])
+    return room
+
+
+def room_url_for(room, viewer):
+    """Where this room opens on the chats page, for this person.
+
+    A staff chat opens by the *other* person's id (``/ops/chats/u/<id>/``);
+    a group by its own (``/ops/chats/g/<id>/``). Linking a staff chat by
+    ``g/<id>`` - which the hand-off prompt used to - is a 404.
+    """
+    if room is None:
+        return ""
+    if room.kind == RoomKind.STAFF:
+        other = room.other_member(viewer)
+        return f"/ops/chats/u/{other.pk}/" if other else ""
+    return f"/ops/chats/g/{room.id}/"
+
+
+def pair_room(one, two):
+    """Where a task step between these two people is written.
+
+    A team leader and a translator: their work group (see
+    ``lead_translator_group``). Anyone else: the one-to-one chat, as before.
+    """
+    if one is None or two is None or one.pk == two.pk:
+        return None
+    lead, translator = None, None
+    if one.is_team_lead and two.is_translator:
+        lead, translator = one, two
+    elif two.is_team_lead and one.is_translator:
+        lead, translator = two, one
+    if lead is not None:
+        room = lead_translator_group(lead, translator)
+        if room is not None:
+            return room
+    return staff_room(one, two)
+
+
 def task_thread(task, one, two):
     """The chat a task's step happens in: the two people doing that step.
 
@@ -1285,7 +1348,7 @@ def task_thread(task, one, two):
     if one is None or two is None or one.pk == two.pk:
         return None
     try:
-        return staff_room(one, two)
+        return pair_room(one, two)
     except Exception:  # noqa: BLE001 - a note must never undo a step
         logger.exception("could not open the thread for %s", task.code)
         return None
@@ -1314,16 +1377,19 @@ def tag_task_message(message):
     wrong client, and a wrong answer here is worse than no answer.
     """
     room = message.room
-    if room.kind != RoomKind.STAFF or message.sender_id is None:
+    # A staff chat, or a work group - the leader and translator's group is
+    # where a handed-over task lives now (``lead_translator_group``).
+    if room.kind not in (RoomKind.STAFF, RoomKind.TEAM) or message.sender_id is None:
         return None
     # No file, no deliverable. The guard lives here rather than in the caller:
     # a rule that only holds while every caller remembers it is not a rule.
     if not message.attachments.exists():
         return None
-    other = room.members.exclude(pk=message.sender_id).first()
-    if other is None:
+    # Everyone in the room has to be on the task: a group with a third person
+    # in it could be about anything, and guessing is what this refuses to do.
+    pair = set(room.members.values_list("pk", flat=True)) | {message.sender_id}
+    if len(pair) < 2:
         return None
-    pair = {message.sender_id, other.pk}
     candidates = [
         task for task in Task.objects.filter(
             status__in=ACTIVE_TASK_STATUSES
@@ -1374,7 +1440,7 @@ def notify_in_chat(to_user, from_user, *, body_ar, body_en, key):
     if to_user is None or from_user is None or to_user.pk == from_user.pk:
         return None
     try:
-        room = staff_room(from_user, to_user)
+        room = pair_room(from_user, to_user)
         if room is None:
             return None
         return system_message(room, key=key, body_ar=body_ar, body_en=body_en)
@@ -1399,7 +1465,7 @@ def post_handoff(assignment, by_user):
     if by_user is None or assignment.assignee_id == getattr(by_user, "pk", None):
         return None
     try:
-        room = staff_room(by_user, assignment.assignee)
+        room = pair_room(by_user, assignment.assignee)
         if room is None:
             return None
         system_message(

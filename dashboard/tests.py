@@ -68,7 +68,8 @@ class WorkflowTests(TestCase):
         # between whichever two people are carrying each step.
         self.assertEqual(task.rooms.count(), 0)
         with_lead = services.staff_room(self.ops, self.lead)
-        with_translator = services.staff_room(self.lead, self.tr)
+        # Leader and translator work in their group, not the private chat.
+        with_translator = services.lead_translator_group(self.lead, self.tr)
         self.assertTrue(with_lead.messages.exists())
         self.assertTrue(with_translator.messages.exists())
         # The rule that room carried still holds, and holds harder: there is
@@ -3092,8 +3093,8 @@ class TaskWithoutAGroupTests(TestCase):
         self.task.refresh_from_db()
 
     def _hand_back(self, name="translated.docx"):
-        """The translator sending the finished file in the leader's chat."""
-        room = services.staff_room(self.tr, self.lead)
+        """The translator sending the finished file in the leader's group."""
+        room = services.lead_translator_group(self.lead, self.tr)
         message = self.ChatMessage.objects.create(room=room, sender=self.tr, body="")
         self.ChatAttachment.objects.create(
             message=message, file=self.ContentFile(b"done", name=name),
@@ -3111,7 +3112,8 @@ class TaskWithoutAGroupTests(TestCase):
     def test_the_work_happens_in_the_two_chats_instead(self):
         self._run_to_translator()
         with_lead = services.staff_room(self.ops, self.lead)
-        with_translator = services.staff_room(self.lead, self.tr)
+        # Leader and translator work in their group, not the private chat.
+        with_translator = services.lead_translator_group(self.lead, self.tr)
         self.assertTrue(with_lead.messages.exists())
         self.assertTrue(with_translator.messages.exists())
         names = [
@@ -3150,7 +3152,7 @@ class TaskWithoutAGroupTests(TestCase):
 
     def test_ordinary_talk_is_never_tagged(self):
         self._run_to_translator()
-        room = services.staff_room(self.tr, self.lead)
+        room = services.lead_translator_group(self.lead, self.tr)
         message = self.ChatMessage.objects.create(
             room=room, sender=self.tr, body="صباح الخير"
         )
@@ -3288,8 +3290,9 @@ class SuggestionsArchiveAndHeaderTests(TestCase):
 
     def test_nothing_is_written_into_the_shared_room(self):
         self._notes()
-        room = services.staff_room(self.lead, self.tr)
-        blob = " ".join(m.body for m in room.messages.all())
+        rooms = [services.staff_room(self.lead, self.tr),
+                 services.lead_translator_group(self.lead, self.tr)]
+        blob = " ".join(m.body for room in rooms for m in room.messages.all())
         self.assertNotIn("رقم مختلف", blob)
 
     def test_the_panel_is_drawn_in_the_lead_chat(self):
@@ -3573,7 +3576,7 @@ class HandoffInChatTests(TestCase):
         assignment = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(assignment, self.tr)
         services.mark_translated(self.task, self.tr)
-        room = services.staff_room(self.tr, self.lead)
+        room = services.lead_translator_group(self.lead, self.tr)
         blob = " ".join(m.body for m in room.messages.all())
         self.assertIn(self.task.code, blob)
         self.assertIn("جاهزة للمراجعة", blob)
@@ -5546,7 +5549,9 @@ class FilesArriveOnHandoffTests(TestCase):
         ), message
 
     def _files_in(self, one, two):
-        room = services.staff_room(one, two)
+        # Where the task's step between these two is written: the leader and
+        # translator's group, or the private chat for anyone else.
+        room = services.pair_room(one, two)
         return list(room.messages.filter(inbound__isnull=False)) if room else []
 
     # -- the hand-off itself ----------------------------------------------
@@ -5606,7 +5611,7 @@ class FilesArriveOnHandoffTests(TestCase):
         task.refresh_from_db()
         assignment = services.assign_to_translator(task, self.tr, self.lead)
 
-        room = services.staff_room(self.lead, self.tr)
+        room = services.pair_room(self.lead, self.tr)
         room.messages.filter(inbound__isnull=False).delete()
 
         services.accept_assignment(assignment, self.tr)
@@ -6537,3 +6542,110 @@ class TaskPageFilesTests(TestCase):
         form = response.context["form"]
         self.assertNotIn("[document]", form.initial["title"])
         self.assertEqual(form.initial["description"], "")
+
+
+class LeadTranslatorGroupTests(TestCase):
+    """A task handed to a translator lives in the leader and translator's
+    group - "مترجم: <translator> · ليدر: <leader>" - not their private chat."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, ChatRoom, InboundMessage, MessageAttachment, RoomKind
+
+        self.ChatRoom, self.RoomKind = ChatRoom, RoomKind
+        self.ops = User.objects.create_user("ops_lg", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user(
+            "lead_lg", password="x", role=Role.TEAM_LEAD, first_name="Omar",
+        )
+        self.tr = User.objects.create_user(
+            "tr_lg", password="x", role=Role.TRANSLATOR, first_name="Soska",
+            team_lead=self.lead,
+        )
+        self.acme = Client.objects.create(name="ACME", phone="+201000000097")
+        inbound = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="[document]",
+            sender_identity="+201000000097",
+        )
+        MessageAttachment.objects.create(
+            message=inbound, file=ContentFile(b"c", name="contract.pdf"),
+            original_name="contract.pdf", size=1,
+        )
+        self.task = services.create_task(
+            client=self.acme, title="Contract", created_by=self.ops, messages=[inbound],
+        )
+        services.accept_assignment(
+            services.assign_to_lead(self.task, self.lead, self.ops), self.lead
+        )
+        self.task.refresh_from_db()
+
+    def _hand_over(self):
+        return services.assign_to_translator(self.task, self.tr, self.lead)
+
+    def _group(self):
+        return self.ChatRoom.objects.get(kind=self.RoomKind.TEAM)
+
+    def test_the_hand_over_opens_the_named_group(self):
+        assignment = self._hand_over()
+        group = self._group()
+        self.assertEqual(assignment.room_id, group.pk)
+        self.assertEqual(group.title, "مترجم: Soska · ليدر: Omar")
+        self.assertEqual(
+            sorted(group.members.values_list("pk", flat=True)),
+            sorted([self.lead.pk, self.tr.pk]),
+        )
+
+    def test_the_files_go_to_the_group_and_not_the_private_chat(self):
+        services.accept_assignment(self._hand_over(), self.tr)
+        names = [f.original_name for m in self._group().messages.all() for f in m.relay_files]
+        self.assertIn("contract.pdf", names)
+        private = services.staff_room(self.lead, self.tr)
+        self.assertFalse(private.messages.filter(inbound__isnull=False).exists())
+
+    def test_an_existing_group_is_reused(self):
+        existing, _e = services.create_team_group(self.lead, "مترجم: Soska · ليدر: Omar", [self.tr])
+        assignment = self._hand_over()
+        self.assertEqual(assignment.room_id, existing.pk)
+        self.assertEqual(self.ChatRoom.objects.filter(kind=self.RoomKind.TEAM).count(), 1)
+
+    def test_a_group_of_just_the_two_under_another_name_is_reused(self):
+        existing, _e = services.create_team_group(self.lead, "Soska + me", [self.tr])
+        self.assertEqual(self._hand_over().room_id, existing.pk)
+
+    def test_a_bigger_group_is_not_taken_for_theirs(self):
+        crowd, _e = services.create_team_group(self.lead, "Everyone", [self.tr, self.ops])
+        self.assertNotEqual(self._hand_over().room_id, crowd.pk)
+
+    def test_the_translators_file_in_the_group_is_tagged_with_the_task(self):
+        from django.core.files.base import ContentFile
+        from .models import ChatAttachment, ChatMessage
+
+        services.accept_assignment(self._hand_over(), self.tr)
+        message = ChatMessage.objects.create(room=self._group(), sender=self.tr, body="")
+        ChatAttachment.objects.create(
+            message=message, file=ContentFile(b"t", name="translated.docx"),
+            original_name="translated.docx", size=1,
+        )
+        services.tag_task_message(message)
+        message.refresh_from_db()
+        self.assertEqual(message.task_id, self.task.pk)
+
+    def test_the_way_back_up_is_written_in_the_group(self):
+        services.accept_assignment(self._hand_over(), self.tr)
+        services.mark_translated(self.task, self.tr)
+        blob = " ".join(self._group().messages.values_list("body", flat=True))
+        self.assertIn(self.task.code, blob)
+
+    def test_the_prompt_links_the_group(self):
+        from .api import _pending_json
+
+        assignment = self._hand_over()
+        self.assertEqual(
+            _pending_json(assignment, self.tr)["files_url"],
+            f"/ops/chats/g/{self._group().pk}/",
+        )
+
+    def test_the_operation_and_the_leader_still_talk_privately(self):
+        # Only a leader and a translator get a group. The step above them is
+        # still the one-to-one chat.
+        room = services.pair_room(self.ops, self.lead)
+        self.assertEqual(room.kind, self.RoomKind.STAFF)

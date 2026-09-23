@@ -509,6 +509,12 @@ def ops_group_chat(request, room_id):
                               .order_by("role", "username")[:200],
         "has_selection": True,
     })
+    # A leader's group with one translator is where that translator's tasks
+    # are handed over now, so the AI's notes on what they sent for review
+    # belong here too - still for the leader's eyes only.
+    translators = [m for m in members if m.is_translator]
+    if room.is_team_group and user.is_team_lead and len(translators) == 1:
+        context["ai_notes"] = services.ai_suggestions_for(user, translators[0])
     return render(request, "ops/chats.html", context)
 
 
