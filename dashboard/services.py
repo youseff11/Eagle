@@ -19,6 +19,7 @@ from .models import (
     AssignmentStatus,
     AuditLog,
     Channel,
+    ChatAttachment,
     ChatMessage,
     ChatRead,
     ChatRoom,
@@ -957,6 +958,7 @@ def group_thread(room, user, limit=200):
             "mine": user is not None and row.sender_id == user.pk,
             "receipt": receipt,
             "seen_by": seen_by,
+            "forwarded": row.forwarded,
         })
     return items
 
@@ -972,13 +974,33 @@ def _quote_text(message):
     return text[:160]
 
 
+def _room_last_preview(room, user, last):
+    """The list snippet for a room's newest message, with the same ticks the
+    bubble inside shows.
+
+    Only your own message gets ticks - the list used to put a check in front
+    of anybody's, and a single grey one at that, while the conversation
+    itself already showed two blue ones. Same rule on both sides now.
+    """
+    text = last.body or _attachment_snippet(last.relay_files)
+    mine = user is not None and last.sender_id == user.pk
+    receipt = ""
+    if mine:
+        receipt = room_receipts(room, user, [last]).get(last.id, ("", []))[0]
+    return {
+        "text": text[:70], "at": last.created_at, "outgoing": mine,
+        "status": last.relay_status or "", "receipt": receipt, "mine": mine,
+    }
+
+
 def group_preview(room, user):
     """The snippet shown for a group in the conversation list."""
-    last = room.messages.order_by("-id").first()
+    last = room.messages.exclude(is_system=True).order_by("-id").first()
+    if last is None:
+        last = room.messages.order_by("-id").first()
     if last is None:
         return {"text": "", "at": room.created_at, "outgoing": False}
-    text = last.body or _attachment_snippet(last.relay_files)
-    return {"text": text[:70], "at": last.created_at, "outgoing": not last.from_client}
+    return _room_last_preview(room, user, last)
 
 
 def default_team_group_name(creator, people):
@@ -1116,12 +1138,7 @@ def staff_conversations(viewer, query=""):
         if room is not None:
             last = room.messages.order_by("-id").first()
             if last is not None:
-                text = last.body or _attachment_snippet(last.relay_files)
-                preview = {
-                    "text": text[:70],
-                    "at": last.created_at,
-                    "outgoing": last.sender_id == viewer.pk,
-                }
+                preview = _room_last_preview(room, viewer, last)
         rows.append({"person": person, "room": room, "preview": preview})
 
     # Two passes rather than one sort with a stand-in date: a person never
@@ -2278,11 +2295,18 @@ def conversation_preview(client, user):
         client.deliveries.filter(channel=Channel.WHATSAPP)
         .prefetch_related("uploads").order_by("-created_at").first()
     )
-    if out and last and out.created_at > last.received_at:
+    # An outbound with nothing from the client before it is still the last
+    # thing said - it used to fall through and leave the row blank.
+    if out and (last is None or out.created_at > last.received_at):
         text = out.body or _attachment_snippet(out.uploads.all())
         if text == "—" and out.file_count:
             text = f"{out.file_count} ملف"
-        return {"text": text[:70], "at": out.created_at, "outgoing": True}
+        # The same ticks as the bubble: one grey, two grey, two blue.
+        return {
+            "text": text[:70], "at": out.created_at, "outgoing": True,
+            "status": out.status, "mine": True,
+            "receipt": out.wa_receipt if out.status == OutboundMessage.Status.SENT else "",
+        }
     if last:
         text = last.body or _attachment_snippet(last.attachments.all())
         return {"text": text[:70], "at": last.received_at, "outgoing": False}
@@ -2660,10 +2684,252 @@ def record_whatsapp_status(wamid, status, error=""):
     return touched
 
 
+# ---------------------------------------------------------------------------
+# Forwarding
+# ---------------------------------------------------------------------------
+#
+# Messages and files pass from one conversation to another the way WhatsApp
+# forwards: the same file (the stored one - nothing is copied), a "محوّلة"
+# tag, the forwarder as the sender. Two rules decided with the owner on
+# 23/09/2026 hold it in place:
+#
+# * A client's own words travel only to a chat where everyone may read a
+#   client's words (operation and admin). Anywhere else - a translator, a team
+#   leader - the files go and the text stays behind, the same rule
+#   ``share_source_files`` has always followed.
+# * A client's file never goes to a *different* client. Forwarding to a client
+#   is for the operation and the admin only.
+
+
+def _chat_ref(user, code, create_staff=False):
+    """``("room", room)`` / ``("client", client)`` for a chats-page code, or None.
+
+    The codes are the ones the page already uses: ``g12`` a group, ``u5`` the
+    staff chat with user 5, ``CL-0002`` a client's WhatsApp conversation. Only
+    a conversation this person can open resolves.
+    """
+    import re
+
+    code = (code or "").strip()
+    if re.fullmatch(r"g\d+", code):
+        room = ChatRoom.objects.filter(
+            pk=int(code[1:]), kind__in=CHAT_ROOM_KINDS
+        ).select_related("task", "client").first()
+        if room is None or not room.can_access(user):
+            return None
+        if room.task_id and not room.task.can_view(user):
+            return None
+        return ("room", room)
+    if re.fullmatch(r"u\d+", code):
+        other = User.objects.filter(pk=int(code[1:]), is_active=True).first()
+        if other is None or other.pk == user.pk:
+            return None
+        if create_staff:
+            room = staff_room(user, other)
+        else:
+            room = ChatRoom.objects.filter(pair_key=staff_pair_key(user.pk, other.pk)).first()
+        return ("room", room) if room is not None else None
+    if code and (user.is_operation or user.is_admin_role):
+        client = Client.objects.filter(code=code).first()
+        if client is not None:
+            return ("client", client)
+    return None
+
+
+def _forward_items(user, source, uids, attachment_ids):
+    """What was picked, re-read from the source conversation, in thread order.
+
+    Every id comes from the browser, so each one is looked up again *inside*
+    the conversation it claims to be from: an id belonging somewhere else
+    simply finds nothing. Each item is ``{"at", "text", "text_owner",
+    "files": [(attachment, owner_client_id)]}`` - the owners are what the two
+    rules above are checked against.
+    """
+    from .models import MessageAttachment
+
+    kind, target = source
+    items, seen_files = [], set()
+
+    def add(at, text, text_owner, files):
+        fresh = []
+        for attachment, owner in files:
+            key = (attachment.__class__.__name__, attachment.pk)
+            if key not in seen_files:
+                seen_files.add(key)
+                fresh.append((attachment, owner))
+        items.append({"at": at, "text": (text or "").strip(),
+                      "text_owner": text_owner, "files": fresh})
+
+    for uid in uids or []:
+        side, _, raw = str(uid).rpartition("-")
+        if not raw.isdigit():
+            continue
+        pk = int(raw)
+        if kind == "client":
+            client = target
+            if side == "in":
+                row = _wa_inbound(client, user).filter(pk=pk).first()
+                if row is not None:
+                    add(row.received_at, row.body, client.pk,
+                        [(a, client.pk) for a in row.attachments.all()])
+            elif side == "out":
+                row = OutboundMessage.objects.filter(pk=pk, client=client).first()
+                if row is not None:
+                    add(row.created_at, row.body, client.pk,
+                        [(a, client.pk) for a in row.uploads.all()])
+        elif side == f"g{target.pk}":
+            row = target.messages.filter(pk=pk, is_system=False).select_related(
+                "inbound"
+            ).first()
+            if row is None:
+                continue
+            if row.from_client:
+                owner = row.inbound.client_id
+                files = [(a, owner) for a in row.relay_files]
+            else:
+                owner = row.origin_client_id
+                files = [(a, getattr(a, "origin_client_id", None) or owner)
+                         for a in row.relay_files]
+            add(row.created_at, row.body, owner, files)
+
+    if kind == "client" and attachment_ids:
+        client = target
+        rows = MessageAttachment.objects.filter(
+            pk__in=[int(x) for x in attachment_ids if str(x).isdigit()],
+            message__client=client, message__channel=Channel.WHATSAPP,
+        ).select_related("message")
+        if not user.is_admin_role:
+            rows = rows.filter(message__is_rate_blocked=False)
+        for row in rows.order_by("message__received_at", "id"):
+            add(row.message.received_at, "", client.pk, [(row, client.pk)])
+
+    items.sort(key=lambda item: item["at"])
+    return [item for item in items if item["text"] or item["files"]]
+
+
+def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
+    """Forward messages and/or files. Returns ``(ok, error_ar, url)``."""
+    source = _chat_ref(user, source_code)
+    if source is None:
+        return False, "المحادثة دي مش متاحة ليك.", ""
+    target = _chat_ref(user, target_code, create_staff=True)
+    if target is None:
+        return False, "اختار شات تحوّل له.", ""
+    if target[0] == "room" and target[1].kind not in CHAT_ROOM_KINDS:
+        return False, "مينفعش تحوّل للجروب ده.", ""
+
+    items = _forward_items(user, source, uids, attachment_ids)
+    if not items:
+        return False, "اختار رسالة أو ملف الأول.", ""
+    note = (note or "").strip()[:2000]
+
+    if target[0] == "client":
+        client = target[1]
+        if not (user.is_operation or user.is_admin_role):
+            return False, "التحويل للعميل للأوبريشن بس.", ""
+        owners = {item["text_owner"] for item in items if item["text"]}
+        owners |= {owner for item in items for _f, owner in item["files"]}
+        owners.discard(None)
+        if owners - {client.pk}:
+            return False, "مينفعش تحوّل رسايل أو ملفات عميل لعميل تاني.", ""
+        if note:
+            ok, _out, error = send_client_message(
+                client, user, body=note, force_channel=Channel.WHATSAPP
+            )
+            if not ok:
+                return False, error, ""
+        for item in items:
+            ok, _out, error = send_client_message(
+                client, user, body=item["text"],
+                reuse_files=[f for f, _owner in item["files"]],
+                force_channel=Channel.WHATSAPP,
+            )
+            if not ok:
+                return False, error, ""
+        log(user, "chat.forward", client.code, f"{len(items)} item(s)")
+        return True, "", f"/ops/chats/{client.code}/"
+
+    room = target[1]
+    # A group that relays to a client is a group like any other (23/09/2026),
+    # but what lands in it goes on to that client's WhatsApp - so the client
+    # rule holds here exactly as it does for a 1:1 client conversation.
+    relays_to = room.relay_client if room.reaches_client else None
+    if room.reaches_client:
+        if relays_to is None:
+            return False, "الجروب ده مش مربوط بعميل.", ""
+        owners = {item["text_owner"] for item in items if item["text"]}
+        owners |= {owner for item in items for _f, owner in item["files"]}
+        owners.discard(None)
+        if owners - {relays_to.pk}:
+            return False, "مينفعش تحوّل رسايل أو ملفات عميل لجروب عميل تاني.", ""
+    members = list(room.members.all())
+    # Everyone in the room may read a client's own words - or nobody gets them.
+    all_inbox = all(m.is_operation or m.is_admin_role for m in members)
+
+    written = []
+    if note:
+        written.append(ChatMessage.objects.create(room=room, sender=user, body=note))
+    for item in items:
+        text = item["text"]
+        if text and item["text_owner"] is not None and not all_inbox:
+            text = ""
+        if not text and not item["files"]:
+            continue
+        message = ChatMessage.objects.create(
+            room=room, sender=user, body=text, forwarded=True,
+            origin_client_id=item["text_owner"],
+        )
+        for attachment, owner in item["files"]:
+            ChatAttachment.objects.create(
+                message=message, file=attachment.file.name,
+                original_name=attachment.original_name
+                or attachment.file.name.rsplit("/", 1)[-1],
+                size=attachment.size or 0, origin_client_id=owner,
+            )
+        written.append(message)
+
+    if not [m for m in written if m.forwarded]:
+        return False, (
+            "كلام العميل مابيتحولش للشات ده، والرسايل اللي اخترتها مفيهاش ملفات."
+        ), ""
+
+    relay_error = ""
+    if relays_to is not None:
+        # Out to the client, one by one, the same way a message typed in the
+        # group goes. A failure stays on the bubble (relay_status), and the
+        # first one is reported back.
+        for message in written:
+            ok, error = relay_chat_message(message)
+            if not ok and not relay_error:
+                relay_error = error
+
+    mark_room_read(user, room)
+    where = room.title_for(user)
+    url = f"/ops/chats/g/{room.id}/" if room.kind != RoomKind.STAFF else ""
+    for member in members:
+        if member.pk == user.pk:
+            continue
+        notify(
+            member, level="info",
+            title_ar="رسايل محوّلة", title_en="Forwarded messages",
+            body_ar=f"{user.short_name} حوّلك {len(written)} رسالة في {where}.",
+            body_en=f"{user.short_name} forwarded {len(written)} message(s) in {where}.",
+            url=url or f"/ops/chats/u/{user.pk}/",
+        )
+    if room.kind == RoomKind.STAFF:
+        other = room.other_member(user)
+        url = f"/ops/chats/u/{other.pk}/" if other else ""
+    log(user, "chat.forward", f"room {room.id}", f"{len(written)} message(s)")
+    if relay_error:
+        return False, f"اتحوّلت للجروب بس مروحتش للعميل: {relay_error}"[:300], url
+    return True, "", url
+
+
 def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
                         reply_preview="", force_channel="", subject="",
-                        in_reply_to="", references=(), thread_key=""):
+                        in_reply_to="", references=(), thread_key="",
+                        reuse_files=None):
     """Free-form reply to a client on whichever channel they used last.
 
     ``force_channel`` names the line instead of guessing it. The two pages are
@@ -2684,6 +2950,10 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     elsewhere — the client room passes its ChatAttachments through it so the
     same file is not saved twice.
 
+    ``reuse_files`` are attachment rows already stored (a forward): the new
+    outbound row points at the same stored file instead of a copy, so the
+    thread still links it and nothing is uploaded twice.
+
     Returns ``(ok, outbound, error_ar)``. Nothing is ever silently dropped —
     a failure is stored as a FAILED row so it stays visible in the thread.
     """
@@ -2693,9 +2963,10 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     from .models import OutboundAttachment, OutboundMessage
 
     uploads = list(uploads or [])
+    reuse_files = list(reuse_files or [])
     extra_files = list(extra_files or [])
     body = (body or "").strip()
-    if not body and not uploads and not extra_files and voice is None:
+    if not body and not uploads and not reuse_files and not extra_files and voice is None:
         return False, None, "مفيش حاجة تتبعت."
 
     conf = AppSettings.load()
@@ -2722,6 +2993,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         }
 
     names = [item.name for item in uploads]
+    names.extend(item.original_name or item.file.name.rsplit("/", 1)[-1] for item in reuse_files)
     names.extend(name for name, _content, _mime in extra_files)
     if recording:
         names.append(recording["name"])
@@ -2743,6 +3015,14 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         )
         for item in uploads
     ]
+    stored.extend(
+        OutboundAttachment.objects.create(
+            message=outbound, file=item.file.name,
+            original_name=item.original_name or item.file.name.rsplit("/", 1)[-1],
+            size=item.size or 0, mime=getattr(item, "mime", "") or "",
+        )
+        for item in reuse_files
+    )
     if recording:
         stored.append(OutboundAttachment.objects.create(
             message=outbound,
@@ -2769,7 +3049,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         return False, outbound, outbound.error_message
 
     # The recording is already in memory — no point fetching it back from the CDN.
-    payload = [_read_attachment(a) for a in stored[:len(uploads)]]
+    payload = [_read_attachment(a) for a in stored[:len(uploads) + len(reuse_files)]]
     payload.extend(extra_files)
     if recording:
         payload.append((recording["name"], recording["content"], recording["mime"]))

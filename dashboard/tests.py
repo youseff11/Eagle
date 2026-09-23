@@ -6052,3 +6052,308 @@ class MultiFileTaskTests(TestCase):
         html = response.content.decode()
         box = html[html.index(f'value="{self.stamps.pk}"'):][:200]
         self.assertIn("disabled", box)
+
+
+class ListTicksTests(TestCase):
+    """The ticks in the chats list match the ones inside the conversation."""
+
+    def setUp(self):
+        from .models import Channel, OutboundMessage
+
+        self.ops = User.objects.create_user("ops_lt", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_lt", password="x", role=Role.TRANSLATOR)
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000080")
+        # The chats list is the WhatsApp line: a client appears in it once
+        # they have written. They write first, we answer after.
+        from .models import InboundMessage
+
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="hello",
+            sender_identity="+201000000080",
+            received_at=timezone.now() - timedelta(minutes=5),
+        )
+        self.out = OutboundMessage.objects.create(
+            client=self.client_obj, kind=OutboundMessage.Kind.CHAT,
+            channel=Channel.WHATSAPP, body="done", provider_id="wamid.lt",
+            status=OutboundMessage.Status.SENT,
+        )
+
+    def test_an_answer_with_nothing_before_it_is_still_the_preview(self):
+        from .models import InboundMessage
+
+        InboundMessage.objects.filter(client=self.client_obj).delete()
+        preview = services.conversation_preview(self.client_obj, self.ops)
+        self.assertTrue(preview["outgoing"])
+        self.assertEqual(preview["text"], "done")
+
+    def test_the_client_preview_carries_the_receipt(self):
+        services.record_whatsapp_status("wamid.lt", "read")
+        preview = services.conversation_preview(self.client_obj, self.ops)
+        self.assertTrue(preview["outgoing"])
+        self.assertEqual(preview["receipt"], "read")
+
+    def test_the_list_api_carries_it_too(self):
+        services.record_whatsapp_status("wamid.lt", "delivered")
+        self.client.force_login(self.ops)
+        items = self.client.get("/api/client-chats/?type=clients").json()["items"]
+        row = next(i for i in items if i["code"] == self.client_obj.code)
+        self.assertEqual(row["receipt"], "delivered")
+
+    def test_a_staff_preview_turns_blue_when_read(self):
+        from .models import ChatMessage
+
+        room = services.staff_room(self.ops, self.tr)
+        ChatMessage.objects.create(room=room, sender=self.ops, body="there?")
+        row = next(r for r in services.staff_conversations(self.ops) if r["person"] == self.tr)
+        self.assertEqual(row["preview"]["receipt"], "")
+        services.mark_room_read(self.tr, room)
+        row = next(r for r in services.staff_conversations(self.ops) if r["person"] == self.tr)
+        self.assertEqual(row["preview"]["receipt"], "read")
+
+    def test_the_page_draws_the_double_tick_in_the_list(self):
+        from .models import Channel, InboundMessage
+
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="hi",
+            sender_identity="+201000000080",
+        )
+        self.out.created_at = timezone.now() + timedelta(minutes=1)
+        self.out.save(update_fields=["created_at"])
+        services.record_whatsapp_status("wamid.lt", "read")
+        self.client.force_login(self.ops)
+        html = self.client.get("/ops/chats/?type=clients").content.decode()
+        listing = html[html.index('id="threadList"'):html.index("cchat__room")]
+        self.assertIn("tick--read", listing)
+
+
+class ForwardTests(TestCase):
+    """Messages and files from one chat to another - and the two rules."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import Channel, ChatAttachment, ChatMessage, InboundMessage, MessageAttachment
+
+        self.ops = User.objects.create_user("ops_fw", password="x", role=Role.OPERATION)
+        self.ops2 = User.objects.create_user("ops_fw2", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_fw", password="x", role=Role.TRANSLATOR)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000081")
+        self.other = Client.objects.create(name="OTHER", phone="+201000000082")
+        self.inbound = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP,
+            body="I am Ahmed, 0100 123 4567", sender_identity="+201000000081",
+        )
+        self.contract = MessageAttachment.objects.create(
+            message=self.inbound, file=ContentFile(b"c", name="contract.pdf"),
+            original_name="contract.pdf", size=1,
+        )
+        self.staff = services.staff_room(self.ops, self.tr)
+        self.internal = ChatMessage.objects.create(
+            room=self.staff, sender=self.tr, body="translation attached",
+        )
+        self.translated = ChatAttachment.objects.create(
+            message=self.internal, file=ContentFile(b"t", name="translated.docx"),
+            original_name="translated.docx", size=1,
+        )
+        self.ChatMessage = ChatMessage
+
+    def _forwarded(self, room):
+        return list(room.messages.filter(forwarded=True))
+
+    def test_a_client_file_reaches_the_translator_without_the_clients_words(self):
+        ok, error, _url = services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.tr.pk}", uids=[f"in-{self.inbound.pk}"],
+        )
+        self.assertTrue(ok, error)
+        rows = self._forwarded(self.staff)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].body, "")
+        self.assertNotIn("0100", rows[0].body)
+        self.assertEqual([a.original_name for a in rows[0].attachments.all()], ["contract.pdf"])
+        self.assertEqual(rows[0].attachments.get().file.name, self.contract.file.name)
+
+    def test_to_an_operation_colleague_the_text_goes_too(self):
+        ok, _error, _url = services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.ops2.pk}", uids=[f"in-{self.inbound.pk}"],
+        )
+        self.assertTrue(ok)
+        room = services.staff_room(self.ops, self.ops2)
+        self.assertIn("Ahmed", self._forwarded(room)[0].body)
+
+    def test_a_client_message_with_only_text_does_not_go_to_a_translator(self):
+        from .models import Channel, InboundMessage
+
+        words = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="call me",
+            sender_identity="+201000000081",
+        )
+        ok, error, _url = services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.tr.pk}", uids=[f"in-{words.pk}"],
+        )
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        self.assertEqual(self._forwarded(self.staff), [])
+
+    def test_several_messages_and_a_note(self):
+        room, _e = services.create_team_group(self.ops, "Work", [self.ops2])
+        ok, _error, _url = services.forward_to_chat(
+            self.ops, f"u{self.tr.pk}", f"g{room.id}",
+            uids=[f"g{self.staff.id}-{self.internal.pk}"], note="please check",
+        )
+        self.assertTrue(ok)
+        bodies = list(room.messages.filter(is_system=False).values_list("body", "forwarded"))
+        self.assertEqual(bodies, [("please check", False), ("translation attached", True)])
+
+    def test_picked_files_can_be_forwarded_on_their_own(self):
+        ok, _error, _url = services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.tr.pk}", attachment_ids=[self.contract.pk],
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(self._forwarded(self.staff)), 1)
+
+    def test_an_id_from_another_conversation_finds_nothing(self):
+        from .models import Channel, InboundMessage
+
+        stranger = InboundMessage.objects.create(
+            client=self.other, channel=Channel.WHATSAPP, body="x",
+            sender_identity="+201000000082",
+        )
+        ok, _error, _url = services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.ops2.pk}", uids=[f"in-{stranger.pk}"],
+        )
+        self.assertFalse(ok)
+
+    def test_an_internal_file_can_go_to_the_client(self):
+        from unittest import mock
+        from .models import OutboundMessage
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.t"), \
+                mock.patch("dashboard.whatsapp.send_file", return_value="wamid.f"):
+            ok, error, url = services.forward_to_chat(
+                self.ops, f"u{self.tr.pk}", self.acme.code,
+                uids=[f"g{self.staff.id}-{self.internal.pk}"],
+            )
+        self.assertTrue(ok, error)
+        out = OutboundMessage.objects.filter(client=self.acme).latest("id")
+        self.assertEqual([a.original_name for a in out.uploads.all()], ["translated.docx"])
+        self.assertEqual(url, f"/ops/chats/{self.acme.code}/")
+
+    def test_one_clients_file_never_reaches_another_client(self):
+        # ACME's contract goes to the translator first...
+        services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.tr.pk}", uids=[f"in-{self.inbound.pk}"],
+        )
+        relayed = self._forwarded(self.staff)[0]
+        # ...and from there must not be able to walk on to OTHER.
+        ok, error, _url = services.forward_to_chat(
+            self.ops, f"u{self.tr.pk}", self.other.code,
+            uids=[f"g{self.staff.id}-{relayed.pk}"],
+        )
+        self.assertFalse(ok)
+        self.assertIn("عميل", error)
+
+    def test_a_translator_cannot_forward_to_a_client(self):
+        ok, _error, _url = services.forward_to_chat(
+            self.tr, f"u{self.ops.pk}", self.acme.code,
+            uids=[f"g{self.staff.id}-{self.internal.pk}"],
+        )
+        self.assertFalse(ok)
+
+    def test_a_chat_you_are_not_in_is_not_a_source(self):
+        ok, _error, _url = services.forward_to_chat(
+            self.ops2, f"u{self.tr.pk}", f"u{self.ops.pk}",
+            uids=[f"g{self.staff.id}-{self.internal.pk}"],
+        )
+        # ops2 has no chat with tr yet, so there is nothing to forward from.
+        self.assertFalse(ok)
+
+    def test_the_endpoint(self):
+        self.client.force_login(self.ops)
+        response = self.client.post("/api/chats/forward/", {
+            "source": self.acme.code, "target": f"u{self.tr.pk}",
+            "uids": [f"in-{self.inbound.pk}"],
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["url"], f"/ops/chats/u/{self.tr.pk}/")
+
+    def test_the_bubble_says_forwarded(self):
+        services.forward_to_chat(
+            self.ops, self.acme.code, f"u{self.tr.pk}", uids=[f"in-{self.inbound.pk}"],
+        )
+        self.client.force_login(self.tr)
+        response = self.client.get(f"/ops/chats/u/{self.ops.pk}/")
+        self.assertContains(response, "bub__fwdtag")
+        self.assertNotContains(response, "0100 123 4567")
+
+
+class PickByDayTests(TestCase):
+    """Every bubble carries its day, which is what the day filter reads."""
+
+    def test_bubbles_carry_their_date(self):
+        from .models import Channel, InboundMessage
+
+        ops = User.objects.create_user("ops_day", password="x", role=Role.OPERATION)
+        client_obj = Client.objects.create(name="ACME", phone="+201000000083")
+        InboundMessage.objects.create(
+            client=client_obj, channel=Channel.WHATSAPP, body="hi",
+            sender_identity="+201000000083",
+        )
+        self.client.force_login(ops)
+        response = self.client.get(f"/ops/chats/{client_obj.code}/")
+        today = timezone.localtime().strftime("%Y-%m-%d")
+        self.assertContains(response, f'data-date="{today}"')
+        self.assertContains(response, 'id="pickDay"')
+
+
+class ForwardToAnyGroupTests(TestCase):
+    """Forwarding goes to any group - and a group that reaches a client
+    carries it on to that client's WhatsApp, under the client rules."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from .models import ChatAttachment, ChatMessage, ChatRoom, RoomKind
+
+        self.ops = User.objects.create_user("ops_fg", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("tr_fg", password="x", role=Role.TRANSLATOR)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000091")
+        self.other = Client.objects.create(name="OTHER", phone="+201000000092")
+        self.group = ChatRoom.objects.create(kind=RoomKind.CLIENT, client=self.acme, title="ACME")
+        self.group.members.add(self.ops)
+        self.staff = services.staff_room(self.ops, self.tr)
+        self.internal = ChatMessage.objects.create(room=self.staff, sender=self.tr, body="done")
+        ChatAttachment.objects.create(
+            message=self.internal, file=ContentFile(b"t", name="translated.docx"),
+            original_name="translated.docx", size=1,
+        )
+
+    def test_it_lands_in_the_group_and_goes_on_to_the_client(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.t") as text, \
+                mock.patch("dashboard.whatsapp.send_file", return_value="wamid.f"):
+            ok, error, url = services.forward_to_chat(
+                self.ops, f"u{self.tr.pk}", f"g{self.group.id}",
+                uids=[f"g{self.staff.id}-{self.internal.pk}"],
+            )
+        self.assertTrue(ok, error)
+        self.assertEqual(url, f"/ops/chats/g/{self.group.id}/")
+        row = self.group.messages.get(forwarded=True)
+        self.assertEqual(row.relay_status, "sent")
+        self.assertTrue(text.called)
+
+    def test_another_clients_file_cannot_go_into_the_group(self):
+        from .models import Channel, InboundMessage, MessageAttachment
+        from django.core.files.base import ContentFile
+
+        inbound = InboundMessage.objects.create(
+            client=self.other, channel=Channel.WHATSAPP, body="x",
+            sender_identity="+201000000092",
+        )
+        MessageAttachment.objects.create(
+            message=inbound, file=ContentFile(b"s", name="secret.pdf"),
+            original_name="secret.pdf", size=1,
+        )
+        ok, error, _url = services.forward_to_chat(
+            self.ops, self.other.code, f"g{self.group.id}", uids=[f"in-{inbound.pk}"],
+        )
+        self.assertFalse(ok)
+        self.assertFalse(self.group.messages.filter(forwarded=True).exists())

@@ -87,6 +87,11 @@
     if (msg.status === "failed") { cls += " bub--failed"; }
 
     var parts = [];
+    if (msg.forwarded) {
+      parts.push('<div class="bub__fwdtag">' + icon("forward", "ic--sm") +
+        '<span data-ar="محوّلة" data-en="Forwarded">' +
+        esc(E.t("محوّلة", "Forwarded")) + "</span></div>");
+    }
     if (msg.quote) {
       parts.push('<div class="bub__quote">' +
         (msg.quote_who ? "<b>" + esc(msg.quote_who) + "</b>" : "") +
@@ -169,11 +174,16 @@
     if (msg.error) { parts.push('<div class="bub__error">' + esc(msg.error) + "</div>"); }
 
     return '<div class="' + cls + '" data-uid="' + esc(msg.uid) + '"' +
+      ' data-date="' + esc(msg.date || "") + '"' +
       ' data-body="' + esc((msg.body || "").slice(0, 90)) + '"' +
       ' data-who="' + esc(msg.kind === "in" ? "العميل" : (msg.sender || "")) + '">' +
       '<button class="bub__reply" type="button" data-reply="' + esc(msg.uid) + '" ' +
         'data-ar-title="رد" data-en-title="Reply" title="' + esc(E.t("رد", "Reply")) + '">' +
         icon("reply", "ic--sm") + "</button>" +
+      '<button class="bub__reply bub__fwd" type="button" data-forward="' + esc(msg.uid) + '" ' +
+        'data-ar-title="تحويل" data-en-title="Forward" title="' + esc(E.t("تحويل", "Forward")) + '">' +
+        icon("forward", "ic--sm") + "</button>" +
+      '<span class="bub__sel" aria-hidden="true">' + icon("check", "ic--sm") + "</span>" +
       '<div class="bub__box">' + parts.join("") + "</div></div>";
   }
 
@@ -247,6 +257,7 @@
 
     if (added && stick) { toBottom(); }
     restorePicks();
+    restoreSelection();
     return added;
   }
 
@@ -340,8 +351,10 @@
         var snippet = row.querySelector(".cthread__snippet");
         var time = row.querySelector(".cthread__time");
         if (snippet) {
-          snippet.innerHTML = (item.outgoing ? icon("check", "ic--sm") : "") +
-            E.escapeHtml(item.text);
+          // The same ticks the bubble inside carries - see _ticks.html.
+          snippet.innerHTML = (item.outgoing
+            ? ticksHtml({ status: item.status, receipt: item.receipt, mine: true })
+            : "") + E.escapeHtml(item.text);
         }
         if (time) { time.textContent = item.time; }
         drawUnread(row, item);
@@ -480,7 +493,7 @@
   if (stream) {
     stream.addEventListener("click", function (event) {
       var button = event.target.closest && event.target.closest(".bub__reply");
-      if (button) { setReply(button.closest(".bub")); }
+      if (button && !button.classList.contains("bub__fwd")) { setReply(button.closest(".bub")); }
     });
   }
 
@@ -975,8 +988,9 @@
     var n = Object.keys(picked).length;
     if (pickCount) { pickCount.textContent = String(n); }
     if (pickConvert) { pickConvert.disabled = n === 0; }
+    if (pickForwardBtn) { pickForwardBtn.disabled = n === 0; }
     if (pickAll) {
-      var free = pickBoxes().filter(function (box) { return !box.disabled; });
+      var free = dayBoxes();
       var all = free.length > 0 && free.every(function (box) { return box.checked; });
       pickAll.textContent = all ? E.t("شيل الكل", "Clear all") : E.t("تحديد الكل", "Select all");
       pickAll.dataset.ar = all ? "شيل الكل" : "تحديد الكل";
@@ -984,11 +998,85 @@
     }
   }
 
+  /* -- one day's files ---------------------------------------------------- */
+
+  var pickDay = document.getElementById("pickDay");
+  var pickForwardBtn = document.getElementById("pickForward");
+
+  function boxDay(box) {
+    var bubble = box.closest && box.closest(".bub");
+    return bubble ? (bubble.dataset.date || "") : "";
+  }
+
+  /** The free boxes inside the chosen day (every day when none is chosen). */
+  function dayBoxes() {
+    var day = pickDay ? pickDay.value : "";
+    return pickBoxes().filter(function (box) {
+      return !box.disabled && (!day || boxDay(box) === day);
+    });
+  }
+
+  function isoDay(date) {
+    return date.getFullYear() + "-" + ("0" + (date.getMonth() + 1)).slice(-2) +
+      "-" + ("0" + date.getDate()).slice(-2);
+  }
+
+  function dayLabel(day) {
+    var now = new Date();
+    var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (day === isoDay(now)) { return E.t("النهارده", "Today"); }
+    if (day === isoDay(yesterday)) { return E.t("امبارح", "Yesterday"); }
+    var bits = day.split("-");
+    return bits.length === 3 ? bits[2] + "/" + bits[1] + "/" + bits[0] : day;
+  }
+
+  /* The days on offer are the days that actually have a file to tick, newest
+     first, each with how many. Rebuilt on every poll so a file that arrives
+     today adds itself; the chosen day is kept. */
+  function fillDays() {
+    if (!pickDay) { return; }
+    var counts = {};
+    pickBoxes().forEach(function (box) {
+      if (box.disabled) { return; }
+      var day = boxDay(box);
+      if (day) { counts[day] = (counts[day] || 0) + 1; }
+    });
+    var chosen = pickDay.value;
+    var days = Object.keys(counts).sort().reverse();
+    pickDay.innerHTML = '<option value="">' + E.escapeHtml(E.t("كل الأيام", "All days")) +
+      "</option>" + days.map(function (day) {
+        return '<option value="' + E.escapeHtml(day) + '">' +
+          E.escapeHtml(dayLabel(day) + " (" + counts[day] + ")") + "</option>";
+      }).join("");
+    pickDay.value = counts[chosen] ? chosen : "";
+  }
+
+  if (pickDay) {
+    pickDay.addEventListener("change", function () {
+      // A day is a selection on its own: that day's files, and nothing else.
+      var day = pickDay.value;
+      picked = {};
+      if (day) {
+        dayBoxes().forEach(function (box) { picked[box.value] = box.dataset.message; });
+        var first = dayBoxes()[0];
+        if (first && first.scrollIntoView) { first.scrollIntoView({ block: "center" }); }
+      }
+      restorePicks();
+      drawPickBar();
+    });
+  }
+
+  if (pickForwardBtn) {
+    pickForwardBtn.addEventListener("click", function () {
+      openForward([], Object.keys(picked));
+    });
+  }
+
   function restorePicks() {
     pickBoxes().forEach(function (box) {
       box.checked = !box.disabled && !!picked[box.value];
     });
-    if (picking()) { drawPickBar(); }
+    if (picking()) { fillDays(); drawPickBar(); }
   }
 
   function setPicking(on) {
@@ -997,7 +1085,8 @@
     pickBar.classList.toggle("hidden", !on);
     if (composer) { composer.classList.toggle("hidden", on); }
     if (pickToggle) { pickToggle.classList.toggle("is-on", on); }
-    if (!on) { picked = {}; }
+    if (on) { setSelecting(false); }
+    if (!on) { picked = {}; if (pickDay) { pickDay.value = ""; } }
     restorePicks();
     drawPickBar();
   }
@@ -1019,7 +1108,7 @@
 
   if (pickAll) {
     pickAll.addEventListener("click", function () {
-      var free = pickBoxes().filter(function (box) { return !box.disabled; });
+      var free = dayBoxes();
       var all = free.length > 0 && free.every(function (box) { return box.checked; });
       free.forEach(function (box) {
         box.checked = !all;
@@ -1043,6 +1132,208 @@
         "messages=" + encodeURIComponent(messages.join(",")) +
         "&files=" + encodeURIComponent(files.join(","));
     });
+  }
+
+  /* ---------------------------------------------- forward messages/files */
+
+  /* "تحويل رسايل" (or the arrow on a bubble) turns the conversation into a
+     list you tap: each tap picks or drops a message. The bar underneath sends
+     the picked ones to another chat. Links, players and buttons inside a
+     bubble keep working - only a tap on the bubble itself picks it. */
+
+  var selectToggle = document.getElementById("selectToggle");
+  var selectBar = document.getElementById("selectBar");
+  var selectCount = document.getElementById("selectCount");
+  var selectCancel = document.getElementById("selectCancel");
+  var selectForward = document.getElementById("selectForward");
+  var selected = [];            // bubble uids, in the order they were picked
+
+  function selecting() {
+    return !!(stream && stream.classList.contains("is-selecting"));
+  }
+
+  function drawSelectBar() {
+    if (selectCount) { selectCount.textContent = String(selected.length); }
+    if (selectForward) { selectForward.disabled = selected.length === 0; }
+  }
+
+  function restoreSelection() {
+    if (!stream) { return; }
+    stream.querySelectorAll(".bub[data-uid]").forEach(function (bubble) {
+      bubble.classList.toggle("is-selected", selected.indexOf(bubble.dataset.uid) !== -1);
+    });
+  }
+
+  function setSelecting(on, firstUid) {
+    if (!stream || !selectBar) { return; }
+    if (on && picking()) { setPicking(false); }
+    stream.classList.toggle("is-selecting", on);
+    selectBar.classList.toggle("hidden", !on);
+    if (composer) { composer.classList.toggle("hidden", on || picking()); }
+    if (selectToggle) { selectToggle.classList.toggle("is-on", on); }
+    selected = on && firstUid ? [firstUid] : [];
+    restoreSelection();
+    drawSelectBar();
+  }
+
+  if (selectToggle) {
+    selectToggle.addEventListener("click", function () { setSelecting(!selecting()); });
+  }
+  if (selectCancel) { selectCancel.addEventListener("click", function () { setSelecting(false); }); }
+  if (selectForward) {
+    selectForward.addEventListener("click", function () { openForward(selected.slice(), []); });
+  }
+
+  if (stream) {
+    stream.addEventListener("click", function (event) {
+      var target = event.target;
+      var fwd = target.closest && target.closest("[data-forward]");
+      if (fwd) {
+        event.preventDefault();
+        if (!selecting()) { setSelecting(true, fwd.getAttribute("data-forward")); }
+        return;
+      }
+      if (!selecting()) { return; }
+      if (target.closest && target.closest("a, button, audio, input, .voice")) { return; }
+      var bubble = target.closest && target.closest(".bub[data-uid]");
+      if (!bubble) { return; }
+      var uid = bubble.dataset.uid;
+      var at = selected.indexOf(uid);
+      if (at === -1) { selected.push(uid); } else { selected.splice(at, 1); }
+      restoreSelection();
+      drawSelectBar();
+    });
+  }
+
+  /* -- where it goes ------------------------------------------------------ */
+
+  var fwdModal = document.getElementById("forwardModal");
+  var fwdList = document.getElementById("forwardList");
+  var fwdSearch = document.getElementById("forwardSearch");
+  var fwdNote = document.getElementById("forwardNote");
+  var fwdSend = document.getElementById("forwardSend");
+  var fwdError = document.getElementById("forwardError");
+  var fwdCount = document.getElementById("forwardCount");
+  var fwdWhat = { uids: [], files: [] };
+  var fwdTargets = [];
+  var fwdChosen = "";
+
+  function fwdFetch(kind) {
+    var url = fwdModal.dataset.listUrl;
+    return E.get(url + (url.indexOf("?") === -1 ? "?" : "&") + "type=" + kind)
+      .then(function (res) { return (res && res.ok && res.items) || []; })
+      .catch(function () { return []; });
+  }
+
+  function drawTargets() {
+    if (!fwdList) { return; }
+    var q = (fwdSearch ? fwdSearch.value : "").trim().toLowerCase();
+    var rows = fwdTargets.filter(function (item) {
+      return item.code !== activeCode &&
+        (!q || (item.label || "").toLowerCase().indexOf(q) !== -1 ||
+          (item.code || "").toLowerCase().indexOf(q) !== -1);
+    });
+    if (!rows.length) {
+      fwdList.innerHTML = '<div class="muted">' +
+        E.escapeHtml(E.t("مفيش نتايج.", "Nothing matches.")) + "</div>";
+      return;
+    }
+    fwdList.innerHTML = rows.map(function (item) {
+      var face = item.group ? icon("users", "ic--sm")
+        : item.staff ? E.escapeHtml(item.initials || "?")
+        : E.escapeHtml((item.code || "").slice(3));
+      var kind = item.group
+        ? (item.reaches_client ? E.t("جروب مع العميل", "Group with the client")
+          : E.t("جروب", "Group"))
+        : item.staff ? E.t("زميل", "Colleague") : E.t("عميل · واتساب", "Client · WhatsApp");
+      return '<label class="fwd-row' + (item.code === fwdChosen ? " is-on" : "") + '">' +
+        '<input type="radio" name="fwdTarget" value="' + E.escapeHtml(item.code) + '"' +
+          (item.code === fwdChosen ? " checked" : "") + ">" +
+        '<span class="avatar ' + (item.group ? "avatar--group" : item.staff ? "avatar--staff" : "avatar--brand") +
+          '">' + face + "</span>" +
+        '<span class="fwd-row__body"><b>' + E.escapeHtml(item.label || item.code) + "</b>" +
+        '<span class="muted">' + E.escapeHtml(kind) + "</span></span></label>";
+    }).join("");
+  }
+
+  function openForward(uids, files) {
+    if (!fwdModal) { return; }
+    if (!uids.length && !files.length) { return; }
+    fwdWhat = { uids: uids, files: files };
+    fwdChosen = "";
+    if (fwdSend) { fwdSend.disabled = true; }
+    if (fwdError) { fwdError.textContent = ""; }
+    if (fwdNote) { fwdNote.value = ""; }
+    if (fwdSearch) { fwdSearch.value = ""; }
+    if (fwdCount) { fwdCount.textContent = String(uids.length + files.length); }
+    fwdModal.classList.remove("hidden");
+    var kinds = ["staff", "groups"];
+    if (fwdModal.dataset.clients) { kinds.push("clients"); }
+    Promise.all(kinds.map(fwdFetch)).then(function (lists) {
+      fwdTargets = [];
+      lists.forEach(function (items) {
+        items.forEach(function (item) {
+          // Every group in the Groups tab. One that reaches a client gets
+          // the client rules on the server (no other client's files).
+          fwdTargets.push(item);
+        });
+      });
+      drawTargets();
+    });
+  }
+
+  function closeForward() {
+    if (fwdModal) { fwdModal.classList.add("hidden"); }
+  }
+
+  if (fwdModal) {
+    ["forwardClose", "forwardCancel"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { el.addEventListener("click", closeForward); }
+    });
+    fwdModal.addEventListener("click", function (event) {
+      if (event.target === fwdModal) { closeForward(); }
+    });
+    if (fwdSearch) { fwdSearch.addEventListener("input", drawTargets); }
+    if (fwdList) {
+      fwdList.addEventListener("change", function (event) {
+        if (event.target && event.target.name === "fwdTarget") {
+          fwdChosen = event.target.value;
+          if (fwdSend) { fwdSend.disabled = !fwdChosen; }
+          drawTargets();
+        }
+      });
+    }
+    if (fwdSend) {
+      fwdSend.addEventListener("click", function () {
+        if (!fwdChosen) { return; }
+        var data = new FormData();
+        data.append("source", activeCode);
+        data.append("target", fwdChosen);
+        data.append("note", fwdNote ? fwdNote.value : "");
+        fwdWhat.uids.forEach(function (uid) { data.append("uids", uid); });
+        if (fwdWhat.files.length) { data.append("files", fwdWhat.files.join(",")); }
+        fwdSend.disabled = true;
+        E.post(fwdModal.dataset.url, data).then(function (res) {
+          if (res && res.ok) {
+            closeForward();
+            setSelecting(false);
+            setPicking(false);
+            E.toast({ level: "success", title: E.t("اتحوّلت", "Forwarded") });
+            if (res.url) { window.location.href = res.url; }
+            return;
+          }
+          if (fwdError) {
+            fwdError.textContent = (res && res.error) ||
+              E.t("مقدرتش أحوّل.", "Could not forward.");
+          }
+        }).catch(function () {
+          if (fwdError) { fwdError.textContent = E.t("مشكلة في الاتصال", "Connection problem"); }
+        }).then(function () {
+          fwdSend.disabled = !fwdChosen;
+        });
+      });
+    }
   }
 
   /* --------------------------------------------------------------- init */

@@ -932,6 +932,7 @@ def _thread_entry_json(entry, viewer):
         "mine": entry.get("mine", False),
         "receipt": entry.get("receipt", ""),
         "seen_by": entry.get("seen_by", []),
+        "forwarded": entry.get("forwarded", False),
     }
 
 
@@ -944,6 +945,8 @@ def _conversation_json(client, viewer, unread=0):
         "label": client.label_for(viewer),
         "text": preview["text"],
         "outgoing": preview["outgoing"],
+        "status": preview.get("status", ""),
+        "receipt": preview.get("receipt", ""),
         "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         # The 24-hour rule is a WhatsApp rule — e-mail has no such window.
@@ -971,6 +974,8 @@ def _group_json(room, viewer, unread=0):
             "client_code": "",
             "text": preview["text"],
             "outgoing": preview["outgoing"],
+            "status": preview.get("status", ""),
+            "receipt": preview.get("receipt", ""),
             "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
             "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
             "channel": "",
@@ -989,6 +994,8 @@ def _group_json(room, viewer, unread=0):
         "client_code": client.code if client else "",
         "text": preview["text"],
         "outgoing": preview["outgoing"],
+        "status": preview.get("status", ""),
+        "receipt": preview.get("receipt", ""),
         "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         "channel": services.client_channel(client) if client else "",
@@ -1032,6 +1039,8 @@ def client_chat_list(request):
                 "client_code": "",
                 "text": preview["text"],
                 "outgoing": preview["outgoing"],
+                "status": preview.get("status", ""),
+                "receipt": preview.get("receipt", ""),
                 "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
                 "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
                 "channel": "",
@@ -1059,6 +1068,30 @@ def client_chat_list(request):
     # Newest activity first.
     items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
     return JsonResponse({"ok": True, "items": items})
+
+
+@login_required
+@require_POST
+def chat_forward(request):
+    """Forward picked messages and/or files from one chat to another.
+
+    ``source`` / ``target`` are the chats-page codes (``CL-0002``, ``g12``,
+    ``u5``); ``uids`` the bubbles, ``files`` client attachment ids from the
+    "select files" mode. Every rule - who may send where, what text may
+    travel - lives in ``services.forward_to_chat``.
+    """
+    uids = [u for u in request.POST.getlist("uids") if u]
+    files = []
+    for value in request.POST.getlist("files"):
+        files += [chunk for chunk in str(value).split(",") if chunk.strip().isdigit()]
+    ok, error, url = services.forward_to_chat(
+        request.user,
+        request.POST.get("source", ""),
+        request.POST.get("target", ""),
+        uids=uids, attachment_ids=files,
+        note=request.POST.get("note", ""),
+    )
+    return JsonResponse({"ok": ok, "error": error, "url": url}, status=200 if ok else 400)
 
 
 @login_required

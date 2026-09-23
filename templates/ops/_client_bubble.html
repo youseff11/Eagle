@@ -5,13 +5,20 @@ Expects: entry (dict from services.client_thread)
 {% endcomment %}
 <div class="bub {% if entry.kind == 'out' %}bub--out{% else %}bub--in{% endif %}{% if entry.status == 'failed' %} bub--failed{% endif %}"
      data-uid="{{ entry.uid }}"
+     data-date="{{ entry.at|date:'Y-m-d' }}"
      data-body="{{ entry.body|slice:':90' }}"
      data-who="{% if entry.kind == 'in' %}العميل{% else %}{{ entry.sender }}{% endif %}"
      {# Same fingerprint chat.js computes, so the first poll redraws nothing. #}
      data-sig="{{ entry.status|default_if_none:'' }}|{{ entry.body|length }}|{{ entry.files|length }}|{% if entry.error %}1{% else %}0{% endif %}|{% if entry.quote %}1{% else %}0{% endif %}|{% if entry.claimed_by %}1{% else %}0{% endif %}|{% if entry.task_code %}1{% else %}0{% endif %}|{{ entry.receipt|default_if_none:'' }}|{{ entry.seen_by|length }}">
   <button class="bub__reply" type="button" data-reply="{{ entry.uid }}"
           data-ar-title="رد" data-en-title="Reply" title="رد">{% icon "reply" "ic--sm" %}</button>
+  <button class="bub__reply bub__fwd" type="button" data-forward="{{ entry.uid }}"
+          data-ar-title="تحويل" data-en-title="Forward" title="تحويل">{% icon "forward" "ic--sm" %}</button>
+  <span class="bub__sel" aria-hidden="true">{% icon "check" "ic--sm" %}</span>
   <div class="bub__box">
+    {% if entry.forwarded %}
+      <div class="bub__fwdtag">{% icon "forward" "ic--sm" %}<span data-ar="محوّلة" data-en="Forwarded">محوّلة</span></div>
+    {% endif %}
     {% if entry.quote %}
       <div class="bub__quote">
         {% if entry.quote_who %}<b>{{ entry.quote_who }}</b>{% endif %}

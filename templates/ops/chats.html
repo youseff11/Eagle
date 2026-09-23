@@ -89,7 +89,8 @@
             </span>
             <span class="cthread__line">
               <span class="cthread__snippet">
-                {% if row.preview.outgoing %}{% icon "check" "ic--sm" %}{% endif %}{{ row.preview.text }}
+                {% comment %}The same ticks as the bubble inside - it used to be one grey check here whatever had happened.{% endcomment %}
+                {% if row.preview.outgoing %}{% include "ops/_ticks.html" with entry=row.preview %}{% endif %}{{ row.preview.text }}
               </span>
               {% comment %}
               Messages in here this person has not opened yet. Theirs alone:
@@ -165,6 +166,11 @@
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
           </button>
         {% endif %}
+        <button class="btn btn--ghost" type="button" id="selectToggle"
+                data-ar-title="حدد رسايل وحوّلها لشات تاني" data-en-title="Select messages to forward"
+                title="حدد رسايل وحوّلها لشات تاني">
+          {% icon "forward" "ic--sm" %}<span data-ar="تحويل رسايل" data-en="Forward">تحويل رسايل</span>
+        </button>
         {% if active and can_convert and not active_group %}
           <button class="btn btn--ghost" type="button" id="pickToggle"
                   data-ar-title="حدد ملفات من كذا رسالة وحوّلها لتاسك واحدة"
@@ -267,16 +273,41 @@
           {% icon "paperclip" "ic--sm" %}
           <span><b class="mono" id="pickCount">0</b>
             <span data-ar="ملف متحدد" data-en="selected">ملف متحدد</span></span>
+          {% comment %}
+          Which day's files. Picking a day ticks that day's files and nothing
+          else; "تحديد الكل" then works inside the chosen day. Filled in by
+          chat.js from the dates of the files actually in the conversation.
+          {% endcomment %}
+          <select class="input cchat__pickday" id="pickDay"
+                  data-ar-title="ملفات يوم معيّن" data-en-title="Files from one day" title="ملفات يوم معيّن">
+            <option value="" data-ar="كل الأيام" data-en="All days">كل الأيام</option>
+          </select>
           <button class="btn btn--sm btn--ghost" type="button" id="pickAll"
                   data-ar="تحديد الكل" data-en="Select all">تحديد الكل</button>
           <span class="grow"></span>
           <button class="btn btn--sm" type="button" id="pickCancel"
                   data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+          <button class="btn btn--sm" type="button" id="pickForward" disabled>
+            {% icon "forward" "ic--sm" %}<span data-ar="تحويل لشات" data-en="Forward">تحويل لشات</span>
+          </button>
           <button class="btn btn--sm btn--primary" type="button" id="pickConvert" disabled>
             {% icon "arrow-right" "ic--sm" %}<span data-ar="تحويل لتاسك" data-en="Convert to task">تحويل لتاسك</span>
           </button>
         </div>
       {% endif %}
+
+      {# Forwarding: tap bubbles to pick them, then choose where they go. #}
+      <div class="cchat__pickbar hidden" id="selectBar">
+        {% icon "forward" "ic--sm" %}
+        <span><b class="mono" id="selectCount">0</b>
+          <span data-ar="رسالة متحددة" data-en="selected">رسالة متحددة</span></span>
+        <span class="grow"></span>
+        <button class="btn btn--sm" type="button" id="selectCancel"
+                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn--sm btn--primary" type="button" id="selectForward" disabled>
+          {% icon "forward" "ic--sm" %}<span data-ar="تحويل" data-en="Forward">تحويل</span>
+        </button>
+      </div>
 
       {# What you are replying to, shown above the box until you send or cancel. #}
       <div class="cchat__replybar hidden" id="replyBar">
@@ -375,6 +406,58 @@
         <button class="btn btn--primary" type="button" id="addMemberSave"
                 data-url="{% url 'dashboard:api_group_add_members' active_group.id %}">
           {% icon "plus" "ic--sm" %}<span data-ar="ضيف" data-en="Add">ضيف</span>
+        </button>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if active or active_group %}
+  {% comment %}
+  Where the forward goes. The list is the chats page's own, fetched when the
+  dialog opens: colleagues, work groups, and - for the operation and the
+  admin only - clients. Whether the client's text may travel is decided on
+  the server (services.forward_to_chat), not here.
+  {% endcomment %}
+  <div class="modal-backdrop hidden" id="forwardModal"
+       data-url="{% url 'dashboard:api_chat_forward' %}"
+       data-list-url="{% url 'dashboard:api_client_chat_list' %}"
+       data-clients="{% if can_convert %}1{% endif %}">
+    <div class="modal" style="text-align:start">
+      <div class="row row--tight">
+        {% icon "forward" %}
+        <div class="modal__title" data-ar="تحويل لـ" data-en="Forward to">تحويل لـ</div>
+        <span class="chip chip--sm mono" id="forwardCount">0</span>
+        <div class="grow"></div>
+        <button class="icon-btn" type="button" id="forwardClose"
+                data-ar-title="إغلاق" data-en-title="Close">{% icon "x" %}</button>
+      </div>
+
+      <input class="input" id="forwardSearch" autocomplete="off"
+             data-ar-ph="دوّر على زميل أو جروب أو كود عميل…"
+             data-en-ph="Search a colleague, group or client code…"
+             placeholder="دوّر على زميل أو جروب أو كود عميل…">
+      <div class="fwd-list" id="forwardList">
+        <div class="muted" data-ar="بحمّل…" data-en="Loading…">بحمّل…</div>
+      </div>
+
+      <p class="muted fwd-hint"
+         data-ar="كلام العميل بيتحول للأوبريشن والأدمن بس. لأي حد تاني بتتحول ملفاته من غير نصه."
+         data-en="A client's own words reach operation and admin only. Anyone else gets the files without the text.">
+        كلام العميل بيتحول للأوبريشن والأدمن بس. لأي حد تاني بتتحول ملفاته من غير نصه.
+      </p>
+
+      <input class="input" id="forwardNote" maxlength="2000"
+             data-ar-ph="كلمة مع التحويل (اختياري)" data-en-ph="Add a note (optional)"
+             placeholder="كلمة مع التحويل (اختياري)">
+
+      <div class="row" style="margin-top:14px;align-items:center">
+        <div id="forwardError" style="color:var(--danger,#e5484d);font-size:.8rem"></div>
+        <div class="grow"></div>
+        <button class="btn" type="button" id="forwardCancel"
+                data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn--primary" type="button" id="forwardSend" disabled>
+          {% icon "send" "ic--sm" %}<span data-ar="ابعت" data-en="Send">ابعت</span>
         </button>
       </div>
     </div>

@@ -1412,6 +1412,15 @@ class ChatMessage(models.Model):
     #: it back: "" (sent), "delivered" or "read". Only ever moves forward -
     #: see ``services.record_whatsapp_status``.
     relay_receipt = models.CharField(max_length=10, blank=True)
+    #: Passed on from another conversation ("محوّلة"), not written here.
+    forwarded = models.BooleanField(default=False)
+    #: When what was forwarded came from a client's conversation: whose. The
+    #: text of it is the client's words, so it only travels where everyone
+    #: may read a client's words - and it can never be forwarded on to a
+    #: *different* client. See ``services.forward_to_chat``.
+    origin_client = models.ForeignKey(
+        Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
     reply_to = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="replies",
@@ -1461,6 +1470,13 @@ class ChatAttachment(PlayableFile, models.Model):
     file = models.FileField(upload_to=upload_chat)
     original_name = models.CharField(max_length=250, blank=True)
     size = models.BigIntegerField(default=0)
+    #: The client this file belongs to, when it is a client's file that was
+    #: forwarded in. A forward points at the same stored file rather than
+    #: copying it, so this is the only thing that still knows whose it is -
+    #: and that is what stops it being forwarded to another client.
+    origin_client = models.ForeignKey(
+        Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
     def __str__(self):
         return self.original_name or self.file.name
