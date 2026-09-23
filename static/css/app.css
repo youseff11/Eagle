@@ -201,6 +201,11 @@ strong, b { font-weight: 620; }
 .nav-search__body b { font-size: .84rem; font-weight: 600; }
 .nav-search__where { font-size: .7rem; color: var(--muted); }
 .nav-search__empty { padding: 10px; font-size: .8rem; color: var(--muted); }
+.nav-search__head {
+  padding: 8px 9px 4px; margin-top: 4px; border-top: 1px solid var(--border);
+  font-size: .64rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--faint);
+}
+.nav-search__row .mono { color: var(--brand); font-weight: 600; }
 @media (hover: none) { .nav-search__kbd { display: none; } }
 
 /* Where the search (or any #link) dropped you: clear of the top bar, and

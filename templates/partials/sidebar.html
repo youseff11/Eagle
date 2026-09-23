@@ -21,11 +21,11 @@
   and the sections inside pages ("كلمات الحظر" is one field on the settings
   page) - see nav.search_index. Ctrl+K or "/" from anywhere jumps here.
   {% endcomment %}
-  <div class="nav-search" id="navSearch">
+  <div class="nav-search" id="navSearch" data-tasks-url="{% url 'dashboard:api_search_tasks' %}">
     {% icon "search" "ic--sm nav-search__ic" %}
     <input class="nav-search__input" id="navSearchInput" type="search" autocomplete="off"
-           data-ar-ph="دوّر… (مثلًا: كلمات الحظر)" data-en-ph="Search… (e.g. blocked keywords)"
-           placeholder="دوّر… (مثلًا: كلمات الحظر)" aria-controls="navSearchResults">
+           data-ar-ph="دوّر على صفحة أو تاسك…" data-en-ph="Search a page or a task…"
+           placeholder="دوّر على صفحة أو تاسك…" aria-controls="navSearchResults">
     <kbd class="nav-search__kbd">Ctrl K</kbd>
     <div class="nav-search__results hidden" id="navSearchResults" role="listbox"></div>
   </div>

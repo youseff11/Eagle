@@ -2685,6 +2685,62 @@ def record_whatsapp_status(wamid, status, error=""):
 
 
 # ---------------------------------------------------------------------------
+# Finding a task from the nav search
+# ---------------------------------------------------------------------------
+
+def visible_tasks(user):
+    """Every task this person may open - ``Task.can_view`` as a queryset.
+
+    Kept beside ``can_view`` in meaning: a search that returned a task the
+    person cannot open would be a list of 404s, and worse, a list of titles
+    they were never meant to read.
+    """
+    qs = Task.objects.all()
+    if user.is_admin_role or user.is_operation:
+        return qs
+    if user.is_team_lead:
+        return qs.filter(team_lead=user)
+    if user.is_translator:
+        return qs.filter(translator=user)
+    return qs.none()
+
+
+def search_tasks(user, query, limit=8):
+    """Tasks by code, title or client code - the nav search's "tasks" half.
+
+    The client is shown the way this person is allowed to see them
+    (``label_for``): the admin gets the name, everyone else the code. And a
+    translator can find a task by its client's *code* only - searching by a
+    client's name would be a way of learning which code the name belongs to.
+    """
+    query = (query or "").strip()
+    if len(query) < 2:
+        return []
+    match = Q(code__icontains=query) | Q(title__icontains=query) | Q(
+        client__code__icontains=query
+    )
+    if user.can_see_client_identity:
+        match |= Q(client__name__icontains=query) | Q(client__company__icontains=query)
+    from .templatetags.eagle_tags import STATUS_MAP
+
+    rows = (
+        visible_tasks(user).filter(match).select_related("client")
+        .order_by("-created_at")[:limit]
+    )
+    return [
+        {
+            "code": task.code,
+            "title": task.title,
+            "status_ar": STATUS_MAP.get(task.status, ("", task.status, ""))[1],
+            "status_en": task.get_status_display(),
+            "client": task.client.label_for(user) if task.client_id else "",
+            "href": f"/tasks/{task.code}/",
+        }
+        for task in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Forwarding
 # ---------------------------------------------------------------------------
 #

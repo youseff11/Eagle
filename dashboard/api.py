@@ -1071,6 +1071,16 @@ def client_chat_list(request):
 
 
 @login_required
+@require_GET
+def search_tasks(request):
+    """The tasks half of the nav search. Only tasks this person may open."""
+    return JsonResponse({
+        "ok": True,
+        "items": services.search_tasks(request.user, request.GET.get("q", "")),
+    })
+
+
+@login_required
 @require_POST
 def chat_forward(request):
     """Forward picked messages and/or files from one chat to another.

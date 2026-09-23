@@ -1057,30 +1057,86 @@ window.Eagle = (function () {
       shown = [];
     }
 
+    /* Pages come from the index in the page; tasks come from the server,
+       because there are thousands and each person may open only theirs
+       (api/search/tasks - Task.can_view as a queryset). The pages draw at
+       once and the tasks join a moment later, under their own heading. */
+    var tasksUrl = box.getAttribute("data-tasks-url") || "";
+    var pages = [];
+    var tasks = [];
+    var taskTimer = null;
+    var asked = 0;
+
+    function pageRows() {
+      return pages.map(function (row) {
+        var label = state.lang === "ar" ? row.ar : row.en;
+        var where = state.lang === "ar" ? row.where_ar : row.where_en;
+        return '<a class="nav-search__row" role="option" href="' +
+          escapeHtml(row.href) + '">' + svgIcon(row.icon, "ic--sm") +
+          '<span class="nav-search__body"><b>' + escapeHtml(label) + "</b>" +
+          '<span class="nav-search__where">' + escapeHtml(where) + "</span></span></a>";
+      });
+    }
+
+    function taskRows() {
+      return tasks.map(function (task) {
+        var status = state.lang === "ar" ? task.status_ar : task.status_en;
+        return '<a class="nav-search__row" role="option" href="' +
+          escapeHtml(task.href) + '">' + svgIcon("layers", "ic--sm") +
+          '<span class="nav-search__body"><b><span class="mono">' + escapeHtml(task.code) +
+          "</span> " + escapeHtml(task.title) + "</b>" +
+          '<span class="nav-search__where">' +
+          escapeHtml([task.client, status].filter(Boolean).join(" · ")) +
+          "</span></span></a>";
+      });
+    }
+
+    function render() {
+      shown = pages.concat(tasks);
+      cursor = 0;
+      var html = pageRows();
+      if (tasks.length) {
+        html.push('<div class="nav-search__head">' +
+          escapeHtml(t("تاسكات", "Tasks")) + "</div>");
+        html = html.concat(taskRows());
+      }
+      if (!shown.length) {
+        list.innerHTML = '<div class="nav-search__empty">' +
+          escapeHtml(t("مفيش حاجة بالاسم ده.", "Nothing by that name.")) + "</div>";
+      } else {
+        list.innerHTML = html.join("");
+        var first = $(".nav-search__row", list);
+        if (first) { first.classList.add("is-active"); }
+      }
+      list.classList.remove("hidden");
+    }
+
+    function askTasks(query) {
+      clearTimeout(taskTimer);
+      if (!tasksUrl || query.replace(/\s/g, "").length < 2) { return; }
+      var ticket = ++asked;
+      taskTimer = setTimeout(function () {
+        get(tasksUrl + "?q=" + encodeURIComponent(query)).then(function (res) {
+          // A slower answer to an older query must not paint over a newer one.
+          if (ticket !== asked || !res || !res.ok) { return; }
+          tasks = res.items || [];
+          if (input.value.trim()) { render(); }
+        }).catch(function () {});
+      }, 220);
+    }
+
     function draw() {
-      var tokens = searchTokens(input.value);
-      if (!tokens.length) { close(); return; }
-      shown = index.map(function (row) {
+      var raw = input.value.trim();
+      if (!raw) { asked += 1; close(); return; }
+      var tokens = searchTokens(raw);
+      pages = !tokens.length ? [] : index.map(function (row) {
         return { row: row, score: searchScore(row, tokens) };
       }).filter(function (hit) { return hit.score > 0; })
         .sort(function (a, b) { return b.score - a.score; })
         .slice(0, 8).map(function (hit) { return hit.row; });
-      cursor = 0;
-      if (!shown.length) {
-        list.innerHTML = '<div class="nav-search__empty">' +
-          escapeHtml(t("مفيش حاجة بالاسم ده.", "Nothing by that name.")) + "</div>";
-        list.classList.remove("hidden");
-        return;
-      }
-      list.innerHTML = shown.map(function (row, i) {
-        var label = state.lang === "ar" ? row.ar : row.en;
-        var where = state.lang === "ar" ? row.where_ar : row.where_en;
-        return '<a class="nav-search__row' + (i === 0 ? " is-active" : "") + '" role="option" href="' +
-          escapeHtml(row.href) + '">' + svgIcon(row.icon, "ic--sm") +
-          '<span class="nav-search__body"><b>' + escapeHtml(label) + "</b>" +
-          '<span class="nav-search__where">' + escapeHtml(where) + "</span></span></a>";
-      }).join("");
-      list.classList.remove("hidden");
+      tasks = [];
+      render();
+      askTasks(raw);
     }
 
     function move(step) {

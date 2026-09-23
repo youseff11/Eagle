@@ -6416,3 +6416,64 @@ class NavSearchTests(TestCase):
         self.assertIn('id="navSearchInput"', html)
         self.assertIn('id="navSearchIndex"', html)
         self.assertIn("s-rate-keywords", html)
+
+
+class TaskSearchTests(TestCase):
+    """Finding a task from the nav search - by code, title or client code,
+    and never one this person cannot open."""
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_ts", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_ts", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user("tr_ts", password="x", role=Role.TRANSLATOR)
+        self.other_tr = User.objects.create_user("tr_ts2", password="x", role=Role.TRANSLATOR)
+        self.admin = User.objects.create_user("admin_ts", password="x", role=Role.ADMIN)
+        self.acme = Client.objects.create(name="Acme Holdings", phone="+201000000095")
+        self.contract = services.create_task(
+            client=self.acme, title="Lease contract", created_by=self.ops,
+        )
+        self.contract.translator = self.tr
+        self.contract.save(update_fields=["translator"])
+        self.menu = services.create_task(
+            client=self.acme, title="Restaurant menu", created_by=self.ops,
+        )
+
+    def _codes(self, user, query):
+        return [row["code"] for row in services.search_tasks(user, query)]
+
+    def test_by_title(self):
+        self.assertEqual(self._codes(self.ops, "lease"), [self.contract.code])
+
+    def test_by_code(self):
+        self.assertEqual(self._codes(self.ops, self.menu.code), [self.menu.code])
+
+    def test_by_client_code(self):
+        self.assertEqual(
+            sorted(self._codes(self.ops, self.acme.code)),
+            sorted([self.contract.code, self.menu.code]),
+        )
+
+    def test_a_translator_finds_only_their_own(self):
+        self.assertEqual(self._codes(self.tr, "contract"), [self.contract.code])
+        self.assertEqual(self._codes(self.tr, "menu"), [])
+        self.assertEqual(self._codes(self.other_tr, "contract"), [])
+
+    def test_only_the_admin_finds_by_client_name(self):
+        self.assertEqual(len(self._codes(self.admin, "Acme")), 2)
+        self.assertEqual(self._codes(self.ops, "Acme Hold"), [])
+
+    def test_the_client_is_shown_as_the_viewer_may_see_it(self):
+        row = services.search_tasks(self.tr, "contract")[0]
+        self.assertEqual(row["client"], self.acme.code)
+        self.assertNotIn("Acme", row["client"])
+
+    def test_one_letter_is_not_a_search(self):
+        self.assertEqual(services.search_tasks(self.ops, "l"), [])
+
+    def test_the_endpoint(self):
+        self.client.force_login(self.ops)
+        response = self.client.get("/api/search/tasks/?q=menu")
+        self.assertEqual(response.status_code, 200)
+        items = response.json()["items"]
+        self.assertEqual([i["code"] for i in items], [self.menu.code])
+        self.assertEqual(items[0]["href"], f"/tasks/{self.menu.code}/")
