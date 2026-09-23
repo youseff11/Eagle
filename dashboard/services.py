@@ -3213,16 +3213,18 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
 # Reactions
 # ---------------------------------------------------------------------------
 
-#: (key, icon in the sprite, Arabic, English), in the order the picker shows
-#: them. Icons rather than emoji: the codebase carries no emoji (verify.py),
-#: and a drawn icon follows the theme like everything else on the page.
+#: (key, icon in the sprite, Arabic, English), in WhatsApp's order. Drawn
+#: in colour as the r-<key> symbols (templates/partials/icons.html) to look
+#: like WhatsApp's set - not real emoji, which the codebase does not carry
+#: (verify.py) because they render differently on every machine. "done" is
+#: WhatsApp's folded hands, so it reads "شكرًا"; the stored key stays.
 REACTIONS = (
     ("like", "thumbs-up", "لايك", "Like"),
     ("love", "heart", "حب", "Love"),
     ("laugh", "smile", "ضحك", "Laugh"),
     ("wow", "surprised", "واو", "Wow"),
     ("sad", "frown", "زعلان", "Sad"),
-    ("done", "check-circle", "تمام", "Done"),
+    ("done", "check-circle", "شكرًا", "Thanks"),
 )
 _REACTION_ORDER = {key: index for index, (key, *_rest) in enumerate(REACTIONS)}
 _REACTION_ICON = {key: icon for key, icon, _ar, _en in REACTIONS}

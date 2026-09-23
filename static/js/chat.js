@@ -85,6 +85,7 @@
     var esc = E.escapeHtml;
     var cls = "bub " + (msg.kind === "out" ? "bub--out" : "bub--in");
     if (msg.status === "failed") { cls += " bub--failed"; }
+    if ((msg.reactions || []).length) { cls += " has-reacts"; }
 
     var parts = [];
     if (msg.forwarded) {
@@ -206,17 +207,30 @@
       '<div class="bub__box">' + parts.join("") + "</div></div>";
   }
 
-  /** Mirrors templates/ops/_reactions.html - keep the two in step. */
+  /** A reaction in colour - the r-* symbols, drawn like WhatsApp's set. */
+  function remoji(kind, size) {
+    return '<svg class="remoji remoji--' + (size || "md") + '" aria-hidden="true">' +
+      '<use href="#r-' + E.escapeHtml(kind) + '"></use></svg>';
+  }
+
+  /** Mirrors templates/ops/_reactions.html - keep the two in step.
+      One pill hanging off the bubble: the kinds used (most first, three at
+      most) and the total; tapping it opens the picker. */
   function reactsHtml(msg) {
     var list = msg.reactions || [];
     if (!list.length) { return ""; }
-    return '<div class="bub__reacts">' + list.map(function (r) {
-      return '<button class="react-pill' + (r.mine ? " is-mine" : "") + '" type="button"' +
-        ' data-react-kind="' + E.escapeHtml(r.kind) + '" data-react-uid="' + E.escapeHtml(msg.uid) + '"' +
-        ' title="' + E.escapeHtml((r.who || []).join(E.t("، ", ", "))) + '">' +
-        icon(r.icon, "ic--sm") +
-        (r.count > 1 ? '<span class="mono">' + r.count + "</span>" : "") + "</button>";
-    }).join("") + "</div>";
+    var total = 0, mine = "";
+    var who = list.map(function (r) {
+      total += r.count;
+      if (r.mine) { mine = r.kind; }
+      return (r.who || []).join(E.t("، ", ", "));
+    }).join(" · ");
+    var top = list.slice().sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
+    return '<button class="bub__reacts' + (mine ? " is-mine" : "") + '" type="button"' +
+      ' data-react-open="' + E.escapeHtml(msg.uid) + '" data-mine="' + E.escapeHtml(mine) + '"' +
+      ' title="' + E.escapeHtml(who) + '">' +
+      top.map(function (r) { return remoji(r.kind, "sm"); }).join("") +
+      (total > 1 ? '<span class="bub__reacts-n">' + total + "</span>" : "") + "</button>";
   }
 
   /** Mirrors templates/ops/_ticks.html - keep the two in step.
@@ -1408,6 +1422,12 @@
   function openPicker(bubble) {
     if (!picker || !bubble) { return; }
     pickerUid = bubble.dataset.uid || "";
+    // Light up the one you already gave, WhatsApp-style: tap it again to take it back.
+    var current = bubble.querySelector(".bub__reacts");
+    var mine = current ? current.getAttribute("data-mine") : "";
+    picker.querySelectorAll("[data-react-pick]").forEach(function (btn) {
+      btn.classList.toggle("is-on", !!mine && btn.getAttribute("data-react-pick") === mine);
+    });
     var box = bubble.querySelector(".bub__box") || bubble;
     var rect = box.getBoundingClientRect();
     picker.classList.remove("hidden");
@@ -1428,6 +1448,7 @@
     if (old) { old.remove(); }
     var html = reactsHtml({ uid: uid, reactions: reactions });
     if (box && html) { box.insertAdjacentHTML("beforeend", html); }
+    bubble.classList.toggle("has-reacts", !!html);
     // Keep the fingerprint in step, so the next poll does not redraw it.
     var parts = (bubble.dataset.sig || "").split("|");
     parts[parts.length - 1] = sig || "";

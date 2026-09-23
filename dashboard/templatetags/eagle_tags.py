@@ -421,6 +421,23 @@ def deadline_boxes(value=None, name="deadline", scope=""):
 # The left-hand navigation
 # ---------------------------------------------------------------------------
 
+@register.simple_tag
+def remoji(kind, size="md"):
+    """A reaction in colour - the r-* symbols in the sprite, drawn to look like
+    WhatsApp's set. Not ``icon``: its .ic class would strip their fills."""
+    safe = escape(str(kind))
+    return mark_safe(
+        f'<svg class="remoji remoji--{escape(size)}" aria-hidden="true">'
+        f'<use href="#r-{safe}"></use></svg>'
+    )
+
+
+@register.simple_tag
+def react_total(reactions):
+    """How many people reacted to one message, across every kind."""
+    return sum(r.get("count", 0) for r in reactions or [])
+
+
 @register.filter
 def is_image_file(attachment):
     """True when the attachment can be drawn as a picture - see services.is_image."""

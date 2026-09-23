@@ -1,6 +1,8 @@
 {% load eagle_tags %}{% comment %}
-The reactions under one message - one pill per kind, with its count. Your own
-is marked, and tapping a pill adds or takes back yours. The names are in the
-tooltip. Mirrored by reactsHtml() in chat.js - keep the two in step.
+The reactions on one message, the way WhatsApp draws them: one small pill
+hanging off the bottom of the bubble, the kinds used (most first, three at
+most) and the total. Yours makes it light up; the names are in the tooltip.
+Tapping it opens the picker, where yours can be changed or taken back.
+Mirrored by reactsHtml() in chat.js - keep the two in step.
 Expects: entry (with entry.reactions from services.reactions_for)
-{% endcomment %}{% if entry.reactions %}<div class="bub__reacts">{% for r in entry.reactions %}<button class="react-pill{% if r.mine %} is-mine{% endif %}" type="button" data-react-kind="{{ r.kind }}" data-react-uid="{{ entry.uid }}" title="{{ r.who|join:'، ' }}">{% icon r.icon "ic--sm" %}{% if r.count > 1 %}<span class="mono">{{ r.count }}</span>{% endif %}</button>{% endfor %}</div>{% endif %}
+{% endcomment %}{% if entry.reactions %}<button class="bub__reacts{% for r in entry.reactions %}{% if r.mine %} is-mine{% endif %}{% endfor %}" type="button" data-react-open="{{ entry.uid }}" data-mine="{% for r in entry.reactions %}{% if r.mine %}{{ r.kind }}{% endif %}{% endfor %}" title="{% for r in entry.reactions %}{{ r.who|join:'، ' }}{% if not forloop.last %} · {% endif %}{% endfor %}">{% for r in entry.reactions|dictsortreversed:"count"|slice:":3" %}{% remoji r.kind "sm" %}{% endfor %}{% if entry.reactions|length > 1 or entry.reactions.0.count > 1 %}<span class="bub__reacts-n">{% react_total entry.reactions %}</span>{% endif %}</button>{% endif %}

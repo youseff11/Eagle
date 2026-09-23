@@ -7074,5 +7074,8 @@ class ReactionTests(TestCase):
         })
         self.assertEqual(response.json()["reactions_sig"], "like1m")
         page = self.client.get(f"/ops/chats/u/{self.tr.pk}/")
-        self.assertContains(page, 'class="react-pill is-mine"')
+        # WhatsApp's pill, in colour: the r-* symbol, not a line icon.
+        self.assertContains(page, 'class="bub__reacts is-mine"')
+        self.assertContains(page, 'href="#r-like"')
         self.assertContains(page, 'id="reactPicker"')
+        self.assertContains(page, 'id="r-love"')

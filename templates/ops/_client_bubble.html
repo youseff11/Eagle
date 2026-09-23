@@ -3,7 +3,7 @@ One message in the client conversation. Rendered server-side on first load and
 mirrored in chat.js for live updates — keep the two in step.
 Expects: entry (dict from services.client_thread)
 {% endcomment %}
-<div class="bub {% if entry.kind == 'out' %}bub--out{% else %}bub--in{% endif %}{% if entry.status == 'failed' %} bub--failed{% endif %}"
+<div class="bub {% if entry.kind == 'out' %}bub--out{% else %}bub--in{% endif %}{% if entry.status == 'failed' %} bub--failed{% endif %}{% if entry.reactions %} has-reacts{% endif %}"
      data-uid="{{ entry.uid }}"
      data-date="{{ entry.at|date:'Y-m-d' }}"
      data-body="{{ entry.body|slice:':90' }}"

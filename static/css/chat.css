@@ -783,52 +783,74 @@ html.chat-locked body {
 .bub__react { margin-inline: 0 6px; }
 .bub--out .bub__react { margin-inline: 6px 0; }
 
-/* The pills under a message: one per kind, yours marked. */
-.bub__reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-block-start: 6px; }
-.react-pill {
+/* The colour reactions (r-* symbols). Their own fills - never .ic. */
+.remoji { display: inline-block; flex: none; vertical-align: middle; }
+.remoji--sm { width: 16px; height: 16px; }
+.remoji--md { width: 20px; height: 20px; }
+.remoji--lg { width: 30px; height: 30px; }
+
+/* WhatsApp's pill: hangs off the bottom edge of the bubble, on the side the
+   bubble is anchored to, white with a soft shadow. The bubble makes room
+   underneath so the next one does not sit on it. */
+.bub__box { position: relative; }
+.bub.has-reacts { margin-block-end: 14px; }
+.bub__reacts {
+  position: absolute;
+  bottom: -15px;
+  inset-inline-start: 10px;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
+  gap: 1px;
+  padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
-  color: var(--muted);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
   font: inherit;
   font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
   cursor: pointer;
 }
-.react-pill .ic { width: 15px; height: 15px; }
-.react-pill:hover { border-color: var(--brand-line); }
-.react-pill.is-mine { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
-.react-pill[data-react-kind="love"] .ic { color: #e5484d; }
+.bub--out .bub__reacts { inset-inline-start: auto; inset-inline-end: 10px; }
+.bub__reacts:hover { box-shadow: 0 2px 6px rgba(0, 0, 0, .25); }
+.bub__reacts.is-mine { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.bub__reacts-n { margin-inline-start: 3px; font-variant-numeric: tabular-nums; }
 
-/* The picker: fixed, placed by chat.js next to the bubble that asked. */
+/* The picker: a white pill of big colour faces above the bubble, fixed and
+   placed by chat.js. Yours is circled, as in WhatsApp. */
 .react-picker {
   position: fixed;
   z-index: 70;
   display: flex;
   gap: 2px;
-  padding: 5px;
-  border: 1px solid var(--border);
+  padding: 5px 7px;
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, .25);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .22);
+  animation: react-in .14s ease-out;
 }
 .react-picker.hidden { display: none; }
 .react-picker button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: var(--muted);
   cursor: pointer;
-  transition: transform .12s ease, background .12s ease;
+  transition: transform .12s ease;
 }
-.react-picker button .ic { width: 21px; height: 21px; }
-.react-picker button:hover { background: var(--brand-soft); color: var(--brand); transform: scale(1.18); }
-.react-picker button[data-react-pick="love"]:hover { color: #e5484d; }
-@media (prefers-reduced-motion: reduce) { .react-picker button:hover { transform: none; } }
+.react-picker button:hover { transform: scale(1.25) translateY(-2px); }
+.react-picker button.is-on { background: color-mix(in srgb, var(--muted) 22%, transparent); }
+@keyframes react-in {
+  from { transform: scale(.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-picker { animation: none; }
+  .react-picker button:hover { transform: none; }
+}
