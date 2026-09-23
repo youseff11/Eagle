@@ -1,5 +1,6 @@
 """Data model for the Eagle translation-workflow dashboard (Phase 1)."""
 
+import re
 from datetime import time, timedelta
 from decimal import Decimal
 
@@ -744,6 +745,15 @@ class Client(models.Model):
     company = models.CharField(max_length=160, blank=True)
     phone = models.CharField(max_length=40, blank=True, db_index=True)
     email = models.EmailField(blank=True, db_index=True)
+    #: The same client writing from another number or address. One per line,
+    #: stored normalised (see ``save``) so a lookup can match it as text.
+    #: A message from any of them lands on this client and this code.
+    extra_phones = models.TextField(
+        blank=True, help_text="More WhatsApp numbers for the same client, one per line.",
+    )
+    extra_emails = models.TextField(
+        blank=True, help_text="More e-mail addresses for the same client, one per line.",
+    )
     country = models.CharField(max_length=80, blank=True)
     admin_notes = models.TextField(blank=True, help_text="Visible to the admin only.")
     is_active = models.BooleanField(default=True)
@@ -755,7 +765,134 @@ class Client(models.Model):
     def save(self, *args, **kwargs):
         if not self.code:
             self.code = next_code(Client, "code", "CL")
+        self.extra_phones = "\n".join(self.split_phones(self.extra_phones))
+        self.extra_emails = "\n".join(self.split_emails(self.extra_emails))
         super().save(*args, **kwargs)
+
+    # -- identities ----------------------------------------------------------
+    # A number is matched on its last nine digits, which is what an inbound
+    # WhatsApp id and a number typed with or without "+20" / "0" share.
+
+    PHONE_KEY_DIGITS = 9
+
+    @classmethod
+    def phone_key(cls, value):
+        digits = "".join(ch for ch in (value or "") if ch.isdigit())
+        return digits[-cls.PHONE_KEY_DIGITS:]
+
+    @staticmethod
+    def _lines(value):
+        return [part.strip() for part in re.split(r"[\n,;]+", value or "") if part.strip()]
+
+    @classmethod
+    def split_phones(cls, value):
+        """Numbers from free text, one per line/comma, spaces and dashes out."""
+        seen, out = set(), []
+        for raw in cls._lines(value):
+            clean = ("+" if raw.startswith("+") else "") + "".join(
+                ch for ch in raw if ch.isdigit()
+            )
+            key = cls.phone_key(clean)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(clean)
+        return out
+
+    @classmethod
+    def split_emails(cls, value):
+        seen, out = set(), []
+        for raw in cls._lines(value):
+            clean = raw.lower()
+            if clean not in seen:
+                seen.add(clean)
+                out.append(clean)
+        return out
+
+    @property
+    def all_phones(self):
+        """The main number first, then the others - without repeats."""
+        out, seen = [], set()
+        for number in [self.phone] + self.split_phones(self.extra_phones):
+            key = self.phone_key(number)
+            if number and key and key not in seen:
+                seen.add(key)
+                out.append(number)
+        return out
+
+    @property
+    def all_emails(self):
+        out = []
+        for address in [self.email] + self.split_emails(self.extra_emails):
+            if address and address.lower() not in [a.lower() for a in out]:
+                out.append(address)
+        return out
+
+    def owns_phone(self, value):
+        key = self.phone_key(value)
+        return bool(key) and key in {self.phone_key(p) for p in self.all_phones}
+
+    def owns_email(self, value):
+        value = (value or "").strip().lower()
+        return bool(value) and value in {a.lower() for a in self.all_emails}
+
+    @classmethod
+    def find_by_phone(cls, value, exclude_pk=None):
+        key = cls.phone_key(value)
+        if not key:
+            return None
+        rows = cls.objects.all()
+        if exclude_pk:
+            rows = rows.exclude(pk=exclude_pk)
+        found = rows.filter(phone__endswith=key).order_by("id").first()
+        if found:
+            return found
+        # ``contains`` narrows it down; ``owns_phone`` makes sure the nine
+        # digits are the end of one number and not the middle of another.
+        for row in rows.filter(extra_phones__contains=key).order_by("id"):
+            if row.owns_phone(value):
+                return row
+        return None
+
+    @classmethod
+    def find_by_email(cls, value, exclude_pk=None):
+        value = (value or "").strip()
+        if not value:
+            return None
+        rows = cls.objects.all()
+        if exclude_pk:
+            rows = rows.exclude(pk=exclude_pk)
+        found = rows.filter(email__iexact=value).order_by("id").first()
+        if found:
+            return found
+        for row in rows.filter(extra_emails__icontains=value).order_by("id"):
+            if row.owns_email(value):
+                return row
+        return None
+
+    def reply_target(self, channel):
+        """Where an answer on ``channel`` goes.
+
+        The number or address the client last wrote from, when it is still
+        one of theirs - that is the conversation they are in, and on WhatsApp
+        it is the number whose 24-hour window is open. Otherwise the main one.
+        """
+        if channel == Channel.WHATSAPP:
+            last = (
+                self.messages.filter(channel=Channel.WHATSAPP)
+                .order_by("-received_at", "-id").values_list("sender_identity", flat=True).first()
+            )
+            if last and self.owns_phone(last):
+                return last
+            return (self.all_phones or [""])[0]
+        if channel == Channel.EMAIL:
+            last = (
+                self.messages.filter(channel=Channel.EMAIL)
+                .order_by("-received_at", "-id").values_list("sender_identity", flat=True).first()
+            )
+            if last and self.owns_email(last):
+                return last
+            return (self.all_emails or [""])[0]
+        return ""
 
     def __str__(self):
         return self.code

@@ -909,7 +909,7 @@ def task_detail(request, code):
         "deliverables": deliverables,
         "deliveries": task.deliveries.select_related("created_by")[:5],
         "client_channel": services.client_channel(task.client),
-        "client_reachable": bool(task.client.phone or task.client.email),
+        "client_reachable": bool(task.client.all_phones or task.client.all_emails),
         "source_messages": (
             services.task_inbounds(task).prefetch_related("attachments")
             if (user.is_operation or user.is_admin_role) else []

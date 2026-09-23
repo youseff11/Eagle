@@ -75,9 +75,13 @@
         <div class="kv"><span data-ar="الشركة" data-en="Company">الشركة</span>
           <strong>{{ client.company|default:"—" }}</strong></div>
         <div class="kv"><span data-ar="التليفون" data-en="Phone">التليفون</span>
-          <strong class="mono">{{ client.phone|default:"—" }}</strong></div>
+          <strong class="mono" dir="ltr">
+            {% for number in client.all_phones %}{{ number }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}
+          </strong></div>
         <div class="kv"><span data-ar="الإيميل" data-en="Email">الإيميل</span>
-          <strong class="mono">{{ client.email|default:"—" }}</strong></div>
+          <strong class="mono" dir="ltr">
+            {% for address in client.all_emails %}{{ address }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}
+          </strong></div>
         {% if client.admin_notes %}<div class="mt muted">{{ client.admin_notes }}</div>{% endif %}
       </div>
     {% endif %}

@@ -384,17 +384,112 @@ class TaskForm(forms.ModelForm):
 
 
 class ClientForm(forms.ModelForm):
+    """The client's identity. Every number and address here is one client.
+
+    A number that already belongs to another client is refused rather than
+    shared: two clients answering to one number would split the messages
+    between two codes, which is the very thing the extra fields are for.
+    """
+
     class Meta:
         model = Client
-        fields = ("name", "company", "phone", "email", "country", "admin_notes", "is_active")
+        fields = (
+            "name", "company", "phone", "extra_phones", "email", "extra_emails",
+            "country", "admin_notes", "is_active",
+        )
+        labels = {
+            "phone": "رقم الواتساب الأساسي",
+            "extra_phones": "أرقام تانية لنفس العميل",
+            "email": "الإيميل الأساسي",
+            "extra_emails": "إيميلات تانية لنفس العميل",
+        }
+        help_texts = {
+            "extra_phones": "رقم في كل سطر. أي رسالة من أي رقم فيهم بتروح لنفس كود العميل.",
+            "extra_emails": "إيميل في كل سطر. أي ميل من أي عنوان فيهم بيروح لنفس كود العميل.",
+        }
         widgets = {
             "name": forms.TextInput(attrs={"class": "input"}),
             "company": forms.TextInput(attrs={"class": "input"}),
             "phone": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
+            "extra_phones": forms.Textarea(attrs={
+                "class": "input", "rows": 3, "dir": "ltr", "placeholder": "+201234567890",
+            }),
             "email": forms.EmailInput(attrs={"class": "input", "dir": "ltr"}),
+            "extra_emails": forms.Textarea(attrs={
+                "class": "input", "rows": 3, "dir": "ltr", "placeholder": "name@example.com",
+            }),
             "country": forms.TextInput(attrs={"class": "input"}),
             "admin_notes": forms.Textarea(attrs={"class": "input", "rows": 3}),
         }
+
+    def _taken(self, found, value):
+        return forms.ValidationError(
+            f"{value} متسجل بالفعل للعميل {found.code}.", code="taken",
+        )
+
+    def clean_extra_phones(self):
+        raw = self.cleaned_data.get("extra_phones", "")
+        numbers = Client.split_phones(raw)
+        bad = [
+            line for line in Client._lines(raw)
+            if len("".join(ch for ch in line if ch.isdigit())) < Client.PHONE_KEY_DIGITS
+        ]
+        if bad:
+            raise forms.ValidationError(f"رقم مش صحيح: {bad[0]}")
+        pk = self.instance.pk
+        for number in numbers:
+            found = Client.find_by_phone(number, exclude_pk=pk)
+            if found:
+                raise self._taken(found, number)
+        return "\n".join(numbers)
+
+    def clean_extra_emails(self):
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as CoreError
+
+        addresses = Client.split_emails(self.cleaned_data.get("extra_emails", ""))
+        pk = self.instance.pk
+        for address in addresses:
+            try:
+                validate_email(address)
+            except CoreError:
+                raise forms.ValidationError(f"إيميل مش صحيح: {address}")
+            found = Client.find_by_email(address, exclude_pk=pk)
+            if found:
+                raise self._taken(found, address)
+        return "\n".join(addresses)
+
+    def clean_phone(self):
+        phone = (self.cleaned_data.get("phone") or "").strip()
+        if phone:
+            found = Client.find_by_phone(phone, exclude_pk=self.instance.pk)
+            if found:
+                raise self._taken(found, phone)
+        return phone
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if email:
+            found = Client.find_by_email(email, exclude_pk=self.instance.pk)
+            if found:
+                raise self._taken(found, email)
+        return email
+
+    def clean(self):
+        data = super().clean()
+        # The main number typed again in the "others" box is the same number,
+        # not a second one - drop it quietly.
+        phone_key = Client.phone_key(data.get("phone", ""))
+        if phone_key and data.get("extra_phones"):
+            data["extra_phones"] = "\n".join(
+                n for n in data["extra_phones"].split("\n") if Client.phone_key(n) != phone_key
+            )
+        email = (data.get("email") or "").lower()
+        if email and data.get("extra_emails"):
+            data["extra_emails"] = "\n".join(
+                a for a in data["extra_emails"].split("\n") if a != email
+            )
+        return data
 
 
 class RequirementForm(forms.ModelForm):

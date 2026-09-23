@@ -35,8 +35,10 @@
           <td class="mono"><strong>{{ client.code }}</strong></td>
           <td>{{ client.name|default:"—" }}</td>
           <td>{{ client.company|default:"—" }}</td>
-          <td class="mono">{{ client.phone|default:"—" }}</td>
-          <td class="mono">{{ client.email|default:"—" }}</td>
+          {% with phones=client.all_phones emails=client.all_emails %}
+          <td class="mono" dir="ltr">{{ phones.0|default:"—" }}{% if phones|length > 1 %} <span class="chip chip--sm">+{{ phones|length|add:"-1" }}</span>{% endif %}</td>
+          <td class="mono" dir="ltr">{{ emails.0|default:"—" }}{% if emails|length > 1 %} <span class="chip chip--sm">+{{ emails|length|add:"-1" }}</span>{% endif %}</td>
+          {% endwith %}
           <td>
             {% if client.is_active %}<span class="dot dot--on"></span>
             {% else %}<span class="dot dot--off"></span>{% endif %}

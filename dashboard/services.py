@@ -90,11 +90,10 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True,
     """
     client = None
     if phone:
-        digits = "".join(ch for ch in phone if ch.isdigit())
-        if digits:
-            client = Client.objects.filter(phone__endswith=digits[-9:]).first()
+        # The main number or any of the client's other ones (``extra_phones``).
+        client = Client.find_by_phone(phone)
     if client is None and email:
-        client = Client.objects.filter(email__iexact=email).first()
+        client = Client.find_by_email(email)
 
     display_name = (display_name or "").strip()[:120]
     if client is not None:
@@ -2139,9 +2138,9 @@ def client_channel(client):
     last = client.messages.order_by("-received_at").first()
     if last and last.channel in (Channel.WHATSAPP, Channel.EMAIL):
         return last.channel
-    if client.phone:
+    if client.all_phones:
         return Channel.WHATSAPP
-    if client.email:
+    if client.all_emails:
         return Channel.EMAIL
     return ""
 
@@ -2177,7 +2176,8 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
     conf = AppSettings.load()
     client = task.client
     channel = client_channel(client)
-    target = client.phone if channel == Channel.WHATSAPP else client.email
+    # The number / address they last wrote from, if it is one of theirs.
+    target = client.reply_target(channel)
 
     # The ids come from the browser, so they are fetched again and checked
     # against this task. That check is what stops a file from another job
@@ -2337,6 +2337,9 @@ def client_conversations(user, query=""):
                 | Q(name__icontains=query)
                 | Q(company__icontains=query)
                 | Q(phone__icontains=query)
+                | Q(extra_phones__icontains=query)
+                | Q(email__icontains=query)
+                | Q(extra_emails__icontains=query)
             )
         else:
             rows = rows.filter(code__icontains=query)
@@ -3553,7 +3556,8 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     channel = force_channel or client_channel(client)
     if channel not in (Channel.WHATSAPP, Channel.EMAIL):
         channel = client_channel(client)
-    target = client.phone if channel == Channel.WHATSAPP else client.email
+    # The number / address they last wrote from, if it is one of theirs.
+    target = client.reply_target(channel)
 
     # Convert first: a recording Meta would reject must never reach the thread
     # pretending it was sent.

@@ -7250,3 +7250,101 @@ class TaskOriginTests(TestCase):
         )
         rows = services.search_tasks(self.ops, "Searchable")
         self.assertEqual([r["origin"] for r in rows if r["code"] == task.code], ["whatsapp"])
+
+
+class ClientExtraIdentitiesTests(TestCase):
+    """One client, several numbers and addresses, one code."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user("admin_ids", password="x", role=Role.ADMIN)
+        self.client_obj = Client.objects.create(
+            name="ACME", phone="+201000000101", email="main@acme.com",
+            extra_phones="+20 111 222 3333\n0100-000-0202",
+            extra_emails="Other@Acme.com",
+        )
+
+    def test_extras_are_stored_normalised(self):
+        self.client_obj.refresh_from_db()
+        self.assertEqual(self.client_obj.extra_phones, "+201112223333\n01000000202")
+        self.assertEqual(self.client_obj.extra_emails, "other@acme.com")
+        self.assertEqual(len(self.client_obj.all_phones), 3)
+        self.assertEqual(len(self.client_obj.all_emails), 2)
+
+    def test_whatsapp_from_another_number_lands_on_the_same_client(self):
+        before = Client.objects.count()
+        msg = services.ingest_message(
+            channel="whatsapp", body="hello", sender_identity="201112223333",
+        )
+        self.assertEqual(msg.client_id, self.client_obj.pk)
+        self.assertEqual(msg.client.code, self.client_obj.code)
+        self.assertEqual(Client.objects.count(), before)
+
+    def test_email_from_another_address_lands_on_the_same_client(self):
+        msg = services.ingest_message(
+            channel="email", subject="Hi", body="hello", sender_identity="OTHER@acme.com",
+        )
+        self.assertEqual(msg.client_id, self.client_obj.pk)
+
+    def test_unknown_number_still_makes_a_new_client(self):
+        msg = services.ingest_message(
+            channel="whatsapp", body="hello", sender_identity="201999999999",
+        )
+        self.assertNotEqual(msg.client_id, self.client_obj.pk)
+
+    def test_reply_goes_to_the_number_they_last_wrote_from(self):
+        self.assertEqual(self.client_obj.reply_target("whatsapp"), "+201000000101")
+        services.ingest_message(
+            channel="whatsapp", body="hello", sender_identity="201112223333",
+        )
+        self.assertEqual(self.client_obj.reply_target("whatsapp"), "201112223333")
+        services.ingest_message(
+            channel="email", subject="Hi", body="x", sender_identity="other@acme.com",
+        )
+        self.assertEqual(self.client_obj.reply_target("email"), "other@acme.com")
+
+    def _form(self, instance=None, **data):
+        from .forms import ClientForm
+
+        payload = {
+            "name": "N", "company": "", "phone": "", "extra_phones": "", "email": "",
+            "extra_emails": "", "country": "", "admin_notes": "", "is_active": "on",
+        }
+        payload.update(data)
+        return ClientForm(payload, instance=instance)
+
+    def test_form_saves_extras(self):
+        form = self._form(
+            instance=self.client_obj, phone="+201000000101",
+            extra_phones="+201555555555\n+201000000101", extra_emails="third@acme.com",
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        client = form.save()
+        # The main number typed again in the box is dropped, not duplicated.
+        self.assertEqual(client.extra_phones, "+201555555555")
+        self.assertEqual(client.extra_emails, "third@acme.com")
+
+    def test_form_refuses_a_number_that_belongs_to_another_client(self):
+        form = self._form(extra_phones="01112223333")
+        self.assertFalse(form.is_valid())
+        self.assertIn(self.client_obj.code, str(form.errors["extra_phones"]))
+
+    def test_form_refuses_an_email_that_belongs_to_another_client(self):
+        form = self._form(extra_emails="other@acme.com")
+        self.assertFalse(form.is_valid())
+        self.assertIn(self.client_obj.code, str(form.errors["extra_emails"]))
+
+    def test_form_refuses_a_bad_number(self):
+        form = self._form(extra_phones="12345")
+        self.assertFalse(form.is_valid())
+        self.assertIn("extra_phones", form.errors)
+
+    def test_admin_page_saves_and_shows_the_extras(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(f"/panel/clients/{self.client_obj.code}/edit/", {
+            "name": "ACME", "company": "", "phone": "+201000000101",
+            "extra_phones": "+201444444444", "email": "main@acme.com",
+            "extra_emails": "", "country": "", "admin_notes": "", "is_active": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        self.assertIn("+201444444444", page)
