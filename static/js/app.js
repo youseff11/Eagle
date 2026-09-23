@@ -986,6 +986,165 @@ window.Eagle = (function () {
     });
   }
 
+  /* ------------------------------------------------------------ nav search */
+
+  /* Type what you want - "كلمات الحظر", "باسورد الإيميل", "اجازات" - and go
+     straight there. The index (nav.search_index) holds every page this
+     person may open plus the sections inside pages, each with the words
+     people actually use for it. Matching is forgiving on purpose: Arabic
+     spelled any of the usual ways, filler words ignored, and the result
+     that matches most of what you typed comes first. */
+
+  var SEARCH_FILLER = ("عايز عاوز عايزه انا اروح روح فين ازاي ايه اعمل اشوف شوف افتح" +
+    " احدث حدث تحديث اعدل عدل تعديل اغير غير تغيير صفحه صفحة بتاعت بتاع في من على عن" +
+    " لل ال و يا i want to go open the page change update edit set how where a of")
+    .split(" ");
+
+  function normAr(text) {
+    return String(text || "").toLowerCase()
+      .replace(/[\u064B-\u0652\u0640]/g, "")
+      .replace(/[\u0623\u0625\u0622]/g, "\u0627")
+      .replace(/\u0629/g, "\u0647")
+      .replace(/\u0649/g, "\u064A")
+      .replace(/\u0624/g, "\u0648")
+      .replace(/\u0626/g, "\u064A")
+      .replace(/\s+/g, " ").trim();
+  }
+
+  function searchTokens(query) {
+    var filler = SEARCH_FILLER.map(normAr);
+    return normAr(query).split(" ").filter(function (tok) {
+      return tok && filler.indexOf(tok) === -1;
+    }).map(function (tok) {
+      // "الحظر" should find "حظر": try the word without its article too.
+      var bare = tok.length > 4 && tok.indexOf("\u0627\u0644") === 0 ? tok.slice(2) : tok;
+      return { full: tok, bare: bare };
+    });
+  }
+
+  function searchScore(row, tokens) {
+    var name = normAr(row.ar + " " + row.en);
+    var rest = normAr(row.keywords + " " + row.where_ar + " " + row.where_en);
+    var score = 0, hits = 0;
+    tokens.forEach(function (tok) {
+      var inName = name.indexOf(tok.full) !== -1 || name.indexOf(tok.bare) !== -1;
+      var inRest = rest.indexOf(tok.full) !== -1 || rest.indexOf(tok.bare) !== -1;
+      if (inName) { score += 3; hits += 1; }
+      else if (inRest) { score += 2; hits += 1; }
+    });
+    if (!hits) { return 0; }
+    // Every word you typed found in one place beats a scatter of partials.
+    if (hits === tokens.length) { score += 4; }
+    // A section inside a page is the more exact answer when both match.
+    if (row.href.indexOf("#") !== -1) { score += 1; }
+    return score;
+  }
+
+  function initNavSearch() {
+    var box = $("#navSearch");
+    var input = $("#navSearchInput");
+    var list = $("#navSearchResults");
+    var data = $("#navSearchIndex");
+    if (!box || !input || !list || !data) { return; }
+    var index = [];
+    try { index = JSON.parse(data.textContent) || []; } catch (error) { index = []; }
+    var shown = [];
+    var cursor = 0;
+
+    function close() {
+      list.classList.add("hidden");
+      list.innerHTML = "";
+      shown = [];
+    }
+
+    function draw() {
+      var tokens = searchTokens(input.value);
+      if (!tokens.length) { close(); return; }
+      shown = index.map(function (row) {
+        return { row: row, score: searchScore(row, tokens) };
+      }).filter(function (hit) { return hit.score > 0; })
+        .sort(function (a, b) { return b.score - a.score; })
+        .slice(0, 8).map(function (hit) { return hit.row; });
+      cursor = 0;
+      if (!shown.length) {
+        list.innerHTML = '<div class="nav-search__empty">' +
+          escapeHtml(t("مفيش حاجة بالاسم ده.", "Nothing by that name.")) + "</div>";
+        list.classList.remove("hidden");
+        return;
+      }
+      list.innerHTML = shown.map(function (row, i) {
+        var label = state.lang === "ar" ? row.ar : row.en;
+        var where = state.lang === "ar" ? row.where_ar : row.where_en;
+        return '<a class="nav-search__row' + (i === 0 ? " is-active" : "") + '" role="option" href="' +
+          escapeHtml(row.href) + '">' + svgIcon(row.icon, "ic--sm") +
+          '<span class="nav-search__body"><b>' + escapeHtml(label) + "</b>" +
+          '<span class="nav-search__where">' + escapeHtml(where) + "</span></span></a>";
+      }).join("");
+      list.classList.remove("hidden");
+    }
+
+    function move(step) {
+      var rows = $$(".nav-search__row", list);
+      if (!rows.length) { return; }
+      rows[cursor].classList.remove("is-active");
+      cursor = (cursor + step + rows.length) % rows.length;
+      rows[cursor].classList.add("is-active");
+      rows[cursor].scrollIntoView({ block: "nearest" });
+    }
+
+    function go(row) {
+      if (!row) { return; }
+      var here = window.location.pathname;
+      var bits = row.href.split("#");
+      window.location.href = row.href;
+      // Same page, different section: the browser only scrolls, so make
+      // sure the highlight replays and the search gets out of the way.
+      if (bits[0] === here && bits[1]) {
+        var target = document.getElementById(bits[1]);
+        if (target) {
+          target.classList.remove("is-found");
+          void target.offsetWidth;
+          target.classList.add("is-found");
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        input.value = "";
+        close();
+      }
+    }
+
+    input.addEventListener("input", draw);
+    input.addEventListener("focus", draw);
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown") { event.preventDefault(); move(1); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+      else if (event.key === "Enter") { event.preventDefault(); go(shown[cursor]); }
+      else if (event.key === "Escape") { input.value = ""; close(); input.blur(); }
+    });
+    document.addEventListener("click", function (event) {
+      if (!box.contains(event.target)) { close(); }
+    });
+
+    // Ctrl+K anywhere, or "/" when you are not already typing somewhere.
+    document.addEventListener("keydown", function (event) {
+      var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((event.target || {}).tagName || "") ||
+        (event.target && event.target.isContentEditable);
+      var ctrlK = (event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K");
+      if (ctrlK || (event.key === "/" && !typing)) {
+        event.preventDefault();
+        var bar = $(".sidebar");
+        if (bar && window.matchMedia("(max-width: 860px)").matches) { bar.classList.add("is-open"); }
+        input.focus();
+        input.select();
+      }
+    });
+
+    // Arrived on a section from the search (or any #link): show where it is.
+    if (window.location.hash) {
+      var landed = document.getElementById(window.location.hash.slice(1));
+      if (landed) { landed.classList.add("is-found"); }
+    }
+  }
+
   function initNavGroups() {
     var groups = $$("[data-nav-group]");
     if (!groups.length) { return; }
@@ -1382,6 +1541,7 @@ window.Eagle = (function () {
     initMailReply();
     initMailList();
     initNavGroups();
+    initNavSearch();
     initDeadlineBoxes();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",

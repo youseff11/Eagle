@@ -422,6 +422,16 @@ def deadline_boxes(value=None, name="deadline", scope=""):
 # ---------------------------------------------------------------------------
 
 @register.simple_tag
+def nav_search(user):
+    """What the search box at the top of the nav can find - see ``nav.search_index``."""
+    from .. import nav
+
+    if not getattr(user, "is_authenticated", False):
+        return []
+    return nav.search_index(user)
+
+
+@register.simple_tag
 def nav_groups(user, url_name=""):
     """The sidebar's groups for this person — see ``dashboard/nav.py``.
 

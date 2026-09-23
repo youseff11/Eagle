@@ -11,7 +11,7 @@
 <form method="post" id="settingsForm" action="{% url 'dashboard:admin_settings' %}" style="max-width:920px">
   {% csrf_token %}
 
-  <div class="card">
+  <div class="card" id="s-ai">
     <div class="card__head">
       {% icon "sparkles" %}
       <h3 data-ar="مراجعة الترجمة بالـ AI" data-en="AI translation check">مراجعة الترجمة بالـ AI</h3>
@@ -29,7 +29,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-workflow">
     <div class="card__head">
       {% icon "list-checks" %}
       <h3 data-ar="قواعد الشغل" data-en="Workflow rules">قواعد الشغل</h3>
@@ -41,14 +41,14 @@
       <div class="field"><label data-ar="أقصى تقييم" data-en="Max rating">أقصى تقييم</label>{{ form.max_rating }}</div>
       <div class="field"><label data-ar="سرعة التحديث (ملي ثانية)" data-en="Polling interval (ms)">سرعة التحديث</label>{{ form.poll_ms }}</div>
     </div>
-    <div class="field">
+    <div class="field" id="s-rate-keywords">
       <label data-ar="الكلمات اللي بتخفي الرسالة عن الأوبريشن"
              data-en="Keywords that hide a message from Operation">الكلمات اللي بتخفي الرسالة عن الأوبريشن</label>
       {{ form.rate_keywords }}
       <span class="helptext" data-ar="افصل بينهم بفاصلة." data-en="Comma separated.">افصل بينهم بفاصلة.</span>
     </div>
 
-    <div class="field">
+    <div class="field" id="s-group-creators">
       <label data-ar="مين يقدر يعمل جروب مع عميل"
              data-en="Who can open a client group">مين يقدر يعمل جروب مع عميل</label>
       {{ form.group_creator_roles }}
@@ -60,7 +60,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-whatsapp">
     <div class="card__head">
       {% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3>
       <div class="grow"></div>
@@ -142,7 +142,7 @@
     <div id="waTestResult" class="mt"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-email">
     <div class="card__head">
       {% icon "mail" %}<h3 data-ar="الإيميل" data-en="Email">الإيميل</h3>
       <div class="grow"></div>

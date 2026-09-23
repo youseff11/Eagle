@@ -16,6 +16,22 @@
   The sections fold, and the one holding the page you are on is opened here,
   server-side, so nothing jumps after the page paints.
   {% endcomment %}
+  {% comment %}
+  Search the nav. Pages by their name and by the words people use for them,
+  and the sections inside pages ("كلمات الحظر" is one field on the settings
+  page) - see nav.search_index. Ctrl+K or "/" from anywhere jumps here.
+  {% endcomment %}
+  <div class="nav-search" id="navSearch">
+    {% icon "search" "ic--sm nav-search__ic" %}
+    <input class="nav-search__input" id="navSearchInput" type="search" autocomplete="off"
+           data-ar-ph="دوّر… (مثلًا: كلمات الحظر)" data-en-ph="Search… (e.g. blocked keywords)"
+           placeholder="دوّر… (مثلًا: كلمات الحظر)" aria-controls="navSearchResults">
+    <kbd class="nav-search__kbd">Ctrl K</kbd>
+    <div class="nav-search__results hidden" id="navSearchResults" role="listbox"></div>
+  </div>
+  {% nav_search user as search_index %}
+  {{ search_index|json_script:"navSearchIndex" }}
+
   <nav class="nav">
     {% nav_groups user url_name as groups %}
     {% for group in groups %}

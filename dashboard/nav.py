@@ -211,3 +211,173 @@ def sidebar(user, url_name=""):
     if groups and not any(g["open"] for g in groups):
         groups[0]["open"] = True
     return groups
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+#
+# "كلمات الحظر" is not a page - it is one field half-way down the settings
+# page, and nobody remembers that it lives under "الإعدادات و AI". So the
+# search at the top of the nav reads three things: each link's own name,
+# the words people actually use for it (below), and the sections *inside*
+# pages (``SPOTS``), which land on the section itself.
+#
+# A spot is shown only when its page is in this person's nav - the gate is
+# the page's, written once in ``groups_for`` and never repeated here.
+# ``NavTests`` checks that every spot's anchor really exists in its template.
+
+#: Words people type for a page, besides its name. Arabic as it is spoken,
+#: plus the English, so either works.
+KEYWORDS = {
+    "ops_inbox": "ميل ايميل بريد رسايل واردة جيميل mail email inbox letters",
+    "ops_chats": "شات محادثات واتساب عملاء جروب زمايل رسايل chat whatsapp messages groups",
+    "ops_tasks": "تاسك مهام شغل جديد task tasks jobs new",
+    "ops_team": "فريق مترجمين متاح مشغول اونلاين team status online busy",
+    "lead_home": "تاسكاتي مهامي مراجعة my tasks review",
+    "lead_translators": "مترجمين متاحين فريقي translators",
+    "translator_home": "شغلي تاسكاتي مهامي my work tasks",
+    "client_list": "عملاء اكواد كود عميل clients codes",
+    "admin_clients": "بيانات العملاء ارقام اسماء تليفون عميل جديد client records",
+    "hr_recruitment": "توظيف تعيين مرشحين لوحة recruitment hiring board",
+    "hr_vacancies": "وظايف وظائف شاغرة اعلان vacancies jobs openings",
+    "hr_candidates": "مرشحين متقدمين cv سيرة ذاتية مقابلة candidates applicants interview",
+    "reviewer_tests": "اختبارات المرشحين تصحيح candidate tests",
+    "hr_questions": "بنك الاسئلة اسئلة البوت question bank",
+    "hr_approvals": "موافقات التعيين موافقة approvals",
+    "hr_recruitment_settings": "اعدادات التوظيف البوت رقم التوظيف recruitment settings",
+    "hr_employees": "موظفين ملفات الموظفين employees staff files",
+    "hr_probation": "فترة الاختبار تثبيت probation",
+    "hr_performance": "اداء تقييم الاداء performance review",
+    "hr_complaints": "شكاوى شكوى عملاء complaints",
+    "hr_salary_requests": "طلبات تغيير الراتب زيادة مرتب salary change raise",
+    "hr_salary_plans": "خطط الرواتب مرتبات تارجت salary plans",
+    "hr_attendance": "حضور انصراف غياب بصمة لوحة الحضور attendance",
+    "hr_schedules": "جداول شيفتات شيفت مواعيد schedules shifts",
+    "hr_leave": "اجازات اجازة طلبات الاجازة اذن leave vacation",
+    "hr_overtime": "اوفرتايم ساعات اضافية overtime",
+    "hr_report": "تقرير شهري تقرير الحضور monthly report",
+    "hr_offices": "مكاتب مواقع لوكيشن عنوان offices locations",
+    "hr_devices": "اجهزة موبايلات اجهزة الحضور devices",
+    "accounts_overview": "مرتبات رواتب كشف الشهر حسابات payroll salaries",
+    "accounts_attendance": "حضور وانتاج كلمات انتاج attendance output production",
+    "accounts_violations": "مخالفات خصومات جزاءات خصم violations deductions",
+    "accounts_rules": "قواعد الحساب قواعد المرتبات payroll rules",
+    "admin_overview": "نظرة عامة احصائيات داشبورد overview dashboard stats",
+    "admin_users": "مستخدمين حسابات يوزر باسورد صلاحيات ادوار شيفتات users accounts roles",
+    "admin_settings": "اعدادات settings",
+    "admin_simulate": "محاكاة تجربة رسالة تجريبية simulate test",
+    "admin_audit": "سجل النشاط لوج مين عمل ايه audit log history",
+    "my_attendance": "حضوري بصمتي تسجيل حضور my attendance check in",
+    "my_leave": "اجازاتي طلب اجازة my leave",
+    "translator_payroll": "مستحقاتي فلوسي مرتبي my payroll",
+    "notifications": "تنبيهات اشعارات notifications",
+}
+
+
+@dataclass(frozen=True)
+class Spot:
+    """A section inside a page, reachable from the search."""
+    url: str        # the page's url name - its nav item is the gate
+    anchor: str     # an id="" inside that page's template
+    template: str   # where that id has to exist (NavTests reads it)
+    ar: str
+    en: str
+    keywords: str = ""
+
+
+SPOTS = (
+    # -- /panel/settings/ -------------------------------------------------
+    Spot("admin_settings", "s-ai", "adminx/settings.html",
+         "مراجعة الترجمة بالـ AI", "AI translation check",
+         "ذكاء اصطناعي ai claude كلود مفتاح api key موديل model تشيك مراجعة"),
+    Spot("admin_settings", "s-workflow", "adminx/settings.html",
+         "قواعد الشغل", "Workflow rules",
+         "مهلة تأكيد الاستلام ثواني تحذير الديدلاين خصم عدم الرد تقييم نجوم سرعة التحديث"
+         " response window penalty rating polling"),
+    Spot("admin_settings", "s-rate-keywords", "adminx/settings.html",
+         "كلمات الحظر (بتخفي الرسالة عن الأوبريشن)", "Blocked keywords (hide from Operation)",
+         "حظر كلمات محظورة ممنوعة مخفية اخفاء ريت سعر اسعار فلوس"
+         " rate price blocked keywords hide"),
+    Spot("admin_settings", "s-group-creators", "adminx/settings.html",
+         "مين يقدر يعمل جروب مع عميل", "Who can open a client group",
+         "جروب عميل صلاحية انشاء group permission"),
+    Spot("admin_settings", "s-whatsapp", "adminx/settings.html",
+         "إعدادات واتساب", "WhatsApp settings",
+         "واتساب توكن رقم ويب هوك webhook token phone number id verify app secret"
+         " api version اختبار ربط"),
+    Spot("admin_settings", "s-email", "adminx/settings.html",
+         "إعدادات الإيميل", "Email settings",
+         "ايميل بريد جيميل imap smtp gmail باسورد سيرفر email mail server"),
+
+    # -- /accounts/rules/ -------------------------------------------------
+    Spot("accounts_rules", "r-month", "accounts/rules.html",
+         "الشهر واليوم", "The month and the day",
+         "ايام الشغل ساعات اليوم بداية الشهر working days hours"),
+    Spot("accounts_rules", "r-deductions", "accounts/rules.html",
+         "الخصومات", "Deductions",
+         "خصم خصومات تأخير غياب جزاء deductions penalties"),
+    Spot("accounts_rules", "r-bonuses", "accounts/rules.html",
+         "المكافآت", "Bonuses",
+         "بونص مكافاة مكافأة حافز انضباط تارجت bonus incentive target"),
+    Spot("accounts_rules", "r-attendance", "accounts/rules.html",
+         "قواعد الحضور والانصراف", "Attendance rules",
+         "تأخير سماحية بصمة حضور انصراف late grace attendance"),
+    Spot("accounts_rules", "r-overtime", "accounts/rules.html",
+         "قواعد الأوفرتايم", "Overtime rules",
+         "اوفرتايم ساعات اضافية overtime"),
+    Spot("accounts_rules", "r-alerts", "accounts/rules.html",
+         "تنبيهات الحضور", "Attendance alerts",
+         "تنبيهات اشعارات alerts"),
+    Spot("accounts_rules", "r-leave", "accounts/rules.html",
+         "قواعد الإجازات والأذونات", "Leave and permission rules",
+         "اجازة اذن موافقة سلسلة الموافقة leave permission approval chain"),
+    Spot("accounts_rules", "r-performance", "accounts/rules.html",
+         "أوزان تقييم الأداء", "Performance weights",
+         "اوزان تقييم اداء performance weights"),
+    Spot("accounts_rules", "r-bands", "accounts/rules.html",
+         "شرائح بونص الإنتاج اليومي", "Daily production bonus bands",
+         "شرايح شرائح انتاج كلمات يومي بونص production bands words"),
+
+    # -- /hr/recruitment/settings/ ---------------------------------------
+    Spot("hr_recruitment_settings", "rec-identity", "hr/recruitment_settings.html",
+         "إخفاء هوية الشركة في التوظيف", "The identity rule",
+         "اخفاء اسم الشركة هوية identity hide company"),
+    Spot("hr_recruitment_settings", "rec-bot", "hr/recruitment_settings.html",
+         "بوت التوظيف", "The recruitment bot",
+         "بوت رسايل البوت ترحيب bot"),
+    Spot("hr_recruitment_settings", "rec-line", "hr/recruitment_settings.html",
+         "رقم واتساب التوظيف", "The recruitment line",
+         "رقم التوظيف واتساب phone number recruitment line"),
+)
+
+
+def search_index(user):
+    """Everything the nav search can find for this person, as plain dicts.
+
+    Pages first (their own names and ``KEYWORDS``), then the sections inside
+    them. Built from ``groups_for``, so a page this person cannot open never
+    turns up - neither as itself nor as one of its sections.
+    """
+    rows, allowed = [], {}
+    for group in groups_for(user):
+        for item in group["items"]:
+            if item.url in allowed:
+                continue
+            href = reverse(f"dashboard:{item.url}")
+            allowed[item.url] = (href, item)
+            rows.append({
+                "href": href, "ar": item.ar, "en": item.en, "icon": item.icon,
+                "where_ar": group["ar"], "where_en": group["en"],
+                "keywords": KEYWORDS.get(item.url, ""),
+            })
+    for spot in SPOTS:
+        if spot.url not in allowed:
+            continue
+        href, page = allowed[spot.url]
+        rows.append({
+            "href": f"{href}#{spot.anchor}", "ar": spot.ar, "en": spot.en,
+            "icon": page.icon, "where_ar": page.ar, "where_en": page.en,
+            "keywords": spot.keywords,
+        })
+    return rows

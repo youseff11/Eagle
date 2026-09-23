@@ -6357,3 +6357,62 @@ class ForwardToAnyGroupTests(TestCase):
         )
         self.assertFalse(ok)
         self.assertFalse(self.group.messages.filter(forwarded=True).exists())
+
+
+class NavSearchTests(TestCase):
+    """The search at the top of the nav: pages, and the sections inside them."""
+
+    def _user(self, name, role):
+        return User.objects.create_user(name, password="x", role=role)
+
+    def _hrefs(self, user):
+        from . import nav
+
+        return [row["href"] for row in nav.search_index(user)]
+
+    def test_every_keyword_belongs_to_a_real_nav_item(self):
+        """A typo in KEYWORDS would silently find nothing - so check it."""
+        from . import nav
+
+        urls = set()
+        for role in [r for r, _label in Role.choices]:
+            user = self._user(f"ns_{role}", role)
+            user.attendance_enabled = True
+            for group in nav.groups_for(user):
+                urls |= {item.url for item in group["items"]}
+        self.assertEqual(sorted(set(nav.KEYWORDS) - urls), [])
+
+    def test_every_section_anchor_exists_in_its_page(self):
+        """The search lands on an id. An id renamed in a template would land
+        on the top of the page instead, with nothing to say it broke."""
+        from pathlib import Path
+
+        from django.conf import settings
+
+        from . import nav
+
+        roots = [Path(d) for d in settings.TEMPLATES[0]["DIRS"]]
+        for spot in nav.SPOTS:
+            source = next(
+                (root / spot.template).read_text(encoding="utf-8")
+                for root in roots if (root / spot.template).exists()
+            )
+            self.assertIn(f'id="{spot.anchor}"', source, spot.anchor)
+
+    def test_the_admin_finds_the_blocked_keywords_field(self):
+        admin = self._user("ns_admin", Role.ADMIN)
+        self.assertIn("/panel/settings/#s-rate-keywords", self._hrefs(admin))
+
+    def test_nobody_finds_a_section_of_a_page_they_cannot_open(self):
+        ops = self._user("ns_ops", Role.OPERATION)
+        hrefs = self._hrefs(ops)
+        self.assertFalse([h for h in hrefs if "#s-" in h or "#r-" in h])
+        self.assertIn("/ops/inbox/", hrefs)
+
+    def test_the_page_carries_the_index_and_the_box(self):
+        admin = self._user("ns_admin2", Role.ADMIN)
+        self.client.force_login(admin)
+        html = self.client.get("/ops/tasks/").content.decode()
+        self.assertIn('id="navSearchInput"', html)
+        self.assertIn('id="navSearchIndex"', html)
+        self.assertIn("s-rate-keywords", html)
