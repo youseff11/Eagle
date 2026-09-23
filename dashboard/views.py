@@ -1141,6 +1141,43 @@ def admin_simulate(request):
 
 
 @admin_only
+def admin_reset_tasks(request):
+    """Wipe every task and start the numbering over - the admin's password again.
+
+    GET draws what would go. POST does it and answers with the backup as a
+    download; the page's script saves it, then moves on to the tasks list,
+    where the flash says what happened. A refused POST re-draws the page
+    with the reason, and nothing is touched.
+    """
+    from django.http import HttpResponse
+
+    error = ""
+    if request.method == "POST":
+        if request.POST.get("confirm") != "1":
+            error = "علّم على المربع اللي بيأكد إنك فاهم إن ده مسح نهائي."
+        else:
+            ok, error, backup, deleted = services.reset_all_tasks(
+                request.user, request.POST.get("password", "")
+            )
+            if ok:
+                flash.success(
+                    request,
+                    f"اتمسح {deleted} تاسك. الترقيم هيبدأ من TSK-00001.",
+                )
+                stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
+                response = HttpResponse(backup, content_type="application/json; charset=utf-8")
+                response["Content-Disposition"] = (
+                    f'attachment; filename="eagle-tasks-backup-{stamp}.json"'
+                )
+                response["X-Eagle-Next"] = reverse("dashboard:ops_tasks")
+                return response
+    return render(request, "adminx/reset_tasks.html", {
+        "counts": services.task_reset_counts(),
+        "error": error,
+    }, status=400 if error else 200)
+
+
+@admin_only
 def admin_audit(request):
     from .models import AuditLog
 

@@ -1201,6 +1201,62 @@ window.Eagle = (function () {
     }
   }
 
+  /* ---------------------------------------------------------- reset tasks */
+
+  /* The admin's "start the tasks over" form (/panel/reset-tasks/). Posted
+     from here so the backup that comes back can be saved as a file and the
+     page can then move on; a refusal (wrong password) comes back as the
+     page itself, and only its error line is lifted out of it. */
+  function initResetTasks() {
+    var form = $("#resetTasksForm");
+    if (!form) { return; }
+    var box = $("#resetError");
+    var button = $("#resetSubmit");
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (button) { button.disabled = true; }
+      fetch(window.location.pathname, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "same-origin"
+      }).then(function (res) {
+        var next = res.headers.get("X-Eagle-Next");
+        if (res.ok && next) {
+          var name = "eagle-tasks-backup.json";
+          var match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+          if (match) { name = match[1]; }
+          return res.blob().then(function (blob) {
+            var link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = name;
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(function () { window.location.href = next; }, 600);
+          });
+        }
+        return res.text().then(function (html) {
+          var page = new DOMParser().parseFromString(html, "text/html");
+          var error = page.getElementById("resetError");
+          if (box) {
+            box.textContent = error ? error.textContent.trim()
+              : t("حصلت مشكلة. محدش اتمسح.", "Something went wrong. Nothing was deleted.");
+            box.classList.remove("hidden");
+          }
+          var pass = $("#resetPassword");
+          if (pass) { pass.value = ""; pass.focus(); }
+          if (button) { button.disabled = false; }
+        });
+      }).catch(function () {
+        if (box) {
+          box.textContent = t("مشكلة في الاتصال. محدش اتمسح.", "Connection problem. Nothing was deleted.");
+          box.classList.remove("hidden");
+        }
+        if (button) { button.disabled = false; }
+      });
+    });
+  }
+
   function initNavGroups() {
     var groups = $$("[data-nav-group]");
     if (!groups.length) { return; }
@@ -1598,6 +1654,7 @@ window.Eagle = (function () {
     initMailList();
     initNavGroups();
     initNavSearch();
+    initResetTasks();
     initDeadlineBoxes();
     initCopy();
     bindTest("waTestBtn", "waTestTo", "waTestResult",

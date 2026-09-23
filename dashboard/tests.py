@@ -6649,3 +6649,94 @@ class LeadTranslatorGroupTests(TestCase):
         # still the one-to-one chat.
         room = services.pair_room(self.ops, self.lead)
         self.assertEqual(room.kind, self.RoomKind.STAFF)
+
+
+class ResetTasksTests(TestCase):
+    """The admin's "start the tasks over" - password first, all or nothing."""
+
+    def setUp(self):
+        from .models import Channel, InboundMessage
+
+        self.admin = User.objects.create_user("admin_rt", password="right-pass", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_rt", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_rt", password="x", role=Role.TEAM_LEAD)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000098")
+        self.inbound = InboundMessage.objects.create(
+            client=self.acme, channel=Channel.WHATSAPP, body="please translate",
+            sender_identity="+201000000098",
+        )
+        self.task = services.create_task(
+            client=self.acme, title="Contract", created_by=self.ops, messages=[self.inbound],
+        )
+        services.assign_to_lead(self.task, self.lead, self.ops)
+        services.create_task(client=self.acme, title="Second", created_by=self.ops)
+
+    def test_the_wrong_password_deletes_nothing(self):
+        ok, error, backup, deleted = services.reset_all_tasks(self.admin, "nope")
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        self.assertEqual(Task.objects.count(), 2)
+
+    def test_only_the_admin(self):
+        ok, _error, _backup, _deleted = services.reset_all_tasks(self.ops, "x")
+        self.assertFalse(ok)
+        self.assertEqual(Task.objects.count(), 2)
+
+    def test_the_right_password_starts_over(self):
+        ok, error, backup, deleted = services.reset_all_tasks(self.admin, "right-pass")
+        self.assertTrue(ok, error)
+        self.assertEqual(deleted, 2)
+        self.assertEqual(Task.objects.count(), 0)
+        fresh = services.create_task(client=self.acme, title="New", created_by=self.ops)
+        self.assertEqual(fresh.code, "TSK-00001")
+
+    def test_the_backup_holds_what_was_deleted(self):
+        import json
+
+        code = self.task.code
+        _ok, _error, backup, _deleted = services.reset_all_tasks(self.admin, "right-pass")
+        rows = json.loads(backup)
+        self.assertIn(code, [r["fields"].get("code") for r in rows if r["model"] == "dashboard.task"])
+        self.assertTrue([r for r in rows if r["model"] == "dashboard.assignment"])
+
+    def test_the_client_message_stays_and_can_become_a_task_again(self):
+        services.reset_all_tasks(self.admin, "right-pass")
+        self.inbound.refresh_from_db()
+        self.assertIsNone(self.inbound.task_id)
+
+    def test_it_is_written_in_the_audit_log(self):
+        from .models import AuditLog
+
+        services.reset_all_tasks(self.admin, "right-pass")
+        self.assertTrue(AuditLog.objects.filter(action="task.reset", actor=self.admin).exists())
+
+    def test_the_page_is_the_admins_alone(self):
+        self.client.force_login(self.ops)
+        self.assertEqual(self.client.get("/panel/reset-tasks/").status_code, 403)
+
+    def test_the_page_downloads_the_backup(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            "/panel/reset-tasks/", {"password": "right-pass", "confirm": "1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertEqual(response["X-Eagle-Next"], "/ops/tasks/")
+        self.assertEqual(Task.objects.count(), 0)
+
+    def test_without_the_tick_nothing_happens(self):
+        self.client.force_login(self.admin)
+        response = self.client.post("/panel/reset-tasks/", {"password": "right-pass"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Task.objects.count(), 2)
+
+    def test_it_is_the_last_thing_in_the_admins_nav(self):
+        from . import nav
+
+        groups = nav.sidebar(self.admin)
+        self.assertEqual(groups[-1]["items"][-1]["href"], "/panel/reset-tasks/")
+        self.assertTrue(groups[-1]["items"][-1]["danger"])
+        self.assertNotIn(
+            "/panel/reset-tasks/",
+            [i["href"] for g in nav.sidebar(self.ops) for i in g["items"]],
+        )

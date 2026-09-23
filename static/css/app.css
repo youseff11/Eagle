@@ -582,6 +582,15 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 /* The job's files, under the task's title. */
 .task-files { padding-top: 12px; border-top: 1px solid var(--border); }
 .task-files .label { display: flex; align-items: center; gap: 6px; }
+/* The one red link in the nav, and the page behind it. */
+.nav__item--danger, .nav__item--danger .ic { color: var(--danger); }
+.nav__item--danger:hover { background: var(--danger-soft); }
+.reset-card { border-color: var(--danger); }
+.reset-card .card__head .ic { color: var(--danger); }
+.reset-counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.reset-counts > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); }
+.reset-counts b { font-size: 1.2rem; }
+.reset-error { margin-top: 10px; color: var(--danger); font-size: .85rem; font-weight: 600; }
 
 /* --------------------------------------------------------------- the mail
    /ops/inbox/ is e-mail and nothing else, so it is shaped like a mailbox:

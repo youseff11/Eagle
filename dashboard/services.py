@@ -2792,6 +2792,75 @@ def task_source_files(task):
 
 
 # ---------------------------------------------------------------------------
+# Starting the tasks over (admin only)
+# ---------------------------------------------------------------------------
+
+def task_reset_counts():
+    """What a reset would take with it - drawn on the page before anybody asks."""
+    from .models import AICheckResult, Assignment, OutboundMessage
+
+    return {
+        "tasks": Task.objects.count(),
+        "open": Task.objects.filter(status__in=ACTIVE_TASK_STATUSES).count(),
+        "assignments": Assignment.objects.count(),
+        "deliveries": OutboundMessage.objects.filter(task__isnull=False).count(),
+        "ai_checks": AICheckResult.objects.count(),
+        "rooms": ChatRoom.objects.filter(task__isnull=False).count(),
+    }
+
+
+def reset_all_tasks(admin, password):
+    """Delete every task so numbering starts again at TSK-00001.
+
+    Returns ``(ok, error_ar, backup_json, deleted)``.
+
+    Decided with the owner 23/09/2026. Guarded three ways, because nothing
+    else in the product is this final: the admin role, the admin's *own*
+    password typed again (a session left open on a desk is not consent), and
+    one transaction - it all goes, or none of it does.
+
+    What goes with the tasks (CASCADE): their hand-offs, their deliveries to
+    clients, their AI checks, their notifications and the old per-task rooms.
+    What stays: every client message (``InboundMessage.task`` goes NULL, so a
+    message can be turned into a task again), every staff chat and work group
+    (a message's ``task`` goes NULL), ratings and violations (their ``task``
+    goes NULL). Payroll reads production from tasks, so the current month's
+    production goes with them - the page says so before the button.
+
+    The JSON returned is a Django fixture of everything deleted, handed to the
+    admin as a download. It is not stored on the server: files live on a
+    public CDN here, and a backup full of client work does not belong there.
+    """
+    from django.core import serializers
+
+    from .models import AICheckResult, Assignment, OutboundAttachment, OutboundMessage
+
+    if admin is None or not admin.is_admin_role:
+        return False, "الخطوة دي للأدمن بس.", "", 0
+    if not password or not admin.check_password(password):
+        log(admin, "task.reset_refused", "", "wrong password")
+        return False, "الباسورد غلط.", "", 0
+
+    with transaction.atomic():
+        tasks = list(Task.objects.all())
+        deliveries = OutboundMessage.objects.filter(task__isnull=False)
+        rooms = ChatRoom.objects.filter(task__isnull=False)
+        backup = serializers.serialize("json", [
+            *tasks,
+            *Assignment.objects.all(),
+            *deliveries,
+            *OutboundAttachment.objects.filter(message__in=deliveries),
+            *AICheckResult.objects.all(),
+            *rooms,
+            *ChatMessage.objects.filter(room__in=rooms),
+        ], indent=1, ensure_ascii=False)
+        deleted = len(tasks)
+        Task.objects.all().delete()
+    log(admin, "task.reset", f"{deleted} task(s)", "all tasks deleted; numbering restarts")
+    return True, "", backup, deleted
+
+
+# ---------------------------------------------------------------------------
 # Finding a task from the nav search
 # ---------------------------------------------------------------------------
 

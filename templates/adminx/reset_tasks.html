@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% load eagle_tags %}
+{% block title %}Reset tasks{% endblock %}
+{% block page_title %}<span data-ar="ريستارت التاسكات" data-en="Reset all tasks">ريستارت التاسكات</span>{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 data-ar="ريستارت التاسكات" data-en="Reset all tasks">ريستارت التاسكات</h1>
+  <span class="page-head__sub"
+        data-ar="بيمسح كل التاسكات والترقيم بيرجع يبدأ من TSK-00001. مفيش رجوع."
+        data-en="Deletes every task and numbering starts again at TSK-00001. There is no undo.">
+    بيمسح كل التاسكات والترقيم بيرجع يبدأ من TSK-00001. مفيش رجوع.
+  </span>
+</div>
+
+<div class="card reset-card" style="max-width:720px">
+  <div class="card__head">
+    {% icon "alert" %}
+    <h3 data-ar="اللي هيتمسح" data-en="What goes">اللي هيتمسح</h3>
+  </div>
+  <div class="reset-counts">
+    <div><b class="mono">{{ counts.tasks }}</b><span data-ar="تاسك" data-en="tasks">تاسك</span>
+      {% if counts.open %}<span class="chip chip--sm">{{ counts.open }} <span data-ar="شغالة دلوقتي" data-en="still running">شغالة دلوقتي</span></span>{% endif %}</div>
+    <div><b class="mono">{{ counts.assignments }}</b><span data-ar="تسليم لتيم ليدر/مترجم" data-en="hand-offs">تسليم لتيم ليدر/مترجم</span></div>
+    <div><b class="mono">{{ counts.deliveries }}</b><span data-ar="تسليم للعميل" data-en="client deliveries">تسليم للعميل</span></div>
+    <div><b class="mono">{{ counts.ai_checks }}</b><span data-ar="مراجعة AI" data-en="AI checks">مراجعة AI</span></div>
+    <div><b class="mono">{{ counts.rooms }}</b><span data-ar="غرفة تاسك قديمة برسايلها" data-en="old task rooms, with their messages">غرفة تاسك قديمة برسايلها</span></div>
+  </div>
+
+  <div class="note note--warn mt">
+    {% icon "shield" %}
+    <div>
+      <strong data-ar="اللي بيفضل" data-en="What stays">اللي بيفضل</strong>
+      <div data-ar="رسايل العملاء وميلاتهم (وتقدر تحوّلها لتاسك تاني) · شاتات الموظفين وجروبات الشغل · التقييمات والمخالفات · العملاء والموظفين."
+           data-en="Client messages and mail (they can be turned into tasks again) · staff chats and work groups · ratings and violations · clients and staff.">
+        رسايل العملاء وميلاتهم (وتقدر تحوّلها لتاسك تاني) · شاتات الموظفين وجروبات الشغل · التقييمات والمخالفات · العملاء والموظفين.
+      </div>
+    </div>
+  </div>
+  <div class="note note--warn mt">
+    {% icon "alert" %}
+    <div data-ar="الحسابات بتحسب إنتاج المترجمين من التاسكات — إنتاج الشهر ده هيتمسح معاها."
+         data-en="Payroll reads translator production from tasks - this month's production goes with them.">
+      الحسابات بتحسب إنتاج المترجمين من التاسكات — إنتاج الشهر ده هيتمسح معاها.
+    </div>
+  </div>
+
+  {% comment %}
+  The page's script posts this, saves the backup it gets back as a file, and
+  then moves on to the tasks list. Without the script the browser simply
+  downloads the backup and stays here - still correct, only less tidy.
+  {% endcomment %}
+  <form method="post" id="resetTasksForm" class="mt" autocomplete="off">
+    {% csrf_token %}
+    <div class="field">
+      <label for="resetPassword" data-ar="باسورد الأدمن بتاعك" data-en="Your admin password">باسورد الأدمن بتاعك</label>
+      <input class="input" type="password" id="resetPassword" name="password"
+             autocomplete="current-password" required style="max-width:320px">
+    </div>
+    <label class="switch">
+      <input type="checkbox" name="confirm" value="1" id="resetConfirm" required>
+      <span data-ar="فاهم إن ده مسح نهائي لكل التاسكات، وهاخد نسخة احتياطية." data-en="I understand every task is deleted for good, and I will keep the backup.">فاهم إن ده مسح نهائي لكل التاسكات، وهاخد نسخة احتياطية.</span>
+    </label>
+    <div class="reset-error{% if not error %} hidden{% endif %}" id="resetError">{{ error }}</div>
+    <div class="row mt">
+      <button class="btn btn--danger" type="submit" id="resetSubmit">
+        {% icon "refresh" "ic--sm" %}<span data-ar="امسح كل التاسكات وابدأ من الأول" data-en="Delete every task and start over">امسح كل التاسكات وابدأ من الأول</span>
+      </button>
+    </div>
+    <p class="muted" style="font-size:.8rem"
+       data-ar="مع المسح بينزل لك ملف JSON فيه كل اللي اتمسح. مابيتحفظش على السيرفر."
+       data-en="A JSON file of everything deleted downloads to you as it goes. It is not kept on the server.">
+      مع المسح بينزل لك ملف JSON فيه كل اللي اتمسح. مابيتحفظش على السيرفر.
+    </p>
+  </form>
+</div>
+{% endblock %}

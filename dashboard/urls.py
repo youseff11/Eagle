@@ -172,6 +172,7 @@ urlpatterns = [
     path("panel/clients/<str:code>/edit/", views.client_form, name="admin_client_edit"),
     path("panel/simulate/", views.admin_simulate, name="admin_simulate"),
     path("panel/audit/", views.admin_audit, name="admin_audit"),
+    path("panel/reset-tasks/", views.admin_reset_tasks, name="admin_reset_tasks"),
 
     # -- json api -----------------------------------------------------------
     path("api/heartbeat/", api.heartbeat, name="api_heartbeat"),

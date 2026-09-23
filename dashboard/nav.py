@@ -37,6 +37,8 @@ class Item:
     counter: str = ""
     #: Other url names that mean "this item is where you are".
     also: tuple = ()
+    #: Drawn in red: this link leads somewhere that deletes things.
+    danger: bool = False
 
     def here(self, url_name):
         return url_name == self.url or url_name in self.also
@@ -182,6 +184,14 @@ def groups_for(user):
         Item("notifications", "التنبيهات", "Notifications", "bell"),
     ]))
 
+    # -- the one irreversible thing, last of all ---------------------------
+    # At the very bottom on purpose (23/09/2026): out of the way of everyday
+    # clicking, and red. The page behind it asks for the password again.
+    out.append(_group("danger", "منطقة خطر", "Danger zone", [
+        Item("admin_reset_tasks", "ريستارت التاسكات", "Reset all tasks",
+             "refresh", danger=True) if admin else None,
+    ]))
+
     return [g for g in out if g["items"]]
 
 
@@ -204,6 +214,7 @@ def sidebar(user, url_name=""):
                 "icon": item.icon,
                 "counter": item.counter,
                 "here": item.here(url_name),
+                "danger": item.danger,
             })
         group["items"] = items
         group["open"] = any(i["here"] for i in items)
@@ -272,6 +283,7 @@ KEYWORDS = {
     "my_leave": "اجازاتي طلب اجازة my leave",
     "translator_payroll": "مستحقاتي فلوسي مرتبي my payroll",
     "notifications": "تنبيهات اشعارات notifications",
+    "admin_reset_tasks": "ريستارت مسح كل التاسكات ابدأ من الاول ترقيم reset delete all tasks",
 }
 
 

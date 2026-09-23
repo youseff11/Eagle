@@ -43,7 +43,7 @@
         </summary>
         <div class="nav__items">
           {% for item in group.items %}
-            <a class="nav__item {% if item.here %}is-active{% endif %}" href="{{ item.href }}">
+            <a class="nav__item {% if item.here %}is-active{% endif %}{% if item.danger %} nav__item--danger{% endif %}" href="{{ item.href }}">
               {% icon item.icon %}
               <span data-ar="{{ item.ar }}" data-en="{{ item.en }}">{{ item.ar }}</span>
               {% if item.counter %}
