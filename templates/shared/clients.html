@@ -7,9 +7,9 @@
 <div class="page-head">
   <h1 data-ar="العملاء" data-en="Clients">العملاء</h1>
   <span class="page-head__sub"
-        data-ar="بيانات العميل الحقيقية بتظهر للأدمن بس — الباقي بيشوف الكود."
-        data-en="Real client details are visible to the admin only — everyone else sees the code.">
-    بيانات العميل الحقيقية بتظهر للأدمن بس.
+        data-ar="بيانات العميل الحقيقية بتظهر للأدمن ولمين الأدمن سمح له بس — الباقي بيشوف الكود. كل فتح بيتسجّل."
+        data-en="Real client details are visible to the admin and to people the admin granted them to — everyone else sees the code. Every view is logged.">
+    بيانات العميل الحقيقية بتظهر للأدمن ولمين الأدمن سمح له بس.
   </span>
 </div>
 
@@ -28,7 +28,7 @@
       <thead>
         <tr>
           <th data-ar="الكود" data-en="Code">الكود</th>
-          {% if user.is_admin_role %}
+          {% if sees_identity %}
             <th data-ar="الاسم" data-en="Name">الاسم</th>
             <th data-ar="التليفون" data-en="Phone">التليفون</th>
           {% endif %}
@@ -41,7 +41,7 @@
       {% for client in clients %}
         <tr>
           <td class="mono"><strong>{{ client.code }}</strong></td>
-          {% if user.is_admin_role %}
+          {% if sees_identity %}
             <td>{{ client.name|default:"—" }} <small class="muted">{{ client.company }}</small></td>
             <td class="mono">{{ client.phone|default:"—" }}</td>
           {% endif %}

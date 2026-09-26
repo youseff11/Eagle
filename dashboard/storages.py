@@ -17,7 +17,7 @@ import uuid
 from django.contrib.staticfiles.storage import ManifestStaticFilesStorage
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.base import ContentFile
-from django.core.files.storage import Storage
+from django.core.files.storage import FileSystemStorage, Storage
 from django.utils.deconstruct import deconstructible
 
 from . import net
@@ -29,6 +29,27 @@ DEFAULT_REGIONS = ("", "de", "falkenstein", "frankfurt")
 
 class BunnyError(IOError):
     pass
+
+
+def protected_url(name):
+    """The only address a browser is ever given for a stored file.
+
+    ``/files/<path>`` is answered by ``views.serve_file``, which checks that
+    the person asking may read this file before a byte leaves the server.
+    The CDN address stays on the server (``BunnyStorage.cdn_address``).
+    """
+    from .files import URL_PREFIX
+
+    clean = str(name).replace("\\", "/").lstrip("/")
+    return URL_PREFIX + urllib.parse.quote(clean)
+
+
+@deconstructible
+class ProtectedFileSystemStorage(FileSystemStorage):
+    """The local-disk storage, with the same guarded URLs as Bunny's."""
+
+    def url(self, name):
+        return protected_url(name)
 
 
 @deconstructible
@@ -147,6 +168,11 @@ class BunnyStorage(Storage):
             return 0
 
     def url(self, name):
+        return protected_url(self._clean(name))
+
+    def cdn_address(self, name):
+        """The public pull-zone address. Never rendered: once Token
+        Authentication is on for the pull zone it does not open anyway."""
         return f"{self.cdn_url}/{urllib.parse.quote(self._clean(name))}"
 
     def listdir(self, path):

@@ -220,6 +220,21 @@ strong, b { font-weight: 620; }
   .is-found { animation: none; box-shadow: 0 0 0 2px var(--brand); }
 }
 
+/* Fold / unfold every nav section at once. Quiet on purpose: it is a
+   housekeeping control, not a destination, so it must not read as a link. */
+.nav-tools { display: flex; justify-content: flex-end; margin: -4px 0 6px; }
+.nav-tools__btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--faint);
+  font: inherit; font-size: .72rem; cursor: pointer;
+  transition: background .14s, color .14s;
+}
+.nav-tools__btn:hover { background: var(--surface-2); color: var(--muted); }
+.nav-tools__btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+.nav-tools__ic { transform: rotate(180deg); transition: transform .16s; }
+.nav-tools__btn.is-folded .nav-tools__ic { transform: none; }
+
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav__label {
   font-size: .64rem; color: var(--faint); text-transform: uppercase;

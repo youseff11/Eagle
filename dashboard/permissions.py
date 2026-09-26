@@ -11,6 +11,20 @@ from django.urls import Resolver404, resolve
 from .models import Role
 
 
+def _refused(request, why):
+    """Write down a refusal that is *answered* here rather than raised.
+
+    A raised ``PermissionDenied`` is logged once, by ``views.permission_denied``
+    (the project's 403 handler) - so only the JSON answer below calls this.
+
+    Imported late: ``identity`` reads the audit model, and this module is
+    imported by everything, including code that runs before apps are ready.
+    """
+    from . import identity
+
+    identity.record_denied(request, why)
+
+
 def role_required(*roles):
     """Allow only the given roles (the admin role always passes)."""
 
@@ -43,6 +57,7 @@ def api_role_required(*roles):
                 return JsonResponse({"ok": False, "error": "auth"}, status=401)
             if user.is_admin_role or user.role in roles:
                 return view(request, *args, **kwargs)
+            _refused(request, f"api_role_required {view.__name__}")
             return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
 
         return wrapper
@@ -82,6 +97,11 @@ reviewer_required = _gate(
 )
 owner_required = _gate(
     lambda u: u.can_approve_hiring, "Only the owner decides a hire."
+)
+#: The /clients/ pages. Opening them is not seeing the identity - that is
+#: ``can_see_client_identity``, checked again inside the view.
+client_codes_required = _gate(
+    lambda u: u.can_open_client_codes, "Your role cannot open the client pages."
 )
 
 

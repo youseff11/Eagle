@@ -6,7 +6,7 @@
 {% block content %}
 <div class="page-head">
   <h1 class="mono">{{ client.code }}</h1>
-  {% if user.is_admin_role %}
+  {% if sees_identity %}
     <span class="badge badge--new">{{ client.name }} {{ client.company }}</span>
   {% else %}
     <span class="badge">{% icon "shield" "ic--sm" %}<span
@@ -43,7 +43,7 @@
       <div class="muted" data-ar="مفيش متطلبات لسه." data-en="No requirements yet.">مفيش متطلبات لسه.</div>
     {% endfor %}
 
-    {% if not user.is_translator %}
+    {% if may_edit %}
       <form method="post" class="mt">
         {% csrf_token %}
         <div class="form-grid">
@@ -64,11 +64,11 @@
   </div>
 
   <div class="sticky-side">
-    {% if user.is_admin_role %}
+    {% if sees_identity %}
       <div class="card">
         <div class="card__head">
           {% icon "building" %}
-          <h3 data-ar="بيانات العميل (أدمن فقط)" data-en="Client identity (admin only)">بيانات العميل</h3>
+          <h3 data-ar="بيانات العميل (صلاحية خاصة - الفتح بيتسجّل)" data-en="Client identity (restricted - access is logged)">بيانات العميل</h3>
         </div>
         <div class="kv"><span data-ar="الاسم" data-en="Name">الاسم</span>
           <strong>{{ client.name|default:"—" }}</strong></div>
@@ -82,7 +82,20 @@
           <strong class="mono" dir="ltr">
             {% for address in client.all_emails %}{{ address }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}
           </strong></div>
-        {% if client.admin_notes %}<div class="mt muted">{{ client.admin_notes }}</div>{% endif %}
+        {% if user.is_admin_role and client.admin_notes %}<div class="mt muted">{{ client.admin_notes }}</div>{% endif %}
+      </div>
+    {% endif %}
+
+    {% if activity %}
+      <div class="card">
+        <div class="card__head">{% icon "chart" %}<h3 data-ar="متابعة العميل" data-en="Client activity">متابعة العميل</h3></div>
+        <p class="muted" style="font-size:.8rem"
+           data-ar="متابعة بس - التنفيذ مع الأوبريشن والفلوس مع الحسابات."
+           data-en="Follow-up only - delivery belongs to Operations, money to Accounting.">متابعة بس.</p>
+        <div class="kv"><span data-ar="شغالة دلوقتي" data-en="In progress">شغالة دلوقتي</span><strong class="mono">{{ activity.active }}</strong></div>
+        <div class="kv"><span data-ar="اتسلّمت" data-en="Delivered">اتسلّمت</span><strong class="mono">{{ activity.delivered }}</strong></div>
+        <div class="kv"><span data-ar="إجمالي المشاريع" data-en="All projects">إجمالي المشاريع</span><strong class="mono">{{ activity.total }}</strong></div>
+        <div class="kv"><span data-ar="آخر مشروع" data-en="Latest project">آخر مشروع</span><strong class="mono">{{ activity.last|date:"Y-m-d"|default:"-" }}</strong></div>
       </div>
     {% endif %}
 
@@ -91,7 +104,8 @@
       <ul class="timeline">
         {% for task in tasks %}
           <li>
-            <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            {% if may_edit %}<a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
+            {% else %}<span class="mono">{{ task.code }}</span>{% endif %}
             <span class="grow">{{ task.title|truncatechars:26 }} {% origin_badge task.origin %}</span>
             {% status_badge task.status %}
           </li>

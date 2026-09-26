@@ -19,6 +19,11 @@ urlpatterns = [
     path("", include("dashboard.urls")),
 ]
 
+#: Every refusal is written to the audit log before the page is drawn.
+handler403 = "dashboard.views.permission_denied"
+
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # No media/ route: an uploaded file is opened through /files/, which
+    # checks who is asking (dashboard.views.serve_file) - in DEBUG as well,
+    # so the rule is exercised on the machine it is developed on.
     urlpatterns += static(settings.STATIC_URL, document_root=settings.BASE_DIR / "static")

@@ -91,7 +91,7 @@ def groups_for(user):
     # -- clients ----------------------------------------------------------
     out.append(_group("clients", "العملاء", "Clients", [
         Item("client_list", "أكواد العملاء", "Client codes", "tag",
-             also=("client_detail",)) if not user.is_translator else None,
+             also=("client_detail",)) if user.can_open_client_codes else None,
         Item("admin_clients", "بيانات العملاء", "Client records", "contact",
              also=("admin_client_new", "admin_client_edit")) if admin else None,
     ]))
@@ -174,7 +174,7 @@ def groups_for(user):
     ]))
 
     # -- this person's own things ------------------------------------------
-    out.append(_group("mine", "بتاعي", "Mine", [
+    out.append(_group("mine", "حسابي", "My account", [
         Item("my_attendance", "حضوري", "My attendance",
              "timer") if user.attendance_enabled else None,
         Item("my_leave", "إجازاتي", "My leave",

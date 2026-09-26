@@ -6,6 +6,13 @@
 {% block content %}
 <div class="page-head">
   <h1 data-ar="سجل النشاط" data-en="Audit log">سجل النشاط</h1>
+  <div class="grow"></div>
+  <a class="btn btn--sm {% if not only %}btn--primary{% endif %}" href="{% url 'dashboard:admin_audit' %}"
+     data-ar="الكل" data-en="All">الكل</a>
+  <a class="btn btn--sm {% if only == 'security' %}btn--primary{% endif %}" href="{% url 'dashboard:admin_audit' %}?only=security"
+     data-ar="هوية العملاء والصلاحيات" data-en="Client identity and access">هوية العملاء والصلاحيات</a>
+  <a class="btn btn--sm {% if only == 'denied' %}btn--primary{% endif %}" href="{% url 'dashboard:admin_audit' %}?only=denied"
+     data-ar="محاولات مرفوضة" data-en="Refused attempts">محاولات مرفوضة</a>
 </div>
 
 <div class="card">
@@ -18,6 +25,7 @@
           <th data-ar="الحدث" data-en="Action">الحدث</th>
           <th data-ar="الهدف" data-en="Target">الهدف</th>
           <th data-ar="تفاصيل" data-en="Detail">تفاصيل</th>
+          <th data-ar="من فين" data-en="From">من فين</th>
         </tr>
       </thead>
       <tbody>
@@ -28,9 +36,10 @@
           <td class="mono">{{ entry.action }}</td>
           <td class="mono">{{ entry.target }}</td>
           <td class="muted">{{ entry.detail|truncatechars:60 }}</td>
+          <td class="mono muted" dir="ltr">{{ entry.ip|default:"" }}{% if entry.path %} <small>{{ entry.path|truncatechars:40 }}</small>{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" class="empty">
+        <tr><td colspan="6" class="empty">
           {% icon "history" "ic--xl" %}
           <span data-ar="السجل فاضي." data-en="Log is empty.">السجل فاضي.</span></td></tr>
       {% endfor %}

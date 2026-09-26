@@ -7348,3 +7348,416 @@ class ClientExtraIdentitiesTests(TestCase):
         self.assertEqual(response.status_code, 302)
         page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
         self.assertIn("+201444444444", page)
+
+
+class ClientIdentityMaskingTests(TestCase):
+    """B2B identity masking: operation runs the work on codes and nothing it
+    can type turns a code back into a company. Sections 3, 7, 11 and 14 of
+    the masking requirements."""
+
+    NAME = "ABC Translation Services"
+
+    def setUp(self):
+        from .models import AuditLog  # noqa: F401 - used by the helpers below
+
+        self.admin = User.objects.create_user("own", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("opsm", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("leadm", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "trm", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.sales = User.objects.create_user("salesm", password="x", role=Role.SALES)
+        self.acc = User.objects.create_user("accm", password="x", role=Role.ACCOUNTING)
+        self.client_obj = Client.objects.create(
+            name="Mona", company=self.NAME, phone="+201000000482",
+            email="pm@abc-translation.example",
+        )
+
+    def _audit(self, action, **extra):
+        from .models import AuditLog
+
+        return AuditLog.objects.filter(action=action, **extra)
+
+    # -- who may see ----------------------------------------------------------
+
+    def test_nobody_but_the_admin_sees_the_identity_by_default(self):
+        self.assertTrue(self.admin.can_see_client_identity)
+        for person in (self.ops, self.lead, self.tr, self.sales, self.acc):
+            self.assertFalse(person.can_see_client_identity, person.role)
+            self.assertEqual(self.client_obj.label_for(person), self.client_obj.code)
+
+    def test_the_grant_works_for_sales_and_accounting_only(self):
+        for person in (self.sales, self.acc):
+            person.client_identity_access = True
+            person.save()
+            self.assertTrue(person.can_see_client_identity, person.role)
+
+    def test_the_grant_is_ignored_on_operation(self):
+        # Written straight to the table, past save(): the property still says no.
+        User.objects.filter(pk=self.ops.pk).update(client_identity_access=True)
+        self.ops.refresh_from_db()
+        self.assertFalse(self.ops.can_see_client_identity)
+
+    def test_the_grant_does_not_survive_a_move_to_operation(self):
+        self.sales.client_identity_access = True
+        self.sales.save()
+        self.sales.role = Role.OPERATION
+        self.sales.save()
+        self.sales.refresh_from_db()
+        self.assertFalse(self.sales.client_identity_access)
+
+    def test_an_inactive_account_sees_nothing(self):
+        self.acc.client_identity_access = True
+        self.acc.is_active = False
+        self.acc.save()
+        self.assertFalse(self.acc.can_see_client_identity)
+
+    # -- pages ------------------------------------------------------------------
+
+    def test_operation_client_page_has_no_identity(self):
+        self.client.force_login(self.ops)
+        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        self.assertIn(self.client_obj.code, page)
+        for secret in (self.NAME, "Mona", "+201000000482", "pm@abc-translation.example"):
+            self.assertNotIn(secret, page)
+
+    def test_searching_a_company_name_does_not_reveal_its_code(self):
+        """The oracle that was open: /clients/?q=<name> answered with the code."""
+        self.client.force_login(self.ops)
+        for probe in ("ABC Translation", "Mona", "000000482", "abc-translation"):
+            page = self.client.get("/clients/", {"q": probe}).content.decode()
+            self.assertNotIn(self.client_obj.code, page, probe)
+        page = self.client.get("/clients/", {"q": self.client_obj.code}).content.decode()
+        self.assertIn(self.client_obj.code, page)
+
+    def test_the_inbox_search_does_not_match_the_sender_address(self):
+        services.ingest_message(
+            channel="email", body="please see attached", subject="Order",
+            sender_identity="pm@abc-translation.example",
+        )
+        self.assertFalse(services.inbox_queryset(self.ops, query="abc-translation").exists())
+        self.assertTrue(services.inbox_queryset(self.admin, query="abc-translation").exists())
+
+    def test_task_search_by_name_finds_nothing_for_operation(self):
+        services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops,
+            deadline=timezone.now() + timedelta(hours=2),
+        )
+        self.assertEqual(services.search_tasks(self.ops, "ABC Translation"), [])
+        self.assertTrue(services.search_tasks(self.admin, "ABC Translation"))
+
+    def test_granted_sales_sees_the_identity_and_it_is_logged(self):
+        self.sales.client_identity_access = True
+        self.sales.save()
+        self.client.force_login(self.sales)
+        page = self.client.get(
+            f"/clients/{self.client_obj.code}/", REMOTE_ADDR="10.1.2.3"
+        ).content.decode()
+        self.assertIn(self.NAME, page)
+        row = self._audit("client.identity.view", actor=self.sales).get()
+        self.assertEqual(row.target, self.client_obj.code)
+        self.assertEqual(row.ip, "10.1.2.3")
+
+    def test_ungranted_sales_opens_the_codes_but_not_the_identity(self):
+        self.client.force_login(self.sales)
+        response = self.client.get(f"/clients/{self.client_obj.code}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self.NAME, response.content.decode())
+        self.assertFalse(self._audit("client.identity.view").exists())
+
+    def test_sales_cannot_write_requirements(self):
+        self.client.force_login(self.sales)
+        response = self.client.post(
+            f"/clients/{self.client_obj.code}/", {"kind": "rule", "text": "x"}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self.client_obj.requirements.exists())
+
+    def test_the_translator_is_refused_and_the_refusal_is_logged(self):
+        self.client.force_login(self.tr)
+        self.assertEqual(self.client.get("/clients/").status_code, 403)
+        self.assertTrue(self._audit("security.denied", actor=self.tr).exists())
+
+    def test_admin_notes_stay_with_the_admin(self):
+        self.client_obj.admin_notes = "negotiated 20% off"
+        self.client_obj.save()
+        self.acc.client_identity_access = True
+        self.acc.save()
+        self.client.force_login(self.acc)
+        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        self.assertIn(self.NAME, page)
+        self.assertNotIn("negotiated", page)
+
+    # -- direct access (IDOR) ---------------------------------------------------
+
+    def test_a_task_outside_your_scope_is_a_logged_404(self):
+        task = services.create_task(
+            client=self.client_obj, title="Contract", created_by=self.ops,
+            deadline=timezone.now() + timedelta(hours=2),
+        )
+        self.client.force_login(self.tr)
+        self.assertEqual(self.client.get(f"/tasks/{task.code}/").status_code, 404)
+        self.assertEqual(
+            self.client.post(f"/api/tasks/{task.code}/deliver/").status_code in (403, 404), True
+        )
+        self.assertTrue(self._audit("security.denied", actor=self.tr).exists())
+
+    def test_an_api_refusal_is_logged(self):
+        self.client.force_login(self.tr)
+        response = self.client.get("/api/inbox/feed/")
+        self.assertIn(response.status_code, (302, 403))
+        if response.status_code == 403:
+            self.assertTrue(self._audit("security.denied", actor=self.tr).exists())
+
+    def test_the_client_chat_api_carries_no_identity_for_operation(self):
+        services.ingest_message(
+            channel="whatsapp", body="hello", sender_identity="+201000000482",
+            sender_display="Mona ABC",
+        )
+        self.client.force_login(self.ops)
+        for url in ("/api/client-chats/", f"/api/client-chats/{self.client_obj.code}/"):
+            body = self.client.get(url).content.decode()
+            for secret in (self.NAME, "Mona", "000000482", "abc-translation"):
+                self.assertNotIn(secret, body, url)
+
+    # -- changes of access --------------------------------------------------------
+
+    def test_a_role_change_and_a_grant_are_logged(self):
+        from . import identity
+
+        before = identity.access_snapshot(self.ops)
+        self.ops.role = Role.SALES
+        self.ops.client_identity_access = True
+        self.ops.save()
+        identity.record_access_change(None, self.admin, self.ops, before)
+        self.assertEqual(
+            self._audit("user.role_change", target="opsm").get().detail, "operation -> sales"
+        )
+        self.assertEqual(self._audit("user.identity_access", target="opsm").get().detail, "granted")
+
+    def test_the_staff_form_refuses_the_grant_on_operation(self):
+        from .forms import StaffEditForm
+
+        form = StaffEditForm(instance=self.ops)
+        data = {k: v for k, v in form.initial.items() if v is not None and k in form.fields}
+        data.update({"role": Role.OPERATION, "client_identity_access": "on", "rating": "5"})
+        form = StaffEditForm(data, instance=self.ops)
+        self.assertFalse(form.is_valid())
+        self.assertIn("client_identity_access", form.errors)
+
+    def test_the_audit_page_filters_the_security_rows(self):
+        self.client.force_login(self.tr)
+        self.client.get("/clients/")
+        self.client.force_login(self.admin)
+        page = self.client.get("/panel/audit/?only=denied").content.decode()
+        self.assertIn("security.denied", page)
+
+    def test_sales_lands_on_the_client_codes(self):
+        self.client.force_login(self.sales)
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/clients/")
+
+
+class ProtectedFilesTests(TestCase):
+    """Section 12: a file opens only for who may read what it belongs to, the
+    stored path says nothing, and the name shown carries the code."""
+
+    NAME = "ABC Translation Services"
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+
+        self.admin = User.objects.create_user("ownf", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("opsf", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("leadf", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "trf", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.other_tr = User.objects.create_user(
+            "trf2", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(
+            company=self.NAME, phone="+201000000777", email="pm@abc-translation.example",
+        )
+        self.message = services.ingest_message(
+            channel="whatsapp", body="the file", sender_identity="+201000000777",
+            attachments=[{
+                "file": ContentFile(b"%PDF-1.4 x", name="ABC_Translation_Services PO 77.pdf"),
+                "name": "ABC_Translation_Services PO 77.pdf", "size": 10,
+                "mime": "application/pdf",
+            }],
+        )
+        self.attachment = self.message.attachments.get()
+
+    def _url(self):
+        return self.attachment.file.url
+
+    def test_the_stored_path_carries_no_name(self):
+        path = self.attachment.file.name
+        self.assertTrue(path.startswith("inbound/"))
+        self.assertNotIn("ABC", path)
+        self.assertTrue(path.endswith(".pdf"))
+
+    def test_the_url_is_the_guarded_one(self):
+        self.assertTrue(self._url().startswith("/files/inbound/"))
+
+    def test_the_shown_name_carries_the_code(self):
+        self.assertNotIn("ABC", self.attachment.original_name)
+        self.assertIn(self.client_obj.code, self.attachment.original_name)
+        self.assertEqual(self.attachment.raw_name, "ABC_Translation_Services PO 77.pdf")
+
+    def test_masking_leaves_ordinary_names_alone(self):
+        from .files import mask_name
+
+        self.assertEqual(mask_name("translation request.docx", self.client_obj),
+                         "translation request.docx")
+        masked = mask_name("call 01000000777.pdf", self.client_obj)
+        self.assertNotIn("0000777", masked)
+        self.assertIn(self.client_obj.code, masked)
+
+    def test_operation_opens_it_with_the_masked_name(self):
+        self.client.force_login(self.ops)
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("ABC", response["Content-Disposition"])
+        self.assertEqual(response["Cache-Control"], "private, max-age=3600")
+
+    def test_the_admin_download_keeps_the_real_name(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self._url())
+        self.assertIn("ABC_Translation_Services", response["Content-Disposition"])
+
+    def test_a_translator_off_the_task_gets_a_logged_404(self):
+        from .models import AuditLog
+
+        self.client.force_login(self.other_tr)
+        self.assertEqual(self.client.get(self._url()).status_code, 404)
+        self.assertTrue(
+            AuditLog.objects.filter(action="security.denied", actor=self.other_tr).exists()
+        )
+
+    def test_the_translator_on_the_task_opens_it(self):
+        task = services.create_task(
+            client=self.client_obj, title="PO", created_by=self.ops,
+            deadline=timezone.now() + timedelta(hours=2),
+        )
+        self.message.task = task
+        self.message.save(update_fields=["task"])
+        task.translator = self.tr
+        task.save(update_fields=["translator"])
+        self.client.force_login(self.tr)
+        self.assertEqual(self.client.get(self._url()).status_code, 200)
+
+    def test_signed_out_goes_to_login(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response["Location"])
+
+    def test_path_tricks_find_nothing(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get("/files/../Core/settings.py").status_code, 404)
+        self.assertEqual(self.client.get("/files/inbound/nope.pdf").status_code, 404)
+
+    def test_an_svg_is_never_opened_inline(self):
+        from django.core.files.base import ContentFile
+
+        message = services.ingest_message(
+            channel="whatsapp", body="svg", sender_identity="+201000000777",
+            attachments=[{"file": ContentFile(b"<svg/>", name="x.svg"), "name": "x.svg",
+                          "size": 6, "mime": "image/svg+xml"}],
+        )
+        self.client.force_login(self.ops)
+        response = self.client.get(message.attachments.get().file.url)
+        self.assertTrue(response["Content-Disposition"].startswith("attachment"))
+
+
+class NoIdentityOnAnyPageTests(TestCase):
+    """Section 14/9: walk every dashboard URL as every role that may not see
+    the client, and look for the name, number and address in the answer.
+
+    The URL list is read from ``urls.py``, so a page added later is walked
+    too without anyone remembering to add it here.
+    """
+
+    NAME = "Zephyrine Holdings"
+    SECRETS = ("Zephyrine", "000000913", "zephyrine-hq")
+
+    def setUp(self):
+        self.admin = User.objects.create_user("ownw", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("opsw", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("leadw", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "trw", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.people = [
+            self.ops, self.lead, self.tr,
+            User.objects.create_user("salesw", password="x", role=Role.SALES),
+            User.objects.create_user("accw", password="x", role=Role.ACCOUNTING),
+            User.objects.create_user("hrw", password="x", role=Role.HR),
+            User.objects.create_user("revw", password="x", role=Role.REVIEWER),
+        ]
+        self.client_obj = Client.objects.create(
+            name="Zephyrine", company=self.NAME, phone="+201000000913",
+            email="ops@zephyrine-hq.example",
+        )
+        services.ingest_message(
+            channel="whatsapp", body="hello", sender_identity="+201000000913",
+            sender_display="Zephyrine desk",
+        )
+        services.ingest_message(
+            channel="email", body="see attached", subject="Order",
+            sender_identity="ops@zephyrine-hq.example", sender_display="Zephyrine desk",
+        )
+        self.task = services.create_task(
+            client=self.client_obj, title="Brochure", created_by=self.ops,
+            deadline=timezone.now() + timedelta(hours=2),
+        )
+        self.task.team_lead = self.lead
+        self.task.translator = self.tr
+        self.task.save(update_fields=["team_lead", "translator"])
+
+    def _urls(self):
+        from django.urls import get_resolver, reverse
+
+        # The app's own names live under its namespace, not on the root.
+        _prefix, app = get_resolver().namespace_dict["dashboard"]
+        skip = ("logout", "wh_whatsapp", "wh_email", "serve_file")
+        values = {
+            "code": self.task.code, "client_code": self.client_obj.code,
+            "action": "accept", "pk": 1, "room_id": 1, "user_id": self.ops.pk,
+            "shift_id": 1,
+        }
+        found = []
+        for name, entries in app.reverse_dict.lists():
+            if not isinstance(name, str) or name in skip:
+                continue
+            possibilities = entries[0][0]
+            params = possibilities[0][1] if possibilities else []
+            kwargs = {p: values.get(p, 1) for p in params}
+            if name in ("client_detail", "ops_chat_detail", "admin_client_edit"):
+                kwargs["code"] = self.client_obj.code
+            try:
+                found.append(reverse(f"dashboard:{name}", kwargs=kwargs or None))
+            except Exception:  # noqa: BLE001 - a route this walker cannot fill
+                continue
+        return sorted(set(found))
+
+    def test_no_page_answers_with_the_identity(self):
+        self.client.raise_request_exception = False
+        urls = self._urls()
+        self.assertGreater(len(urls), 40)
+        for person in self.people:
+            self.client.force_login(person)
+            for url in urls:
+                response = self.client.get(url)
+                body = response.content.decode("utf-8", errors="ignore")
+                for secret in self.SECRETS:
+                    self.assertNotIn(secret, body, f"{person.role} {url}")
+
+    def test_the_admin_does_see_it_so_the_walk_is_not_blind(self):
+        """Run the same walk as the admin: if nothing shows the name even to
+        the owner, the walk above proves nothing."""
+        self.client.force_login(self.admin)
+        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        self.assertIn(self.NAME, page)

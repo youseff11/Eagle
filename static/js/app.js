@@ -1443,6 +1443,41 @@ window.Eagle = (function () {
     }
     setTimeout(function () { settling = false; }, 0);
     rollUpNavCounts();
+    initNavFoldAll(groups);
+  }
+
+  /* One button for every section: shuts them all while any is open, opens
+     them all once they are all shut. The label always names what the next
+     click does, and follows the sections when they are toggled one by one. */
+  function initNavFoldAll(groups) {
+    var button = $("#navFoldAll");
+    var label = $("#navFoldLabel");
+    if (!button || !label) { return; }
+
+    function anyOpen() {
+      return groups.some(function (group) { return group.open; });
+    }
+    function paint() {
+      var folding = anyOpen();
+      var ar = folding ? "اقفل كل القوايم" : "افتح كل القوايم";
+      var en = folding ? "Collapse all" : "Expand all";
+      // data-ar / data-en too, so the language switch keeps the right words.
+      label.setAttribute("data-ar", ar);
+      label.setAttribute("data-en", en);
+      label.textContent = t(ar, en);
+      button.classList.toggle("is-folded", !folding);
+      button.setAttribute("aria-expanded", folding ? "true" : "false");
+    }
+
+    button.addEventListener("click", function () {
+      var open = !anyOpen();
+      groups.forEach(function (group) { group.open = open; });
+      paint();
+    });
+    groups.forEach(function (group) {
+      group.addEventListener("toggle", paint);
+    });
+    paint();
   }
 
   /* ------------------------------------------------------------- deadlines */

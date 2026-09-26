@@ -45,6 +45,7 @@ ROLE_MAP = {
     "hr": ("موارد بشرية", "HR"),
     "reviewer": ("مراجع", "Reviewer"),
     "accounting": ("حسابات", "Accounting"),
+    "sales": ("مبيعات", "Sales"),
 }
 
 PRIORITY_MAP = {

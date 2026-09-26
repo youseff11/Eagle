@@ -244,7 +244,7 @@ STORAGES = {
     "default": (
         {"BACKEND": "dashboard.storages.BunnyStorage"}
         if USE_BUNNY else
-        {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+        {"BACKEND": "dashboard.storages.ProtectedFileSystemStorage"}
     ),
     # In production, content-hashed names (``app.4f2c1e9a.css``) so a deploy
     # always produces a URL Cloudflare has never seen and the edge can never

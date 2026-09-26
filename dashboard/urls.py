@@ -152,6 +152,9 @@ urlpatterns = [
     path("clients/", views.client_list, name="client_list"),
     path("clients/<str:code>/", views.client_detail, name="client_detail"),
 
+    # -- stored files: every upload is opened through here (files.py) --------
+    path("files/<path:name>", views.serve_file, name="serve_file"),
+
     # -- notifications ------------------------------------------------------
     path("notifications/", views.notifications, name="notifications"),
 

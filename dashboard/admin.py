@@ -74,6 +74,7 @@ class UserAdmin(BaseUserAdmin):
                 "attendance_enabled", "attendance_manager",
             )
         }),
+        ("Client identity", {"fields": ("client_identity_access",)}),
         ("Employee file", {
             "fields": (
                 "employee_code", "job_title", "department", "joining_date",
@@ -85,6 +86,14 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
         ("Eagle", {"fields": ("role", "team_lead", "phone")}),
     )
+
+    def save_model(self, request, obj, form, change):
+        """Role and identity-grant changes made here are logged like ours."""
+        from . import identity
+
+        before = identity.access_snapshot(User.objects.filter(pk=obj.pk).first()) if change else {}
+        super().save_model(request, obj, form, change)
+        identity.record_access_change(request, request.user, obj, before)
 
 
 class RequirementInline(admin.TabularInline):

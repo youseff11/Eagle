@@ -32,7 +32,19 @@
   {% nav_search user as search_index %}
   {{ search_index|json_script:"navSearchIndex" }}
 
-  <nav class="nav">
+  {% comment %}
+  One click folds every section - for when the nav has grown long and you
+  want the headings back. Pressed again it opens them all. static/js/app.js
+  (initNavGroups) keeps the word on the button true to what it will do.
+  {% endcomment %}
+  <div class="nav-tools">
+    <button type="button" class="nav-tools__btn" id="navFoldAll" aria-controls="sideNav">
+      {% icon "chevron-down" "ic--sm nav-tools__ic" %}
+      <span id="navFoldLabel" data-ar="اقفل كل القوايم" data-en="Collapse all">اقفل كل القوايم</span>
+    </button>
+  </div>
+
+  <nav class="nav" id="sideNav">
     {% nav_groups user url_name as groups %}
     {% for group in groups %}
       <details class="nav__group" data-nav-group="{{ group.key }}"{% if group.open %} open{% endif %}>

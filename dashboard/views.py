@@ -6,6 +6,7 @@ from django.contrib import messages as flash
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,7 +15,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import attendance, employees, payroll, performance, recruitment, services, wordcount
+from . import attendance, employees, identity, payroll, performance, recruitment, services, wordcount
 from .forms import (
     AICheckForm,
     AttendanceEditForm,
@@ -110,6 +111,7 @@ from .models import (
 from .permissions import (
     accounting_only,
     admin_only,
+    client_codes_required,
     hr_required,
     owner_required,
     recruit_required,
@@ -176,9 +178,65 @@ def home(request):
         return redirect("dashboard:reviewer_tests")
     if user.is_accounting:
         return redirect("dashboard:accounts_overview")
+    if user.is_sales:
+        return redirect("dashboard:client_list")
     if user.is_team_lead:
         return redirect("dashboard:lead_home")
     return redirect("dashboard:translator_home")
+
+
+@login_required
+def serve_file(request, name):
+    """Every stored file the dashboard links to is opened here.
+
+    The person must be allowed to read the conversation, task or record the
+    file belongs to (``files.may_open``) - the same rule as the page that
+    listed it, so a URL copied out of one account opens nothing in another.
+    A refusal is a logged 404: a 403 would confirm the file exists.
+    """
+    from urllib.parse import quote
+
+    from django.core.files.storage import default_storage
+    from django.http import HttpResponse
+
+    from . import files
+
+    name = name.replace("\\", "/").lstrip("/")
+    if not name or ".." in name.split("/"):
+        raise Http404
+    allowed, owner = files.may_open(request.user, name)
+    if not allowed:
+        identity.hidden(request, "file")
+    if not identity.count_file_open(request):
+        return HttpResponse("Too many files opened this hour.", status=429)
+    try:
+        with default_storage.open(name, "rb") as handle:
+            data = handle.read()
+    except Exception:  # noqa: BLE001 - a missing blob is a 404, not a 500
+        raise Http404
+    kind = files.content_type(name)
+    response = HttpResponse(data, content_type=kind)
+    shown = files.download_name(request.user, name, owner)
+    # A client's SVG or HTML opened inline would run as our own site, with
+    # the viewer's session. Those are always a download.
+    risky = kind in ("image/svg+xml", "text/html", "application/xhtml+xml", "text/xml",
+                     "application/xml", "application/javascript", "text/javascript")
+    disposition = "attachment" if (risky or request.GET.get("dl") == "1") else "inline"
+    response["Content-Disposition"] = f"{disposition}; filename*=UTF-8''{quote(shown)}"
+    # Private: a shared proxy or Cloudflare must never keep a client's file.
+    response["Cache-Control"] = "private, max-age=3600"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def permission_denied(request, exception=None):
+    """The project's 403 page (``handler403``) - and the refusal's audit row.
+
+    Every ``PermissionDenied`` raised anywhere lands here, so logging it here
+    logs each one exactly once, whichever guard or view raised it.
+    """
+    identity.record_denied(request, str(exception or "")[:200] or "permission denied")
+    return render(request, "403.html", status=403)
 
 
 # ---------------------------------------------------------------------------
@@ -479,9 +537,9 @@ def ops_group_chat(request, room_id):
         pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.TEAM),
     )
     if not room.can_access(user):
-        raise Http404
+        identity.hidden(request, "room")
     if room.task_id and not room.task.can_view(user):
-        raise Http404
+        identity.hidden(request, "task")
 
     services.mark_room_read(user, room)
     _kind, tabs = _chat_kind(request, user)
@@ -813,7 +871,7 @@ def task_detail(request, code):
     )
     user = request.user
     if not task.can_view(user):
-        raise Http404
+        identity.hidden(request, "task")
 
     # Tasks that were already running when the client room shipped never got
     # one. Backfill on first view — guarded by exists() so an ordinary GET
@@ -1018,22 +1076,40 @@ def task_add_requirement(request, code):
 # Clients
 # ---------------------------------------------------------------------------
 
-@role_required(Role.OPERATION, Role.TEAM_LEAD)
+@client_codes_required
 def client_list(request):
+    """The client codes. The names beside them only for who may see them.
+
+    The search is part of the rule: matching a typed company name and
+    answering with its code would hand the name over as surely as printing
+    it, so ``identity.client_search`` leaves the identity fields out for
+    anyone who may not see them.
+    """
+    user = request.user
     query = request.GET.get("q", "").strip()
     qs = Client.objects.all()
     if query:
-        qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query))
-    return render(request, "shared/clients.html", {"clients": qs[:200], "query": query})
+        qs = qs.filter(identity.client_search(user, query))
+    clients = list(qs[:200])
+    if identity.can_see(user):
+        identity.record_identity_list(request, [c.code for c in clients], query)
+    return render(request, "shared/clients.html", {
+        "clients": clients,
+        "query": query,
+        "sees_identity": identity.can_see(user),
+    })
 
 
-@role_required(Role.OPERATION, Role.TEAM_LEAD)
+@client_codes_required
 def client_detail(request, code):
     client = get_object_or_404(Client, code=code)
     user = request.user
+    # Requirements are instructions for the work: the people doing it write
+    # them. Sales and Accounting read the page; they do not edit it.
+    may_edit = user.is_admin_role or user.is_operation or user.is_team_lead
     if request.method == "POST":
-        if user.is_translator:
-            raise Http404
+        if not may_edit:
+            raise PermissionDenied("Your role cannot add client requirements.")
         form = RequirementForm(request.POST)
         if form.is_valid():
             req = form.save(commit=False)
@@ -1044,9 +1120,26 @@ def client_detail(request, code):
             return redirect("dashboard:client_detail", code=code)
     else:
         form = RequirementForm()
+    sees_identity = identity.can_see(user)
+    if sees_identity:
+        identity.record_identity_view(request, client, "client_detail")
+    # Section 10: after Won, Sales follows the client - it does not run them.
+    # Counts and dates only: no files, no conversation, no money.
+    activity = None
+    if user.is_sales or user.is_accounting or user.is_admin_role:
+        tasks = client.tasks.all()
+        activity = {
+            "total": tasks.count(),
+            "active": tasks.filter(status__in=ACTIVE_TASK_STATUSES).count(),
+            "delivered": tasks.filter(status=TaskStatus.DELIVERED).count(),
+            "last": tasks.order_by("-created_at").values_list("created_at", flat=True).first(),
+        }
     return render(request, "shared/client_detail.html", {
         "client": client,
         "form": form,
+        "may_edit": may_edit,
+        "sees_identity": sees_identity,
+        "activity": activity,
         "requirements": client.requirements.select_related("author"),
         "tasks": client.tasks.all()[:30],
     })
@@ -1149,6 +1242,7 @@ def admin_user_new(request):
     if request.method == "POST" and form.is_valid():
         user = form.save()
         services.log(request.user, "user.create", user.username)
+        identity.record_access_change(request, request.user, user, {})
         return redirect("dashboard:admin_user_edit", pk=user.pk)
     return render(request, "adminx/user_form.html", {"form": form, "obj": None})
 
@@ -1156,11 +1250,15 @@ def admin_user_new(request):
 @admin_only
 def admin_user_edit(request, pk):
     obj = get_object_or_404(User, pk=pk)
+    # Read before the form binds: ModelForm writes the posted values onto
+    # the instance during validation, not at save().
+    before = identity.access_snapshot(obj)
     form = StaffEditForm(request.POST or None, instance=obj)
     shift_form = ShiftForm()
     if request.method == "POST" and form.is_valid():
         form.save()
         services.log(request.user, "user.update", obj.username)
+        identity.record_access_change(request, request.user, obj, before)
         flash.success(request, "saved")
         return redirect("dashboard:admin_user_edit", pk=pk)
     return render(request, "adminx/user_form.html", {
@@ -1235,6 +1333,7 @@ def admin_reset_tasks(request):
                 request.user, request.POST.get("password", "")
             )
             if ok:
+                identity.record_export(request, "tasks-backup", deleted)
                 flash.success(
                     request,
                     f"اتمسح {deleted} تاسك. الترقيم هيبدأ من TSK-00001.",
@@ -1254,10 +1353,19 @@ def admin_reset_tasks(request):
 
 @admin_only
 def admin_audit(request):
+    """The audit log. ``?only=security`` narrows it to who saw a client's
+    identity, who was refused something, and who was given access."""
     from .models import AuditLog
 
+    only = request.GET.get("only", "")
+    logs = AuditLog.objects.select_related("actor")
+    if only == "security":
+        logs = logs.filter(action__in=identity.SECURITY_ACTIONS)
+    elif only == "denied":
+        logs = logs.filter(action=identity.ACCESS_DENIED)
     return render(request, "adminx/audit.html", {
-        "logs": AuditLog.objects.select_related("actor")[:200]
+        "logs": logs[:200],
+        "only": only,
     })
 
 

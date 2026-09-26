@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, services
+from . import ai, attendance, identity, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -356,7 +356,7 @@ def task_action(request, code, action):
     task = get_object_or_404(Task, code=code)
     user = request.user
     if not task.can_view(user):
-        raise Http404
+        identity.hidden(request, "task")
 
     handlers = {
         "translated": lambda: services.mark_translated(task, user),
@@ -743,9 +743,9 @@ def _room_or_404(request, room_id):
     # task keeps their row in the members table, and a client room relays to a
     # real person. A standalone group has no task, so membership is the rule.
     if not room.can_access(request.user):
-        raise Http404
+        identity.hidden(request, "room")
     if room.task_id and not room.task.can_view(request.user):
-        raise Http404
+        identity.hidden(request, "task")
     return room
 
 
@@ -1225,9 +1225,9 @@ def _group_or_404(request, room_id):
         pk=room_id, kind__in=(RoomKind.CLIENT, RoomKind.STAFF, RoomKind.TEAM),
     )
     if not room.can_access(request.user):
-        raise Http404
+        identity.hidden(request, "room")
     if room.task_id and not room.task.can_view(request.user):
-        raise Http404
+        identity.hidden(request, "task")
     return room
 
 
@@ -1482,7 +1482,7 @@ def ai_check(request, code):
     task = get_object_or_404(Task, code=code)
     user = request.user
     if not task.can_view(user):
-        raise Http404
+        identity.hidden(request, "task")
 
     conf = AppSettings.load()
     if not conf.ai_check_enabled:

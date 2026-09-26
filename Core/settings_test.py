@@ -62,7 +62,7 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # A test that saves an attachment must not reach Bunny, and must not drop
 # anything into media/ either. This folder is throwaway - it is in .gitignore.
 STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "default": {"BACKEND": "dashboard.storages.ProtectedFileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 MEDIA_ROOT = BASE_DIR / ".test-media"

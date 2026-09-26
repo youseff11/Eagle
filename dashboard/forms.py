@@ -7,6 +7,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
 from .models import (
+    IDENTITY_GRANTABLE_ROLES,
     AppSettings,
     Candidate,
     CandidateTest,
@@ -541,7 +542,17 @@ class StaffEditForm(forms.ModelForm):
             "team_lead", "languages", "is_active", "force_offline", "rating",
             "employment_type", "work_mode", "schedule_kind",
             "attendance_enabled", "attendance_manager",
+            "client_identity_access",
         )
+        labels = {
+            "client_identity_access": "يشوف هوية العميل الحقيقية (Sales / Accounting بس)",
+        }
+        help_texts = {
+            "client_identity_access": (
+                "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
+                "مسموح لـSales وAccounting بس، وكل تغيير وكل فتح بيتسجّل في سجل النشاط."
+            ),
+        }
         widgets = {
             "first_name": forms.TextInput(attrs={"class": "input"}),
             "last_name": forms.TextInput(attrs={"class": "input"}),
@@ -560,6 +571,18 @@ class StaffEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["team_lead"].queryset = User.objects.filter(role=Role.TEAM_LEAD)
         self.fields["team_lead"].required = False
+
+    def clean(self):
+        data = super().clean()
+        # The grant means nothing on any other role (the model ignores it),
+        # so it is refused here rather than left ticked to mislead whoever
+        # reads the form next - or to wake up if the role is changed later.
+        if data.get("client_identity_access") and data.get("role") not in IDENTITY_GRANTABLE_ROLES:
+            self.add_error(
+                "client_identity_access",
+                "الصلاحية دي لـSales وAccounting بس. الأوبريشن والليدر والمترجم بيشتغلوا بالكود.",
+            )
+        return data
 
 
 class ShiftForm(forms.ModelForm):

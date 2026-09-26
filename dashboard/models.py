@@ -24,6 +24,16 @@ class Role(models.TextChoices):
     HR = "hr", "HR"
     REVIEWER = "reviewer", "Reviewer"
     ACCOUNTING = "accounting", "Accounting"
+    #: Added with the B2B identity-masking requirements. Researches and
+    #: contacts companies; sees a client's real identity only when the admin
+    #: has granted it to this person (``User.client_identity_access``).
+    SALES = "sales", "Sales"
+
+
+#: The only roles the admin may grant the real client identity to. Everyone
+#: else - operation, team leader, translator, HR, reviewer - executes on the
+#: client code, and a flag left ticked on them is ignored, not honoured.
+IDENTITY_GRANTABLE_ROLES = (Role.SALES, Role.ACCOUNTING)
 
 
 class Channel(models.TextChoices):
@@ -322,16 +332,26 @@ def next_code(model, field, prefix, width=4):
     return f"{prefix}-{candidate:0{width}d}"
 
 
+# Client-facing files are stored under a random name: the name the client
+# gave a file ("ABC Translation - contract.pdf") must not end up in a URL.
+# The name shown in the dashboard lives in ``original_name`` - see files.py.
+
 def upload_inbound(instance, filename):
-    return f"inbound/{timezone.now():%Y/%m}/{filename}"
+    from .files import storage_name
+
+    return storage_name("inbound", instance, filename)
 
 
 def upload_chat(instance, filename):
-    return f"chat/{timezone.now():%Y/%m}/{filename}"
+    from .files import storage_name
+
+    return storage_name("chat", instance, filename)
 
 
 def upload_outbound(instance, filename):
-    return f"outbound/{timezone.now():%Y/%m}/{filename}"
+    from .files import storage_name
+
+    return storage_name("outbound", instance, filename)
 
 
 def upload_cv(instance, filename):
@@ -394,6 +414,14 @@ class User(AbstractUser):
         default=False,
         help_text="May run the attendance board and correct other people's days (HR).",
     )
+    #: The explicit exception the masking requirements allow: a Sales or
+    #: Accounting person who needs the real company name and contacts. Off by
+    #: default, granted by the admin, logged when it changes and whenever it
+    #: is used. Ignored for every other role - see ``can_see_client_identity``.
+    client_identity_access = models.BooleanField(
+        default=False,
+        help_text="Sales / Accounting only: may see the real client name and contacts.",
+    )
 
     # -- employee profile --------------------------------------------------
     # Section 18 asks for an "Employee Profile". It is these fields on the
@@ -429,6 +457,11 @@ class User(AbstractUser):
         # default (translator) and show up in translator assignment lists.
         if self._state.adding and self.is_superuser and self.role == Role.TRANSLATOR:
             self.role = Role.ADMIN
+        # A grant never outlives the role it was given for: moved to any
+        # role that may not hold it, the person loses it, whichever screen
+        # (ours, Django's admin, a script) made the move.
+        if self.client_identity_access and self.role not in IDENTITY_GRANTABLE_ROLES:
+            self.client_identity_access = False
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -464,6 +497,10 @@ class User(AbstractUser):
         return self.role == Role.ACCOUNTING
 
     @property
+    def is_sales(self):
+        return self.role == Role.SALES
+
+    @property
     def can_recruit(self):
         """Run the hiring pipeline. The owner can always do everything."""
         return self.is_admin_role or self.is_hr
@@ -480,8 +517,26 @@ class User(AbstractUser):
 
     @property
     def can_see_client_identity(self):
-        """Only the admin ever sees the real client name / phone / email."""
-        return self.is_admin_role
+        """Who may see the real client name / company / phone / e-mail.
+
+        Least privilege, secure by default: the admin always; a Sales or
+        Accounting person only when the admin granted it to them by name; and
+        nobody else, whatever flag is set on them. Operation runs the whole
+        job on the client code - that is the point of the code.
+        """
+        if not self.is_active:
+            return False
+        if self.is_admin_role:
+            return True
+        return self.role in IDENTITY_GRANTABLE_ROLES and bool(self.client_identity_access)
+
+    @property
+    def can_open_client_codes(self):
+        """The /clients/ pages: the code list and each code's requirements."""
+        return (
+            self.is_admin_role or self.is_operation or self.is_team_lead
+            or self.is_sales or self.is_accounting
+        )
 
     @property
     def can_create_team_group(self):
@@ -1101,7 +1156,11 @@ class MessageAttachment(PlayableFile, models.Model):
         InboundMessage, on_delete=models.CASCADE, related_name="attachments"
     )
     file = models.FileField(upload_to=upload_inbound)
+    #: What the dashboard shows: the client's name, company, domain and number
+    #: replaced by their code (``files.mask_name``).
     original_name = models.CharField(max_length=250, blank=True)
+    #: The name exactly as the client sent it. The admin's download only.
+    raw_name = models.CharField(max_length=250, blank=True)
     size = models.BigIntegerField(default=0)
     #: Kept so the dashboard can decide between a player and a download link.
     mime = models.CharField(max_length=120, blank=True)
@@ -2074,6 +2133,11 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=80)
     target = models.CharField(max_length=160, blank=True)
     detail = models.TextField(blank=True)
+    #: Where the request came from, for the entries that record access - who
+    #: looked at a client's identity, who was refused a page. Blank for the
+    #: entries written outside a request (a command, the worker).
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    path = models.CharField(max_length=250, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

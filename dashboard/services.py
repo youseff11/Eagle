@@ -166,10 +166,18 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         blocked_keyword=keyword,
     )
 
+    from .files import mask_name
+
     for item in attachments or []:
+        # A client's file name often carries the client's own name ("ABC -
+        # PO 2291.pdf"). The dashboard shows the masked one; the admin's
+        # download keeps the real one.
+        raw = str(item.get("name") or getattr(item["file"], "name", "") or "")
+        raw = raw.replace("\\", "/").rsplit("/", 1)[-1][:250]
         message.attachments.create(
             file=item["file"],
-            original_name=item.get("name", ""),
+            original_name=mask_name(raw, client)[:250],
+            raw_name=raw,
             size=item.get("size", 0),
             mime=item.get("mime", ""),
             is_voice=bool(item.get("is_voice")),
@@ -256,12 +264,14 @@ def inbox_queryset(user, state="", query=""):
 
     query = (query or "").strip()
     if query:
-        qs = qs.filter(
-            Q(body__icontains=query)
-            | Q(subject__icontains=query)
-            | Q(client__code__icontains=query)
-            | Q(sender_identity__icontains=query)
+        match = Q(body__icontains=query) | Q(subject__icontains=query) | Q(
+            client__code__icontains=query
         )
+        # The sender's address is identity. Matching on it would let anyone
+        # type a company's e-mail and read back which code it belongs to.
+        if user.can_see_client_identity:
+            match |= Q(sender_identity__icontains=query)
+        qs = qs.filter(match)
     return qs
 
 
