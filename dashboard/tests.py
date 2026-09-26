@@ -7761,3 +7761,48 @@ class NoIdentityOnAnyPageTests(TestCase):
         self.client.force_login(self.admin)
         page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
         self.assertIn(self.NAME, page)
+
+
+class FilePreviewTests(TestCase):
+    """A Word file's first page is read on the server for the preview card,
+    through the same permission as the file itself."""
+
+    def setUp(self):
+        import io
+        import zipfile
+
+        from django.core.files.base import ContentFile
+
+        self.ops = User.objects.create_user("opsp", password="x", role=Role.OPERATION)
+        self.tr = User.objects.create_user("trp", password="x", role=Role.TRANSLATOR)
+        Client.objects.create(phone="+201000000555")
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                "<w:document><w:body><w:p><w:r><w:t>Birth certificate</w:t></w:r></w:p>"
+                "<w:p><w:r><w:t>Second line</w:t></w:r></w:p></w:body></w:document>",
+            )
+        message = services.ingest_message(
+            channel="whatsapp", body="doc", sender_identity="+201000000555",
+            attachments=[{"file": ContentFile(buffer.getvalue(), name="cert.docx"),
+                          "name": "cert.docx", "size": 10}],
+        )
+        self.url = message.attachments.get().file.url
+
+    def test_the_first_lines_come_back(self):
+        self.client.force_login(self.ops)
+        data = self.client.get(self.url + "?preview=1").json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["text"], "Birth certificate\nSecond line")
+        self.assertFalse(data["thumb"])
+
+    def test_the_preview_is_as_private_as_the_file(self):
+        self.client.force_login(self.tr)
+        self.assertEqual(self.client.get(self.url + "?preview=1").status_code, 404)
+
+    def test_mail_image_placeholders_are_dropped(self):
+        from .templatetags.eagle_tags import strip_image_tags
+
+        body = "[image: 2026.jpg]\nkindly correct [the ID]\n[cid:image001.png@01DA]\nthanks"
+        self.assertEqual(strip_image_tags(body), "kindly correct [the ID]\nthanks")

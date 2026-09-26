@@ -854,3 +854,12 @@ html.chat-locked body {
   .react-picker { animation: none; }
   .react-picker button:hover { transform: none; }
 }
+
+/* A file row that got a preview card (static/js/previews.js): the card is
+   the row now - no paperclip, no pill around it. The tick box stays. */
+.bub__file--card {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 3px; background: transparent; border: 0;
+}
+.bub__file--card > .ic { display: none; }
+.bub__file--card .fprev { width: 170px; }

@@ -243,3 +243,73 @@ def download_name(user, name, owner):
 def content_type(name):
     guessed, _ = mimetypes.guess_type(name)
     return guessed or "application/octet-stream"
+
+
+# ---------------------------------------------------------------------------
+# 4. Previews - a document shown by its look, not only by its name
+# ---------------------------------------------------------------------------
+#
+# Images and PDFs are drawn in the browser (an <img>, and pdf.js for a PDF's
+# first page). A Word file cannot be drawn by a browser, so the server reads
+# what it can out of the .docx itself - no converter, no new dependency: the
+# thumbnail Word saves inside the file when there is one, and the opening
+# paragraphs as text always.
+
+WORD_SUFFIXES = (".docx", ".docm", ".dotx")
+_THUMBS = ("docProps/thumbnail.jpeg", "docProps/thumbnail.jpg", "docProps/thumbnail.png")
+PREVIEW_CHARS = 900
+
+
+def _docx_parts(data):
+    import io
+    import zipfile
+
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except Exception:  # noqa: BLE001 - not a zip: an old .doc or a broken file
+        return "", None
+    with archive:
+        names = set(archive.namelist())
+        thumb = next((n for n in _THUMBS if n in names), None)
+        thumb_bytes = archive.read(thumb) if thumb else None
+        try:
+            xml = archive.read("word/document.xml").decode("utf-8", errors="ignore")
+        except KeyError:
+            return "", thumb_bytes
+    xml = xml.replace("</w:p>", "\n")
+    xml = re.sub(r"<w:tab[^>]*/>", "\t", xml)
+    xml = re.sub(r"<w:br[^>]*/>", "\n", xml)
+    text = re.sub(r"<[^>]+>", "", xml)
+    import html
+
+    text = html.unescape(text)
+    lines = [line.strip() for line in text.split("\n")]
+    text = "\n".join(line for line in lines if line)
+    return text[:PREVIEW_CHARS], thumb_bytes
+
+
+def document_preview(name, data):
+    """``{"text", "thumb"}`` for a Word file, read once and cached a day."""
+    from django.core.cache import cache
+
+    key = f"eagle:preview:{name}"
+    found = cache.get(key)
+    if found is not None:
+        return found
+    text, thumb = ("", None)
+    if name.lower().endswith(WORD_SUFFIXES):
+        text, thumb = _docx_parts(data)
+    found = {"text": text, "thumb": bool(thumb)}
+    cache.set(key, found, 86400)
+    return found
+
+
+def document_thumbnail(name, data):
+    """The picture Word saved of the first page, as ``(bytes, type)``."""
+    if not name.lower().endswith(WORD_SUFFIXES):
+        return None, ""
+    _text, thumb = _docx_parts(data)
+    if not thumb:
+        return None, ""
+    kind = "image/png" if thumb[:4] == b"\x89PNG" else "image/jpeg"
+    return thumb, kind

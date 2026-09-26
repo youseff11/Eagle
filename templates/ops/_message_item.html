@@ -34,7 +34,7 @@ its own chip further down.
       </span>
       {% endif %}
 
-      <span class="mail__snippet">{{ item.body|truncatechars:120 }}</span>
+      <span class="mail__snippet">{{ item.body|strip_image_tags|truncatechars:120 }}</span>
 
       <span class="mail__tags">
         {% if item.is_rate_blocked %}
@@ -58,7 +58,7 @@ its own chip further down.
 
   {# The letter itself. Closed until the row is clicked, like any mailbox. #}
   <div class="mail__open {% if not open %}hidden{% endif %}">
-    <div class="mail__text">{{ item.body }}</div>
+    <div class="mail__text">{{ item.body|strip_image_tags }}</div>
 
     {% if item.attachments.all %}
       <div class="files">

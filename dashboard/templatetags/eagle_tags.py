@@ -1,5 +1,7 @@
 """Template helpers for the Eagle dashboard."""
 
+import re
+
 from django import template
 from django.utils.html import escape, strip_tags
 from django.utils.safestring import mark_safe
@@ -518,3 +520,18 @@ def deadline_for(task, user):
 def deadline_state_for(task, user):
     """``ok`` / ``soon`` / ``late`` / ``done`` for that same date."""
     return task.deadline_state(user)
+
+
+#: What a mail client leaves in the plain-text body where a picture sat:
+#: Gmail writes "[image: scan.jpg]", Outlook "[cid:image001.png@01DA...]".
+#: The picture itself arrived as an attachment and is shown as one, so the
+#: placeholder is only noise on top of it.
+_MAIL_IMAGE_TAG = re.compile(
+    r"^[ \t]*\[(?:image|cid)\s*:[^\]\n]*\][ \t]*\r?\n?", re.IGNORECASE | re.MULTILINE
+)
+
+
+@register.filter
+def strip_image_tags(text):
+    """Drop the "[image: x.jpg]" lines a mail client puts in the text body."""
+    return _MAIL_IMAGE_TAG.sub("", str(text or "")).strip()

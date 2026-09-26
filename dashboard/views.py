@@ -209,11 +209,30 @@ def serve_file(request, name):
         identity.hidden(request, "file")
     if not identity.count_file_open(request):
         return HttpResponse("Too many files opened this hour.", status=429)
+    if request.GET.get("preview") == "1":
+        from django.core.cache import cache
+
+        cached = cache.get(f"eagle:preview:{name}")
+        if cached is not None:
+            return JsonResponse({"ok": True, **cached})
     try:
         with default_storage.open(name, "rb") as handle:
             data = handle.read()
     except Exception:  # noqa: BLE001 - a missing blob is a 404, not a 500
         raise Http404
+    # The document card's two helpers: the text of a Word file's first page,
+    # and the thumbnail Word saved inside it. Same file, same permission.
+    wanted = request.GET.get("preview", "")
+    if wanted == "1":
+        return JsonResponse({"ok": True, **files.document_preview(name, data)})
+    if wanted == "thumb":
+        thumb, thumb_kind = files.document_thumbnail(name, data)
+        if not thumb:
+            raise Http404
+        response = HttpResponse(thumb, content_type=thumb_kind)
+        response["Cache-Control"] = "private, max-age=86400"
+        return response
+
     kind = files.content_type(name)
     response = HttpResponse(data, content_type=kind)
     shown = files.download_name(request.user, name, owner)
@@ -1178,7 +1197,8 @@ def admin_overview(request):
         "counters": _task_counters(),
         "clients": Client.objects.count(),
         "staff": User.objects.filter(is_active=True).count(),
-        "blocked": InboundMessage.objects.filter(is_rate_blocked=True)[:20],
+        "blocked": InboundMessage.objects.filter(is_rate_blocked=True)
+        .select_related("client").prefetch_related("attachments")[:20],
         "late_tasks": Task.objects.filter(
             status__in=ACTIVE_TASK_STATUSES, deadline__lt=now
         ).select_related("client", "translator")[:20],

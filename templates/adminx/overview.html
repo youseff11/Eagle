@@ -32,7 +32,22 @@
             <strong class="mono">{{ message.client_code }}</strong>
             <small class="mono">{{ message.received_at|date:"m-d H:i" }}</small>
           </div>
-          <div class="msg-item__text">{{ message.body|truncatechars:200 }}</div>
+          <div class="msg-item__text">{{ message.body|strip_image_tags|truncatechars:200 }}</div>
+          {% with files=message.attachments.all %}
+            {% if files %}
+              <div class="files">
+                {% for attachment in files %}
+                  {% if attachment.is_audio %}
+                    {% include "partials/voice.html" with url=attachment.file.url length=attachment.pretty_duration %}
+                  {% else %}
+                    <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener">
+                      {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+                    </a>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
           <small class="muted mono">{{ message.sender_identity }} · {{ message.blocked_keyword }}</small>
         </div>
       </div>

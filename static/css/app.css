@@ -779,7 +779,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   .pick__item span { max-width: 150px; }
 }
 
-.files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.files { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-top: 9px; }
 .file-pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 9px; border-radius: 7px; font-size: .755rem;
@@ -1629,3 +1629,58 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 }
 @media (prefers-reduced-motion: reduce) { .call, .call__btn--ok { animation: none; } }
 .cchat__call { flex: none; }
+
+/* -------------------------------------------------------------------------
+   File previews (static/js/previews.js): a file shown by its look.
+   The card is a small page - the picture, a PDF's first page, or a Word
+   file's opening lines - with the name under it. The link it replaces is
+   kept in the DOM (hidden) so nothing that reads it breaks.
+   ------------------------------------------------------------------------- */
+.fprev {
+  display: inline-flex; flex-direction: column; gap: 5px;
+  width: 150px; max-width: 100%; vertical-align: top;
+  color: var(--text); text-decoration: none;
+}
+.fprev__page {
+  position: relative; display: block; width: 100%; aspect-ratio: 3 / 4;
+  overflow: hidden; border-radius: 8px;
+  background: #fff; border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+  transition: border-color .14s, box-shadow .14s;
+}
+.fprev--image .fprev__page { aspect-ratio: 4 / 3; background: var(--surface-2); }
+.fprev:hover .fprev__page { border-color: var(--brand-line); box-shadow: 0 4px 14px rgba(0, 0, 0, .18); }
+.fprev__page img, .fprev__page canvas {
+  display: block; width: 100%; height: 100%; object-fit: cover; object-position: top;
+}
+.fprev--image .fprev__page img { object-position: center; }
+.fprev__page.is-loading::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(127, 127, 127, .12) 50%, transparent 70%);
+  background-size: 200% 100%; animation: fprev-shine 1.2s linear infinite;
+}
+@keyframes fprev-shine { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .fprev__page.is-loading::after { animation: none; } }
+.fprev__page.is-plain {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--surface-2); color: var(--muted);
+}
+.fprev__page.is-plain b { font-size: 1.05rem; letter-spacing: .06em; color: var(--brand); }
+.fprev__page.is-plain small { font-size: .7rem; }
+.fprev__page.is-text { padding: 10px 9px; }
+.fprev__text {
+  display: block; white-space: pre-line; overflow: hidden; height: 100%;
+  font-size: 6.5px; line-height: 1.45; color: #222; unicode-bidi: plaintext;
+}
+.fprev__pages {
+  position: absolute; inset-inline-end: 5px; bottom: 5px;
+  padding: 1px 6px; border-radius: 5px; font-size: .62rem;
+  background: rgba(0, 0, 0, .6); color: #fff;
+}
+.fprev__name {
+  font-size: .72rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fprev:hover .fprev__name { color: var(--brand); }
+.fprev-src { display: none !important; }
+.files .fprev { margin-top: 2px; }
