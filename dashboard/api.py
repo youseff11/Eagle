@@ -398,6 +398,16 @@ def task_action(request, code, action):
     if not (guard or user.is_admin_role):
         return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
 
+    # "Finished" needs something finished: the translator's file on the task.
+    # Said here in words; the service refuses on its own as well.
+    if action == "translated" and services.translation_missing(task):
+        return JsonResponse({
+            "ok": False, "code": "no_translation_file",
+            # The action buttons toast ``error`` as it is, so it is the sentence.
+            "error": services.TRANSLATION_MISSING_AR,
+            "error_en": services.TRANSLATION_MISSING_EN,
+        }, status=400)
+
     ok = handler()
     task.refresh_from_db()
     return JsonResponse({
@@ -405,6 +415,29 @@ def task_action(request, code, action):
         "status": task.status,
         "review_score": task.review_score,
         "revision_count": task.revision_count,
+    })
+
+
+@login_required
+@require_POST
+def upload_translation(request, code):
+    """The translator's file, from the task page, into their group."""
+    task = get_object_or_404(
+        Task.objects.select_related("team_lead", "translator"), code=code
+    )
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    message, error = services.upload_translation(
+        task, user, request.FILES.getlist("files"), request.POST.get("body", ""),
+    )
+    if message is None:
+        status = 403 if error == "forbidden" else 400
+        return JsonResponse({"ok": False, "error": error}, status=status)
+    return JsonResponse({
+        "ok": True,
+        "message": _message_json(message, user),
+        "room": message.room_id,
     })
 
 

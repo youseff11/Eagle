@@ -204,6 +204,7 @@ urlpatterns = [
     ),
     path("api/tasks/<str:code>/ai-check/", api.ai_check, name="api_ai_check"),
     path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
+    path("api/tasks/<str:code>/translation/", api.upload_translation, name="api_task_translation"),
     path("api/integrations/whatsapp/test/", api.whatsapp_test, name="api_whatsapp_test"),
     path("api/integrations/email/test/", api.email_test, name="api_email_test"),
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),

@@ -70,27 +70,79 @@
       </a>
     </div>
   {% endif %}
-  {% if task_files %}
+  {% comment %}
+  Two sets of files, kept apart so nobody mixes them up: what the client
+  sent (the original) and what the translator handed in (the translation).
+  The translator uploads here; the file goes to their group with the team
+  leader on its own, and shows up in both places at once.
+  {% endcomment %}
+  {% if task_files or task.translator_id %}
     <div class="task-files mt">
-      <div class="label">
-        {% icon "paperclip" "ic--sm" %}<span data-ar="ملفات التاسك" data-en="Task files">ملفات التاسك</span>
-        <span class="chip chip--sm">{{ task_files|length }}</span>
-      </div>
-      <div class="files">
-        {% for attachment in task_files %}
-          {% if attachment|is_image_file %}
-            {# A photo in the job is shown as a photo. #}
-            <a class="task-thumb" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
-               title="{{ attachment.original_name }}">
-              <img src="{{ attachment.file.url }}" alt="{{ attachment.original_name }}" loading="lazy">
-            </a>
+      {% if task_files %}
+        <div class="task-files__set">
+          <div class="label">
+            {% icon "paperclip" "ic--sm" %}<span data-ar="الملف الأصلي (من العميل)" data-en="Original (from the client)">الملف الأصلي (من العميل)</span>
+            <span class="chip chip--sm">{{ task_files|length }}</span>
+          </div>
+          <div class="files">
+            {% for attachment in task_files %}
+              {% if attachment|is_image_file %}
+                <a class="task-thumb" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+                   title="{{ attachment.original_name }}">
+                  <img src="{{ attachment.file.url }}" alt="{{ attachment.original_name }}" loading="lazy">
+                </a>
+              {% else %}
+                <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+                   title="{{ attachment.pretty_size }}">
+                  {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if task.translator_id %}
+        <div class="task-files__set task-files__set--translation">
+          <div class="label">
+            {% icon "file" "ic--sm" %}<span data-ar="ملف الترجمة (من المترجم)" data-en="Translation (from the translator)">ملف الترجمة (من المترجم)</span>
+            <span class="chip chip--sm">{{ translation_files|length }}</span>
+          </div>
+          {% if translation_files %}
+            <div class="files">
+              {% for attachment in translation_files %}
+                {% if attachment|is_image_file %}
+                  <a class="task-thumb" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+                     title="{{ attachment.original_name }} · {{ attachment.message.created_at|date:'m-d H:i' }}">
+                    <img src="{{ attachment.file.url }}" alt="{{ attachment.original_name }}" loading="lazy">
+                  </a>
+                {% else %}
+                  <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
+                     title="{{ attachment.pretty_size }} · {{ attachment.message.created_at|date:'m-d H:i' }}">
+                    {% icon "file" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
+                    <span class="muted mono">{{ attachment.message.created_at|date:"m-d H:i" }}</span></a>
+                {% endif %}
+              {% endfor %}
+            </div>
           {% else %}
-            <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
-               title="{{ attachment.pretty_size }}">
-              {% icon "paperclip" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}</a>
+            <div class="muted" style="font-size:.84rem"
+                 data-ar="المترجم لسه مارفعش ملف الترجمة." data-en="The translator has not uploaded the translation yet.">
+              المترجم لسه مارفعش ملف الترجمة.</div>
           {% endif %}
-        {% endfor %}
-      </div>
+
+          {% if can_upload_translation %}
+            <form class="row row--tight mt" id="translationForm" onsubmit="return false"
+                  data-url="{% url 'dashboard:api_task_translation' task.code %}">
+              <label class="btn btn--primary btn--sm" id="translationPick">
+                {% icon "upload" "ic--sm" %}<span data-ar="ارفع ملف الترجمة" data-en="Upload the translation">ارفع ملف الترجمة</span>
+                <input type="file" name="files" multiple hidden
+                       onchange="(function(input){if(!input.files.length){return;}var form=input.form,pick=document.getElementById('translationPick'),data=new FormData();Array.prototype.forEach.call(input.files,function(f){data.append('files',f);});pick.classList.add('is-busy');Eagle.post(form.getAttribute('data-url'),data).then(function(r){pick.classList.remove('is-busy');input.value='';if(r.ok){Eagle.toast({level:'success',title:Eagle.t('اترفع واتبعت في الجروب','Uploaded and posted in the group')});setTimeout(function(){location.reload();},500);}else{Eagle.toast({level:'danger',title:Eagle.t('مااترفعش','Not uploaded'),body:r.error||''});}});})(this)">
+              </label>
+              <small class="muted" data-ar="الملف بيتبعت في الجروب مع التيم ليدر لوحده."
+                     data-en="It is posted in your group with the team leader on its own.">الملف بيتبعت في الجروب مع التيم ليدر لوحده.</small>
+            </form>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 </div>
@@ -239,11 +291,15 @@
           {% endif %}{# active_room #}
         </div>
       </div>
-    {% else %}
-      <div class="card empty">
-        {% icon "message" "ic--xl" %}
-        <span data-ar="الشات بيتفتح أول ما التيم ليدر يأكد الاستلام."
-              data-en="The chat opens once the team leader accepts.">الشات بيتفتح أول ما التيم ليدر يأكد الاستلام.</span>
+    {% elif chat_link %}
+      {% comment %}
+      The task has no chat of its own - the group already exists and is not
+      tied to any one task. A button straight into it, nothing more.
+      {% endcomment %}
+      <div class="card">
+        <a class="btn btn--block" href="{{ chat_link.url }}">
+          {% icon "message" "ic--sm" %}<span data-ar="{{ chat_link.label_ar }}" data-en="{{ chat_link.label_en }}">{{ chat_link.label_ar }}</span>
+        </a>
       </div>
     {% endif %}
 
@@ -558,10 +614,19 @@
 
       {% if user.is_translator %}
         {% if task.status == 'in_progress' %}
-          <button class="btn btn--primary btn--block" type="button"
+          {% if translation_missing %}
+            <div class="note note--warn">
+              {% icon "upload" %}
+              <div data-ar="ارفع ملف الترجمة من فوق الأول — «خلصت» بتتفتح بعده."
+                   data-en="Upload the translated file above first - Finished opens after it.">
+                ارفع ملف الترجمة من فوق الأول — «خلصت» بتتفتح بعده.</div>
+            </div>
+          {% endif %}
+          <button class="btn btn--primary btn--block{% if translation_missing %} mt{% endif %}" type="button"
+                  {% if translation_missing %}disabled{% endif %}
                   data-action="{% url 'dashboard:api_task_action' task.code 'translated' %}"
-                  data-confirm-ar="متأكد إنك بعت الملفات في الشات وخلصت؟"
-                  data-confirm-en="Did you already send the files in the chat?">
+                  data-confirm-ar="متأكد إنك رفعت ملف الترجمة النهائي وخلصت؟"
+                  data-confirm-en="Is the final translated file uploaded?">
             {% icon "check" "ic--sm" %}
             <span data-ar="خلصت الترجمة — ابعتها للمراجعة"
                   data-en="Finished — send for review">خلصت الترجمة</span>

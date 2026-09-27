@@ -1315,6 +1315,22 @@ def lead_translator_group(lead, translator):
     (``create_team_group`` - same name, same note, same "you were added").
     Archived groups are not reused.
     """
+    room = find_lead_translator_group(lead, translator)
+    if room is not None:
+        return room
+    title = default_team_group_name(lead, [translator])
+    room, _error = create_team_group(lead, title, [translator])
+    return room
+
+
+def find_lead_translator_group(lead, translator):
+    """``lead_translator_group`` without the opening: ``None`` if there is none.
+
+    For reading - the task page links the group, and a page view must not
+    open one as a side effect.
+    """
+    if lead is None or translator is None:
+        return None
     title = default_team_group_name(lead, [translator])
     rooms = list(
         ChatRoom.objects.filter(kind=RoomKind.TEAM, is_archived=False, members=lead)
@@ -1326,8 +1342,7 @@ def lead_translator_group(lead, translator):
     for room in rooms:
         if room.members.count() == 2:
             return room
-    room, _error = create_team_group(lead, title, [translator])
-    return room
+    return None
 
 
 def room_url_for(room, viewer):
@@ -1898,6 +1913,11 @@ def create_task(*, client, title, created_by, description="", deadline=None,
 
 def mark_translated(task, user):
     if task.translator_id != user.id and not user.is_admin_role:
+        return False
+    # "Finished" with nothing handed in used to go through. It does not any
+    # more: the translator's file is what the review, the AI check, the word
+    # count and the delivery all read, so no file means nothing is finished.
+    if translation_missing(task):
         return False
     task.status = TaskStatus.UNDER_REVIEW
     task.translated_at = timezone.now()
@@ -2864,6 +2884,121 @@ def task_source_files(task):
             .select_related("message").order_by("message__received_at", "id")
         )
     return [a for a in picked if not a.is_audio]
+
+
+def translator_files(task, since=None):
+    """The files the translator handed in on this task, oldest first.
+
+    Wherever they were handed in: uploaded from the task page, or dropped in
+    their group and tagged there (``tag_task_message``) - both carry the task
+    on the message. Voice notes are talk, not a translation, and are left out.
+    ``since`` keeps only what came in after that moment.
+    """
+    if not task.translator_id:
+        return []
+    qs = (
+        ChatAttachment.objects
+        .filter(task_files_filter(task), message__sender_id=task.translator_id)
+        .select_related("message")
+        .order_by("id")
+    )
+    if since is not None:
+        qs = qs.filter(message__created_at__gt=since)
+    return [a for a in qs if not a.is_audio]
+
+
+TRANSLATION_MISSING_AR = "ارفع ملف الترجمة الأول من صفحة التاسك، وبعدين دوس «خلصت»."
+TRANSLATION_MISSING_EN = "Upload the translated file on the task page first, then press Finished."
+
+
+def translation_missing(task):
+    """True while there is nothing to review: no translator file on the task.
+
+    After a send-back only a file that came in after it counts - the one the
+    leader returned is the version that was not good enough.
+    """
+    return not translator_files(task, since=task.returned_at)
+
+
+def upload_translation(task, user, uploads, body=""):
+    """The translator hands in the translated file from the task page.
+
+    It goes where the rest of the job is talked about - the group of the
+    leader and the translator - so the leader sees it there without anybody
+    forwarding it, and the message carries the task so the page, the review,
+    the word count and the delivery all find it. No guessing is involved:
+    the page it came from says which task it is.
+
+    Returns ``(message, error)``.
+    """
+    if task.translator_id != user.id:
+        return None, "forbidden"
+    if task.status != TaskStatus.IN_PROGRESS:
+        return None, "bad_status"
+    uploads = [u for u in (uploads or []) if u]
+    if not uploads:
+        return None, "empty"
+    room = pair_room(task.team_lead, user)
+    if room is None:
+        return None, "no_room"
+
+    with transaction.atomic():
+        message = ChatMessage.objects.create(
+            room=room, sender=user, task=task,
+            body=(body or "").strip() or f"ملف الترجمة - {task.code}",
+        )
+        for item in uploads:
+            ChatAttachment.objects.create(
+                message=message, file=item, original_name=item.name, size=item.size,
+            )
+
+    notify(
+        task.team_lead,
+        title_ar="المترجم رفع ملف الترجمة",
+        title_en="The translator uploaded the translation",
+        body_ar=f"{user.short_name} رفع ملف الترجمة على {task.code}.",
+        body_en=f"{user.short_name} uploaded the translation for {task.code}.",
+        level="info", url=f"/tasks/{task.code}/", task=task,
+    )
+    log(user, "task.translation_uploaded", task.code, str(len(uploads)))
+    return message, ""
+
+
+def task_chat_link(task, viewer):
+    """Where "open the chat" on the task page takes this person, or ``None``.
+
+    The task has no chat of its own; its work lives in the conversation of the
+    two people carrying the step. The leader and the translator - and the
+    admin - go to their group. The operation goes to their chat with the
+    leader. Nothing is opened by looking: the group is only found, and a
+    staff chat opens itself when its page is visited.
+
+    Returns ``{"url", "label_ar", "label_en"}``.
+    """
+    lead, translator, ops = task.team_lead, task.translator, task.created_by
+    if lead is not None and translator is not None and (
+        viewer.pk in (lead.pk, translator.pk) or viewer.is_admin_role
+    ):
+        room = find_lead_translator_group(lead, translator)
+        if room is not None:
+            return {
+                "url": room_url_for(room, viewer),
+                "label_ar": "افتح الجروب", "label_en": "Open the group",
+            }
+    other = None
+    if lead is not None and viewer.pk != lead.pk and (
+        viewer.is_operation or (ops is not None and viewer.pk == ops.pk)
+    ):
+        other = lead
+    elif lead is not None and viewer.pk == lead.pk and ops is not None:
+        other = ops
+    if other is not None and other.pk != viewer.pk:
+        return {
+            "url": f"/ops/chats/u/{other.pk}/",
+            "label_ar": f"افتح الشات مع {other.short_name}",
+            "label_en": f"Open the chat with {other.short_name}",
+        }
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -605,6 +605,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 .task-thumb { display: inline-block; line-height: 0; border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
 .task-thumb img { width: 120px; height: 90px; object-fit: cover; border-radius: 6px; }
 .task-thumb:hover { border-color: var(--brand-line); }
+/* The original and the translation, side by side and never mixed up. */
+.task-files__set + .task-files__set { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.task-files__set--translation .label { color: var(--ok); }
+.task-files .file-pill .muted { font-size: .7rem; margin-inline-start: 4px; }
+.btn.is-busy { opacity: .6; pointer-events: none; }
 /* The one red link in the nav, and the page behind it. */
 .nav__item--danger, .nav__item--danger .ic { color: var(--danger); }
 .nav__item--danger:hover { background: var(--danger-soft); }

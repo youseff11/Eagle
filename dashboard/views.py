@@ -938,9 +938,11 @@ def task_detail(request, code):
     # Files the operation can forward to the client (translator's output first).
     deliverables = []
     if user.is_operation or user.is_admin_role:
+        # Both links: a task's files are on the message now (the group), and
+        # only older tasks still have a room of their own.
         rows = (
             ChatAttachment.objects
-            .filter(message__room__task=task)
+            .filter(services.task_files_filter(task))
             .select_related("message", "message__sender")
             .order_by("-id")[:40]
         )
@@ -996,6 +998,16 @@ def task_detail(request, code):
         # Files only - the client's messages (their name, their number) stay
         # in the operation's card further down.
         "task_files": services.task_source_files(task),
+        # What the translator handed in, next to what the client sent - so the
+        # page says which is the original and which is the translation.
+        "translation_files": services.translator_files(task),
+        "translation_missing": services.translation_missing(task),
+        "can_upload_translation": (
+            task.translator_id == user.id and task.status == TaskStatus.IN_PROGRESS
+        ),
+        # The task has no chat of its own; this is the button to the one it
+        # lives in (the leader and translator's group, or ops with the leader).
+        "chat_link": services.task_chat_link(task, user),
         "task_description": services.clean_client_text(task.description),
         "conf": AppSettings.load(),
         # Who may settle a disputed word count: the people who can see both

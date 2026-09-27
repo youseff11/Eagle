@@ -20,6 +20,22 @@ from .models import (
 from .permissions import user_may_open
 
 
+def hand_in_translation(task, translator):
+    """Upload a translated file the way the task page does, then press Finished.
+
+    "Finished" refuses with no file on the task, so every test that walks a
+    task past translation hands one in first - the same as a translator must.
+    """
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    task.refresh_from_db()
+    services.upload_translation(
+        task, translator,
+        [SimpleUploadedFile("translated.txt", b"translated text", content_type="text/plain")],
+    )
+    return services.mark_translated(task, translator)
+
+
 class WorkflowTests(TestCase):
     def setUp(self):
         self.ops = User.objects.create_user("ops", password="x", role=Role.OPERATION)
@@ -76,7 +92,7 @@ class WorkflowTests(TestCase):
         # no room a translator could be in with a client at all.
         self.assertNotIn(self.tr, with_lead.members.all())
 
-        services.mark_translated(task, self.tr)
+        hand_in_translation(task, self.tr)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.UNDER_REVIEW)
         services.mark_reviewed(task, self.lead)
@@ -2496,7 +2512,7 @@ class HandoverTests(TestCase):
 
     def _reviewed_task(self):
         task = self._task_in_progress()
-        services.mark_translated(task, self.tr)
+        hand_in_translation(task, self.tr)
         task.refresh_from_db()
         services.mark_reviewed(task, self.lead)
         task.refresh_from_db()
@@ -2620,7 +2636,7 @@ class HandoverTests(TestCase):
 
         task = self._task_in_progress()
         with mock.patch("dashboard.ai.threading.Thread") as thread:
-            services.mark_translated(task, self.tr)
+            hand_in_translation(task, self.tr)
         self.assertTrue(thread.called)
 
         row = task.ai_checks.first()
@@ -2630,7 +2646,7 @@ class HandoverTests(TestCase):
 
     def test_no_check_is_written_when_the_admin_has_it_switched_off(self):
         task = self._task_in_progress()
-        services.mark_translated(task, self.tr)
+        hand_in_translation(task, self.tr)
         self.assertEqual(task.ai_checks.count(), 0)
 
     def test_a_second_check_does_not_start_while_one_is_running(self):
@@ -3575,7 +3591,7 @@ class HandoffInChatTests(TestCase):
         services.accept_assignment(self._hand_to_lead(), self.lead)
         assignment = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(assignment, self.tr)
-        services.mark_translated(self.task, self.tr)
+        hand_in_translation(self.task, self.tr)
         room = services.lead_translator_group(self.lead, self.tr)
         blob = " ".join(m.body for m in room.messages.all())
         self.assertIn(self.task.code, blob)
@@ -3585,7 +3601,7 @@ class HandoffInChatTests(TestCase):
         services.accept_assignment(self._hand_to_lead(), self.lead)
         assignment = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(assignment, self.tr)
-        services.mark_translated(self.task, self.tr)
+        hand_in_translation(self.task, self.tr)
         services.mark_reviewed(self.task, self.lead)
         room = services.staff_room(self.lead, self.ops)
         blob = " ".join(m.body for m in room.messages.all())
@@ -6633,7 +6649,7 @@ class LeadTranslatorGroupTests(TestCase):
 
     def test_the_way_back_up_is_written_in_the_group(self):
         services.accept_assignment(self._hand_over(), self.tr)
-        services.mark_translated(self.task, self.tr)
+        hand_in_translation(self.task, self.tr)
         blob = " ".join(self._group().messages.values_list("body", flat=True))
         self.assertIn(self.task.code, blob)
 
@@ -7806,3 +7822,157 @@ class FilePreviewTests(TestCase):
 
         body = "[image: 2026.jpg]\nkindly correct [the ID]\n[cid:image001.png@01DA]\nthanks"
         self.assertEqual(strip_image_tags(body), "kindly correct [the ID]\nthanks")
+
+
+class TranslationUploadTests(TestCase):
+    """«خلصت» needs a translated file, and the file is uploaded on the task page.
+
+    Decided 27/09/2026: a translator pressing Finished with nothing handed in
+    went through. Now the file is uploaded from the task page, lands in the
+    leader and translator's group on its own, and shows on the page next to
+    the client's original.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_up", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_up", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_up", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000077")
+        self.task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+
+    def _file(self, name="translated.docx", body=b"done"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        return SimpleUploadedFile(name, body)
+
+    def _upload_via_page(self, user=None, name="translated.docx"):
+        self.client.force_login(user or self.tr)
+        return self.client.post(
+            f"/api/tasks/{self.task.code}/translation/", {"files": [self._file(name)]},
+        )
+
+    # -- the gate ------------------------------------------------------------
+    def test_finished_with_no_file_is_refused(self):
+        self.assertFalse(services.mark_translated(self.task, self.tr))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.IN_PROGRESS)
+
+    def test_the_button_says_why_it_was_refused(self):
+        self.client.force_login(self.tr)
+        response = self.client.post(f"/api/tasks/{self.task.code}/translated/")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "no_translation_file")
+        self.assertIn("ارفع ملف الترجمة", response.json()["error"])
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.IN_PROGRESS)
+
+    def test_a_voice_note_is_not_a_translation(self):
+        services.upload_translation(self.task, self.tr, [self._file("note.ogg")])
+        self.assertTrue(services.translation_missing(self.task))
+        self.assertFalse(services.mark_translated(self.task, self.tr))
+
+    # -- the upload ----------------------------------------------------------
+    def test_the_upload_lands_in_the_group_tagged_with_the_task(self):
+        response = self._upload_via_page()
+        self.assertEqual(response.status_code, 200)
+        group = services.find_lead_translator_group(self.lead, self.tr)
+        message = group.messages.filter(sender=self.tr).latest("id")
+        self.assertEqual(message.task_id, self.task.pk)
+        self.assertEqual(message.attachments.count(), 1)
+        self.assertEqual(
+            [a.original_name for a in services.translator_files(self.task)],
+            ["translated.docx"],
+        )
+
+    def test_after_the_upload_finished_goes_through(self):
+        self._upload_via_page()
+        self.task.refresh_from_db()
+        self.assertTrue(services.mark_translated(self.task, self.tr))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.UNDER_REVIEW)
+
+    def test_a_file_dropped_in_the_group_counts_too(self):
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, ChatMessage
+
+        group = services.find_lead_translator_group(self.lead, self.tr)
+        message = ChatMessage.objects.create(room=group, sender=self.tr, body="")
+        ChatAttachment.objects.create(
+            message=message, file=ContentFile(b"t", name="done.docx"),
+            original_name="done.docx", size=1,
+        )
+        services.tag_task_message(message)
+        self.assertFalse(services.translation_missing(self.task))
+
+    def test_only_the_translator_uploads(self):
+        self.assertEqual(self._upload_via_page(user=self.lead).status_code, 403)
+        self.assertEqual(services.translator_files(self.task), [])
+
+    def test_no_upload_once_it_is_under_review(self):
+        self._upload_via_page()
+        self.task.refresh_from_db()
+        services.mark_translated(self.task, self.tr)
+        self.assertEqual(self._upload_via_page(name="late.docx").status_code, 400)
+
+    def test_after_a_send_back_the_old_file_does_not_count(self):
+        from datetime import timedelta as _td
+
+        self._upload_via_page()
+        self.task.refresh_from_db()
+        services.mark_translated(self.task, self.tr)
+        self.task.refresh_from_db()
+        services.send_back_for_revision(self.task, self.lead, "fix")
+        # The returned version is older than the send-back.
+        from .models import ChatMessage
+
+        ChatMessage.objects.filter(task=self.task).update(
+            created_at=self.task.returned_at - _td(minutes=1)
+        )
+        self.task.refresh_from_db()
+        self.assertTrue(services.translation_missing(self.task))
+        self.assertFalse(services.mark_translated(self.task, self.tr))
+        self._upload_via_page(name="fixed.docx")
+        self.task.refresh_from_db()
+        self.assertTrue(services.mark_translated(self.task, self.tr))
+
+    # -- the page ------------------------------------------------------------
+    def test_the_page_shows_original_and_translation_apart(self):
+        self._upload_via_page()
+        self.client.force_login(self.ops)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn("ملف الترجمة (من المترجم)", html)
+        self.assertIn("translated.docx", html)
+
+    def test_the_old_chat_sentence_is_gone_and_the_group_is_a_button(self):
+        self.client.force_login(self.tr)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertNotIn("الشات بيتفتح أول ما التيم ليدر يأكد الاستلام", html)
+        group = services.find_lead_translator_group(self.lead, self.tr)
+        self.assertIn(f'href="/ops/chats/g/{group.pk}/"', html)
+        self.assertIn("افتح الجروب", html)
+        # The translator in progress gets the upload button.
+        self.assertIn(f"/api/tasks/{self.task.code}/translation/", html)
+
+    def test_the_operation_is_sent_to_the_chat_with_the_leader(self):
+        link = services.task_chat_link(self.task, self.ops)
+        self.assertEqual(link["url"], f"/ops/chats/u/{self.lead.pk}/")
+
+    def test_looking_at_the_page_opens_no_group(self):
+        from .models import ChatRoom
+
+        other_tr = User.objects.create_user(
+            "tr_up2", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        before = ChatRoom.objects.count()
+        self.assertIsNone(services.find_lead_translator_group(self.lead, other_tr))
+        self.assertEqual(ChatRoom.objects.count(), before)
