@@ -4,6 +4,8 @@
 {% block page_title %}<span data-ar="لوحة التيم ليدر" data-en="Team leader">لوحة التيم ليدر</span>{% endblock %}
 
 {% block content %}
+{# Swapped in place when anything on the boards moves - app.js initLive. #}
+<div data-live="page">
 <div class="page-head">
   <h1 data-ar="لوحة التيم ليدر" data-en="Team leader board">لوحة التيم ليدر</h1>
 </div>
@@ -114,5 +116,6 @@
       </ul>
     </div>
   </div>
+</div>
 </div>
 {% endblock %}

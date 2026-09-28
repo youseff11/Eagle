@@ -4,6 +4,8 @@
 {% block page_title %}<span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>{% endblock %}
 
 {% block content %}
+{# Swapped in place when anything on the boards moves - app.js initLive. #}
+<div data-live="page">
 <div class="page-head">
   <h1 data-ar="التنبيهات" data-en="Notifications">التنبيهات</h1>
 </div>
@@ -31,5 +33,6 @@
       <span data-ar="مفيش تنبيهات." data-en="No notifications.">مفيش تنبيهات.</span>
     </div>
   {% endfor %}
+</div>
 </div>
 {% endblock %}

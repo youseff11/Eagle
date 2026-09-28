@@ -151,6 +151,14 @@ def heartbeat(request):
     data["counters"]["chats"] = services.unread_chat_total(user)
     # A colleague calling: every page rings (static/js/calls.js).
     data["call"] = services.incoming_call(user)
+    # Live pages: a board re-fetches itself when this moves, and a task page
+    # follows its own task (static/js/app.js, initLive).
+    data["live"] = services.live_stamp()
+    code = (request.GET.get("task") or "").strip()
+    if code:
+        task = Task.objects.filter(code=code).first()
+        if task is not None and task.can_view(user):
+            data["task_live"] = services.task_live_stamp(task)
     return JsonResponse(data)
 
 

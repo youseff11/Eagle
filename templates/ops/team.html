@@ -4,6 +4,8 @@
 {% block page_title %}<span data-ar="حالة الفرق" data-en="Team status">حالة الفرق</span>{% endblock %}
 
 {% block content %}
+{# Swapped in place when anything on the boards moves - app.js initLive. #}
+<div data-live="page">
 <div class="page-head">
   <h1 data-ar="حالة التيم ليدرز والفرق" data-en="Team leaders & their teams">حالة التيم ليدرز والفرق</h1>
   <span class="page-head__sub"
@@ -101,5 +103,6 @@
       <span data-ar="مفيش تيم ليدرز مسجلين." data-en="No team leaders yet.">مفيش تيم ليدرز مسجلين.</span>
     </div>
   {% endfor %}
+</div>
 </div>
 {% endblock %}

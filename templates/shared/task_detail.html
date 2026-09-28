@@ -4,6 +4,8 @@
 {% block page_title %}<span class="mono">{{ task.code }}</span>{% endblock %}
 
 {% block content %}
+{# This page reloads itself (keeping its place) when the task moves - app.js initLive. #}
+<span hidden data-live-task="{{ task.code }}"></span>
 <div class="page-head">
   <h1 class="mono">{{ task.code }}</h1>
   {% status_badge task.status %}

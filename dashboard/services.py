@@ -1450,6 +1450,58 @@ def task_files_filter(task):
     return Q(message__task=task) | Q(message__room__task=task)
 
 
+def live_stamp():
+    """A short fingerprint of "has anything on the boards moved".
+
+    Polled with the heartbeat. When it changes, an open list page (tasks,
+    the leader's and translator's desks, the overview) fetches itself again
+    and swaps the parts marked ``data-live`` - so a board left open all day
+    stays current without a reload (28/09/2026).
+
+    Global on purpose: it says only *that* something changed, never what or
+    for whom, so it leaks nothing, and the page that re-fetches itself still
+    goes through its own permission checks. Every workflow step notifies
+    somebody, which is why the newest notification id is in it.
+    """
+    import hashlib
+
+    from django.db.models import Count, Max
+
+    from .models import Notification
+
+    tasks = Task.objects.aggregate(n=Count("id"), at=Max("updated_at"))
+    assignments = Assignment.objects.aggregate(
+        top=Max("id"), answered=Max("responded_at"), opened=Max("opened_at"),
+    )
+    top_note = Notification.objects.aggregate(top=Max("id"))["top"]
+    raw = "|".join(str(x) for x in (
+        tasks["n"], tasks["at"], assignments["top"], assignments["answered"],
+        assignments["opened"], top_note,
+    ))
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
+def task_live_stamp(task):
+    """The same, for one task's page: status, files, the AI check, hand-offs.
+
+    ``None`` when there is no such task, or the viewer may not see it - the
+    page they have open then simply stops following it.
+    """
+    import hashlib
+
+    from django.db.models import Max
+
+    latest_ai = task.ai_checks.order_by("-id").values_list("id", "status").first()
+    files = ChatAttachment.objects.filter(task_files_filter(task)).aggregate(top=Max("id"))
+    handoffs = task.assignments.aggregate(top=Max("id"), answered=Max("responded_at"))
+    raw = "|".join(str(x) for x in (
+        task.status, task.updated_at, files["top"], latest_ai,
+        handoffs.get("top"), handoffs.get("answered"),
+        getattr(task, "word_count", None), getattr(task, "word_count_state", None),
+    ))
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
 def tag_task_message(message):
     """Mark a chat message as work on a task, when that is unambiguous.
 

@@ -8597,3 +8597,68 @@ class ReviewedFilesToOperationTests(TestCase):
         self.assertEqual(
             [a.original_name for a in rows[-1].attachments.all()], ["v2.txt"]
         )
+
+
+class LivePagesTests(TestCase):
+    """Boards and task pages follow changes without a reload (28/09/2026).
+
+    The browser side is app.js ``initLive``; these hold the server side: the
+    heartbeat carries the fingerprints, they move when the work moves, and
+    a task's own fingerprint goes only to somebody who may see that task.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_lv", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_lv", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_lv", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.stranger = User.objects.create_user(
+            "tr2_lv", password="x", role=Role.TRANSLATOR
+        )
+        self.acme = Client.objects.create(name="ACME", phone="+201000000095")
+        self.task = services.create_task(
+            client=self.acme, title="Doc", created_by=self.ops,
+        )
+
+    def _beat(self, user, task=None):
+        self.client.force_login(user)
+        url = "/api/heartbeat/"
+        if task is not None:
+            url += f"?task={task.code}"
+        return self.client.get(url).json()
+
+    def test_the_heartbeat_carries_the_board_fingerprint(self):
+        self.assertTrue(self._beat(self.ops)["live"])
+
+    def test_the_fingerprint_moves_when_a_task_moves(self):
+        before = services.live_stamp()
+        services.assign_to_lead(self.task, self.lead, self.ops)
+        self.assertNotEqual(before, services.live_stamp())
+
+    def test_the_fingerprint_holds_when_nothing_moves(self):
+        self.assertEqual(services.live_stamp(), services.live_stamp())
+
+    def test_a_task_page_gets_its_own_fingerprint(self):
+        data = self._beat(self.ops, self.task)
+        self.assertTrue(data.get("task_live"))
+
+    def test_the_task_fingerprint_moves_with_the_task(self):
+        before = services.task_live_stamp(self.task)
+        services.assign_to_lead(self.task, self.lead, self.ops)
+        self.task.refresh_from_db()
+        self.assertNotEqual(before, services.task_live_stamp(self.task))
+
+    def test_nobody_follows_a_task_they_may_not_see(self):
+        data = self._beat(self.stranger, self.task)
+        self.assertNotIn("task_live", data)
+
+    def test_the_boards_are_marked_live(self):
+        self.client.force_login(self.ops)
+        html = self.client.get("/ops/tasks/").content.decode()
+        self.assertIn('data-live="page"', html)
+
+    def test_the_task_page_follows_its_task(self):
+        self.client.force_login(self.ops)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn(f'data-live-task="{self.task.code}"', html)

@@ -339,12 +339,142 @@ window.Eagle = (function () {
     if (backdrop) { backdrop.classList.add("hidden"); }
   }
 
+  /* ----------------------------------------------------------- live pages */
+
+  /*
+   * A page left open all day stays current without a reload (28/09/2026).
+   *
+   * The heartbeat carries two fingerprints: ``live`` moves whenever anything
+   * on the boards moves, ``task_live`` whenever the task this page shows
+   * moves. When one changes:
+   *
+   * - a board (anything marked ``data-live``) fetches its own URL again and
+   *   swaps those parts in place - same permissions, same markup, no reload;
+   * - a task page (``data-live-task``) reloads itself, keeping its scroll,
+   *   because it is full of widgets that were wired up once at load.
+   *
+   * Never while the person is in the middle of something: typing, a field
+   * they changed, a picked file, an open dialog, a recording, a voice note
+   * playing, text selected. Then it waits and tries again on the next tick.
+   */
+  var live = { stamp: null, taskStamp: null, due: false, taskDue: false, busy: false, task: "" };
+
+  function liveBusy(root) {
+    root = root || document.body;
+    var active = document.activeElement;
+    if (active && active !== document.body && root.contains(active) &&
+        /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) ||
+        (active && active.isContentEditable)) {
+      return true;
+    }
+    if ($$(".modal-backdrop").some(function (m) { return !m.classList.contains("hidden"); })) {
+      return true;
+    }
+    var picked = window.getSelection ? String(window.getSelection() || "") : "";
+    if (picked.trim()) { return true; }
+    if ($$("audio").some(function (a) { return !a.paused; })) { return true; }
+    var recording = $(".cchat__rec:not(.hidden), .rec-bar:not(.hidden)");
+    if (recording) { return true; }
+    return $$("input, textarea, select", root).some(function (field) {
+      if (field.type === "hidden" || field.disabled) { return false; }
+      if (field.type === "file") { return field.files && field.files.length > 0; }
+      if (field.type === "checkbox" || field.type === "radio") {
+        return field.checked !== field.defaultChecked;
+      }
+      if (field.tagName === "SELECT") {
+        return Array.prototype.some.call(field.options, function (o) {
+          return o.selected !== o.defaultSelected;
+        }) && field.selectedIndex !== 0;
+      }
+      return field.value !== field.defaultValue;
+    });
+  }
+
+  function liveSwap() {
+    var regions = $$("[data-live]");
+    if (!regions.length || live.busy) { return; }
+    if (regions.some(function (r) { return liveBusy(r); })) { return; }
+    live.busy = true;
+    fetch(window.location.href, {
+      credentials: "same-origin",
+      headers: { "X-Eagle-Live": "1" },
+      cache: "no-store"
+    }).then(function (res) {
+      // Signed out, or the page is gone: leave what is on screen alone.
+      if (!res.ok || res.redirected) { return null; }
+      return res.text();
+    }).then(function (html) {
+      if (!html) { return; }
+      var doc = new DOMParser().parseFromString(html, "text/html");
+      var changed = false;
+      regions.forEach(function (region) {
+        var key = region.getAttribute("data-live");
+        var fresh = doc.querySelector('[data-live="' + key + '"]');
+        if (!fresh || liveBusy(region)) { return; }
+        if (region._liveHtml === fresh.innerHTML) { return; }
+        region._liveHtml = fresh.innerHTML;
+        region.innerHTML = fresh.innerHTML;
+        changed = true;
+      });
+      live.due = false;
+      if (changed) {
+        applyLang(state.lang, false);
+        document.dispatchEvent(new CustomEvent("eagle:live"));
+      }
+    }).catch(function () { /* next tick tries again */ }).then(function () {
+      live.busy = false;
+    });
+  }
+
+  function liveReload() {
+    if (liveBusy(document.body)) { return; }
+    try {
+      // Never more than one reload in ten seconds, whatever keeps moving.
+      var last = Number(sessionStorage.getItem("eagle:reloaded") || 0);
+      if (Date.now() - last < 10000) { return; }
+      sessionStorage.setItem("eagle:reloaded", String(Date.now()));
+      sessionStorage.setItem("eagle:scroll:" + window.location.pathname, String(window.scrollY));
+    } catch (e) { /* private mode: reload without keeping the place */ }
+    window.location.reload();
+  }
+
+  function liveNotice(stamp, taskStamp) {
+    if (stamp) {
+      if (live.stamp !== null && stamp !== live.stamp) { live.due = true; }
+      live.stamp = stamp;
+    }
+    if (taskStamp) {
+      if (live.taskStamp !== null && taskStamp !== live.taskStamp) { live.taskDue = true; }
+      live.taskStamp = taskStamp;
+    }
+    if (document.hidden) { return; }   // catch up when the tab comes back
+    if (live.taskDue) { liveReload(); return; }
+    if (live.due) { liveSwap(); }
+  }
+
+  function initLive() {
+    var holder = $("[data-live-task]");
+    live.task = holder ? holder.getAttribute("data-live-task") : "";
+    // Remember what the server sent, so an unchanged part is never redrawn.
+    $$("[data-live]").forEach(function (region) { region._liveHtml = null; });
+    try {
+      var key = "eagle:scroll:" + window.location.pathname;
+      var y = sessionStorage.getItem(key);
+      if (y !== null) {
+        sessionStorage.removeItem(key);
+        window.scrollTo(0, Number(y) || 0);
+      }
+    } catch (e) { /* nothing kept */ }
+  }
+
   /* ------------------------------------------------------------ heartbeat */
 
   function tick() {
-    get(cfg.heartbeatUrl + "?after=" + state.lastNotification)
+    var liveTask = live.task ? "&task=" + encodeURIComponent(live.task) : "";
+    get(cfg.heartbeatUrl + "?after=" + state.lastNotification + liveTask)
       .then(function (data) {
         if (!data || !data.ok) { return; }
+        liveNotice(data.live, data.task_live);
 
         (data.notifications || []).forEach(function (n) {
           state.lastNotification = Math.max(state.lastNotification, n.id);
@@ -1849,6 +1979,7 @@ window.Eagle = (function () {
     initAssignPreview();
     initDeadlineBoxes();
     initCopy();
+    initLive();
     bindTest("waTestBtn", "waTestTo", "waTestResult",
       "الاتصال بواتساب شغال", "WhatsApp connection is working");
     bindTest("mailTestBtn", "mailTestTo", "mailTestResult",
