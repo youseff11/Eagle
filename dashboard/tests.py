@@ -8860,3 +8860,59 @@ class AINotesOnTaskPageTests(TestCase):
         ai._tell_the_team_leader(self.task.ai_checks.first())
         note = Notification.objects.filter(user=self.lead).order_by("-id").first()
         self.assertTrue(note.url.endswith("#aiNotes"))
+
+
+class AICompareSourceAndTranslationTests(TestCase):
+    """The check compares the source with the translation, part by part,
+    and every note quotes both (28/09/2026)."""
+
+    def setUp(self):
+        from .models import AppSettings
+
+        self.conf = AppSettings.load()
+        self.ops = User.objects.create_user("ops_cmp", password="x", role=Role.OPERATION)
+        acme = Client.objects.create(name="ACME", phone="+201000000091")
+        self.task = services.create_task(client=acme, title="Contract", created_by=self.ops)
+
+    def _review(self, reply, source="The total is 12,500."):
+        import json
+        from unittest import mock
+
+        from . import ai
+
+        with mock.patch("dashboard.ai._call_claude", return_value=json.dumps(reply)) as call:
+            fields = ai._review(self.conf, self.task, source, "الإجمالي 1,250.", "")
+        return fields, call
+
+    def test_the_prompt_asks_for_both_quotes(self):
+        from . import ai
+
+        self.assertIn("source_excerpt", ai.SYSTEM_PROMPT)
+        self.assertIn("translation_excerpt", ai.SYSTEM_PROMPT)
+        self.assertIn("segment by segment", ai.SYSTEM_PROMPT)
+
+    def test_a_note_keeps_both_quotes_and_gets_a_category_label(self):
+        fields, _call = self._review({
+            "verdict": "major_issues", "source_seen": True,
+            "summary_ar": "رقم غلط", "summary_en": "Wrong number",
+            "issues": [{
+                "category": "number", "severity": "high", "location": "line 1",
+                "source_excerpt": "12,500", "translation_excerpt": "1,250",
+                "issue_ar": "الرقم غلط", "issue_en": "Wrong number",
+                "correct_meaning_ar": "اتناشر ألف وخمسمية",
+            }],
+        })
+        issue = fields["issues"][0]
+        self.assertEqual(fields["status"], "issues")
+        self.assertEqual(issue["source_excerpt"], "12,500")
+        self.assertEqual(issue["translation_excerpt"], "1,250")
+        self.assertEqual(issue["category_ar"], "رقم/تاريخ")
+        self.assertIn("لازم تتصلح", fields["summary"])
+
+    def test_a_check_without_the_source_says_so(self):
+        from . import ai
+
+        fields, _call = self._review(
+            {"verdict": "accurate", "source_seen": False, "issues": []}, source="",
+        )
+        self.assertIn(ai.SOURCE_MISSING_AR, fields["summary"])

@@ -50,11 +50,29 @@ a one-line summary at the bottom of a card only some people could see
               {% else %}
                 <span class="ai-issue__sev" data-ar="متوسط" data-en="Medium">متوسط</span>
               {% endif %}
+              {% if issue.category_ar %}<span class="ai-issue__cat" data-ar="{{ issue.category_ar }}" data-en="{{ issue.category_en }}">{{ issue.category_ar }}</span>{% endif %}
               {% if issue.location %}<span class="ai-issue__where">{{ issue.location }}</span>{% endif %}
             </div>
+            {% if issue.source_excerpt or issue.translation_excerpt %}
+              {# The two texts side by side: what the client sent, what the translator wrote. #}
+              <div class="ai-issue__pair">
+                <div class="ai-issue__side">
+                  <div class="ai-issue__label" data-ar="الأصل" data-en="Source">الأصل</div>
+                  <div class="ai-issue__quote" dir="auto">{{ issue.source_excerpt|default:"—" }}</div>
+                </div>
+                <div class="ai-issue__side ai-issue__side--tr">
+                  <div class="ai-issue__label" data-ar="الترجمة" data-en="Translation">الترجمة</div>
+                  <div class="ai-issue__quote" dir="auto">{% if issue.translation_excerpt %}{{ issue.translation_excerpt }}{% else %}<span class="muted" data-ar="(مش موجودة في الترجمة)" data-en="(missing from the translation)">(مش موجودة في الترجمة)</span>{% endif %}</div>
+                </div>
+              </div>
+            {% endif %}
             <div class="ai-issue__text"
                  data-ar="{{ issue.issue_ar|default:issue.issue_en }}"
                  data-en="{{ issue.issue_en|default:issue.issue_ar }}">{{ issue.issue_ar|default:issue.issue_en }}</div>
+            {% if issue.correct_meaning_ar %}
+              <div class="ai-issue__meaning"><strong data-ar="المعنى في الأصل:" data-en="The source means:">المعنى في الأصل:</strong>
+                <span dir="auto">{{ issue.correct_meaning_ar }}</span></div>
+            {% endif %}
           </li>
         {% endfor %}
       </ol>

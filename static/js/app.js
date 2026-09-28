@@ -1116,7 +1116,19 @@ window.Eagle = (function () {
             return '<div class="note ' + (severityClass[severity] || "note--warn") + '">' +
               svgIcon("map-pin") + "<div>" +
               '<div class="note__where">' + escapeHtml(issue.location || "") + "</div>" +
+              ((issue.source_excerpt || issue.translation_excerpt)
+                ? '<div class="ai-issue__pair">' +
+                    '<div class="ai-issue__side"><div class="ai-issue__label">' + escapeHtml(t("الأصل", "Source")) +
+                    '</div><div class="ai-issue__quote" dir="auto">' + escapeHtml(issue.source_excerpt || "-") + "</div></div>" +
+                    '<div class="ai-issue__side ai-issue__side--tr"><div class="ai-issue__label">' + escapeHtml(t("الترجمة", "Translation")) +
+                    '</div><div class="ai-issue__quote" dir="auto">' + escapeHtml(issue.translation_excerpt || t("(مش موجودة في الترجمة)", "(missing)")) + "</div></div>" +
+                  "</div>"
+                : "") +
               "<div>" + escapeHtml(state.lang === "ar" ? (issue.issue_ar || issue.issue_en) : (issue.issue_en || issue.issue_ar)) + "</div>" +
+              (issue.correct_meaning_ar
+                ? '<div class="ai-issue__meaning"><strong>' + escapeHtml(t("المعنى في الأصل:", "The source means:")) +
+                  "</strong> " + escapeHtml(issue.correct_meaning_ar) + "</div>"
+                : "") +
               "</div></div>";
           }).join("");
       });

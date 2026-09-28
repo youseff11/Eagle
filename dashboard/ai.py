@@ -35,20 +35,63 @@ IMAGE_TYPES = {
 MAX_DOCUMENT_BYTES = 18 * 1024 * 1024
 MAX_DOCUMENTS = 6
 
+#: The review is a side-by-side comparison of meaning (28/09/2026): walk the
+#: source, find where each part landed in the translation, and say where the
+#: two do not say the same thing - quoting both. Still never a rewritten
+#: translation: ``correct_meaning`` explains what the source says, the
+#: translator writes the fix.
 SYSTEM_PROMPT = (
-    "You are a senior translation quality reviewer for a translation agency. "
-    "You NEVER rewrite, correct or produce a corrected translation. "
-    "You only report problems you can point to.\n"
-    "Given a SOURCE text and its TRANSLATION, list concrete issues: mistranslations, "
-    "omissions, additions, untranslated segments, numbers/dates/names that do not match, "
-    "terminology inconsistency, grammar and spelling errors, formatting problems, and any "
-    "violation of the client requirements provided.\n"
-    "Reply with STRICT JSON only, no markdown fences, using this shape:\n"
-    '{"summary_en": "...", "summary_ar": "...", "issues": [{"location": "where it is '
-    '(quote a short snippet or a line/paragraph reference)", "issue_en": "what is wrong", '
-    '"issue_ar": "الوصف بالعربي", "severity": "low|medium|high"}]}\n'
-    "If nothing is wrong, return an empty issues array. Never include a corrected version."
+    "You are a senior bilingual translation reviewer for a translation agency.\n"
+    "Your job is to check whether the TRANSLATION says what the SOURCE says.\n"
+    "Method: go through the SOURCE from start to end, segment by segment "
+    "(sentence, table cell, heading, list item). For each segment find its "
+    "counterpart in the TRANSLATION and compare the MEANING, not the wording. "
+    "Then check the other way, for anything in the translation that is not in the source.\n"
+    "Report every place where they differ: wrong meaning (mistranslation), a part left "
+    "out (omission), something added (addition), text left untranslated, numbers, dates, "
+    "amounts, names, IDs or units that do not match, wrong or inconsistent terminology, "
+    "grammar or spelling errors in the translation, broken formatting, and any breach "
+    "of the client requirements given.\n"
+    "Do not report style preferences where the meaning is right.\n"
+    "You NEVER produce a corrected or rewritten translation. For each issue you quote "
+    "the source and the translation exactly as they are, and explain in plain words "
+    "what the source actually means.\n"
+    "If the SOURCE is missing, say so in the summary and set source_seen to false; "
+    "then only check the translation on its own.\n"
+    "Reply with STRICT JSON only, no markdown fences, in this shape:\n"
+    '{"verdict": "accurate|minor_issues|major_issues", "source_seen": true, '
+    '"summary_ar": "حكم عام في سطرين بالعربي", "summary_en": "two-line verdict", '
+    '"issues": [{"category": "mistranslation|omission|addition|untranslated|number|name|'
+    'terminology|grammar|formatting|requirement", "severity": "low|medium|high", '
+    '"location": "page/paragraph/row", '
+    '"source_excerpt": "the source words, quoted exactly", '
+    '"translation_excerpt": "what the translation says there, quoted exactly (empty if omitted)", '
+    '"issue_ar": "إيه الغلط بالعربي", "issue_en": "what is wrong", '
+    '"correct_meaning_ar": "المعنى الصحيح في الأصل بالعربي - شرح مش ترجمة بديلة"}]}\n'
+    "Severity: high = the meaning, a number, a name or a legal/medical fact is wrong or "
+    "missing; medium = misleading or clearly wrong wording; low = grammar, spelling, "
+    "formatting. If the translation is accurate, return an empty issues array."
 )
+
+#: Human words for the categories the model reports.
+CATEGORY_LABELS = {
+    "mistranslation": ("ترجمة غلط", "Mistranslation"),
+    "omission": ("حاجة ناقصة", "Omission"),
+    "addition": ("حاجة زيادة", "Addition"),
+    "untranslated": ("متترجمتش", "Untranslated"),
+    "number": ("رقم/تاريخ", "Number/date"),
+    "name": ("اسم", "Name"),
+    "terminology": ("مصطلح", "Terminology"),
+    "grammar": ("لغة/إملاء", "Grammar"),
+    "formatting": ("تنسيق", "Formatting"),
+    "requirement": ("طلب العميل", "Client requirement"),
+}
+VERDICT_LABELS = {
+    "accurate": "الترجمة مطابقة للأصل.",
+    "minor_issues": "الترجمة مطابقة في المعظم، وفيها ملاحظات بسيطة.",
+    "major_issues": "فيه أخطاء في المعنى لازم تتصلح قبل التسليم.",
+}
+SOURCE_MISSING_AR = "تنبيه: الملف الأصلي ماوصلش للفحص، فالـAI راجع الترجمة لوحدها من غير مقارنة."
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +214,8 @@ def _call_claude(conf, prompt, documents=None):
         content = list(documents) + [{"type": "text", "text": prompt}]
     payload = {
         "model": conf.claude_model or "claude-sonnet-4-5",
-        "max_tokens": 3000,
+        # Every issue now carries two quotes and an explanation.
+        "max_tokens": 8000,
         "system": SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": content}],
     }
@@ -261,10 +305,23 @@ def _review(conf, task, source_text, translated_text, requirements,
             "model_used": conf.claude_model,
         }
 
-    issues = data.get("issues") or []
-    summary = data.get("summary_ar") or data.get("summary_en") or ""
-    if data.get("summary_en") and data.get("summary_ar"):
-        summary = f"{data['summary_ar']}\n{data['summary_en']}"
+    issues = [i for i in (data.get("issues") or []) if isinstance(i, dict)]
+    for issue in issues:
+        labels = CATEGORY_LABELS.get(issue.get("category") or "")
+        if labels:
+            issue["category_ar"], issue["category_en"] = labels
+    lines = []
+    source_seen = data.get("source_seen")
+    if source_seen is False or (not source_text.strip() and not source_docs):
+        lines.append(SOURCE_MISSING_AR)
+    verdict = VERDICT_LABELS.get(data.get("verdict") or "")
+    if verdict:
+        lines.append(verdict)
+    if data.get("summary_ar"):
+        lines.append(data["summary_ar"])
+    if data.get("summary_en"):
+        lines.append(data["summary_en"])
+    summary = "\n".join(lines)
 
     return {
         "status": AICheckResult.Status.ISSUES if issues else AICheckResult.Status.CLEAN,
