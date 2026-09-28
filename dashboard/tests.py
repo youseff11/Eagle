@@ -8662,3 +8662,46 @@ class LivePagesTests(TestCase):
         self.client.force_login(self.ops)
         html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
         self.assertIn(f'data-live-task="{self.task.code}"', html)
+
+
+class MoreTimeIsEasyToFindTests(TestCase):
+    """«اطلب وقت أطول» sits next to the deadline and on «شغلي» (28/09/2026).
+
+    The request itself existed; translators did not find it at the bottom of
+    the actions card.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_mt", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_mt", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_mt", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        acme = Client.objects.create(name="ACME", phone="+201000000094")
+        self.task = services.create_task(client=acme, title="Doc", created_by=self.ops)
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        self.client.force_login(self.tr)
+
+    def test_the_task_page_has_it_next_to_the_deadline(self):
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn("data-open-more-time", html)
+        self.assertIn('id="extensionBox"', html)
+
+    def test_my_work_links_straight_to_it(self):
+        html = self.client.get("/translator/").content.decode()
+        self.assertIn(f"/tasks/{self.task.code}/#more-time", html)
+
+    def test_once_asked_it_says_waiting_instead(self):
+        services.request_extension(self.task, self.tr, 120, "big file")
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertNotIn("data-open-more-time", html)
+        self.assertIn("مستني الرد", html)
+
+    def test_the_team_leader_does_not_get_the_button(self):
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertNotIn("data-open-more-time", html)

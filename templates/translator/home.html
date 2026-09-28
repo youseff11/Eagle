@@ -50,6 +50,12 @@
               {% icon "arrow-right" "ic--sm" %}
               <span data-ar="افتح التاسك والشات" data-en="Open task & chat">افتح التاسك والشات</span>
             </a>
+            {% if task.status == 'in_progress' %}
+              <a class="btn btn--sm" href="{% url 'dashboard:task_detail' task.code %}#more-time">
+                {% icon "clock" "ic--sm" %}
+                <span data-ar="اطلب وقت أطول" data-en="Ask for more time">اطلب وقت أطول</span>
+              </a>
+            {% endif %}
           </div>
         </div>
       </div>

@@ -1024,6 +1024,36 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 }
 .modal__title { font-size: 1.1rem; font-weight: 660; color: var(--heading); margin-bottom: 4px; }
 
+/* A box taller than the screen scrolls inside itself instead of pushing its
+   buttons below the bottom edge - an old laptop at 1366x768 with the browser
+   bars on could not reach «استلمت» at all (28/09/2026). */
+.modal {
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal__actions {
+  position: sticky; bottom: -24px; z-index: 2;
+  margin: 16px -24px -24px; padding: 12px 24px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+  flex-wrap: wrap;
+}
+@media (max-height: 760px) {
+  .modal-backdrop { padding: 12px; }
+  .modal { padding: 16px 18px; }
+  .modal__actions { bottom: -16px; margin: 12px -18px -16px; padding: 10px 18px 12px; }
+  .modal .countdown { width: 84px; height: 84px; margin: 10px auto; }
+  .modal .countdown__num { font-size: 1.5rem; }
+  .modal .kv { padding: 3px 0; }
+}
+@media (max-height: 600px) {
+  .modal .countdown { width: 64px; height: 64px; margin: 6px auto; }
+  .modal .countdown::after { inset: 6px; }
+  .modal .countdown__num { font-size: 1.2rem; }
+}
+
 .countdown {
   --pct: 100;
   width: 118px; height: 118px; margin: 18px auto; border-radius: 50%;

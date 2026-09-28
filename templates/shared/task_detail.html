@@ -24,6 +24,17 @@
     {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
   </span>
   {% endwith %}
+  {% comment %}
+  Asking for more time sits next to the deadline it changes, not only at the
+  bottom of the actions card where translators did not find it (28/09/2026).
+  {% endcomment %}
+  {% if extension_can_ask %}
+    <a class="btn btn--sm" href="#more-time" data-open-more-time>
+      {% icon "clock" "ic--sm" %}<span data-ar="اطلب وقت أطول" data-en="Ask for more time">اطلب وقت أطول</span>
+    </a>
+  {% elif extension_pending and user.is_translator %}
+    <span class="chip chip--sm" data-ar="طلبت وقت أطول - مستني الرد" data-en="More time asked - waiting">طلبت وقت أطول - مستني الرد</span>
+  {% endif %}
   {% if not user.is_translator and task.translator_deadline %}
     <span class="chip chip--sm" data-ar-title="الديدلاين اللي المترجم شايفه"
           data-en-title="What the translator was given">
@@ -698,7 +709,7 @@
         {% if extension_can_ask %}
           <details class="mt" id="extensionBox">
             <summary class="btn btn--block btn--sm">
-              {% icon "clock" "ic--sm" %}<span data-ar="محتاج وقت إضافي؟" data-en="Need more time?">محتاج وقت إضافي؟</span>
+              {% icon "clock" "ic--sm" %}<span data-ar="اطلب وقت أطول" data-en="Ask for more time">اطلب وقت أطول</span>
             </summary>
             <form class="mt" id="extensionForm"
                   action="{% url 'dashboard:api_request_extension' task.code %}"
@@ -719,6 +730,22 @@
               </button>
             </form>
           </details>
+          <script>
+            (function () {
+              var box = document.getElementById("extensionBox");
+              if (!box) { return; }
+              function open() {
+                box.open = true;
+                box.scrollIntoView({ block: "center", behavior: "smooth" });
+                var first = box.querySelector("input[name=days]");
+                if (first) { setTimeout(function () { first.focus(); first.select(); }, 350); }
+              }
+              document.querySelectorAll("[data-open-more-time]").forEach(function (link) {
+                link.addEventListener("click", function (event) { event.preventDefault(); open(); });
+              });
+              if (window.location.hash === "#more-time") { open(); }
+            })();
+          </script>
         {% endif %}
       {% endif %}
 

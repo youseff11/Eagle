@@ -54,7 +54,8 @@
              placeholder="مشغول بتاسك تانية / مش تخصصي…">
     </div>
 
-    <div class="row" style="margin-top:16px;justify-content:center">
+    {# Stays pinned to the bottom of the box, so a short screen can always reach it. #}
+    <div class="row modal__actions" style="justify-content:center">
       <button class="btn btn--ok" id="assignAccept" type="button">
         {% icon "check" %}<span data-ar="استلمت" data-en="Accept">استلمت</span>
       </button>
