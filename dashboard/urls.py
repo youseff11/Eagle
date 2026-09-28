@@ -204,6 +204,7 @@ urlpatterns = [
         name="api_set_translator_deadline",
     ),
     path("api/tasks/<str:code>/ai-check/", api.ai_check, name="api_ai_check"),
+    path("api/tasks/<str:code>/ai-recheck/", api.ai_recheck, name="api_ai_recheck"),
     path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
     path("api/tasks/<str:code>/translation/", api.upload_translation, name="api_task_translation"),
     path("api/tasks/<str:code>/extension/", api.request_extension, name="api_request_extension"),

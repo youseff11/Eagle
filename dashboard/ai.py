@@ -435,6 +435,43 @@ def requirements_text(task):
     )
 
 
+def is_old_format(result):
+    """A check written before the side-by-side comparison (28/09/2026).
+
+    Its notes carry no quotes of the source and the translation, and its
+    summary no verdict - the ones worth running again.
+    """
+    if result is None or result.status not in (
+        AICheckResult.Status.ISSUES, AICheckResult.Status.CLEAN,
+    ):
+        return False
+    issues = [i for i in (result.issues or []) if isinstance(i, dict)]
+    if issues:
+        return not any("source_excerpt" in i or "translation_excerpt" in i for i in issues)
+    summary = result.summary or ""
+    markers = list(VERDICT_LABELS.values()) + [SOURCE_MISSING_AR]
+    return not any(summary.startswith(m) for m in markers)
+
+
+def recheck_now(task, notify_lead=False):
+    """Run the check again, here and now, and return the new row.
+
+    For the management command: no thread, so the command waits for it and
+    can say how it went. ``None`` when the check is switched off, has no
+    key, or one is already running on this task.
+    """
+    conf = AppSettings.load()
+    if not conf.ai_check_enabled or not conf.claude_api_key:
+        return None
+    if task.ai_checks.filter(status=AICheckResult.Status.RUNNING).exists():
+        return None
+    row = AICheckResult.objects.create(
+        task=task, requested_by=None, status=AICheckResult.Status.RUNNING,
+        model_used=conf.claude_model,
+    )
+    return finish_check(row.pk, notify_lead=notify_lead)
+
+
 def start_background_check(task):
     """Queue the automatic review and run it off the request thread.
 

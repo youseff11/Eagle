@@ -8916,3 +8916,78 @@ class AICompareSourceAndTranslationTests(TestCase):
             {"verdict": "accurate", "source_seen": False, "issues": []}, source="",
         )
         self.assertIn(ai.SOURCE_MISSING_AR, fields["summary"])
+
+
+class AIRecheckTests(TestCase):
+    """Old notes can be run again: a button on the box, and recheck_ai."""
+
+    def setUp(self):
+        from .models import AICheckResult, AppSettings
+
+        conf = AppSettings.load()
+        conf.ai_check_enabled = True
+        conf.claude_api_key = "test-key"
+        conf.save()
+        self.ops = User.objects.create_user("ops_rc", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_rc", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_rc", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        acme = Client.objects.create(name="ACME", phone="+201000000090")
+        self.task = services.create_task(client=acme, title="Doc", created_by=self.ops)
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        self.old = AICheckResult.objects.create(
+            task=self.task, status=AICheckResult.Status.ISSUES, summary="old",
+            issues=[{"location": "p1", "issue_ar": "قديم", "severity": "low"}],
+        )
+
+    def test_old_notes_are_recognised(self):
+        from . import ai
+        from .models import AICheckResult
+
+        self.assertTrue(ai.is_old_format(self.old))
+        new = AICheckResult.objects.create(
+            task=self.task, status=AICheckResult.Status.ISSUES, summary="x",
+            issues=[{"source_excerpt": "a", "translation_excerpt": "b"}],
+        )
+        self.assertFalse(ai.is_old_format(new))
+
+    def test_the_box_offers_to_check_again_and_says_why(self):
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn(f"/api/tasks/{self.task.code}/ai-recheck/", html)
+        self.assertIn("الفحص القديم", html)
+
+    def test_the_leader_can_check_again(self):
+        from unittest import mock
+
+        self.client.force_login(self.lead)
+        with mock.patch("dashboard.ai.start_background_check", return_value=object()) as start:
+            res = self.client.post(f"/api/tasks/{self.task.code}/ai-recheck/")
+        self.assertEqual(res.status_code, 200)
+        start.assert_called_once()
+
+    def test_the_translator_cannot(self):
+        from unittest import mock
+
+        self.client.force_login(self.tr)
+        with mock.patch("dashboard.ai.start_background_check") as start:
+            res = self.client.post(f"/api/tasks/{self.task.code}/ai-recheck/")
+        self.assertEqual(res.status_code, 403)
+        start.assert_not_called()
+
+    def test_the_command_lists_without_running_on_dry_run(self):
+        import io
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        out = io.StringIO()
+        with mock.patch("dashboard.ai.recheck_now") as run:
+            call_command("recheck_ai", "--dry-run", stdout=out)
+        self.assertIn(self.task.code, out.getvalue())
+        run.assert_not_called()

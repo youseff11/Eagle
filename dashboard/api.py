@@ -1622,6 +1622,29 @@ def add_requirement(request, client_code):
 
 @login_required
 @require_POST
+def ai_recheck(request, code):
+    """«أعد الفحص» on the AI notes box: the automatic check, run again.
+
+    The team leader of the task or the admin - the two who see the box. It
+    runs in the background like the automatic one; the page follows it.
+    """
+    task = get_object_or_404(Task, code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    if not (user.is_admin_role or task.team_lead_id == user.id):
+        return JsonResponse({"ok": False, "error": "مش مسموحلك."}, status=403)
+    conf = AppSettings.load()
+    if not conf.ai_check_enabled or not conf.claude_api_key:
+        return JsonResponse({"ok": False, "error": "فحص الـAI متوقف من الإعدادات."}, status=400)
+    if ai.start_background_check(task) is None:
+        return JsonResponse({"ok": False, "error": "فيه فحص شغال دلوقتي على التاسك دي."}, status=400)
+    services.log(user, "task.ai_recheck", task.code)
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
 def ai_check(request, code):
     task = get_object_or_404(Task, code=code)
     user = request.user

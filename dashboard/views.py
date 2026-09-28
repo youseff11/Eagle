@@ -1053,7 +1053,12 @@ def _ai_notes_context(task, user):
     latest = task.ai_checks.order_by("-created_at", "-id").first()
     issues = [i for i in ((latest.issues or []) if latest else []) if isinstance(i, dict)]
     issues.sort(key=lambda i: _SEVERITY_RANK.get(i.get("severity"), 1))
-    return {"ai_can_see": True, "ai_latest": latest, "ai_issues": issues}
+    from . import ai
+
+    return {
+        "ai_can_see": True, "ai_latest": latest, "ai_issues": issues,
+        "ai_old": ai.is_old_format(latest),
+    }
 
 
 def _extension_context(task, user):

@@ -21,7 +21,20 @@ a one-line summary at the bottom of a card only some people could see
       <span class="badge badge--dead" data-ar="الفحص مخلصش" data-en="Did not finish">الفحص مخلصش</span>
     {% endif %}
     <span class="muted mono ai-notes__when">{{ check.created_at|date:"m-d H:i" }}{% if not check.requested_by %} · <span data-ar="تلقائي" data-en="automatic">تلقائي</span>{% endif %}</span>
+    {% if check.status != 'running' %}
+      <button class="btn btn--sm" type="button"
+              data-action="{% url 'dashboard:api_ai_recheck' task.code %}">
+        {% icon "refresh" "ic--sm" %}<span data-ar="أعد الفحص" data-en="Check again">أعد الفحص</span>
+      </button>
+    {% endif %}
   </div>
+
+  {% if ai_old %}
+    <div class="note note--warn">{% icon "info" %}
+      <div data-ar="الملاحظات دي من الفحص القديم، من غير مقارنة الأصل بالترجمة. دوس «أعد الفحص» عشان تطلع بالشكل الجديد."
+           data-en="These notes are from the old check, without the source-to-translation comparison. Press Check again for the new one.">الملاحظات دي من الفحص القديم، من غير مقارنة الأصل بالترجمة. دوس «أعد الفحص» عشان تطلع بالشكل الجديد.</div>
+    </div>
+  {% endif %}
 
   {% if check.status == 'running' %}
     <div class="note note--info">{% icon "timer" %}
