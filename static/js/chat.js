@@ -402,11 +402,16 @@
       var empty = threadList.querySelector(".empty");
       if (empty && (res.items || []).length) { empty.remove(); }
 
-      // The server hands the list back already ordered by last activity, so
-      // re-appending in that order both adds newcomers and re-sorts the rest.
+      // Rows already on screen hold their place: a new message updates the
+      // row where it is instead of lifting it to the top, so the list does
+      // not jump under the cursor every time somebody writes (28/09/2026).
+      // Only a conversation that was not in the list yet goes in, at the top.
+      // A reload shows the list ordered by last activity again.
+      var firstRow = threadList.querySelector(".cthread");
       (res.items || []).forEach(function (item) {
         var row = threadList.querySelector('[data-code="' + item.code + '"]');
-        if (!row) {
+        var isNew = !row;
+        if (isNew) {
           row = buildRow(item);
           if (item.code === activeCode) { row.classList.add("is-active"); }
         }
@@ -420,7 +425,10 @@
         }
         if (time) { time.textContent = item.time; }
         drawUnread(row, item);
-        threadList.appendChild(row);
+        if (isNew) {
+          if (firstRow) { threadList.insertBefore(row, firstRow); }
+          else { threadList.appendChild(row); }
+        }
       });
     }).catch(function () {});
   }
