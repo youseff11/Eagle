@@ -1,5 +1,9 @@
 {% load static eagle_tags %}{% with url_name=request.resolver_match.url_name %}
-<aside class="sidebar">
+<aside class="sidebar" id="sidebar">
+  {# Phones only: the drawer closes from inside it too (app.js initDrawer). #}
+  <button class="icon-btn sidebar__close" type="button" id="sidebarClose"
+          aria-label="close" data-ar-title="اقفل القايمة" data-en-title="Close the menu"
+          title="اقفل القايمة">{% icon "x" %}</button>
   <a href="{% url 'dashboard:home' %}" class="brand brand--img">
     <img src="{% static 'img/logo-removebg-preview.png' %}" alt="Eagle Operation">
   </a>

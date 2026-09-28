@@ -22,7 +22,8 @@
 
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn menu-toggle" type="button" aria-label="menu">{% icon "menu" %}</button>
+      <button class="icon-btn menu-toggle" type="button" aria-label="menu"
+              aria-controls="sidebar" aria-expanded="false">{% icon "menu" %}</button>
       <div class="topbar__title">{% block page_title %}{% endblock %}</div>
       <div class="topbar__spacer"></div>
       {% include "partials/topbar.html" %}
