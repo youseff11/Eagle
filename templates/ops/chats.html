@@ -23,6 +23,9 @@
      {% if can_convert %}
        data-confirm-url="{% url 'dashboard:api_confirm_message' 0 %}"
        data-task-new-url="{% url 'dashboard:ops_task_new' %}"
+     {% endif %}
+     {% if handin_tasks %}
+       data-handin-url="{% url 'dashboard:api_task_handin' 'CODE' %}"
      {% endif %}>
 
   {# ---- conversation list ------------------------------------------------ #}
@@ -175,6 +178,17 @@
             {% icon "user-check" "ic--sm" %}<span data-ar="ضيف عضو" data-en="Add member">ضيف عضو</span>
           </button>
         {% endif %}
+        {% if handin_tasks %}
+          {% comment %}
+          The translator's «done»: tick the files they sent here, press it, and
+          the files are the task's (on its page) and the task goes to review.
+          {% endcomment %}
+          <button class="btn btn--primary" type="button" id="handinToggle"
+                  data-ar-title="حدد ملفات الترجمة وخلّص التاسك" data-en-title="Pick the translated files and finish the task"
+                  title="حدد ملفات الترجمة وخلّص التاسك">
+            {% icon "check-circle" "ic--sm" %}<span data-ar="خلصت التاسك" data-en="Task done">خلصت التاسك</span>
+          </button>
+        {% endif %}
         <button class="btn btn--ghost" type="button" id="selectToggle"
                 data-ar-title="حدد رسايل وحوّلها لشات تاني" data-en-title="Select messages to forward"
                 title="حدد رسايل وحوّلها لشات تاني">
@@ -319,6 +333,32 @@
         <button type="button" data-react-pick="sad" title="زعلان" data-ar-title="زعلان" data-en-title="Sad">{% remoji "sad" "lg" %}</button>
         <button type="button" data-react-pick="done" title="شكرًا" data-ar-title="شكرًا" data-en-title="Thanks">{% remoji "done" "lg" %}</button>
       </div>
+
+      {% if handin_tasks %}
+        {# «خلصت التاسك»: tick your files, pick the task if you have more than one, press done. #}
+        <div class="cchat__pickbar hidden" id="handinBar">
+          {% icon "check-circle" "ic--sm" %}
+          <span><b class="mono" id="handinCount">0</b>
+            <span data-ar="ملف متحدد" data-en="selected">ملف متحدد</span></span>
+          {% if handin_tasks|length > 1 %}
+            <select class="input cchat__pickday" id="handinTask"
+                    data-ar-title="التاسك" data-en-title="Task" title="التاسك">
+              {% for item in handin_tasks %}
+                <option value="{{ item.code }}">{{ item.code }} · {{ item.title|truncatechars:30 }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <input type="hidden" id="handinTask" value="{{ handin_tasks.0.code }}">
+            <span class="chip chip--sm mono">{{ handin_tasks.0.code }}</span>
+          {% endif %}
+          <span class="grow"></span>
+          <button class="btn btn--sm" type="button" id="handinCancel"
+                  data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+          <button class="btn btn--sm btn--primary" type="button" id="handinSend" disabled>
+            {% icon "check" "ic--sm" %}<span data-ar="خلصت التاسك" data-en="Task done">خلصت التاسك</span>
+          </button>
+        </div>
+      {% endif %}
 
       {# Forwarding: tap bubbles to pick them, then choose where they go. #}
       <div class="cchat__pickbar hidden" id="selectBar">

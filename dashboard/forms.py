@@ -545,12 +545,13 @@ class StaffEditForm(forms.ModelForm):
             "client_identity_access",
         )
         labels = {
-            "client_identity_access": "يشوف هوية العميل الحقيقية (Sales / Accounting بس)",
+            "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
         }
         help_texts = {
             "client_identity_access": (
                 "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
-                "مسموح لـSales وAccounting بس، وكل تغيير وكل فتح بيتسجّل في سجل النشاط."
+                "بتفرق مع Accounting بس — الـSales بيشوفها من غير الصلاحية دي. "
+                "كل تغيير وكل فتح بيتسجّل في سجل النشاط."
             ),
         }
         widgets = {

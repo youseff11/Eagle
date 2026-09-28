@@ -15,7 +15,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from . import recruitment, services, whatsapp
+from . import lines, recruitment, services, whatsapp
 from .models import AppSettings
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,9 @@ def whatsapp_hook(request):
             # thing that tells them apart. One webhook, two queues.
             to_number_id = str((value.get("metadata") or {}).get("phone_number_id", ""))
             for_recruitment = _is_recruitment_line(conf, to_number_id)
+            # A Sales person's own number on the same business account: the
+            # conversation is theirs (lines.py). None = the company line.
+            line_owner = None if for_recruitment else lines.owner_for_number(to_number_id)
 
             # What happened to messages *we* sent: delivered, then read, on
             # the client's phone - the ticks in the chat. Recruitment keeps no
@@ -190,6 +193,7 @@ def whatsapp_hook(request):
                     attachments=_pull_media(message),
                     # Set when the client quoted one of our messages.
                     reply_to_external=(message.get("context") or {}).get("id", ""),
+                    owner=line_owner,
                 )
                 created.append(record.id)
 
@@ -212,6 +216,7 @@ def whatsapp_hook(request):
             sender_display=data.get("name", ""),
             external_id=data.get("id", ""),
             attachments=_decode_files(data.get("attachments")),
+            owner=lines.owner_for_number(data.get("to", "")),
         )
         created.append(record.id)
 
@@ -236,5 +241,6 @@ def email_hook(request):
         sender_display=data.get("name", ""),
         external_id=data.get("message_id", ""),
         attachments=_decode_files(data.get("attachments")),
+        recipients=lines.addresses_in(data.get("to", ""), data.get("cc", "")),
     )
     return JsonResponse({"ok": True, "created": [record.id]})

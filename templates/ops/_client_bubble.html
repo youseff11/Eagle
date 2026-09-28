@@ -42,6 +42,11 @@ Expects: entry (dict from services.client_thread)
         </div>
       {% else %}
         <div class="bub__file{% if f.image and f.url %} bub__file--img{% endif %}">
+          {% if handin_tasks and entry.mine and f.id %}
+            {# «خلصت التاسك»: the translator ticks their own files (chat.js). #}
+            <input class="bub__hand" type="checkbox" value="{{ f.id }}"
+                   data-ar-title="ده ملف الترجمة" data-en-title="This is the translation" title="ده ملف الترجمة">
+          {% endif %}
           {% if entry.actions and can_convert and f.id %}
             {% comment %}
             The "select files" mode: tick files across any number of the
@@ -62,6 +67,11 @@ Expects: entry (dict from services.client_thread)
             {% icon "paperclip" "ic--sm" %}
             {% if f.url %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.name }}</a>
             {% else %}<span>{{ f.name }}</span>{% endif %}
+          {% endif %}
+          {% if handin_tasks and entry.mine and f.id %}
+            <button class="btn btn--sm btn--primary bub__handbtn" type="button" data-handin-file="{{ f.id }}">
+              {% icon "check-circle" "ic--sm" %}<span data-ar="خلصت التاسك" data-en="Task done">خلصت التاسك</span>
+            </button>
           {% endif %}
         </div>
       {% endif %}

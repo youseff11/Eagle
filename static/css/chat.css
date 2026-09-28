@@ -863,3 +863,36 @@ html.chat-locked body {
 }
 .bub__file--card > .ic { display: none; }
 .bub__file--card .fprev { width: 170px; }
+
+/* -- «خلصت التاسك»: the translator ticks their own files in the group ------ */
+
+.bub__hand {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+.bub__file--img .bub__hand {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+.cchat__stream.is-handing .bub__hand { display: inline-block; }
+.cchat__stream.is-handing .bub__handbtn { display: none; }
+.cchat__stream.is-handing .bub__file.is-picked {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  background: var(--brand-soft);
+}
+.bub__handbtn {
+  margin-inline-start: auto;
+  padding: 2px 8px;
+  font-size: .72rem;
+}
+.bub__file--img .bub__handbtn { margin-top: 6px; }

@@ -157,6 +157,7 @@ urlpatterns = [
 
     # -- notifications ------------------------------------------------------
     path("notifications/", views.notifications, name="notifications"),
+    path("sales/line/", views.sales_line, name="sales_line"),
 
     # -- admin panel --------------------------------------------------------
     path("panel/", views.admin_overview, name="admin_overview"),
@@ -205,6 +206,13 @@ urlpatterns = [
     path("api/tasks/<str:code>/ai-check/", api.ai_check, name="api_ai_check"),
     path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
     path("api/tasks/<str:code>/translation/", api.upload_translation, name="api_task_translation"),
+    path("api/tasks/<str:code>/extension/", api.request_extension, name="api_request_extension"),
+    path("api/tasks/<str:code>/hand-in/", api.hand_in_from_chat, name="api_task_handin"),
+    path(
+        "api/extensions/<int:pk>/<str:decision>/",
+        api.decide_extension,
+        name="api_decide_extension",
+    ),
     path("api/integrations/whatsapp/test/", api.whatsapp_test, name="api_whatsapp_test"),
     path("api/integrations/email/test/", api.email_test, name="api_email_test"),
     path("api/tasks/<str:code>/<str:action>/", api.task_action, name="api_task_action"),

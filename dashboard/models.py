@@ -423,6 +423,23 @@ class User(AbstractUser):
         help_text="Sales / Accounting only: may see the real client name and contacts.",
     )
 
+    # -- a Sales person's own client line (27/09/2026) -----------------------
+    #: The Phone number ID Meta gave this person's WhatsApp Business number,
+    #: on the company's own business account. A client who writes to it lands
+    #: in this person's chats only, and the replies leave from it.
+    wa_phone_number_id = models.CharField(
+        max_length=40, blank=True, db_index=True,
+        help_text="Sales only: Phone number ID of their own WhatsApp Business number.",
+    )
+    #: The number itself, as people dial it - shown, never used to send.
+    wa_display_number = models.CharField(max_length=30, blank=True)
+    #: Their sub-address on the company mailbox (sales1@...). Mail sent to it
+    #: is theirs; their replies go out from it.
+    mail_alias = models.CharField(
+        max_length=254, blank=True, db_index=True,
+        help_text="Sales only: their own address on the company mailbox.",
+    )
+
     # -- employee profile --------------------------------------------------
     # Section 18 asks for an "Employee Profile". It is these fields on the
     # person, not a second table: splitting somebody into a User *and* an
@@ -462,6 +479,12 @@ class User(AbstractUser):
         # (ours, Django's admin, a script) made the move.
         if self.client_identity_access and self.role not in IDENTITY_GRANTABLE_ROLES:
             self.client_identity_access = False
+        # Same for a Sales line: whoever leaves Sales stops receiving on it,
+        # or clients would keep landing in the chats of someone who moved on.
+        if self.role != Role.SALES:
+            self.wa_phone_number_id = ""
+            self.wa_display_number = ""
+            self.mail_alias = ""
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -501,6 +524,15 @@ class User(AbstractUser):
         return self.role == Role.SALES
 
     @property
+    def handles_clients(self):
+        """Talks to clients from the chats and mail pages.
+
+        Operation on the company's line, Sales on their own, the admin on
+        all of them. Which conversations each one sees is ``lines.line_q``.
+        """
+        return self.is_admin_role or self.is_operation or self.is_sales
+
+    @property
     def can_recruit(self):
         """Run the hiring pipeline. The owner can always do everything."""
         return self.is_admin_role or self.is_hr
@@ -519,14 +551,16 @@ class User(AbstractUser):
     def can_see_client_identity(self):
         """Who may see the real client name / company / phone / e-mail.
 
-        Least privilege, secure by default: the admin always; a Sales or
+        Least privilege, secure by default: the admin and Sales always; an
         Accounting person only when the admin granted it to them by name; and
         nobody else, whatever flag is set on them. Operation runs the whole
         job on the client code - that is the point of the code.
         """
         if not self.is_active:
             return False
-        if self.is_admin_role:
+        # Sales sees it always (owner's decision, 27/09/2026): they are the
+        # ones who talk to the companies, on their own number and address.
+        if self.is_admin_role or self.is_sales:
             return True
         return self.role in IDENTITY_GRANTABLE_ROLES and bool(self.client_identity_access)
 
@@ -977,6 +1011,29 @@ class Client(models.Model):
         )
         return last.received_at if last else None
 
+    def last_inbound_on(self, owner):
+        """The client's last WhatsApp message *on one line*.
+
+        Each number has its own 24-hour window: a client who wrote to a
+        Sales person's number has not opened the company number's, and Meta
+        refuses the send from the one they did not write to.
+        """
+        last = (
+            self.messages.filter(channel=Channel.WHATSAPP, owner=owner)
+            .order_by("-received_at").first()
+        )
+        return last.received_at if last else None
+
+    def reply_window_for(self, user):
+        """``(open, minutes_left)`` on the line this person answers from."""
+        from . import lines
+
+        started = self.last_inbound_on(lines.reply_line(self, user, Channel.WHATSAPP))
+        if not started:
+            return False, 0
+        left = int((started + timedelta(hours=24) - timezone.now()).total_seconds() // 60)
+        return left > 0, max(0, left)
+
     @property
     def reply_window_ends(self):
         started = self.last_inbound_at
@@ -1046,6 +1103,12 @@ class InboundMessage(models.Model):
     task = models.ForeignKey(
         "Task", null=True, blank=True, on_delete=models.SET_NULL, related_name="source_messages"
     )
+    #: The Sales person whose own number or address this arrived on. Null is
+    #: the company line, which the operation room works. See ``lines.py``.
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="line_messages",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1084,7 +1147,11 @@ class InboundMessage(models.Model):
             return True
         if self.is_rate_blocked:
             return False
-        return user.is_operation
+        # A Sales line is its owner's alone; the company line is the
+        # operation's. The same rule as ``lines.line_q``.
+        if user.is_sales:
+            return self.owner_id == user.pk
+        return user.is_operation and self.owner_id is None
 
 
 class MailRead(models.Model):
@@ -1390,6 +1457,60 @@ class Task(models.Model):
         if user.is_translator:
             return self.translator_id == user.id
         return False
+
+
+class ExtensionRequest(models.Model):
+    """A translator asking their team leader for more time on one task.
+
+    Only the leader can say yes, and a yes moves the translator's own
+    deadline by the time asked for - never past what the client was
+    promised (``services.deadline_problem``). One open request per task at a
+    time, so the leader answers a question instead of a pile of them.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+
+    task = models.ForeignKey(
+        "Task", on_delete=models.CASCADE, related_name="extension_requests"
+    )
+    requested_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="extension_requests"
+    )
+    minutes = models.PositiveIntegerField()
+    reason = models.CharField(max_length=300, blank=True)
+    #: The translator's deadline when they asked - what "more" was added to.
+    due_before = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    decided_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.task_id} +{self.minutes}m ({self.status})"
+
+    @property
+    def pretty_length(self):
+        hours, minutes = divmod(self.minutes, 60)
+        days, hours = divmod(hours, 24)
+        parts = []
+        if days:
+            parts.append(f"{days} يوم")
+        if hours:
+            parts.append(f"{hours} ساعة")
+        if minutes:
+            parts.append(f"{minutes} دقيقة")
+        return " و ".join(parts) or "0"
 
 
 class Assignment(models.Model):
@@ -1950,6 +2071,12 @@ class OutboundMessage(models.Model):
     )
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.DELIVERY)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="deliveries")
+    #: Sent from this Sales person's own number / address. Null is the
+    #: company line. Pairs with ``InboundMessage.owner``.
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="line_replies",
+    )
     channel = models.CharField(max_length=12, choices=Channel.choices, blank=True)
     #: The client's phone/e-mail. Only the admin ever sees it.
     to_identity = models.CharField(max_length=190, blank=True)

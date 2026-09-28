@@ -31,7 +31,8 @@ from email.header import decode_header, make_header
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from .models import AppSettings
+from . import lines
+from .models import AppSettings, User
 
 #: Nothing bigger than this is stored. A 40MB mailshot must not be able to
 #: fill the media volume, and no translation job arrives that way.
@@ -146,6 +147,13 @@ def parse_message(message):
         # threw it away, so every attached contract arrived as a bare subject
         # line - caught by MailboxParsingTests, which is what they are for.
         "attachments": attachments,
+        # Who it was sent to. A Sales person's own alias among them makes the
+        # letter theirs (lines.py). Delivered-To / X-Original-To are where a
+        # forwarded alias usually still shows once To has been rewritten.
+        "recipients": lines.addresses_in(
+            message.get("To", ""), message.get("Cc", ""),
+            message.get("Delivered-To", ""), message.get("X-Original-To", ""),
+        ),
     }
 
 
@@ -166,6 +174,12 @@ def fetch(limit=25, keep_unread=False, conf=None):
         )
 
     own = (conf.imap_user or "").strip().lower()
+    # A Sales person's alias sends from the same mailbox, so their letters
+    # can come back around too - they are ours, not a client's.
+    ours = {own} | set(
+        a.strip().lower() for a in
+        User.objects.exclude(mail_alias="").values_list("mail_alias", flat=True)
+    )
     created = 0
     box = None
     try:
@@ -190,7 +204,7 @@ def fetch(limit=25, keep_unread=False, conf=None):
             if status != "OK" or not payload or not payload[0]:
                 continue
             parsed = parse_message(email.message_from_bytes(payload[0][1]))
-            if parsed["sender_identity"].strip().lower() == own:
+            if parsed["sender_identity"].strip().lower() in ours:
                 continue          # our own mail, coming back around
             services.ingest_message(**parsed)
             created += 1

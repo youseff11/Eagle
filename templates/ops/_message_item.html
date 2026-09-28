@@ -103,8 +103,8 @@ its own chip further down.
       </div>
     {% endif %}
 
-    {% if docs and not item.task_id %}
-      {# Tick the files that are the job. Nothing ticked = everything. #}
+    {% if docs and not item.task_id and not user.is_sales %}
+      {# Tick the files that are the job. Nothing ticked = everything. Tasks are the operation's, not Sales'. #}
       <form class="mail__convert" method="get" action="{% url 'dashboard:ops_task_new' %}">
         <input type="hidden" name="message" value="{{ item.pk }}">
         {% if item.attachments.all %}

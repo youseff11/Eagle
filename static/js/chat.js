@@ -42,6 +42,8 @@
      and this file never hard-codes a path. */
   var confirmTemplate = root.dataset.confirmUrl || "";
   var taskNewUrl = root.dataset.taskNewUrl || "";
+  // «خلصت التاسك» in a translator's work group. Empty everywhere else.
+  var handinTemplate = root.dataset.handinUrl || "";
   //: message id -> its attachments, for the "pick the files" dialog.
   var filesByMessage = {};
 
@@ -132,15 +134,24 @@
                 "In " + msg.task_code + " - becomes a new request")) + '"'
             : "") + ">";
       }
+      // «خلصت التاسك»: the translator's own files in their work group.
+      var hand = "", handBtn = "";
+      if (handinTemplate && msg.mine && f.id) {
+        hand = '<input class="bub__hand" type="checkbox" value="' + esc(String(f.id)) + '">';
+        handBtn = '<button class="btn btn--sm btn--primary bub__handbtn" type="button" data-handin-file="' +
+          esc(String(f.id)) + '">' + icon("check-circle", "ic--sm") +
+          '<span data-ar="خلصت التاسك" data-en="Task done">' +
+          esc(E.t("خلصت التاسك", "Task done")) + "</span></button>";
+      }
       // A photo is shown as a photo - mirrors _client_bubble.html.
       if (f.image && f.url) {
-        parts.push('<div class="bub__file bub__file--img">' + pick +
+        parts.push('<div class="bub__file bub__file--img">' + hand + pick +
           '<a class="bub__img" href="' + esc(f.url) + '" target="_blank" rel="noopener" title="' +
             esc(f.name) + '"><img src="' + esc(f.url) + '" alt="' + esc(f.name) +
-            '" loading="lazy"></a></div>');
+            '" loading="lazy"></a>' + handBtn + '</div>');
         return;
       }
-      parts.push('<div class="bub__file">' + pick + icon("paperclip", "ic--sm") + label + "</div>");
+      parts.push('<div class="bub__file">' + hand + pick + icon("paperclip", "ic--sm") + label + handBtn + "</div>");
     });
 
     // What the operation does with a client's files, where the files are.
@@ -304,6 +315,7 @@
     if (added && stick) { toBottom(); }
     restorePicks();
     restoreSelection();
+    restoreHandin();
     return added;
   }
 
@@ -1198,6 +1210,99 @@
         (taskNewUrl.indexOf("?") === -1 ? "?" : "&") +
         "messages=" + encodeURIComponent(messages.join(",")) +
         "&files=" + encodeURIComponent(files.join(","));
+    });
+  }
+
+  /* ------------------------------------------- «خلصت التاسك» (hand-in) */
+
+  /* A translator in their work group ticks the files they sent - one, or
+     several across messages - and presses «خلصت التاسك». The files become the
+     task's (they show on its page) and the task goes to review. The button
+     next to a file starts the same mode with that file already ticked. */
+
+  var handinToggle = document.getElementById("handinToggle");
+  var handinBar = document.getElementById("handinBar");
+  var handinCount = document.getElementById("handinCount");
+  var handinCancel = document.getElementById("handinCancel");
+  var handinSend = document.getElementById("handinSend");
+  var handinTask = document.getElementById("handinTask");
+  var handed = {};
+
+  function handing() {
+    return !!(stream && stream.classList.contains("is-handing"));
+  }
+
+  function drawHandinBar() {
+    var n = Object.keys(handed).length;
+    if (handinCount) { handinCount.textContent = String(n); }
+    if (handinSend) { handinSend.disabled = n === 0; }
+  }
+
+  function restoreHandin() {
+    if (!stream || !handed) { return; }
+    stream.querySelectorAll(".bub__hand").forEach(function (box) {
+      box.checked = !!handed[box.value];
+      var holder = box.closest && box.closest(".bub__file");
+      if (holder) { holder.classList.toggle("is-picked", box.checked); }
+    });
+    drawHandinBar();
+  }
+
+  function setHanding(on) {
+    if (!stream || !handinBar) { return; }
+    stream.classList.toggle("is-handing", on);
+    handinBar.classList.toggle("hidden", !on);
+    if (composer) { composer.classList.toggle("hidden", on); }
+    if (handinToggle) { handinToggle.classList.toggle("is-on", on); }
+    if (!on) { handed = {}; }
+    restoreHandin();
+  }
+
+  if (handinToggle) {
+    handinToggle.addEventListener("click", function () { setHanding(!handing()); });
+  }
+  if (handinCancel) { handinCancel.addEventListener("click", function () { setHanding(false); }); }
+
+  if (stream && handinTemplate) {
+    stream.addEventListener("change", function (event) {
+      var box = event.target;
+      if (!box || !box.classList || !box.classList.contains("bub__hand")) { return; }
+      if (box.checked) { handed[box.value] = true; } else { delete handed[box.value]; }
+      var holder = box.closest && box.closest(".bub__file");
+      if (holder) { holder.classList.toggle("is-picked", box.checked); }
+      drawHandinBar();
+    });
+    stream.addEventListener("click", function (event) {
+      var btn = event.target.closest && event.target.closest("[data-handin-file]");
+      if (!btn) { return; }
+      event.preventDefault();
+      if (!handing()) { setHanding(true); }
+      handed[btn.getAttribute("data-handin-file")] = true;
+      restoreHandin();
+    });
+  }
+
+  if (handinSend) {
+    handinSend.addEventListener("click", function () {
+      var ids = Object.keys(handed);
+      var code = handinTask ? handinTask.value : "";
+      if (!ids.length || !code) { return; }
+      var ok = window.confirm(E.t(
+        "الملفات دي هتتسجّل على " + code + " والتاسك هتروح للمراجعة. تمام؟",
+        "These files go on " + code + " and the task goes to review. Go ahead?"));
+      if (!ok) { return; }
+      var data = new FormData();
+      ids.forEach(function (id) { data.append("files", id); });
+      handinSend.disabled = true;
+      E.post(handinTemplate.replace("CODE", encodeURIComponent(code)), data).then(function (res) {
+        handinSend.disabled = false;
+        if (res.ok) {
+          E.toast({ level: "success", title: E.t("تمام — التاسك راحت للمراجعة", "Done - sent for review") });
+          setTimeout(function () { window.location.href = res.url || window.location.href; }, 700);
+        } else {
+          E.toast({ level: "danger", title: E.t("مش ممكن", "Not possible"), body: res.error || "" });
+        }
+      });
     });
   }
 

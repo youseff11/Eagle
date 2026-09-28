@@ -7398,9 +7398,16 @@ class ClientIdentityMaskingTests(TestCase):
 
     def test_nobody_but_the_admin_sees_the_identity_by_default(self):
         self.assertTrue(self.admin.can_see_client_identity)
-        for person in (self.ops, self.lead, self.tr, self.sales, self.acc):
+        for person in (self.ops, self.lead, self.tr, self.acc):
             self.assertFalse(person.can_see_client_identity, person.role)
             self.assertEqual(self.client_obj.label_for(person), self.client_obj.code)
+
+    def test_sales_sees_the_identity_without_a_grant(self):
+        # Decided 27/09/2026: Sales is not behind the admin's flag any more.
+        self.assertFalse(self.sales.client_identity_access)
+        self.assertTrue(self.sales.can_see_client_identity)
+        self.sales.is_active = False
+        self.assertFalse(self.sales.can_see_client_identity)
 
     def test_the_grant_works_for_sales_and_accounting_only(self):
         for person in (self.sales, self.acc):
@@ -7474,8 +7481,8 @@ class ClientIdentityMaskingTests(TestCase):
         self.assertEqual(row.target, self.client_obj.code)
         self.assertEqual(row.ip, "10.1.2.3")
 
-    def test_ungranted_sales_opens_the_codes_but_not_the_identity(self):
-        self.client.force_login(self.sales)
+    def test_ungranted_accounting_opens_the_codes_but_not_the_identity(self):
+        self.client.force_login(self.acc)
         response = self.client.get(f"/clients/{self.client_obj.code}/")
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(self.NAME, response.content.decode())
@@ -7707,8 +7714,8 @@ class NoIdentityOnAnyPageTests(TestCase):
             "trw", password="x", role=Role.TRANSLATOR, team_lead=self.lead
         )
         self.people = [
+            # Sales is not here: it sees the identity by design (27/09/2026).
             self.ops, self.lead, self.tr,
-            User.objects.create_user("salesw", password="x", role=Role.SALES),
             User.objects.create_user("accw", password="x", role=Role.ACCOUNTING),
             User.objects.create_user("hrw", password="x", role=Role.HR),
             User.objects.create_user("revw", password="x", role=Role.REVIEWER),
@@ -7976,3 +7983,399 @@ class TranslationUploadTests(TestCase):
         before = ChatRoom.objects.count()
         self.assertIsNone(services.find_lead_translator_group(self.lead, other_tr))
         self.assertEqual(ChatRoom.objects.count(), before)
+
+
+class ExtensionRequestTests(TestCase):
+    """The translator asks the team leader for more time (27/09/2026).
+
+    Nothing moves until the leader says yes, a yes never goes past the
+    client's deadline, and there is one open request per task.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_ext", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_ext", password="x", role=Role.TEAM_LEAD)
+        self.other_lead = User.objects.create_user("lead_ext2", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_ext", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000088")
+        self.task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+            deadline=timezone.now() + timedelta(days=3),
+        )
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(
+            self.task, self.tr, self.lead, deadline=timezone.now() + timedelta(days=1),
+        )
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        self.due = self.task.translator_due
+
+    def _ask(self, minutes=120, reason="big file"):
+        row, error = services.request_extension(self.task, self.tr, minutes, reason)
+        self.assertIsNotNone(row, error)
+        return row
+
+    def test_asking_moves_nothing_and_tells_the_leader(self):
+        from .models import ExtensionRequest, Notification
+
+        row = self._ask()
+        self.assertEqual(row.status, ExtensionRequest.Status.PENDING)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.translator_due, self.due)
+        self.assertTrue(Notification.objects.filter(
+            user=self.lead, title_ar="طلب وقت إضافي").exists())
+
+    def test_one_open_request_at_a_time(self):
+        self._ask()
+        row, error = services.request_extension(self.task, self.tr, 30)
+        self.assertIsNone(row)
+        self.assertTrue(error)
+
+    def test_only_the_translator_asks(self):
+        row, error = services.request_extension(self.task, self.lead, 60)
+        self.assertIsNone(row)
+
+    def test_a_yes_moves_the_translators_deadline(self):
+        from .models import ExtensionRequest, Notification
+
+        row = self._ask(minutes=120)
+        ok, error = services.decide_extension(row, self.lead, True)
+        self.assertTrue(ok, error)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.translator_deadline, self.due + timedelta(minutes=120))
+        row.refresh_from_db()
+        self.assertEqual(row.status, ExtensionRequest.Status.APPROVED)
+        self.assertTrue(Notification.objects.filter(
+            user=self.tr, title_ar="اتوافق على الوقت الإضافي").exists())
+
+    def test_a_yes_never_crosses_the_clients_deadline(self):
+        from .models import ExtensionRequest
+
+        row = self._ask(minutes=5 * 24 * 60)
+        ok, error = services.decide_extension(row, self.lead, True)
+        self.assertFalse(ok)
+        self.assertIn("ديدلاين العميل", error)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.translator_due, self.due)
+        row.refresh_from_db()
+        self.assertEqual(row.status, ExtensionRequest.Status.PENDING)
+
+    def test_a_no_leaves_the_deadline(self):
+        from .models import ExtensionRequest
+
+        row = self._ask()
+        ok, _error = services.decide_extension(row, self.lead, False, "finish tonight")
+        self.assertTrue(ok)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.translator_due, self.due)
+        row.refresh_from_db()
+        self.assertEqual(row.status, ExtensionRequest.Status.DECLINED)
+        self.assertEqual(row.decision_note, "finish tonight")
+
+    def test_another_leader_cannot_answer(self):
+        row = self._ask()
+        self.client.force_login(self.other_lead)
+        response = self.client.post(f"/api/extensions/{row.pk}/approve/")
+        self.assertIn(response.status_code, (403, 404))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.translator_due, self.due)
+
+    def test_the_api_adds_up_days_hours_and_minutes(self):
+        self.client.force_login(self.tr)
+        response = self.client.post(
+            f"/api/tasks/{self.task.code}/extension/",
+            {"days": "0", "hours": "2", "minutes": "30", "reason": "scan"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.task.extension_requests.get().minutes, 150)
+
+    def test_the_leader_answers_from_the_task_page(self):
+        row = self._ask()
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn(f"/api/extensions/{row.pk}/approve/", html)
+        response = self.client.post(f"/api/extensions/{row.pk}/approve/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_translator_page_offers_the_request(self):
+        self.client.force_login(self.tr)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn("محتاج وقت إضافي؟", html)
+
+
+class SalesLineTests(TestCase):
+    """A Sales person's own WhatsApp number and mail address (27/09/2026).
+
+    A client who writes to either is that Sales person's conversation - theirs
+    and the admin's, never the operation room's - and the answer leaves from
+    the same number / address.
+    """
+
+    SALES_NUMBER = "555000111"
+
+    def setUp(self):
+        self.admin = User.objects.create_user("own_sl", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_sl", password="x", role=Role.OPERATION)
+        self.sales = User.objects.create_user("sales_sl", password="x", role=Role.SALES)
+        self.sales.wa_phone_number_id = self.SALES_NUMBER
+        self.sales.mail_alias = "sales1@eagle.example"
+        self.sales.save()
+        conf = AppSettings.load()
+        conf.whatsapp_phone_number_id = "111"
+        conf.whatsapp_access_token = "token"
+        conf.save()
+
+    def _wa(self, to_number, sender="201000000501", text="hello"):
+        import json
+
+        payload = {"entry": [{"changes": [{"value": {
+            "metadata": {"phone_number_id": to_number},
+            "contacts": [{"wa_id": sender, "profile": {"name": "Client"}}],
+            "messages": [{"from": sender, "id": f"wamid.{to_number}.{sender}",
+                          "type": "text", "text": {"body": text}}],
+        }}]}]}
+        response = self.client.post(
+            "/webhooks/whatsapp/", data=json.dumps(payload), content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        from .models import InboundMessage
+
+        return InboundMessage.objects.get(external_id=f"wamid.{to_number}.{sender}")
+
+    # -- where it lands --------------------------------------------------------
+    def test_a_message_to_the_sales_number_is_theirs(self):
+        row = self._wa(self.SALES_NUMBER)
+        self.assertEqual(row.owner, self.sales)
+        client = row.client
+        self.assertIn(client, services.client_conversations(self.sales))
+        self.assertIn(client, services.client_conversations(self.admin))
+        self.assertNotIn(client, services.client_conversations(self.ops))
+        self.assertTrue(row.visible_to(self.sales))
+        self.assertFalse(row.visible_to(self.ops))
+
+    def test_the_company_line_is_not_the_sales_persons(self):
+        row = self._wa("111", sender="201000000502")
+        self.assertIsNone(row.owner)
+        self.assertNotIn(row.client, services.client_conversations(self.sales))
+        self.assertIn(row.client, services.client_conversations(self.ops))
+
+    def test_only_the_owner_and_the_admin_are_told(self):
+        from .models import Notification
+
+        self._wa(self.SALES_NUMBER, sender="201000000503")
+        self.assertTrue(Notification.objects.filter(user=self.sales).exists())
+        self.assertTrue(Notification.objects.filter(user=self.admin).exists())
+        self.assertFalse(Notification.objects.filter(user=self.ops).exists())
+
+    def test_a_letter_to_the_alias_is_theirs(self):
+        row = services.ingest_message(
+            channel="email", subject="Quote", body="please",
+            sender_identity="buyer@client.example",
+            recipients=["Sales1@eagle.example"],
+        )
+        self.assertEqual(row.owner, self.sales)
+        self.assertTrue(services.inbox_queryset(self.sales).filter(pk=row.pk).exists())
+        self.assertFalse(services.inbox_queryset(self.ops).filter(pk=row.pk).exists())
+        self.assertEqual(services.unclaimed_conversation_count(self.ops), 0)
+
+    def test_the_mail_parser_reads_the_recipients(self):
+        import email
+
+        from . import mailbox
+
+        raw = (
+            "From: Buyer <buyer@client.example>\r\n"
+            "To: Sales One <sales1@eagle.example>\r\n"
+            "Subject: Hi\r\n\r\nbody\r\n"
+        )
+        parsed = mailbox.parse_message(email.message_from_string(raw))
+        self.assertEqual(parsed["recipients"], ["sales1@eagle.example"])
+
+    # -- the answer ------------------------------------------------------------
+    def test_the_answer_leaves_from_the_sales_number(self):
+        from unittest import mock
+
+        row = self._wa(self.SALES_NUMBER, sender="201000000504")
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.s") as sent:
+            ok, outbound, error = services.send_client_message(
+                row.client, self.sales, body="hi", force_channel="whatsapp",
+            )
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs["from_id"], self.SALES_NUMBER)
+        self.assertEqual(outbound.owner, self.sales)
+        # And the operation does not see the answer either.
+        outs = [e for e in services.client_thread(row.client, self.ops) if e["kind"] == "out"]
+        self.assertEqual(outs, [])
+
+    def test_the_admin_answers_on_the_line_the_client_used(self):
+        from unittest import mock
+
+        row = self._wa(self.SALES_NUMBER, sender="201000000505")
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.a") as sent:
+            services.send_client_message(row.client, self.admin, body="hi",
+                                         force_channel="whatsapp")
+        self.assertEqual(sent.call_args.kwargs["from_id"], self.SALES_NUMBER)
+
+    def test_the_operation_answers_from_the_company_number(self):
+        from unittest import mock
+
+        row = self._wa("111", sender="201000000506")
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.o") as sent:
+            services.send_client_message(row.client, self.ops, body="hi",
+                                         force_channel="whatsapp")
+        self.assertEqual(sent.call_args.kwargs["from_id"], "")
+
+    def test_a_mail_answer_leaves_from_the_alias(self):
+        from unittest import mock
+
+        row = services.ingest_message(
+            channel="email", subject="Quote", body="please",
+            sender_identity="buyer2@client.example", recipients=["sales1@eagle.example"],
+        )
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, _out, error = services.reply_to_thread(row, self.sales, body="thanks")
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs["from_email"], "sales1@eagle.example")
+
+    # -- who may open it --------------------------------------------------------
+    def test_the_operation_cannot_open_or_claim_it(self):
+        row = self._wa(self.SALES_NUMBER, sender="201000000507")
+        self.client.force_login(self.ops)
+        self.assertEqual(self.client.post(f"/api/messages/{row.pk}/claim/").status_code, 404)
+        # The conversation fetch answers, but with nothing from that line in it.
+        data = self.client.get(f"/api/client-chats/{row.client.code}/").json()
+        self.assertEqual([m for m in data["messages"] if m["kind"] == "in"], [])
+
+    def test_sales_opens_their_chats_and_mail(self):
+        self._wa(self.SALES_NUMBER, sender="201000000508")
+        self.client.force_login(self.sales)
+        self.assertEqual(self.client.get("/ops/chats/").status_code, 200)
+        self.assertEqual(self.client.get("/ops/inbox/").status_code, 200)
+
+    # -- setting the line up ------------------------------------------------------
+    def test_the_line_page_saves_and_refuses_the_company_number(self):
+        other = User.objects.create_user("sales_sl2", password="x", role=Role.SALES)
+        self.client.force_login(other)
+        response = self.client.post("/sales/line/", {
+            "wa_phone_number_id": "111", "mail_alias": "sales2@eagle.example",
+        })
+        self.assertEqual(response.status_code, 200)
+        other.refresh_from_db()
+        self.assertEqual(other.wa_phone_number_id, "")
+        response = self.client.post("/sales/line/", {
+            "wa_phone_number_id": self.SALES_NUMBER, "mail_alias": "",
+        })
+        other.refresh_from_db()
+        self.assertEqual(other.wa_phone_number_id, "")   # somebody else's
+        self.client.post("/sales/line/", {
+            "wa_phone_number_id": "555000222", "mail_alias": "sales2@eagle.example",
+        })
+        other.refresh_from_db()
+        self.assertEqual(other.wa_phone_number_id, "555000222")
+        self.assertEqual(other.mail_alias, "sales2@eagle.example")
+
+    def test_leaving_sales_gives_the_line_up(self):
+        self.sales.role = Role.OPERATION
+        self.sales.save()
+        self.sales.refresh_from_db()
+        self.assertEqual(self.sales.wa_phone_number_id, "")
+        self.assertEqual(self.sales.mail_alias, "")
+
+
+class HandInFromChatTests(TestCase):
+    """«خلصت التاسك» in the group (27/09/2026).
+
+    The translator ticks the files they sent in their group with the leader -
+    one or several - and presses it: the files show on the task page and the
+    task goes to review. Also the reason it was needed: an admin in the group
+    used to stop the file from being linked to the task at all.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user("own_hi", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_hi", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_hi", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_hi", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000099")
+        self.task = services.create_task(
+            client=self.client_obj, title="Doc", created_by=self.ops,
+        )
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        self.group = services.find_lead_translator_group(self.lead, self.tr)
+        # The owner watching the group - the case in the screenshot.
+        self.group.members.add(self.admin)
+
+    def _send(self, name="done.docx", sender=None, room=None):
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, ChatMessage
+
+        message = ChatMessage.objects.create(
+            room=room or self.group, sender=sender or self.tr, body="",
+        )
+        return ChatAttachment.objects.create(
+            message=message, file=ContentFile(b"t", name=name), original_name=name, size=1,
+        )
+
+    def test_an_admin_in_the_group_no_longer_stops_the_tag(self):
+        file = self._send()
+        services.tag_task_message(file.message)
+        file.message.refresh_from_db()
+        self.assertEqual(file.message.task_id, self.task.pk)
+
+    def test_several_files_are_handed_in_and_the_task_goes_to_review(self):
+        one, two = self._send("a.docx"), self._send("b.docx")
+        ok, error = services.hand_in_from_chat(self.task, self.tr, [one.pk, two.pk])
+        self.assertTrue(ok, error)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.UNDER_REVIEW)
+        self.assertEqual(
+            sorted(a.original_name for a in services.translator_files(self.task)),
+            ["a.docx", "b.docx"],
+        )
+
+    def test_somebody_elses_file_is_refused(self):
+        leads_file = self._send(sender=self.lead)
+        ok, _error = services.hand_in_from_chat(self.task, self.tr, [leads_file.pk])
+        self.assertFalse(ok)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.IN_PROGRESS)
+
+    def test_a_voice_note_is_not_a_translation(self):
+        voice = self._send("note.ogg")
+        ok, _error = services.hand_in_from_chat(self.task, self.tr, [voice.pk])
+        self.assertFalse(ok)
+
+    def test_a_file_from_a_room_without_the_leader_is_refused(self):
+        other, _e = services.create_team_group(self.ops, "Elsewhere", [self.tr])
+        stray = self._send(room=other)
+        ok, _error = services.hand_in_from_chat(self.task, self.tr, [stray.pk])
+        self.assertFalse(ok)
+
+    def test_the_api_and_the_task_page(self):
+        file = self._send("final.docx")
+        self.client.force_login(self.tr)
+        response = self.client.post(
+            f"/api/tasks/{self.task.code}/hand-in/", {"files": [file.pk]},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.client.force_login(self.ops)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertIn("final.docx", html)
+
+    def test_only_the_translator_gets_the_button(self):
+        self.client.force_login(self.tr)
+        html = self.client.get(f"/ops/chats/g/{self.group.pk}/").content.decode()
+        self.assertIn('id="handinToggle"', html)
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/ops/chats/g/{self.group.pk}/").content.decode()
+        self.assertNotIn('id="handinToggle"', html)

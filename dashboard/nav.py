@@ -79,6 +79,16 @@ def groups_for(user):
             Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
                  also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
         ]
+    if user.is_sales:
+        # Their own line: their mail, their WhatsApp chats, and where the
+        # number and address are put in (27/09/2026).
+        work += [
+            Item("ops_inbox", "ميلاتي", "My mail", "mail",
+                 counter="inbox", also=("ops_mail_thread",)),
+            Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
+                 also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
+            Item("sales_line", "رقمي وإيميلي", "My number & mail", "phone"),
+        ]
     if user.is_translator:
         work += [
             Item("translator_home", "شغلي", "My work", "pen", counter="open",
@@ -243,6 +253,7 @@ def sidebar(user, url_name=""):
 KEYWORDS = {
     "ops_inbox": "ميل ايميل بريد رسايل واردة جيميل mail email inbox letters",
     "ops_chats": "شات محادثات واتساب عملاء جروب زمايل رسايل chat whatsapp messages groups",
+    "sales_line": "رقمي خطي واتساب ايميلي سيلز sales line number whatsapp mail alias",
     "ops_tasks": "تاسك مهام شغل جديد task tasks jobs new",
     "ops_team": "فريق مترجمين متاح مشغول اونلاين team status online busy",
     "lead_home": "تاسكاتي مهامي مراجعة my tasks review",

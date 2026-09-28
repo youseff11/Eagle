@@ -282,7 +282,7 @@ def data_deletion(request):
 # Operation
 # ---------------------------------------------------------------------------
 
-@role_required(Role.OPERATION)
+@role_required(Role.OPERATION, Role.SALES)
 def ops_inbox(request):
     """The mail page — e-mail and nothing else.
 
@@ -314,7 +314,7 @@ def ops_inbox(request):
         # not opened" is the badge in the sidebar, and it empties as you read.
         # "Nobody has taken this yet" does not, and should not.
         "unseen_count": services.unseen_conversation_count(user),
-        "unclaimed_count": services.unclaimed_conversation_count(),
+        "unclaimed_count": services.unclaimed_conversation_count(user),
         "blocked_count": mails.filter(is_rate_blocked=True).count(),
         # "IMAP is filled in" and "mail is arriving" are different claims, and
         # the second is the one the page makes.
@@ -326,7 +326,7 @@ def ops_inbox(request):
     return render(request, "ops/inbox.html", context)
 
 
-@role_required(Role.OPERATION)
+@role_required(Role.OPERATION, Role.SALES)
 def ops_mail_thread(request, pk):
     """One conversation, every letter in it — Gmail's open-conversation view.
 
@@ -385,7 +385,7 @@ def chat_tabs(user):
     simply absent for them rather than present and refusing.
     """
     tabs = []
-    if user.is_operation or user.is_admin_role:
+    if user.handles_clients:
         tabs.append({"key": "clients", "ar": "العملاء", "en": "Clients"})
     tabs.append({"key": "staff", "ar": "شاتات الموظفين", "en": "Staff chats"})
     tabs.append({"key": "groups", "ar": "الجروبات", "en": "Groups"})
@@ -398,7 +398,9 @@ def _chat_sidebar(user, query, kind):
     # The 1:1 list is every client the business has ever talked to. Only the
     # roles that already own the client inbox may see it — a translator who is
     # in one group must not get a directory of every client and their words.
-    sees_all_clients = user.is_operation or user.is_admin_role
+    # Operation (company line), Sales (their own) and the admin (all) - which
+    # clients each one gets is the line filter in client_conversations.
+    sees_all_clients = user.handles_clients
     if kind == "staff":
         # The directory is the list: somebody never written to is a row with
         # an empty preview, so starting a chat is opening it rather than
@@ -487,13 +489,15 @@ def _chats_context(request, kind, tabs=None):
         "show_filter": True,
         # Seeing the client directory is what the client tab is; the template
         # still asks separately for the bits that only that role gets.
-        "sees_all_clients": user.is_operation or user.is_admin_role,
+        "sees_all_clients": user.handles_clients,
         # Answering the client and turning their message into a task both
         # belong to the operation; a translator in a group gets neither.
         "can_convert": user.is_operation or user.is_admin_role,
         "can_create_team_group": user.can_create_team_group,
         "group_clients": [],
         "group_people": [],
+        # «خلصت التاسك» in a work group - filled in by ops_group_chat.
+        "handin_tasks": [],
     }
     if user.can_create_team_group:
         context["group_people"] = (
@@ -513,7 +517,7 @@ def ops_chats(request, code=""):
     which is what they needed a way in for.
     """
     user = request.user
-    sees_all_clients = user.is_operation or user.is_admin_role
+    sees_all_clients = user.handles_clients
 
     kind, tabs = _chat_kind(request, user)
     active = None
@@ -585,6 +589,9 @@ def ops_group_chat(request, room_id):
                               .exclude(pk__in=[m.pk for m in members])
                               .order_by("role", "username")[:200],
         "has_selection": True,
+        # A translator in their group with the leader can tick the files
+        # they sent and press «خلصت التاسك» right here.
+        "handin_tasks": services.handin_tasks_for(user, room),
     })
     # A leader's group with one translator is where that translator's tasks
     # are handed over now, so the AI's notes on what they sent for review
@@ -1008,6 +1015,8 @@ def task_detail(request, code):
         # The task has no chat of its own; this is the button to the one it
         # lives in (the leader and translator's group, or ops with the leader).
         "chat_link": services.task_chat_link(task, user),
+        # More time: the translator asks, the team leader answers.
+        **_extension_context(task, user),
         "task_description": services.clean_client_text(task.description),
         "conf": AppSettings.load(),
         # Who may settle a disputed word count: the people who can see both
@@ -1016,6 +1025,35 @@ def task_detail(request, code):
         or task.team_lead_id == user.id,
     }
     return render(request, "shared/task_detail.html", context)
+
+
+def _extension_context(task, user):
+    """What the task page shows about requests for more time, for this person.
+
+    The translator sees their own request and the answer. The team leader
+    (and the admin) sees the open one with where the deadline would land -
+    and the client's date next to it, which the translator never sees.
+    """
+    from .models import ExtensionRequest
+
+    is_translator = task.translator_id == user.id
+    is_lead = task.team_lead_id == user.id or user.is_admin_role
+    if not (is_translator or is_lead):
+        return {}
+    rows = list(task.extension_requests.select_related("requested_by", "decided_by")[:5])
+    pending = next((r for r in rows if r.status == ExtensionRequest.Status.PENDING), None)
+    last = next((r for r in rows if r.status != ExtensionRequest.Status.PENDING), None)
+    return {
+        "extension_pending": pending,
+        "extension_last": last,
+        "extension_new_due": (
+            services.extension_new_due(task, pending.minutes) if pending and is_lead else None
+        ),
+        "extension_can_ask": (
+            is_translator and task.status == TaskStatus.IN_PROGRESS and pending is None
+        ),
+        "extension_can_decide": is_lead and pending is not None,
+    }
 
 
 @login_required
@@ -2846,3 +2884,56 @@ def salary_request_decide(request, pk, action):
     else:
         flash.success(request, "اتسجل القرار")
     return redirect("dashboard:hr_salary_requests")
+
+
+# ---------------------------------------------------------------------------
+# A Sales person's own line (27/09/2026)
+# ---------------------------------------------------------------------------
+
+@role_required(Role.SALES)
+def sales_line(request):
+    """Where a Sales person puts their own WhatsApp number and mail address.
+
+    Once set, clients who write to either land in this person's chats and
+    mail only (and the admin's), and the answers leave from the same number
+    and address - see ``lines.py``. The admin opens it for themselves too,
+    to read what it asks for; only a Sales account holds a line.
+    """
+    from . import lines
+
+    user = request.user
+    errors = {}
+    saved = False
+    values = {
+        "wa_phone_number_id": user.wa_phone_number_id,
+        "wa_display_number": user.wa_display_number,
+        "mail_alias": user.mail_alias,
+    }
+    if request.method == "POST" and user.is_sales:
+        values = {
+            "wa_phone_number_id": request.POST.get("wa_phone_number_id", "").strip()[:40],
+            "wa_display_number": request.POST.get("wa_display_number", "").strip()[:30],
+            "mail_alias": request.POST.get("mail_alias", "").strip().lower()[:254],
+        }
+        problem = lines.number_problem(user, values["wa_phone_number_id"])
+        if problem:
+            errors["wa_phone_number_id"] = problem
+        problem = lines.alias_problem(user, values["mail_alias"])
+        if problem:
+            errors["mail_alias"] = problem
+        if not errors:
+            for field, value in values.items():
+                setattr(user, field, value)
+            user.save(update_fields=list(values))
+            services.log(user, "sales.line", user.username,
+                         f"wa={values['wa_phone_number_id'] or '-'} mail={values['mail_alias'] or '-'}")
+            saved = True
+
+    conf = AppSettings.load()
+    return render(request, "sales/line.html", {
+        "values": values,
+        "errors": errors,
+        "saved": saved,
+        "is_owner": user.is_sales,
+        "company_mail": conf.imap_user or conf.smtp_user or "",
+    })

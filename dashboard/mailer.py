@@ -46,12 +46,18 @@ def new_message_id(conf):
     return email.utils.make_msgid(domain=domain)
 
 
-def send_delivery(conf, to, subject, body, attachments, headers=None):
+def send_delivery(conf, to, subject, body, attachments, headers=None, from_email=""):
     """``attachments`` is a list of ``(filename, bytes, mime)`` tuples.
 
     ``headers`` is for threading — ``Message-ID``, ``In-Reply-To`` and
     ``References`` — so a reply lands inside the client's own conversation in
     their mailbox instead of arriving as a new letter.
+
+    ``from_email`` is a Sales person's own address on the company mailbox
+    (``lines.py``): the letter goes out from it and the client's answer comes
+    back to it. The login stays the company's. With Gmail the address must
+    be added under "Send mail as" first, or Gmail puts the account's own
+    address back in From - Reply-To still carries theirs either way.
     """
     host, user, password = _credentials(conf)
     if not (host and user and password):
@@ -69,11 +75,14 @@ def send_delivery(conf, to, subject, body, attachments, headers=None):
             username=user, password=password,
             use_tls=bool(conf.smtp_use_tls), fail_silently=False,
         )
+        extra = {k: v for k, v in (headers or {}).items() if v}
+        if from_email:
+            extra["Reply-To"] = from_email
         message = EmailMessage(
             subject=subject, body=body,
-            from_email=(conf.smtp_from or user), to=[to],
+            from_email=(from_email or conf.smtp_from or user), to=[to],
             connection=connection,
-            headers={k: v for k, v in (headers or {}).items() if v} or None,
+            headers=extra or None,
         )
         for filename, content, mime in attachments:
             message.attach(filename, content, mime or "application/octet-stream")

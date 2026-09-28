@@ -115,13 +115,22 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True,
 @transaction.atomic
 def ingest_message(*, channel, body="", subject="", sender_identity="",
                    sender_display="", external_id="", received_at=None,
-                   attachments=None, reply_to_external="", references=""):
+                   attachments=None, reply_to_external="", references="",
+                   owner=None, recipients=()):
     """Create an :class:`InboundMessage` and fan out the notifications.
 
     ``references`` is the e-mail ``References`` header. It is not stored; it
     only decides which conversation the letter joins.
+
+    ``owner`` is the Sales person whose own WhatsApp number this came in on
+    (the webhook knows it from the number). ``recipients`` are the addresses
+    a letter was sent to; one of them being a Sales person's alias makes the
+    letter theirs. Neither = the company line, as before (``lines.py``).
     """
-    from . import threads
+    from . import lines, threads
+
+    if owner is None and channel == Channel.EMAIL and recipients:
+        owner = lines.owner_for_addresses(recipients)
 
     if external_id:
         existing = InboundMessage.objects.filter(external_id=external_id).first()
@@ -164,6 +173,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         reply_to_external=reply_to_external or "",
         is_rate_blocked=bool(keyword),
         blocked_keyword=keyword,
+        owner=owner,
     )
 
     from .files import mask_name
@@ -205,7 +215,13 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             url=where,
         )
     else:
-        for user in User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True):
+        # A Sales line rings its owner (and the admin), never the operation
+        # room - they do not see that conversation at all.
+        if owner is not None:
+            audience = User.objects.filter(Q(pk=owner.pk) | Q(role=Role.ADMIN), is_active=True)
+        else:
+            audience = User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True)
+        for user in audience:
             notify(
                 user,
                 title_ar="ميل جديد من عميل" if is_mail else "رسالة جديدة من عميل",
@@ -220,7 +236,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
                 ),
                 level="info",
                 url=where,
-                sound=user.is_operation,
+                sound=user.is_operation or (owner is not None and user.pk == owner.pk),
             )
 
     # If this client has a live task with a client room open, the team sees the
@@ -248,7 +264,11 @@ def inbox_queryset(user, state="", query=""):
     """
     from django.db.models import Q
 
-    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).select_related(
+    from . import lines
+
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).filter(
+        lines.line_q(user)
+    ).select_related(
         "client", "claimed_by", "task"
     ).prefetch_related("attachments")
     # Rate talk never reaches the operation role.
@@ -286,7 +306,11 @@ def _thread_ident(key, pk):
 
 def _visible_mail(user):
     """Every e-mail this user may read, with what a mail row needs loaded."""
-    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).select_related(
+    from . import lines
+
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL).filter(
+        lines.line_q(user)
+    ).select_related(
         "client", "claimed_by", "task"
     ).prefetch_related("attachments")
     if not user.is_admin_role:
@@ -469,16 +493,22 @@ def _conversation_count(waiting):
     return keyed + waiting.filter(thread_key="").count()
 
 
-def unclaimed_conversation_count():
+def unclaimed_conversation_count(user=None):
     """Conversations holding a letter nobody has taken.
 
     What the mail page says out loud, and what the "محدش استلمها" filter
     shows. Not the badge: this number stays up until somebody presses
     "استلمت", which is right for a queue and wrong for a doorbell.
+    ``user`` narrows it to the line(s) that person works (``lines.py``).
     """
-    return _conversation_count(InboundMessage.objects.filter(
+    from . import lines
+
+    qs = InboundMessage.objects.filter(
         channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
-    ))
+    )
+    if user is not None:
+        qs = qs.filter(lines.line_q(user))
+    return _conversation_count(qs)
 
 
 def unseen_conversation_count(user):
@@ -488,9 +518,11 @@ def unseen_conversation_count(user):
     rather than "has anyone dealt with this". Opening a conversation drops
     it; nothing else has to happen.
     """
+    from . import lines
+
     return _conversation_count(InboundMessage.objects.filter(
         channel=Channel.EMAIL, is_rate_blocked=False
-    ).exclude(reads__user=user))
+    ).filter(lines.line_q(user)).exclude(reads__user=user))
 
 
 def seen_letter_ids(user, messages):
@@ -950,7 +982,7 @@ def group_thread(room, user, limit=200):
     """
     rows = (
         room.messages
-        .select_related("sender", "inbound", "reply_to", "reply_to__sender")
+        .select_related("sender", "inbound", "reply_to", "reply_to__sender", "task")
         .prefetch_related("attachments", "inbound__attachments")
         .order_by("-id")[:limit]
     )
@@ -982,7 +1014,11 @@ def group_thread(room, user, limit=200):
             "error": row.relay_error,
             "sender": row.sender.short_name if row.sender_id else "",
             "is_delivery": False,
-            "task_code": room.task.code if room.task_id else "",
+            # The task this message is work on (a file handed in from the
+            # group), else the old room's own task.
+            "task_code": (
+                row.task.code if row.task_id else (room.task.code if room.task_id else "")
+            ),
             "files": [_file_json(a) for a in row.relay_files],
             "mine": user is not None and row.sender_id == user.pk,
             "receipt": receipt,
@@ -1226,6 +1262,10 @@ def mirror_inbound_to_room(inbound):
     """
     if inbound.client_id is None or inbound.is_rate_blocked:
         return None
+    # A Sales person's own conversation stays theirs: the rooms are watched
+    # by the operation room and the task team.
+    if inbound.owner_id:
+        return None
 
     rooms = list(client_rooms_for(inbound.client_id)[:10])
     if not rooms:
@@ -1433,7 +1473,13 @@ def tag_task_message(message):
         return None
     # Everyone in the room has to be on the task: a group with a third person
     # in it could be about anything, and guessing is what this refuses to do.
-    pair = set(room.members.values_list("pk", flat=True)) | {message.sender_id}
+    # The admin is left out of that count: an owner who joined a group to
+    # watch it is not a third party the files could be about, and counting
+    # them is what left a translator's file untagged (27/09/2026).
+    pair = set(
+        room.members.exclude(role=Role.ADMIN).exclude(is_superuser=True)
+        .values_list("pk", flat=True)
+    ) | {message.sender_id}
     if len(pair) < 2:
         return None
     candidates = [
@@ -1610,6 +1656,138 @@ def set_translator_deadline(task, moment, by_user, tell_translator=True):
         )
     log(by_user, "task.translator_deadline", task.code,
         f"{timezone.localtime(moment):%Y-%m-%d %H:%M}" if moment else "cleared")
+    return True, ""
+
+
+#: The most a translator can ask for in one go. A request for a month is a
+#: conversation with the leader, not a button.
+MAX_EXTENSION_MINUTES = 14 * 24 * 60
+
+
+def _moment_text(moment):
+    return f"{timezone.localtime(moment):%Y-%m-%d %H:%M}" if moment else "—"
+
+
+def extension_new_due(task, minutes, now=None):
+    """Where the translator's deadline lands if ``minutes`` are added now.
+
+    Added to the deadline they are working to; if that has already passed,
+    to now - more time on a date gone by would still be a date gone by.
+    """
+    now = now or timezone.now()
+    due = task.translator_due
+    base = due if (due and due > now) else now
+    return base + timedelta(minutes=int(minutes))
+
+
+def request_extension(task, user, minutes, reason=""):
+    """The translator asks the team leader for more time. ``(request, error)``.
+
+    Nothing moves until the leader answers. One open request per task.
+    """
+    from .models import ExtensionRequest
+
+    if task.translator_id != user.id:
+        return None, "التاسك دي مش بتاعتك."
+    if task.status != TaskStatus.IN_PROGRESS:
+        return None, "الطلب بيتبعت والتاسك شغالة بس."
+    if not task.team_lead_id:
+        return None, "مفيش تيم ليدر على التاسك دي."
+    try:
+        minutes = int(minutes)
+    except (TypeError, ValueError):
+        minutes = 0
+    if minutes <= 0:
+        return None, "اكتب قد إيه محتاج — يوم أو ساعة أو دقايق."
+    if minutes > MAX_EXTENSION_MINUTES:
+        return None, "أقصى طلب مرة واحدة 14 يوم."
+    if task.extension_requests.filter(status=ExtensionRequest.Status.PENDING).exists():
+        return None, "عندك طلب لسه التيم ليدر مارّدش عليه."
+
+    reason = (reason or "").strip()[:300]
+    row = ExtensionRequest.objects.create(
+        task=task, requested_by=user, minutes=minutes, reason=reason,
+        due_before=task.translator_due,
+    )
+    new_due = extension_new_due(task, minutes)
+    notify_in_chat(
+        task.team_lead, user,
+        body_ar=(f"{user.short_name} طالب وقت إضافي على {task.code}: {row.pretty_length}"
+                 + (f" — {reason}" if reason else "")),
+        body_en=f"{user.short_name} asks for more time on {task.code}: {minutes} min.",
+        key="extension_asked",
+    )
+    notify(
+        task.team_lead,
+        title_ar="طلب وقت إضافي",
+        title_en="More time requested",
+        body_ar=(f"{user.short_name} عايز {row.pretty_length} زيادة على {task.code} "
+                 f"(الديدلاين الجديد: {_moment_text(new_due)})."),
+        body_en=f"{user.short_name} asks for {minutes} more minutes on {task.code}.",
+        level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+    )
+    log(user, "task.extension_asked", task.code, f"{minutes}m {reason}"[:200])
+    return row, ""
+
+
+def decide_extension(row, user, approve, note=""):
+    """The team leader answers a request for more time. ``(ok, error)``.
+
+    A yes moves the translator's own deadline - never past the client's. When
+    what was asked would cross it, the answer says how far it can go instead
+    of quietly giving less: the leader decides that, not the system.
+    """
+    from .models import ExtensionRequest
+
+    task = row.task
+    if task.team_lead_id != user.id and not user.is_admin_role:
+        return False, "الطلب ده للتيم ليدر بتاع التاسك."
+    if row.status != ExtensionRequest.Status.PENDING:
+        return False, "الطلب ده اتردّ عليه قبل كده."
+
+    note = (note or "").strip()[:300]
+    now = timezone.now()
+    if approve:
+        if task.status != TaskStatus.IN_PROGRESS:
+            return False, "التاسك مابقتش شغالة."
+        new_due = extension_new_due(task, row.minutes, now)
+        problem = deadline_problem(task, new_due)
+        if problem:
+            return False, (
+                f"الوقت ده بيعدّي ديدلاين العميل ({_moment_text(task.deadline)}). "
+                "يا تدّي أقل من ديدلاين المترجم، يا الأوبريشن يمد ديدلاين العميل الأول."
+            )
+        ok, error = set_translator_deadline(task, new_due, user, tell_translator=False)
+        if not ok:
+            return False, error
+        row.status = ExtensionRequest.Status.APPROVED
+    else:
+        row.status = ExtensionRequest.Status.DECLINED
+    row.decided_by = user
+    row.decided_at = now
+    row.decision_note = note
+    row.save(update_fields=["status", "decided_by", "decided_at", "decision_note"])
+
+    translator = task.translator
+    if approve:
+        body_ar = f"التيم ليدر وافق على الوقت الإضافي. الديدلاين الجديد: {_moment_text(task.translator_due)}"
+        title_ar, title_en, level = "اتوافق على الوقت الإضافي", "More time approved", "success"
+    else:
+        body_ar = "التيم ليدر رفض الوقت الإضافي." + (f" {note}" if note else "")
+        title_ar, title_en, level = "اترفض طلب الوقت الإضافي", "More time declined", "warning"
+    notify_in_chat(
+        translator, user,
+        body_ar=f"{task.code}: {body_ar}",
+        body_en=f"{task.code}: {title_en}.",
+        key="extension_answered",
+    )
+    notify(
+        translator, title_ar=title_ar, title_en=title_en,
+        body_ar=body_ar, body_en=title_en,
+        level=level, url=f"/tasks/{task.code}/", sound=True, task=task,
+    )
+    log(user, "task.extension_approved" if approve else "task.extension_declined",
+        task.code, f"{row.minutes}m {note}"[:200])
     return True, ""
 
 
@@ -2341,6 +2519,12 @@ def client_conversations(user, query=""):
     """One row per client we have ever talked to, most recent activity first."""
     from django.db.models import Max
 
+    from . import lines
+
+    # Which line(s): the company's for the operation, their own for Sales,
+    # all of them for the admin. In the same filter() as the channel, so it
+    # is one join and the Max below counts only messages on those lines.
+    on_line = lines.line_q(user, "messages__owner")
     # WhatsApp only — this list is the WhatsApp line. A client we have only
     # ever e-mailed belongs on the mail page, not in a chat with no thread.
     if user.is_admin_role:
@@ -2350,18 +2534,19 @@ def client_conversations(user, query=""):
         # only of rate-blocked messages, and the Max below then reflects only
         # the messages that role is allowed to know about.
         rows = Client.objects.filter(
-            messages__channel=Channel.WHATSAPP, messages__is_rate_blocked=False
+            on_line, messages__channel=Channel.WHATSAPP, messages__is_rate_blocked=False
         )
     rows = rows.annotate(
         last_activity=Max(
             "messages__received_at",
-            filter=Q(messages__channel=Channel.WHATSAPP),
+            filter=Q(messages__channel=Channel.WHATSAPP) & on_line,
         )
     ).distinct()
 
     query = (query or "").strip()
     if query:
-        if user.is_admin_role:
+        # Searching a name is seeing it (identity.py): only for who may.
+        if user.can_see_client_identity:
             rows = rows.filter(
                 Q(code__icontains=query)
                 | Q(name__icontains=query)
@@ -2384,7 +2569,11 @@ def _visible_inbound(client, user):
     (``inbox_queryset``). Mixing the two put the same letter in two inboxes and
     left two people answering it.
     """
-    qs = client.messages.filter(channel=Channel.WHATSAPP).prefetch_related("attachments")
+    from . import lines
+
+    qs = client.messages.filter(channel=Channel.WHATSAPP).filter(
+        lines.line_q(user)
+    ).prefetch_related("attachments")
     if not user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
     return qs
@@ -2442,9 +2631,11 @@ def _file_json(attachment):
 
 def conversation_preview(client, user):
     """The snippet shown in the conversation list."""
+    from . import lines
+
     last = _visible_inbound(client, user).order_by("-received_at").first()
     out = (
-        client.deliveries.filter(channel=Channel.WHATSAPP)
+        client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
         .prefetch_related("uploads").order_by("-created_at").first()
     )
     # An outbound with nothing from the client before it is still the last
@@ -2504,8 +2695,10 @@ def client_thread(client, user, limit=200):
 
     # WhatsApp only, to match the inbound side: an e-mailed delivery has no
     # place in a thread whose other half was filtered out.
+    from . import lines
+
     outbound = (
-        client.deliveries.filter(channel=Channel.WHATSAPP)
+        client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
         .select_related("created_by", "task").prefetch_related("uploads")
     )
     for row in outbound.order_by("-created_at")[:limit]:
@@ -2643,7 +2836,11 @@ def mark_room_read(user, room):
 
 def _wa_inbound(client, user):
     """The client's WhatsApp messages this person is allowed to know about."""
-    qs = InboundMessage.objects.filter(client=client, channel=Channel.WHATSAPP)
+    from . import lines
+
+    qs = InboundMessage.objects.filter(client=client, channel=Channel.WHATSAPP).filter(
+        lines.line_q(user)
+    )
     if not user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
     return qs
@@ -2659,20 +2856,24 @@ def mark_client_read(user, client, receipt=True):
     """
     if user is None or client is None:
         return False
-    if not (user.is_operation or user.is_admin_role):
+    if not user.handles_clients:
         return False
     newest = _wa_inbound(client, user).order_by("-id").values_list(
-        "id", "external_id"
+        "id", "external_id", "owner__wa_phone_number_id"
     ).first()
     if not newest:
         return False
     moved = _advance(_read_cursor(user, client=client), newest[0])
     if moved and receipt and newest[1]:
-        send_read_receipt(newest[1])
+        # Marked read on the number it arrived on - a Sales line's own.
+        if newest[2]:
+            send_read_receipt(newest[1], from_id=newest[2])
+        else:
+            send_read_receipt(newest[1])
     return moved
 
 
-def send_read_receipt(wamid):
+def send_read_receipt(wamid, from_id=""):
     """Tell WhatsApp the client's message was read. Best effort, off-thread.
 
     The chat polls every few seconds and the Graph API can take the full
@@ -2690,7 +2891,7 @@ def send_read_receipt(wamid):
         return False
     url = (
         f"{whatsapp.GRAPH_HOST}/{whatsapp._version(conf)}/"
-        f"{whatsapp.sender_id(conf)}/messages"
+        f"{whatsapp.sender_id(conf, from_id)}/messages"
     )
     token = conf.whatsapp_access_token
     body = json.dumps({
@@ -2717,9 +2918,13 @@ def unread_by_client(user, client_ids=None):
     from django.db.models import BigIntegerField, F, OuterRef, Subquery, Value
     from django.db.models.functions import Coalesce
 
-    if not (user.is_operation or user.is_admin_role):
+    from . import lines
+
+    if not user.handles_clients:
         return {}
-    qs = InboundMessage.objects.filter(channel=Channel.WHATSAPP, client__isnull=False)
+    qs = InboundMessage.objects.filter(
+        channel=Channel.WHATSAPP, client__isnull=False
+    ).filter(lines.line_q(user))
     if not user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
     if client_ids is not None:
@@ -2962,6 +3167,85 @@ def upload_translation(task, user, uploads, body=""):
     )
     log(user, "task.translation_uploaded", task.code, str(len(uploads)))
     return message, ""
+
+
+def handin_tasks_for(user, room):
+    """The tasks a translator may hand files in to from this group.
+
+    Theirs, still being worked, and led by someone who is in this group - the
+    files they pick here are then plainly that task's. Empty for anybody who
+    is not a translator, and for rooms that are not work groups.
+    """
+    if user is None or not user.is_translator or room is None:
+        return []
+    if room.kind != RoomKind.TEAM:
+        return []
+    members = set(room.members.values_list("pk", flat=True))
+    if user.pk not in members:
+        return []
+    return list(
+        Task.objects.filter(
+            translator=user, status=TaskStatus.IN_PROGRESS, team_lead_id__in=members,
+        ).select_related("client").order_by("id")
+    )
+
+
+def hand_in_from_chat(task, user, attachment_ids):
+    """«خلصت التاسك» from the group: the picked files become the task's, and
+    the task goes to review. ``(ok, error)``.
+
+    The translator ticks the files they sent in their group with the team
+    leader; the messages carrying them are tagged with the task (the same
+    link an upload from the task page makes), so the task page, the review,
+    the word count and the delivery all find them. Then "finished" runs as
+    if pressed on the task page - and refuses the same way if nothing that
+    counts was handed in.
+
+    A tag is per message: a message carrying three files that has one of
+    them ticked brings all three.
+    """
+    if task.translator_id != user.id:
+        return False, "التاسك دي مش بتاعتك."
+    if task.status != TaskStatus.IN_PROGRESS:
+        return False, "التاسك دي مش شغالة دلوقتي."
+    ids = []
+    for raw in attachment_ids or []:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return False, "اختار ملف الترجمة الأول."
+
+    # Only files this person sent, in a work group the task's leader is in.
+    # The ids come from the browser, so everything is checked again here.
+    rows = [
+        a for a in ChatAttachment.objects.filter(
+            pk__in=ids, message__sender=user, message__room__kind=RoomKind.TEAM,
+            message__room__members=task.team_lead_id,
+        ).select_related("message").distinct()
+        if not a.is_audio
+    ]
+    if not rows:
+        return False, "الملفات دي مش ملفاتك في الجروب مع التيم ليدر."
+    messages = {a.message_id: a.message for a in rows}.values()
+    other = next((m for m in messages if m.task_id and m.task_id != task.pk), None)
+    if other is not None:
+        return False, "فيه ملف من دول متسجّل على تاسك تانية."
+
+    for message in messages:
+        if message.task_id != task.pk:
+            message.task = task
+            message.save(update_fields=["task"])
+    log(user, "task.handed_in_from_chat", task.code, f"{len(rows)} file(s)")
+
+    if translation_missing(task):
+        # Tagged, but all of it older than the send-back: the leader returned
+        # that version, so it cannot be the finished one.
+        return False, "الملفات دي أقدم من رجوع التاسك للتعديل — ابعت النسخة الجديدة."
+    if not mark_translated(task, user):
+        return False, TRANSLATION_MISSING_AR
+    return True, ""
 
 
 def task_chat_link(task, viewer):
@@ -3697,12 +3981,25 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     if not body and not uploads and not reuse_files and not extra_files and voice is None:
         return False, None, "مفيش حاجة تتبعت."
 
+    from . import lines
+
     conf = AppSettings.load()
     channel = force_channel or client_channel(client)
     if channel not in (Channel.WHATSAPP, Channel.EMAIL):
         channel = client_channel(client)
     # The number / address they last wrote from, if it is one of theirs.
     target = client.reply_target(channel)
+    # Which of our lines it leaves from: a Sales person's own, or the
+    # company's (``owner`` None). Answers go back the way the client came.
+    owner = lines.reply_line(client, user, channel)
+    from_number = (owner.wa_phone_number_id or "").strip() if owner else ""
+    from_address = (owner.mail_alias or "").strip() if owner else ""
+    line_missing = ""
+    if owner is not None:
+        if channel == Channel.WHATSAPP and not from_number:
+            line_missing = "مفيش رقم واتساب متسجّل للـSales ده — ضيفه من صفحة «خطي»."
+        if channel == Channel.EMAIL and not from_address:
+            line_missing = "مفيش إيميل متسجّل للـSales ده — ضيفه من صفحة «خطي»."
 
     # Convert first: a recording Meta would reject must never reach the thread
     # pretending it was sent.
@@ -3737,6 +4034,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         reply_to_wamid=reply_to_wamid or "", reply_preview=(reply_preview or "")[:160],
         subject=mail_subject if is_mail else "",
         thread_key=(thread_key or "") if is_mail else "",
+        owner=owner,
     )
     stored = [
         OutboundAttachment.objects.create(
@@ -3769,6 +4067,12 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         outbound.save(update_fields=["status", "error_message"])
         return False, outbound, convert_error
 
+    if line_missing:
+        outbound.status = OutboundMessage.Status.FAILED
+        outbound.error_message = line_missing
+        outbound.save(update_fields=["status", "error_message"])
+        return False, outbound, line_missing
+
     if not channel or not target:
         outbound.status = OutboundMessage.Status.FAILED
         outbound.error_message = (
@@ -3787,11 +4091,14 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         if channel == Channel.WHATSAPP:
             quote = reply_to_wamid or ""
             if body:
-                outbound.provider_id = wa.send_text(target, body, context_id=quote)
+                outbound.provider_id = wa.send_text(
+                    target, body, context_id=quote, from_id=from_number
+                )
                 quote = ""       # only the first message carries the quote
             for index, (name, content, mime) in enumerate(payload):
                 wa.send_file(target, content, name, mime,
-                             caption="" if body else name, context_id=quote)
+                             caption="" if body else name, context_id=quote,
+                             from_id=from_number)
                 quote = ""
                 outbound.files[index]["status"] = "sent"
         else:
@@ -3807,6 +4114,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
                 subject=mail_subject,
                 body=body or "مرفق الملفات.",
                 attachments=payload,
+                from_email=from_address,
                 headers={
                     "Message-ID": message_id,
                     "In-Reply-To": parents[0] if parents else "",

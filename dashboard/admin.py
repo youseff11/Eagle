@@ -25,6 +25,7 @@ from .models import (
     ClientComplaint,
     ClientRequirement,
     Department,
+    ExtensionRequest,
     InboundMessage,
     Interview,
     LeaveRequest,
@@ -75,6 +76,9 @@ class UserAdmin(BaseUserAdmin):
             )
         }),
         ("Client identity", {"fields": ("client_identity_access",)}),
+        # A Sales person's own client line (lines.py). Set by them on
+        # /sales/line/; here so the admin can correct or clear it.
+        ("Sales line", {"fields": ("wa_phone_number_id", "wa_display_number", "mail_alias")}),
         ("Employee file", {
             "fields": (
                 "employee_code", "job_title", "department", "joining_date",
@@ -399,6 +403,7 @@ class PayrollSettingsAdmin(admin.ModelAdmin):
 admin.site.register([
     Shift, ClientRequirement, Assignment, ChatRoom, Notification,
     RatingEvent, AICheckResult, AuditLog, SalaryRecord, ScheduleOverride,
+    ExtensionRequest,
 ])
 
 admin.site.site_header = "Eagle administration"

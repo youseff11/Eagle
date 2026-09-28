@@ -603,6 +603,32 @@
           </form>
         {% endif %}
 
+        {% if extension_can_decide %}
+          <div class="note note--warn mt">
+            {% icon "timer" %}
+            <div>
+              <strong data-ar="المترجم طالب وقت إضافي" data-en="The translator asks for more time">المترجم طالب وقت إضافي</strong>
+              <div>{{ extension_pending.pretty_length }}{% if extension_pending.reason %} — {{ extension_pending.reason }}{% endif %}</div>
+              <div class="muted mono">
+                <span data-ar="ديدلاينه هيبقى" data-en="Their deadline becomes">ديدلاينه هيبقى</span>
+                {{ extension_new_due|date:"Y-m-d H:i" }}
+                {% if task.deadline %}· <span data-ar="العميل" data-en="Client">العميل</span> {{ task.deadline|date:"Y-m-d H:i" }}{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="row row--tight mt">
+            <button class="btn btn--ok btn--sm grow" type="button"
+                    data-action="{% url 'dashboard:api_decide_extension' extension_pending.pk 'approve' %}">
+              {% icon "check" "ic--sm" %}<span data-ar="موافق" data-en="Approve">موافق</span>
+            </button>
+            <button class="btn btn--danger btn--sm grow" type="button"
+                    data-action="{% url 'dashboard:api_decide_extension' extension_pending.pk 'decline' %}"
+                    data-confirm-ar="ترفض الوقت الإضافي؟" data-confirm-en="Decline the extra time?">
+              {% icon "x" "ic--sm" %}<span data-ar="رفض" data-en="Decline">رفض</span>
+            </button>
+          </div>
+        {% endif %}
+
         {% if task.status == 'under_review' %}
           <button class="btn btn--ok btn--block mt" type="button"
                   data-action="{% url 'dashboard:api_task_action' task.code 'reviewed' %}"
@@ -637,6 +663,60 @@
             <div data-ar="التيم ليدر بيراجع دلوقتي." data-en="The team leader is reviewing.">
               التيم ليدر بيراجع دلوقتي.</div>
           </div>
+        {% endif %}
+
+        {% comment %}
+        More time. The translator asks, the team leader answers; nothing moves
+        before the answer. Only the translator's own date is ever shown here.
+        {% endcomment %}
+        {% if extension_pending %}
+          <div class="note note--warn mt">
+            {% icon "timer" %}
+            <div>
+              <strong data-ar="طلبت وقت إضافي" data-en="You asked for more time">طلبت وقت إضافي</strong>
+              <div>{{ extension_pending.pretty_length }}{% if extension_pending.reason %} — {{ extension_pending.reason }}{% endif %}</div>
+              <div class="muted" data-ar="مستني رد التيم ليدر." data-en="Waiting for the team leader.">مستني رد التيم ليدر.</div>
+            </div>
+          </div>
+        {% elif extension_last %}
+          <div class="note {% if extension_last.status == 'approved' %}note--ok{% else %}note--high{% endif %} mt">
+            {% icon "timer" %}
+            <div>
+              <div class="note__where mono">{{ extension_last.decided_at|date:"m-d H:i" }} · {{ extension_last.pretty_length }}</div>
+              {% if extension_last.status == 'approved' %}
+                <div data-ar="التيم ليدر وافق على الوقت الإضافي." data-en="The team leader approved the extra time.">التيم ليدر وافق على الوقت الإضافي.</div>
+              {% else %}
+                <div data-ar="التيم ليدر رفض الوقت الإضافي." data-en="The team leader declined the extra time.">التيم ليدر رفض الوقت الإضافي.</div>
+              {% endif %}
+              {% if extension_last.decision_note %}<div class="muted">{{ extension_last.decision_note }}</div>{% endif %}
+            </div>
+          </div>
+        {% endif %}
+
+        {% if extension_can_ask %}
+          <details class="mt" id="extensionBox">
+            <summary class="btn btn--block btn--sm">
+              {% icon "clock" "ic--sm" %}<span data-ar="محتاج وقت إضافي؟" data-en="Need more time?">محتاج وقت إضافي؟</span>
+            </summary>
+            <form class="mt" id="extensionForm"
+                  action="{% url 'dashboard:api_request_extension' task.code %}"
+                  onsubmit="event.preventDefault();var f=this,b=f.querySelector('button');b.disabled=true;Eagle.post(f.action,new FormData(f)).then(function(r){b.disabled=false;if(r.ok){Eagle.toast({level:'success',title:Eagle.t('الطلب اتبعت للتيم ليدر','Sent to your team leader')});setTimeout(function(){location.reload();},500);}else{Eagle.toast({level:'danger',title:Eagle.t('مااتبعتش','Not sent'),body:r.error||''});}});">
+              {% csrf_token %}
+              <div class="row row--tight">
+                <label class="grow"><small data-ar="يوم" data-en="Days">يوم</small>
+                  <input class="input" type="number" name="days" min="0" max="14" dir="ltr" value="0"></label>
+                <label class="grow"><small data-ar="ساعة" data-en="Hours">ساعة</small>
+                  <input class="input" type="number" name="hours" min="0" max="23" dir="ltr" value="0"></label>
+                <label class="grow"><small data-ar="دقيقة" data-en="Minutes">دقيقة</small>
+                  <input class="input" type="number" name="minutes" min="0" max="59" dir="ltr" value="0"></label>
+              </div>
+              <textarea class="input mt" name="reason" rows="2" maxlength="300"
+                        data-ar-ph="السبب (اختياري)" data-en-ph="Why (optional)" placeholder="السبب (اختياري)"></textarea>
+              <button class="btn btn--primary btn--block btn--sm mt" type="submit">
+                {% icon "send" "ic--sm" %}<span data-ar="ابعت الطلب للتيم ليدر" data-en="Ask the team leader">ابعت الطلب للتيم ليدر</span>
+              </button>
+            </form>
+          </details>
         {% endif %}
       {% endif %}
 

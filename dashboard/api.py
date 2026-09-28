@@ -127,6 +127,9 @@ def heartbeat(request):
             "new_tasks": Task.objects.filter(status=TaskStatus.NEW).count(),
             "ready": Task.objects.filter(status=TaskStatus.REVIEWED).count(),
         }
+    elif user.is_sales:
+        # Their own mail line's badge; the chats badge is added below.
+        data["counters"] = {"inbox": services.unseen_conversation_count(user)}
     elif user.is_team_lead:
         data["counters"] = {
             "review": Task.objects.filter(
@@ -441,6 +444,65 @@ def upload_translation(request, code):
     })
 
 
+@login_required
+@require_POST
+def hand_in_from_chat(request, code):
+    """«خلصت التاسك» in the group: these files are the translation, it is done."""
+    task = get_object_or_404(Task.objects.select_related("team_lead"), code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    ok, error = services.hand_in_from_chat(task, user, request.POST.getlist("files"))
+    if not ok:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    return JsonResponse({"ok": True, "url": f"/tasks/{task.code}/"})
+
+
+@login_required
+@require_POST
+def request_extension(request, code):
+    """The translator asks for more time: days / hours / minutes, and why."""
+    task = get_object_or_404(Task.objects.select_related("team_lead"), code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    minutes = (
+        _int(request.POST.get("days"), 0) * 24 * 60
+        + _int(request.POST.get("hours"), 0) * 60
+        + _int(request.POST.get("minutes"), 0)
+    )
+    row, error = services.request_extension(
+        task, user, minutes, request.POST.get("reason", "")
+    )
+    if row is None:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    return JsonResponse({"ok": True, "id": row.pk})
+
+
+@login_required
+@require_POST
+def decide_extension(request, pk, decision):
+    """The team leader's yes or no."""
+    from .models import ExtensionRequest
+
+    row = get_object_or_404(
+        ExtensionRequest.objects.select_related("task", "task__team_lead", "task__translator"),
+        pk=pk,
+    )
+    user = request.user
+    if not row.task.can_view(user):
+        identity.hidden(request, "task")
+    if decision not in ("approve", "decline"):
+        return JsonResponse({"ok": False, "error": "unknown_decision"}, status=400)
+    ok, error = services.decide_extension(
+        row, user, decision == "approve", request.POST.get("note", "")
+    )
+    if not ok:
+        status = 403 if row.task.team_lead_id != user.id and not user.is_admin_role else 400
+        return JsonResponse({"ok": False, "error": error}, status=status)
+    return JsonResponse({"ok": True})
+
+
 @api_role_required(Role.OPERATION)
 @require_POST
 def deliver(request, code):
@@ -588,7 +650,7 @@ def set_translator_deadline(request, code):
 # Inbound messages
 # ---------------------------------------------------------------------------
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_GET
 def inbox_feed(request):
     """Conversations that gained a letter newer than ``after``.
@@ -628,7 +690,7 @@ def inbox_feed(request):
     })
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_GET
 def mail_thread_feed(request, pk):
     """What is new in the conversation ``pk`` belongs to.
@@ -683,7 +745,7 @@ def mail_thread_feed(request, pk):
     return JsonResponse({"ok": True, "items": items})
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_POST
 def mail_reply(request, pk):
     """Answer the conversation ``pk`` is in: text, files, or both, by e-mail.
@@ -713,11 +775,12 @@ def mail_reply(request, pk):
     return JsonResponse(payload, status=200 if ok else 400)
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_POST
 def claim_message(request, pk):
     message = get_object_or_404(InboundMessage, pk=pk)
-    if message.is_rate_blocked and not request.user.is_admin_role:
+    # The rate block and the line (a Sales person's own, or the company's).
+    if not message.visible_to(request.user):
         raise Http404
     ok = services.claim_message(message, request.user)
     return JsonResponse({
@@ -726,7 +789,7 @@ def claim_message(request, pk):
     })
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_POST
 def confirm_message(request, pk):
     """"استلمت" — tell the client it arrived, then mark it claimed.
@@ -738,7 +801,7 @@ def confirm_message(request, pk):
     message = get_object_or_404(
         InboundMessage.objects.select_related("client"), pk=pk
     )
-    if message.is_rate_blocked and not request.user.is_admin_role:
+    if not message.visible_to(request.user):
         raise Http404
     ok, error = services.confirm_receipt(message, request.user)
     return JsonResponse(
@@ -930,7 +993,7 @@ def chat_send(request, room_id):
 
 def _client_or_404(request, client_code):
     client = get_object_or_404(Client, code=client_code)
-    if not (request.user.is_operation or request.user.is_admin_role):
+    if not request.user.handles_clients:
         raise Http404
     return client
 
@@ -976,6 +1039,9 @@ def _thread_entry_json(entry, viewer):
 
 def _conversation_json(client, viewer, unread=0):
     preview = services.conversation_preview(client, viewer)
+    # Each line has its own 24 hours - the window of the number this person
+    # would answer from, not whichever number the client wrote to last.
+    window_open, minutes_left = client.reply_window_for(viewer)
     return {
         "code": client.code,
         "group": False,
@@ -989,8 +1055,8 @@ def _conversation_json(client, viewer, unread=0):
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         # The 24-hour rule is a WhatsApp rule — e-mail has no such window.
         "channel": services.client_channel(client),
-        "window_open": client.reply_window_open,
-        "minutes_left": client.reply_window_minutes_left,
+        "window_open": window_open,
+        "minutes_left": minutes_left,
         "unread": unread,
     }
 
@@ -1054,7 +1120,7 @@ def client_chat_list(request):
     """
     query = request.GET.get("q", "")
     kind = request.GET.get("type", "clients")
-    sees_all_clients = request.user.is_operation or request.user.is_admin_role
+    sees_all_clients = request.user.handles_clients
     if kind == "staff":
         # The order the service returns is the order the page wants: spoken
         # to most recently, then the rest of the directory. Sorting by date
@@ -1404,7 +1470,7 @@ def group_chat_send(request, room_id):
     return JsonResponse(payload, status=200)
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_GET
 def client_chat_fetch(request, client_code):
     client = _client_or_404(request, client_code)
@@ -1441,12 +1507,16 @@ def _resolve_reply(client, reply_uid, viewer):
         row = services._visible_inbound(client, viewer).filter(pk=pk).first()
         return (row.external_id or "", (row.body or "")[:160]) if row else ("", "")
     if side == "out":
-        row = OutboundMessage.objects.filter(pk=pk, client=client).first()
+        from . import lines
+
+        row = OutboundMessage.objects.filter(pk=pk, client=client).filter(
+            lines.line_q(viewer)
+        ).first()
         return (row.provider_id or "", (row.body or "")[:160]) if row else ("", "")
     return "", ""
 
 
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 @require_POST
 def client_chat_send(request, client_code):
     client = _client_or_404(request, client_code)
