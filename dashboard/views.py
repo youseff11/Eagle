@@ -592,6 +592,8 @@ def ops_group_chat(request, room_id):
         # A translator in their group with the leader can tick the files
         # they sent and press «خلصت التاسك» right here.
         "handin_tasks": services.handin_tasks_for(user, room),
+        # Files sent here are asked which task they are for.
+        "file_tasks": services.file_task_choices(user, room),
     })
     # A leader's group with one translator is where that translator's tasks
     # are handed over now, so the AI's notes on what they sent for review
@@ -634,6 +636,7 @@ def ops_staff_chat(request, user_id):
         # room - see services.ai_suggestions_for.
         "ai_notes": services.ai_suggestions_for(user, other),
         "has_selection": True,
+        "file_tasks": services.file_task_choices(user, room),
     })
     return render(request, "ops/chats.html", context)
 

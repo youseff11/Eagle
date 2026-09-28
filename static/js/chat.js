@@ -21,6 +21,10 @@
   var sendBtn = document.getElementById("chatSend");
   var windowNote = document.getElementById("windowClosed");
   var threadList = document.getElementById("threadList");
+  // Which task the attached files are for. Only in staff chats and work
+  // groups where the sender shares a live task with somebody in the room.
+  var fileTaskBar = document.getElementById("fileTaskBar");
+  var fileTask = document.getElementById("fileTask");
 
   var activeCode = root.dataset.active || "";
   var pending = [];          // files picked but not sent yet
@@ -449,6 +453,10 @@
   /* ------------------------------------------------------------ sending */
 
   function drawPending() {
+    if (fileTaskBar) {
+      fileTaskBar.classList.toggle("hidden", !pending.length);
+      if (!pending.length) { fileTaskBar.classList.remove("is-missing"); }
+    }
     if (!fileList) { return; }
     fileList.innerHTML = "";
     pending.forEach(function (file, index) {
@@ -495,6 +503,12 @@
     });
   }
 
+  if (fileTask) {
+    fileTask.addEventListener("change", function () {
+      if (fileTaskBar && fileTask.value) { fileTaskBar.classList.remove("is-missing"); }
+    });
+  }
+
   function send(event) {
     if (event) { event.preventDefault(); }
     if (busy || !activeCode) { return; }
@@ -502,14 +516,30 @@
     var text = (bodyInput ? bodyInput.value : "").trim();
     if (!text && !pending.length) { return; }
 
+    // Files have to say which task they are for - a wrong guess here is
+    // what put a translation on the wrong task (28/09/2026).
+    if (pending.length && fileTask && !fileTask.value) {
+      if (fileTaskBar) { fileTaskBar.classList.add("is-missing"); }
+      fileTask.focus();
+      E.toast({
+        level: "danger",
+        title: E.t("حدد الملفات تبع أنهي تاسك", "Pick the task for these files"),
+        body: E.t("اختار التاسك من القايمة اللي فوق مربع الكتابة.",
+                  "Choose it in the list above the message box.")
+      });
+      return;
+    }
+
     var data = new FormData();
     data.append("body", text);
     if (replyUid) { data.append("reply_uid", replyUid); }
     pending.forEach(function (file) { data.append("files", file); });
+    if (pending.length && fileTask) { data.append("task", fileTask.value); }
 
     deliver(data, function () {
       if (bodyInput) { bodyInput.value = ""; }
       pending = [];
+      if (fileTask) { fileTask.selectedIndex = 0; }
       drawPending();
       clearReply();
     });

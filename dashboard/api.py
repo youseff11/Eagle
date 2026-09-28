@@ -933,6 +933,26 @@ def chat_send(request, room_id):
         pk=reply_id, room=room, is_system=False
     ).first() if reply_id else None
 
+    # Files sent in a staff chat or a work group are asked which task they
+    # are for, before anything is written - see services.pick_file_task.
+    picked_task, picking = None, False
+    if uploads and room.kind in (RoomKind.STAFF, RoomKind.TEAM):
+        raw_task = request.POST.get("task", "")
+        picked_task, pick_error, choices = services.pick_file_task(
+            request.user, room, raw_task
+        )
+        if pick_error:
+            text = {
+                "pick_task": (services.PICK_TASK_AR, services.PICK_TASK_EN),
+                "bad_task": (services.BAD_TASK_AR, services.BAD_TASK_EN),
+            }[pick_error]
+            return JsonResponse({
+                "ok": False, "error": pick_error,
+                "message": text[0], "message_en": text[1],
+                "choices": [{"code": t.code, "title": t.title} for t in choices],
+            }, status=400)
+        picking = bool(choices) or raw_task.strip() == services.NO_TASK
+
     message = ChatMessage.objects.create(
         room=room, sender=request.user, body=body, reply_to=reply_to,
     )
@@ -947,7 +967,12 @@ def chat_send(request, room_id):
     # Files handed over in a one-to-one chat are work on a task when the two
     # of them have exactly one running between them. See tag_task_message -
     # it refuses to guess, which is why this can be automatic at all.
-    if uploads or voice is not None:
+    if picked_task is not None:
+        message.task = picked_task
+        message.save(update_fields=["task"])
+    elif picking:
+        pass  # The sender said these files are not on a task.
+    elif uploads or voice is not None:
         services.tag_task_message(message)
 
     # A client room is a relay: whatever lands here goes on to the client's
@@ -1466,7 +1491,15 @@ def group_chat_send(request, room_id):
             payload["ok"] = False
             payload["error"] = relay_error
     else:
-        payload["error"] = "مفيش حاجة تتبعت."
+        import json as _json
+
+        try:
+            detail = _json.loads(response.content)
+        except ValueError:
+            detail = {}
+        payload["code"] = detail.get("error") or ""
+        payload["choices"] = detail.get("choices") or []
+        payload["error"] = detail.get("message") or "مفيش حاجة تتبعت."
     return JsonResponse(payload, status=200)
 
 

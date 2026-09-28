@@ -384,6 +384,24 @@
                 data-ar-title="إلغاء الرد" data-en-title="Cancel reply">{% icon "x" "ic--sm" %}</button>
       </div>
 
+      {% if file_tasks %}
+        {# Shown while files are attached: which task they are for. Required when there is more than one. #}
+        <div class="cchat__pickbar cchat__filetask hidden" id="fileTaskBar">
+          {% icon "layers" "ic--sm" %}
+          <span data-ar="الملفات دي تبع:" data-en="These files are for:">الملفات دي تبع:</span>
+          <select class="input cchat__pickday" id="fileTask"
+                  data-ar-title="التاسك" data-en-title="Task" title="التاسك">
+            {% if file_tasks|length > 1 %}
+              <option value="" data-ar="اختار التاسك…" data-en="Pick the task…">اختار التاسك…</option>
+            {% endif %}
+            {% for item in file_tasks %}
+              <option value="{{ item.code }}">{{ item.code }} · {{ item.title|truncatechars:30 }}</option>
+            {% endfor %}
+            <option value="none" data-ar="مش تبع تاسك" data-en="Not for a task">مش تبع تاسك</option>
+          </select>
+        </div>
+      {% endif %}
+
       <form class="cchat__composer" id="chatComposer" autocomplete="off">
         {% csrf_token %}
         <label class="icon-btn" title="ملف">

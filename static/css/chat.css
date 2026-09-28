@@ -896,3 +896,10 @@ html.chat-locked body {
   font-size: .72rem;
 }
 .bub__file--img .bub__handbtn { margin-top: 6px; }
+
+/* Which task the attached files are for - sits above the composer. */
+.cchat__filetask select { min-width: 200px; }
+.cchat__filetask.is-missing select {
+  border-color: var(--danger, #e5484d);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger, #e5484d) 25%, transparent);
+}

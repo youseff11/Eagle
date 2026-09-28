@@ -8379,3 +8379,113 @@ class HandInFromChatTests(TestCase):
         self.client.force_login(self.lead)
         html = self.client.get(f"/ops/chats/g/{self.group.pk}/").content.decode()
         self.assertNotIn('id="handinToggle"', html)
+
+
+class FileTaskPickerTests(TestCase):
+    """Files sent in the chat say which task they are for (28/09/2026).
+
+    The bug: a translator with TSK-00003 and TSK-00004 both running sent the
+    translation of 00004 in their group, the system guessed, and it landed on
+    00003 - so 00004's page still said nothing was uploaded. Now the sender
+    picks the task, and with more than one the send is refused until they do.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user("own_fp", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_fp", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_fp", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_fp", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.other_tr = User.objects.create_user(
+            "tr2_fp", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.client_obj = Client.objects.create(name="ACME", phone="+201000000098")
+        self.first = self._running_task("First", self.tr)
+        self.second = self._running_task("Second", self.tr)
+        self.group = services.find_lead_translator_group(self.lead, self.tr)
+        self.group.members.add(self.admin)
+
+    def _running_task(self, title, translator):
+        task = services.create_task(
+            client=self.client_obj, title=title, created_by=self.ops,
+        )
+        first = services.assign_to_lead(task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(task, translator, self.lead)
+        services.accept_assignment(second, translator)
+        task.refresh_from_db()
+        return task
+
+    def _send(self, task=None, name="done.docx", body=""):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        data = {"body": body, "files": [SimpleUploadedFile(name, b"t")]}
+        if task is not None:
+            data["task"] = task
+        self.client.force_login(self.tr)
+        return self.client.post(f"/api/groups/{self.group.pk}/send/", data).json()
+
+    def _last(self):
+        return self.group.messages.order_by("-id").first()
+
+    def test_two_tasks_and_no_pick_is_refused_and_nothing_is_written(self):
+        before = self.group.messages.count()
+        res = self._send()
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["code"], "pick_task")
+        self.assertEqual(
+            sorted(c["code"] for c in res["choices"]),
+            sorted([self.first.code, self.second.code]),
+        )
+        self.assertEqual(self.group.messages.count(), before)
+
+    def test_the_picked_task_gets_the_file(self):
+        """The case in the screenshot: the file goes on the task picked."""
+        res = self._send(task=self.second.code)
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(self._last().task_id, self.second.pk)
+        self.assertEqual(
+            [a.original_name for a in services.translator_files(self.second)],
+            ["done.docx"],
+        )
+        self.assertEqual(services.translator_files(self.first), [])
+
+    def test_a_task_that_is_not_theirs_is_refused(self):
+        foreign = self._running_task("Foreign", self.other_tr)
+        before = self.group.messages.count()
+        res = self._send(task=foreign.code)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["code"], "bad_task")
+        self.assertEqual(self.group.messages.count(), before)
+
+    def test_not_for_a_task_is_sent_untagged(self):
+        res = self._send(task=services.NO_TASK)
+        self.assertTrue(res["ok"], res)
+        self.assertIsNone(self._last().task_id)
+
+    def test_one_task_is_picked_without_asking(self):
+        self.first.status = TaskStatus.DELIVERED
+        self.first.save(update_fields=["status"])
+        res = self._send()
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(self._last().task_id, self.second.pk)
+
+    def test_words_alone_are_never_asked(self):
+        self.client.force_login(self.tr)
+        res = self.client.post(
+            f"/api/groups/{self.group.pk}/send/", {"body": "hi"}
+        ).json()
+        self.assertTrue(res["ok"], res)
+        self.assertIsNone(self._last().task_id)
+
+    def test_the_admin_watching_is_not_a_reason_to_offer_their_tasks(self):
+        choices = services.file_task_choices(self.admin, self.group)
+        self.assertEqual(choices, [])
+
+    def test_the_group_page_shows_the_picker_with_both_tasks(self):
+        self.client.force_login(self.tr)
+        html = self.client.get(f"/ops/chats/g/{self.group.pk}/").content.decode()
+        self.assertIn('id="fileTask"', html)
+        self.assertIn(f'value="{self.first.code}"', html)
+        self.assertIn(f'value="{self.second.code}"', html)

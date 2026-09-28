@@ -1495,6 +1495,81 @@ def tag_task_message(message):
     return candidates[0]
 
 
+#: The value the chat's task picker sends for "these files are not on a task".
+NO_TASK = "none"
+
+
+def file_task_choices(user, room):
+    """The tasks a file ``user`` sends in ``room`` could belong to.
+
+    A live task the sender works on together with somebody else in this room
+    (the admin, who joins groups to watch them, does not count as that
+    somebody). The chat asks the sender to pick one of these when they attach
+    files - see ``pick_file_task``.
+
+    Empty for a client room or a task's own room: those already say which
+    task they are about.
+    """
+    if user is None or room is None or room.kind not in (RoomKind.STAFF, RoomKind.TEAM):
+        return []
+    members = set(room.members.values_list("pk", flat=True))
+    if user.pk not in members:
+        return []
+    others = set(
+        room.members.exclude(pk=user.pk).exclude(role=Role.ADMIN)
+        .exclude(is_superuser=True).values_list("pk", flat=True)
+    )
+    if not others:
+        return []
+    mine = (
+        Q(created_by=user) | Q(team_lead=user) | Q(translator=user)
+    )
+    theirs = (
+        Q(created_by_id__in=others) | Q(team_lead_id__in=others)
+        | Q(translator_id__in=others)
+    )
+    return list(
+        Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
+        .filter(mine).filter(theirs)
+        .select_related("client").distinct().order_by("id")
+    )
+
+
+PICK_TASK_AR = "حدد الملفات دي تبع أنهي تاسك قبل ما تبعت."
+PICK_TASK_EN = "Pick which task these files are for before sending."
+BAD_TASK_AR = "التاسك دي مش من التاسكات اللي بينك وبين الناس في الشات ده. حدّث الصفحة واختار تاني."
+BAD_TASK_EN = "That task is not one you share with this chat. Reload and pick again."
+
+
+def pick_file_task(user, room, raw):
+    """Which task files sent now belong to, from the chat's task picker.
+
+    Returns ``(task, error_code, choices)``:
+
+    - ``raw`` is a task code among the choices -> that task.
+    - ``raw`` is ``NO_TASK`` -> ``None``; the sender said so.
+    - nothing picked, one choice -> that one (the picker shows it preselected).
+    - nothing picked, more than one -> ``"pick_task"``. Guessing is what put a
+      translator's file on TSK-00003 while they were working on TSK-00004
+      (28/09/2026), so the sender is asked instead.
+    - a code that is not a choice -> ``"bad_task"``: it comes from the browser.
+    - no choices at all -> ``None``, and the caller falls back to
+      ``tag_task_message``.
+    """
+    choices = file_task_choices(user, room)
+    raw = (raw or "").strip()
+    if raw == NO_TASK:
+        return None, "", choices
+    if raw:
+        task = next((t for t in choices if t.code == raw), None)
+        return (task, "", choices) if task else (None, "bad_task", choices)
+    if len(choices) == 1:
+        return choices[0], "", choices
+    if len(choices) > 1:
+        return None, "pick_task", choices
+    return None, "", choices
+
+
 def ai_suggestions_for(viewer, other):
     """The AI's notes on what ``other`` just handed ``viewer`` for review.
 
