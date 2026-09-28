@@ -177,6 +177,13 @@ def database_from_url(url):
         # dropped one from surfacing as a 500.
         "CONN_MAX_AGE": int(env("EAGLE_CONN_MAX_AGE", default="60")),
         "CONN_HEALTH_CHECKS": True,
+        # Neon's pooler is PgBouncer in transaction mode, and a server-side
+        # cursor does not survive it: Django opens one for every .iterator(),
+        # including the <select> of a form, and the next request on the same
+        # pooled connection fails with 'cursor "_django_curs_..." already
+        # exists' - a 500 on /ops/tasks/new/ (28/09/2026). Django's docs say
+        # to switch them off behind transaction pooling.
+        "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 
 

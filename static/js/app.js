@@ -845,7 +845,10 @@ window.Eagle = (function () {
    */
   function initMailThread() {
     var list = $("#threadList");
-    if (!list) { return; }
+    // The chats page has a #threadList too (its conversation list), with no
+    // live URL on it. Without this guard that page asked for "null?after=0"
+    // every three seconds - /ops/chats/null/ 404s all day in the error log.
+    if (!list || !list.getAttribute("data-live-url")) { return; }
 
     var expandAll = $("#threadExpandAll");
     if (expandAll) {
