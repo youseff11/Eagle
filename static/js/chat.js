@@ -1325,10 +1325,15 @@
       var ids = Object.keys(handed);
       var code = handinTask ? handinTask.value : "";
       if (!ids.length || !code) { return; }
-      var ok = window.confirm(E.t(
-        "الملفات دي هتتسجّل على " + code + " والتاسك هتروح للمراجعة. تمام؟",
-        "These files go on " + code + " and the task goes to review. Go ahead?"));
-      if (!ok) { return; }
+      E.ask({
+        title_ar: "الملفات دي هتتسجّل على " + code + " والتاسك هتروح للمراجعة. تمام؟",
+        title_en: "These files go on " + code + " and the task goes to review. Go ahead?",
+        ok_ar: "تمام، ابعت", ok_en: "Yes, send"
+      }).then(function (yes) { if (yes) { handIn(ids, code); } });
+    });
+  }
+
+  function handIn(ids, code) {
       var data = new FormData();
       ids.forEach(function (id) { data.append("files", id); });
       handinSend.disabled = true;
@@ -1341,7 +1346,6 @@
           E.toast({ level: "danger", title: E.t("مش ممكن", "Not possible"), body: res.error || "" });
         }
       });
-    });
   }
 
   /* ---------------------------------------------- forward messages/files */

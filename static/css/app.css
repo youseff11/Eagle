@@ -991,23 +991,48 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
 
 /* ------------------------------------------------------------------ toast */
 
+/* Top centre, where the eye already is - not a bottom corner nobody looks at
+   (28/09/2026). Newest at the bottom of the stack, four at most (app.js). */
 .toasts {
-  position: fixed; inset-block-end: 18px; inset-inline-end: 18px;
-  display: flex; flex-direction: column; gap: 9px; z-index: 200; max-width: 340px;
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 10px; z-index: 400;
+  width: min(440px, calc(100vw - 24px)); pointer-events: none;
 }
 .toast {
-  display: flex; gap: 10px; align-items: flex-start;
+  display: flex; gap: 12px; align-items: flex-start; position: relative;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 11px 13px; box-shadow: var(--shadow);
-  animation: slide-in .22s ease;
+  border-inline-start: 4px solid var(--info);
+  border-radius: 12px; padding: 13px 40px 13px 15px;
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .08);
+  animation: toast-in .28s cubic-bezier(.2, .9, .3, 1.2);
+  pointer-events: auto; transition: opacity .25s ease, transform .25s ease;
+}
+[dir="rtl"] .toast { padding: 13px 15px 13px 40px; }
+.toast--success { border-inline-start-color: var(--ok); }
+.toast--warning { border-inline-start-color: var(--warn); }
+.toast--danger { border-inline-start-color: var(--danger); }
+.toast .ic { width: 20px; height: 20px; }
+.toast > div { flex: 1; min-width: 0; }
+.toast.is-leaving { opacity: 0; transform: translateY(-8px) scale(.98); }
+.toast__close {
+  position: absolute; top: 8px; inset-inline-end: 8px;
+  width: 26px; height: 26px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  display: grid; place-items: center;
+}
+.toast__close:hover { background: var(--surface-3); color: var(--heading); }
+.toast__close .ic { width: 14px; height: 14px; margin: 0; color: inherit; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-14px) scale(.97); }
+  to { opacity: 1; transform: none; }
 }
 .toast .ic { flex: none; margin-top: 2px; }
 .toast--info .ic { color: var(--info); }
 .toast--success .ic { color: var(--ok); }
 .toast--warning .ic { color: var(--warn); }
 .toast--danger .ic { color: var(--danger); }
-.toast__title { font-weight: 620; font-size: .845rem; color: var(--heading); }
-.toast__body { font-size: .79rem; color: var(--muted); }
+.toast__title { font-weight: 650; font-size: .92rem; color: var(--heading); }
+.toast__body { font-size: .84rem; color: var(--muted); margin-top: 2px; }
 @keyframes slide-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ------------------------------------------------------------------ modal */
@@ -1023,6 +1048,23 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   box-shadow: var(--shadow); text-align: center;
 }
 .modal__title { font-size: 1.1rem; font-weight: 660; color: var(--heading); margin-bottom: 4px; }
+
+/* The site's own confirm box (app.js ask) instead of the browser's. */
+.ask { animation: ask-fade .16s ease; z-index: 450; }
+.ask.is-leaving { opacity: 0; transition: opacity .15s ease; }
+.ask__box { width: min(400px, 100%); padding: 26px 24px 20px; animation: ask-pop .2s cubic-bezier(.2, .9, .3, 1.2); }
+.ask__icon {
+  width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info);
+}
+.ask__icon.is-danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ask__icon .ic { width: 26px; height: 26px; }
+.ask__body { font-size: .88rem; margin-top: 6px; }
+.ask__actions { justify-content: center; margin-top: 20px; gap: 10px; }
+.ask__actions .btn { min-width: 110px; justify-content: center; }
+@keyframes ask-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ask-pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
 
 /* A box taller than the screen scrolls inside itself instead of pushing its
    buttons below the bottom edge - an old laptop at 1366x768 with the browser

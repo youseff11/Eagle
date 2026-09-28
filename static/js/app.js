@@ -131,24 +131,51 @@ window.Eagle = (function () {
     return state.audio;
   }
 
-  function beep(times, frequency) {
+  /* A chime, not a beep: two notes a fifth apart, each a sine with a quiet
+     octave on top so it carries on laptop speakers, through a compressor so
+     it can be loud without clipping (28/09/2026 - the old single sine at
+     0.28 was easy to miss). ``times`` rings it that many times; ``frequency``
+     is the first note. */
+  function chimeOut(ctx) {
+    if (!state.chimeOut) {
+      var squeeze = ctx.createDynamicsCompressor();
+      squeeze.threshold.value = -14;
+      squeeze.knee.value = 8;
+      squeeze.ratio.value = 6;
+      squeeze.attack.value = 0.003;
+      squeeze.release.value = 0.2;
+      squeeze.connect(ctx.destination);
+      state.chimeOut = squeeze;
+    }
+    return state.chimeOut;
+  }
+
+  function note(ctx, out, hz, start, length, level) {
+    [[1, 1], [2, 0.28]].forEach(function (part) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(hz * part[0], start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(level * part[1], start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+      osc.connect(gain).connect(out);
+      osc.start(start);
+      osc.stop(start + length + 0.02);
+    });
+  }
+
+  function beep(times, frequency, soft) {
     var ctx = audioCtx();
     if (!ctx) { return; }
+    var out = chimeOut(ctx);
+    var base = frequency || 880;
+    var level = soft ? 0.35 : 0.9;
     var count = times || 1;
     for (var i = 0; i < count; i++) {
-      (function (index) {
-        var osc = ctx.createOscillator();
-        var gain = ctx.createGain();
-        var start = ctx.currentTime + index * 0.28;
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(frequency || 880, start);
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.28, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + 0.24);
-      })(i);
+      var start = ctx.currentTime + 0.02 + i * 0.55;
+      note(ctx, out, base, start, 0.32, level);
+      note(ctx, out, base * 1.5, start + 0.14, 0.42, level);
     }
   }
 
@@ -170,11 +197,82 @@ window.Eagle = (function () {
       el.style.cursor = "pointer";
       el.addEventListener("click", function () { window.location.href = options.url; });
     }
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast__close";
+    close.setAttribute("aria-label", t("اقفل", "Close"));
+    close.innerHTML = svgIcon("x");
+    close.addEventListener("click", function (event) {
+      event.stopPropagation();
+      dismiss();
+    });
+    el.appendChild(close);
+    function dismiss() {
+      el.classList.add("is-leaving");
+      setTimeout(function () { el.remove(); }, 260);
+    }
     host.appendChild(el);
-    setTimeout(function () {
-      el.style.opacity = "0";
-      setTimeout(function () { el.remove(); }, 300);
-    }, options.sticky ? 15000 : 7000);
+    // Never more than four at once: the oldest goes first.
+    while (host.children.length > 4) { host.removeChild(host.firstChild); }
+    setTimeout(dismiss, options.sticky ? 15000 : 7000);
+  }
+
+  /* ------------------------------------------------------ confirm dialog */
+
+  /* The site's own "are you sure?" box, instead of the browser's grey
+     "eagel-operation.com says..." one (28/09/2026). Returns a promise of
+     true/false. Enter confirms, Escape or a click outside cancels.
+
+       ask({ title_ar, title_en, body_ar, body_en, ok_ar, ok_en, danger })
+       ask("نص عربي", "English text")   // the short form */
+  function ask(options, en) {
+    if (typeof options === "string") {
+      options = { title_ar: options, title_en: en || options };
+    }
+    options = options || {};
+    return new Promise(function (resolve) {
+      var back = document.createElement("div");
+      back.className = "modal-backdrop ask";
+      back.setAttribute("role", "dialog");
+      back.setAttribute("aria-modal", "true");
+      var danger = !!options.danger;
+      back.innerHTML =
+        '<div class="modal ask__box">' +
+          '<div class="ask__icon' + (danger ? " is-danger" : "") + '">' +
+            svgIcon(danger ? "alert" : "info") + "</div>" +
+          '<div class="modal__title">' +
+            escapeHtml(t(options.title_ar || "", options.title_en || options.title_ar || "")) + "</div>" +
+          (options.body_ar ? '<div class="muted ask__body">' +
+            escapeHtml(t(options.body_ar, options.body_en || options.body_ar)) + "</div>" : "") +
+          '<div class="row ask__actions">' +
+            '<button type="button" class="btn ' + (danger ? "btn--danger" : "btn--primary") + '" data-ask="yes">' +
+              escapeHtml(t(options.ok_ar || "تأكيد", options.ok_en || "Confirm")) + "</button>" +
+            '<button type="button" class="btn btn--ghost" data-ask="no">' +
+              escapeHtml(t(options.cancel_ar || "إلغاء", options.cancel_en || "Cancel")) + "</button>" +
+          "</div>" +
+        "</div>";
+      var before = document.activeElement;
+      function done(answer) {
+        document.removeEventListener("keydown", onKey, true);
+        back.classList.add("is-leaving");
+        setTimeout(function () { back.remove(); }, 160);
+        if (before && before.focus) { try { before.focus(); } catch (e) { /* gone */ } }
+        resolve(answer);
+      }
+      function onKey(event) {
+        if (event.key === "Escape") { event.preventDefault(); done(false); }
+        else if (event.key === "Enter") { event.preventDefault(); done(true); }
+      }
+      back.addEventListener("click", function (event) {
+        var button = event.target.closest && event.target.closest("[data-ask]");
+        if (button) { done(button.getAttribute("data-ask") === "yes"); return; }
+        if (event.target === back) { done(false); }
+      });
+      document.addEventListener("keydown", onKey, true);
+      document.body.appendChild(back);
+      var yes = back.querySelector('[data-ask="yes"]');
+      if (yes) { yes.focus(); }
+    });
   }
 
   /* ------------------------------------------------- 60s assignment modal */
@@ -485,7 +583,7 @@ window.Eagle = (function () {
             url: n.url,
             sticky: n.level === "danger"
           });
-          if (n.sound) { beep(2, 760); }
+          if (n.sound) { beep(2, 784); } else { beep(1, 988, true); }
         });
 
         var bell = $("#bellCount");
@@ -647,11 +745,18 @@ window.Eagle = (function () {
       var el = event.target && event.target.closest && event.target.closest("[data-action]");
       if (!el || el.disabled) { return; }
 
-      var url = el.getAttribute("data-action");
       var confirmAr = el.getAttribute("data-confirm-ar");
-      if (confirmAr && !window.confirm(t(confirmAr, el.getAttribute("data-confirm-en") || confirmAr))) {
-        return;
-      }
+      if (!confirmAr) { runAction(el); return; }
+      ask({
+        title_ar: confirmAr,
+        title_en: el.getAttribute("data-confirm-en") || confirmAr,
+        danger: el.classList.contains("btn--danger")
+      }).then(function (yes) { if (yes) { runAction(el); } });
+    });
+  }
+
+  function runAction(el) {
+      var url = el.getAttribute("data-action");
       el.disabled = true;
       var payload = {};
       var fieldId = el.getAttribute("data-field");
@@ -684,7 +789,6 @@ window.Eagle = (function () {
           });
         }
       });
-    });
   }
 
   /* -------------------------------------------------------- live inbox */
@@ -1056,10 +1160,11 @@ window.Eagle = (function () {
 
     sendBtn.addEventListener("click", function () { run(true, sendBtn); });
     skipBtn.addEventListener("click", function () {
-      if (window.confirm(t("تقفل التاسك من غير ما تبعت للعميل؟",
-        "Close the task without sending anything to the client?"))) {
-        run(false, skipBtn);
-      }
+      ask({
+        title_ar: "تقفل التاسك من غير ما تبعت للعميل؟",
+        title_en: "Close the task without sending anything to the client?",
+        ok_ar: "اقفلها", ok_en: "Close it", danger: true
+      }).then(function (yes) { if (yes) { run(false, skipBtn); } });
     });
   }
 
@@ -1990,7 +2095,7 @@ window.Eagle = (function () {
   document.addEventListener("DOMContentLoaded", init);
 
   return {
-    t: t, toast: toast, beep: beep, post: post, get: get,
+    t: t, toast: toast, beep: beep, post: post, get: get, ask: ask,
     applyLang: applyLang, applyTheme: applyTheme, escapeHtml: escapeHtml,
     voiceHtml: voiceHtml, svgIcon: svgIcon
   };
