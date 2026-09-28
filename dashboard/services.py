@@ -2228,15 +2228,18 @@ def mark_translated(task, user):
     task.translated_at = timezone.now()
     task.save(update_fields=["status", "translated_at", "updated_at"])
 
-    # The moment the files are all in is the moment to read them. A failure
-    # here must never block the translator from handing the job over, so the
-    # count is best-effort and the task detail page says what it found.
-    try:
-        from . import wordcount
+    # The word count is typed by a person now (28/09/2026) - nothing is read
+    # out of the files. A number somebody already typed (on the new-task
+    # form, or on the task page) stands; otherwise the task is marked as
+    # waiting for one, which is what the payroll page warns about.
+    from .models import WordCountState
 
-        wordcount.recount_task(task)
-    except Exception:
-        log(user, "task.word_count.failed", task.code)
+    if task.word_count_state != WordCountState.CONFIRMED:
+        task.word_count_state = (
+            WordCountState.CONFIRMED if task.word_count else WordCountState.MANUAL_NEEDED
+        )
+        task.word_count_note = "" if task.word_count else "اكتب عدد الكلمات بإيدك"
+        task.save(update_fields=["word_count_state", "word_count_note", "updated_at"])
 
     room = task_thread(task, task.team_lead, user)
     # The quality pass runs itself. A gate somebody has to remember to press

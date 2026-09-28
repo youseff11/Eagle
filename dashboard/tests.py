@@ -670,12 +670,44 @@ class TaskWordCountTests(TestCase):
         wordcount.recount_task(self.task)
         self.assertEqual(self.task.word_count_state, WordCountState.AUTO)
 
-    def test_finishing_the_translation_counts_the_files(self):
+    def test_finishing_the_translation_leaves_the_count_to_a_person(self):
+        """Nothing is read out of the files any more (28/09/2026)."""
+        from .models import WordCountState
+
         self.add_source(1200)
         self.add_translation(1300)
         services.mark_translated(self.task, self.tr)
         self.task.refresh_from_db()
-        self.assertEqual(self.task.word_count, 1200)
+        self.assertEqual(self.task.word_count, 0)
+        self.assertEqual(self.task.word_count_state, WordCountState.MANUAL_NEEDED)
+
+    def test_a_number_typed_at_creation_stands(self):
+        from .models import WordCountState
+
+        self.task.word_count = 800
+        self.task.save(update_fields=["word_count"])
+        self.add_translation(1300)
+        services.mark_translated(self.task, self.tr)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.word_count, 800)
+        self.assertEqual(self.task.word_count_state, WordCountState.CONFIRMED)
+
+    def test_the_leader_types_it_on_the_task_page(self):
+        from .models import WordCountState
+
+        self.client.force_login(self.lead)
+        self.client.post(f"/tasks/{self.task.code}/words/", {"action": "manual", "words": "950"})
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.word_count, 950)
+        self.assertEqual(self.task.word_count_state, WordCountState.CONFIRMED)
+
+    def test_reading_the_files_is_switched_off(self):
+        self.add_source(1000)
+        self.client.force_login(self.lead)
+        response = self.client.post(f"/tasks/{self.task.code}/words/", {"action": "recount"})
+        self.assertEqual(response.status_code, 404)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.source_words, 0)
 
     def test_the_translator_cannot_settle_their_own_count(self):
         self.add_source(1000)

@@ -1131,7 +1131,7 @@ def assignment_preview(request, pk):
 @login_required
 @require_POST
 def task_word_count(request, code):
-    """Recount from the files, or accept a number a person stands behind."""
+    """Set the word count by hand - the only way it is set (28/09/2026)."""
     task = get_object_or_404(Task, code=code)
     user = request.user
     # The translator uploads the file their own bonus is measured from, so
@@ -1139,20 +1139,14 @@ def task_word_count(request, code):
     if not (user.is_admin_role or user.is_operation or task.team_lead_id == user.id):
         raise Http404
 
-    action = request.POST.get("action") or "recount"
-    if action == "recount":
-        wordcount.recount_task(task)
-        services.log(user, "task.word_count.recount", task.code, str(task.word_count))
-    elif action == "manual":
-        raw = (request.POST.get("words") or "").strip()
-        if not raw.isdigit():
-            flash.error(request, "اكتب رقم صحيح.")
-            return redirect("dashboard:task_detail", code=code)
-        wordcount.confirm_task(task, user, words=int(raw))
-    elif action in ("source", "translated"):
-        wordcount.confirm_task(task, user, use=action)
-    else:
+    # Reading the number out of the files is switched off: a person types it.
+    if (request.POST.get("action") or "manual") != "manual":
         raise Http404
+    raw = (request.POST.get("words") or "").strip()
+    if not raw.isdigit():
+        flash.error(request, "اكتب رقم صحيح.")
+        return redirect("dashboard:task_detail", code=code)
+    wordcount.confirm_task(task, user, words=int(raw))
 
     flash.success(request, str(task.word_count))
     return redirect("dashboard:task_detail", code=code)
