@@ -1637,14 +1637,21 @@ def ai_check(request, code):
 
     # Blank boxes mean "read the files" - the same ones the automatic check
     # reads, so a re-run by hand cannot quietly look at something else.
+    source_docs, translated_docs = [], []
     if not source_text.strip() or not translated_text.strip():
         from_files_source, from_files_translated = ai.collect_texts(task)
-        source_text = source_text or from_files_source
-        translated_text = translated_text or from_files_translated
+        docs_source, docs_translated = ai.collect_documents(task)
+        if not source_text.strip():
+            source_text, source_docs = from_files_source, docs_source
+        if not translated_text.strip():
+            translated_text, translated_docs = from_files_translated, docs_translated
 
     requirements = ai.requirements_text(task)
 
-    result = ai.run_check(task, user, source_text, translated_text, requirements)
+    result = ai.run_check(
+        task, user, source_text, translated_text, requirements,
+        source_docs, translated_docs,
+    )
     return JsonResponse({
         "ok": result.status != result.Status.ERROR,
         "status": result.status,

@@ -8705,3 +8705,100 @@ class MoreTimeIsEasyToFindTests(TestCase):
         self.client.force_login(self.lead)
         html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
         self.assertNotIn("data-open-more-time", html)
+
+
+class AICheckReadsPdfTests(TestCase):
+    """The AI check hands PDFs and page images to the model (28/09/2026).
+
+    It used to read Word and text files only, so a PDF job came back
+    "No translated text to review". The server does not extract anything:
+    the file goes over whole and the model reads it, scans included.
+    """
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from .models import AppSettings
+
+        conf = AppSettings.load()
+        conf.ai_check_enabled = True
+        conf.claude_api_key = "test-key"
+        conf.save()
+        self.ops = User.objects.create_user("ops_pdf", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_pdf", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_pdf", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        acme = Client.objects.create(name="ACME", phone="+201000000093")
+        self.task = services.create_task(client=acme, title="Doc", created_by=self.ops)
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        services.upload_translation(
+            self.task, self.tr,
+            [SimpleUploadedFile("translated.pdf", b"%PDF-1.4 fake", content_type="application/pdf")],
+        )
+
+    def _captured_call(self):
+        """Run the check with the network replaced; return the JSON sent."""
+        import io
+        import json
+        from unittest import mock
+
+        from . import ai
+
+        sent = {}
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake(request, timeout=None):
+            sent["payload"] = json.loads(request.data.decode("utf-8"))
+            body = {"content": [{"type": "text", "text": '{"summary_en": "ok", "summary_ar": "تمام", "issues": []}'}]}
+            return Reply(json.dumps(body).encode("utf-8"))
+
+        with mock.patch("dashboard.ai.net.urlopen", side_effect=fake):
+            result = ai.finish_check(
+                ai.AICheckResult.objects.create(task=self.task, status="running").pk,
+                notify_lead=False,
+            )
+        return result, sent.get("payload")
+
+    def test_the_translated_pdf_is_collected(self):
+        from . import ai
+
+        _source, translated = ai.collect_documents(self.task)
+        self.assertEqual([d["name"] for d in translated], ["translated.pdf"])
+        self.assertEqual(translated[0]["media_type"], "application/pdf")
+
+    def test_a_pdf_only_job_is_reviewed_not_refused(self):
+        result, payload = self._captured_call()
+        self.assertEqual(result.status, "clean", result.error_message)
+        blocks = payload["messages"][0]["content"]
+        kinds = [b["type"] for b in blocks]
+        self.assertIn("document", kinds)
+        doc = next(b for b in blocks if b["type"] == "document")
+        self.assertEqual(doc["source"]["media_type"], "application/pdf")
+
+    def test_an_image_goes_as_an_image(self):
+        from . import ai
+
+        self.assertEqual(ai.media_type_of("scan.JPG"), "image/jpeg")
+        self.assertEqual(ai.media_type_of("notes.docx"), "")
+
+    def test_files_past_the_limit_are_left_out_and_said_so(self):
+        from . import ai
+
+        big = {"name": "huge.pdf", "media_type": "application/pdf",
+               "data": b"x" * (ai.MAX_DOCUMENT_BYTES + 1)}
+        small = {"name": "small.pdf", "media_type": "application/pdf", "data": b"x"}
+        src, tr, dropped = ai._fit([big], [small])
+        self.assertEqual([d["name"] for d in tr], ["small.pdf"])
+        self.assertEqual(src, [])
+        self.assertEqual(dropped, ["huge.pdf"])
