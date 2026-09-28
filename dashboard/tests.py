@@ -8489,3 +8489,111 @@ class FileTaskPickerTests(TestCase):
         self.assertIn('id="fileTask"', html)
         self.assertIn(f'value="{self.first.code}"', html)
         self.assertIn(f'value="{self.second.code}"', html)
+
+
+class ReviewedFilesToOperationTests(TestCase):
+    """«تمت المراجعة» puts the files in the leader's chat with the operation
+    (28/09/2026), under a card saying which task they are, so the operation
+    forwards them to the client's chat from there.
+    """
+
+    def setUp(self):
+        self.ops = User.objects.create_user("ops_rf", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_rf", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_rf", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        self.acme = Client.objects.create(name="ACME", phone="+201000000097")
+        self.other = Client.objects.create(name="Other", phone="+201000000096")
+        self.task = services.create_task(
+            client=self.acme, title="Contract", created_by=self.ops,
+        )
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        hand_in_translation(self.task, self.tr)
+        self.task.refresh_from_db()
+        self.room = services.staff_room(self.lead, self.ops)
+
+    def _file_messages(self):
+        return [m for m in self.room.messages.filter(is_system=False)
+                if m.attachments.exists()]
+
+    def test_the_files_land_in_the_private_chat_with_the_operation(self):
+        services.mark_reviewed(self.task, self.lead)
+        rows = self._file_messages()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].sender_id, self.lead.pk)
+        self.assertEqual(
+            [a.original_name for a in rows[0].attachments.all()], ["translated.txt"]
+        )
+        # The same stored file, not a copy.
+        source = services.translator_files(self.task)[0]
+        self.assertEqual(rows[0].attachments.get().file.name, source.file.name)
+
+    def test_the_card_says_which_task_it_is(self):
+        services.mark_reviewed(self.task, self.lead)
+        card = self.room.messages.filter(system_key="reviewed_files").get()
+        self.assertTrue(card.is_system)
+        self.assertIn(self.task.code, card.body)
+        self.assertIn(self.acme.code, card.body)
+        self.assertIn("Contract", card.body)
+
+    def test_the_file_message_has_no_text_to_leak_to_the_client(self):
+        services.mark_reviewed(self.task, self.lead)
+        self.assertEqual(self._file_messages()[0].body, "")
+
+    def test_it_is_not_listed_twice_for_delivery(self):
+        services.mark_reviewed(self.task, self.lead)
+        from .models import ChatAttachment
+
+        rows = ChatAttachment.objects.filter(services.task_files_filter(self.task))
+        self.assertEqual(rows.count(), 1)
+
+    def test_a_second_press_does_not_post_the_files_again(self):
+        services.mark_reviewed(self.task, self.lead)
+        services.mark_reviewed(self.task, self.lead)
+        self.assertEqual(len(self._file_messages()), 1)
+
+    def test_the_operation_forwards_them_to_the_client(self):
+        from unittest import mock
+
+        services.mark_reviewed(self.task, self.lead)
+        message = self._file_messages()[0]
+        with mock.patch(
+            "dashboard.services.send_client_message", return_value=(True, None, "")
+        ) as send:
+            ok, error, _url = services.forward_to_chat(
+                self.ops, f"u{self.lead.pk}", self.acme.code,
+                uids=[f"g{self.room.pk}-{message.pk}"],
+            )
+        self.assertTrue(ok, error)
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(send.call_args.kwargs["body"], "")
+        self.assertEqual(len(send.call_args.kwargs["reuse_files"]), 1)
+
+    def test_they_cannot_be_forwarded_to_another_client(self):
+        services.mark_reviewed(self.task, self.lead)
+        message = self._file_messages()[0]
+        ok, _error, _url = services.forward_to_chat(
+            self.ops, f"u{self.lead.pk}", self.other.code,
+            uids=[f"g{self.room.pk}-{message.pk}"],
+        )
+        self.assertFalse(ok)
+
+    def test_after_a_send_back_only_the_new_version_goes(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        services.send_back_for_revision(self.task, self.lead, "fix")
+        self.task.refresh_from_db()
+        services.upload_translation(
+            self.task, self.tr, [SimpleUploadedFile("v2.txt", b"v2")],
+        )
+        services.mark_translated(self.task, self.tr)
+        self.task.refresh_from_db()
+        services.mark_reviewed(self.task, self.lead)
+        rows = self._file_messages()
+        self.assertEqual(
+            [a.original_name for a in rows[-1].attachments.all()], ["v2.txt"]
+        )

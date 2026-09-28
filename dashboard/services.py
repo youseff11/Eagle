@@ -2231,20 +2231,87 @@ def mark_translated(task, user):
     return True
 
 
+def share_reviewed_files(task, lead):
+    """Put the reviewed translation into the leader's chat with the operation.
+
+    The operation used to hear "reviewed" and then go to the task page to find
+    the files. Now the files arrive in the private chat with the leader, under
+    a card that says which task they are, and the operation forwards them to
+    the client's chat from there (28/09/2026).
+
+    Two messages on purpose:
+
+    - the card is a system line, so it can never be forwarded - it carries the
+      task code and the title, which are ours, not the client's;
+    - the files go in a message of their own with no text, so forwarding it
+      sends the client the files and nothing else.
+
+    The file message carries no ``task``: the translator's own message already
+    does, and a second link would list every file twice for delivery and
+    count its words twice. Each file is marked as that client's
+    (``origin_client``), which is what stops it being forwarded to anybody
+    else and masks its name for whoever may not see the client.
+
+    Returns the file message, or ``None`` when there is nothing to send or
+    nobody to send it to. Best effort: never undoes the review.
+    """
+    ops = task.created_by
+    if ops is None or lead is None or ops.pk == lead.pk:
+        return None
+    try:
+        files = translator_files(task, since=task.returned_at) or translator_files(task)
+        room = pair_room(lead, ops)
+        if room is None or not files:
+            return None
+        langs = " → ".join(x for x in (task.source_lang, task.target_lang) if x)
+        facts = " · ".join(x for x in (task.code, task.client.code, task.title, langs) if x)
+        with transaction.atomic():
+            system_message(
+                room, key="reviewed_files",
+                body_ar=(
+                    f"الترجمة النهائية بعد المراجعة: {facts} · {len(files)} ملف. "
+                    "تقدر تستلمها وتبعتها للعميل: حدد رسالة الملفات اللي تحت "
+                    "وحوّلها لشات العميل."
+                ),
+                body_en=(
+                    f"Final translation after review: {facts} · {len(files)} file(s). "
+                    "Pick the files message below and forward it to the client's chat."
+                ),
+            )
+            message = ChatMessage.objects.create(room=room, sender=lead, body="")
+            for attachment in files:
+                ChatAttachment.objects.create(
+                    message=message, file=attachment.file.name,
+                    original_name=attachment.original_name
+                    or attachment.file.name.rsplit("/", 1)[-1],
+                    size=attachment.size or 0, origin_client_id=task.client_id,
+                )
+        log(lead, "task.reviewed_files_shared", task.code, f"{len(files)} file(s)")
+        return message
+    except Exception:  # noqa: BLE001 - a chat message must never undo a review
+        logger.exception("could not share the reviewed files for %s", task.code)
+        return None
+
+
 def mark_reviewed(task, user):
     if task.team_lead_id != user.id and not user.is_admin_role:
         return False
+    # A second press on a reviewed task must not post the files again.
+    already = task.status == TaskStatus.REVIEWED
     task.status = TaskStatus.REVIEWED
     task.reviewed_at = timezone.now()
     task.save(update_fields=["status", "reviewed_at", "updated_at"])
-    # The last leg up: whoever opened the task hears it from the team leader
-    # in their own conversation, and then delivers to the client.
-    notify_in_chat(
-        task.created_by, user,
-        body_ar=f"راجعت {task.code} وخلصت. تقدر تستلمها وتبعتها للعميل.",
-        body_en=f"{task.code} is reviewed. You can take it over and deliver.",
-        key="reviewed",
-    )
+    # The last leg up: the reviewed files land in the leader's private chat
+    # with whoever opened the task, and they forward them to the client.
+    # With no file to send, the plain note is still written.
+    shared = None if already else share_reviewed_files(task, task.team_lead or user)
+    if shared is None and not already:
+        notify_in_chat(
+            task.created_by, user,
+            body_ar=f"راجعت {task.code} وخلصت. تقدر تستلمها وتبعتها للعميل.",
+            body_en=f"{task.code} is reviewed. You can take it over and deliver.",
+            key="reviewed",
+        )
     room = task_thread(task, task.created_by, user)
     system_message(
         room, key="reviewed",
