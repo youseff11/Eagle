@@ -8802,3 +8802,61 @@ class AICheckReadsPdfTests(TestCase):
         self.assertEqual([d["name"] for d in tr], ["small.pdf"])
         self.assertEqual(src, [])
         self.assertEqual(dropped, ["huge.pdf"])
+
+
+class AINotesOnTaskPageTests(TestCase):
+    """The AI's notes sit open at the top of the task page (28/09/2026).
+
+    The leader was told "notes are ready" and found nothing: the card was for
+    the translator and the admin only, and showed a one-line summary.
+    """
+
+    def setUp(self):
+        from .models import AICheckResult
+
+        self.ops = User.objects.create_user("ops_an", password="x", role=Role.OPERATION)
+        self.lead = User.objects.create_user("lead_an", password="x", role=Role.TEAM_LEAD)
+        self.tr = User.objects.create_user(
+            "tr_an", password="x", role=Role.TRANSLATOR, team_lead=self.lead
+        )
+        acme = Client.objects.create(name="ACME", phone="+201000000092")
+        self.task = services.create_task(client=acme, title="Doc", created_by=self.ops)
+        first = services.assign_to_lead(self.task, self.lead, self.ops)
+        services.accept_assignment(first, self.lead)
+        second = services.assign_to_translator(self.task, self.tr, self.lead)
+        services.accept_assignment(second, self.tr)
+        self.task.refresh_from_db()
+        AICheckResult.objects.create(
+            task=self.task, status=AICheckResult.Status.ISSUES,
+            summary="Two problems",
+            issues=[
+                {"location": "para 2", "issue_ar": "رقم ناقص", "issue_en": "Missing number", "severity": "low"},
+                {"location": "title", "issue_ar": "اسم غلط", "issue_en": "Wrong name", "severity": "high"},
+            ],
+        )
+
+    def _page(self, user):
+        self.client.force_login(user)
+        return self.client.get(f"/tasks/{self.task.code}/").content.decode()
+
+    def test_the_leader_sees_every_note_at_the_top(self):
+        html = self._page(self.lead)
+        self.assertIn('id="aiNotes"', html)
+        self.assertIn("رقم ناقص", html)
+        self.assertIn("اسم غلط", html)
+        self.assertIn("para 2", html)
+
+    def test_the_most_serious_comes_first(self):
+        html = self._page(self.lead)
+        self.assertLess(html.index("اسم غلط"), html.index("رقم ناقص"))
+
+    def test_the_box_is_not_the_translators(self):
+        self.assertNotIn('id="aiNotes"', self._page(self.tr))
+
+    def test_the_notification_lands_on_the_notes(self):
+        from . import ai
+        from .models import Notification
+
+        ai._tell_the_team_leader(self.task.ai_checks.first())
+        note = Notification.objects.filter(user=self.lead).order_by("-id").first()
+        self.assertTrue(note.url.endswith("#aiNotes"))

@@ -1828,3 +1828,41 @@ img, video, canvas, svg:not(.ic) { max-width: 100%; }
 .fprev:hover .fprev__name { color: var(--brand); }
 .fprev-src { display: none !important; }
 .files .fprev { margin-top: 2px; }
+
+
+/* ------------------------------------------------ AI notes on a task page */
+/* The latest check, open, at the top of the page (templates/shared/_ai_notes.html). */
+.ai-notes { margin-bottom: 14px; border-inline-start: 4px solid var(--info); }
+.ai-notes--issues { border-inline-start-color: var(--warn); }
+.ai-notes--clean { border-inline-start-color: var(--ok); }
+.ai-notes--error { border-inline-start-color: var(--danger); }
+.ai-notes .card__head h2 { margin: 0; font-size: 1.05rem; }
+.ai-notes__when { font-size: .78rem; }
+.ai-notes__summary { margin: 0 0 12px; line-height: 1.75; color: var(--text); }
+.ai-notes__foot { font-size: .78rem; margin: 12px 0 0; }
+.ai-notes__error { font-size: .78rem; margin-top: 4px; overflow-wrap: anywhere; }
+.ai-issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ai-issue {
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border); border-inline-start: 3px solid var(--warn);
+  background: var(--surface-2);
+}
+.ai-issue--high { border-inline-start-color: var(--danger); }
+.ai-issue--low { border-inline-start-color: var(--info); }
+.ai-issue__top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.ai-issue__num {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-3); font-size: .75rem; flex: none;
+}
+.ai-issue__sev {
+  font-size: .72rem; font-weight: 650; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn);
+}
+.ai-issue--high .ai-issue__sev { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ai-issue--low .ai-issue__sev { background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info); }
+.ai-issue__where {
+  font-size: .8rem; color: var(--muted); background: var(--surface);
+  border: 1px dashed var(--border); border-radius: 6px; padding: 1px 7px;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.ai-issue__text { line-height: 1.7; color: var(--heading); overflow-wrap: anywhere; }

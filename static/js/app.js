@@ -1471,8 +1471,7 @@ window.Eagle = (function () {
       var ctrlK = (event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K");
       if (ctrlK || (event.key === "/" && !typing)) {
         event.preventDefault();
-        var bar = $(".sidebar");
-        if (bar && window.matchMedia("(max-width: 860px)").matches) { bar.classList.add("is-open"); }
+        if (state.openDrawer) { state.openDrawer(true); }
         input.focus();
         input.select();
       }
@@ -2041,6 +2040,93 @@ window.Eagle = (function () {
     }, 20000);
   }
 
+  /* ------------------------------------------------ tables on a phone */
+
+  /* Under 720px a table folds into one card per row (app.css .table--cards),
+     each cell printing its column's name beside its value. Every .table gets
+     that now - not only the ones whose template spelled the labels out - and
+     a cell with no label of its own borrows its column header's. A table
+     that must stay a grid says so with data-no-cards. (28/09/2026) */
+  function labelTables(root) {
+    $$(".table", root || document).forEach(function (table) {
+      if (table.hasAttribute("data-no-cards")) { return; }
+      table.classList.add("table--cards");
+      var wrap = table.closest(".table-wrap");
+      if (wrap) { wrap.classList.add("table-wrap--cards"); }
+      var heads = $$("thead th", table).map(function (th) {
+        return {
+          ar: th.getAttribute("data-ar") || (th.textContent || "").trim(),
+          en: th.getAttribute("data-en") || th.getAttribute("data-ar") || (th.textContent || "").trim()
+        };
+      });
+      $$("tbody tr", table).forEach(function (row) {
+        Array.prototype.forEach.call(row.children, function (cell, index) {
+          if (cell.hasAttribute("colspan")) { return; }
+          var head = heads[index] || { ar: "", en: "" };
+          if (!cell.hasAttribute("data-ar-label")) { cell.setAttribute("data-ar-label", head.ar); }
+          if (!cell.hasAttribute("data-en-label")) { cell.setAttribute("data-en-label", head.en); }
+        });
+      });
+    });
+  }
+
+  /* --------------------------------------------------------- phone drawer */
+
+  /* Below 900px the nav is a drawer over the page (28/09/2026). It closes
+     four ways: the X inside it, a tap on the dimmed page, Escape, and
+     following a link. While it is open the page behind does not scroll, and
+     the focus goes back to the menu button when it closes. Widening the
+     window past the break closes it - the rail is back, and a drawer left
+     "open" would leave the page locked with nothing on screen to unlock it. */
+  function initDrawer() {
+    var bar = $(".sidebar");
+    if (!bar) { return; }
+    var button = $(".menu-toggle");
+    var closer = $("#sidebarClose");
+    var narrow = window.matchMedia("(max-width: 900px)");
+    var scrim = document.createElement("div");
+    scrim.className = "drawer-scrim";
+    document.body.appendChild(scrim);
+
+    function isOpen() { return bar.classList.contains("is-open"); }
+    function set(open) {
+      bar.classList.toggle("is-open", open);
+      scrim.classList.toggle("is-open", open);
+      document.documentElement.classList.toggle("is-locked", open);
+      if (button) { button.setAttribute("aria-expanded", open ? "true" : "false"); }
+    }
+    function open(keepFocus) {
+      if (!narrow.matches) { return; }
+      set(true);
+      if (!keepFocus && closer) { try { closer.focus({ preventScroll: true }); } catch (e) { closer.focus(); } }
+    }
+    function close(returnFocus) {
+      if (!isOpen()) { return; }
+      set(false);
+      if (returnFocus && button) { button.focus(); }
+    }
+
+    if (button) {
+      button.addEventListener("click", function () {
+        if (isOpen()) { close(true); } else { open(); }
+      });
+    }
+    if (closer) { closer.addEventListener("click", function () { close(true); }); }
+    scrim.addEventListener("click", function () { close(true); });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && isOpen()) { close(true); }
+    });
+    bar.addEventListener("click", function (event) {
+      var link = event.target.closest && event.target.closest("a[href]");
+      if (link && narrow.matches) { close(false); }
+    });
+    function onBreak() { if (!narrow.matches) { set(false); } }
+    if (narrow.addEventListener) { narrow.addEventListener("change", onBreak); }
+    else if (narrow.addListener) { narrow.addListener(onBreak); }
+
+    state.openDrawer = open;
+  }
+
   /* ----------------------------------------------------------------- boot */
 
   function init() {
@@ -2058,13 +2144,10 @@ window.Eagle = (function () {
         applyTheme(state.theme === "dark" ? "light" : "dark");
       });
     }
-    var menuBtn = $(".menu-toggle");
-    if (menuBtn) {
-      menuBtn.addEventListener("click", function () {
-        var bar = $(".sidebar");
-        if (bar) { bar.classList.toggle("is-open"); }
-      });
-    }
+    initDrawer();
+    labelTables();
+    // Rows a live board swapped in need their labels too.
+    document.addEventListener("eagle:live", function () { labelTables(); });
 
     // Browsers block audio until the user interacts once.
     document.addEventListener("click", function unlock() {
@@ -2098,7 +2181,7 @@ window.Eagle = (function () {
   document.addEventListener("DOMContentLoaded", init);
 
   return {
-    t: t, toast: toast, beep: beep, post: post, get: get, ask: ask,
+    t: t, toast: toast, beep: beep, post: post, get: get, ask: ask, labelTables: labelTables,
     applyLang: applyLang, applyTheme: applyTheme, escapeHtml: escapeHtml,
     voiceHtml: voiceHtml, svgIcon: svgIcon
   };

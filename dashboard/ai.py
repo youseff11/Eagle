@@ -454,7 +454,7 @@ def _tell_the_team_leader(result):
             title_en="The AI check did not finish",
             body_ar=f"التاسك {task.code} - راجعها بنفسك.",
             body_en=f"Task {task.code} - review it yourself.",
-            level="warning", url=f"/tasks/{task.code}/", task=task,
+            level="warning", url=f"/tasks/{task.code}/#aiNotes", task=task,
         )
         return
     count = result.issue_count
@@ -465,7 +465,7 @@ def _tell_the_team_leader(result):
             title_en="AI notes are ready",
             body_ar=f"{count} ملاحظة على {task.code}.",
             body_en=f"{count} note(s) on {task.code}.",
-            level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+            level="warning", url=f"/tasks/{task.code}/#aiNotes", sound=True, task=task,
         )
     else:
         services.notify(
@@ -474,5 +474,5 @@ def _tell_the_team_leader(result):
             title_en="The AI found nothing",
             body_ar=f"فحص {task.code} عدّى نضيف - المراجعة البشرية لسه مطلوبة.",
             body_en=f"{task.code} came back clean - your own review still stands.",
-            level="info", url=f"/tasks/{task.code}/", task=task,
+            level="info", url=f"/tasks/{task.code}/#aiNotes", task=task,
         )

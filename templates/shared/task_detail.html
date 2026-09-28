@@ -172,6 +172,8 @@
   </div>
 {% endif %}
 
+{% if ai_latest %}{% include "shared/_ai_notes.html" %}{% endif %}
+
 <div class="grid grid--main">
 
   <!-- ============================== left column ============================== -->
@@ -317,7 +319,7 @@
     {% endif %}
 
     <!-- ------------------------------- AI check ------------------------------ -->
-    {% if user.is_translator or user.is_admin_role %}
+    {% if ai_can_see %}
       <div class="card">
         <div class="card__head">
           {% icon "sparkles" %}

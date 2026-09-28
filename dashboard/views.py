@@ -994,6 +994,7 @@ def task_detail(request, code):
         "requirement_form": RequirementForm(),
         "ai_form": AICheckForm(),
         "ai_checks": task.ai_checks.all()[:5],
+        **_ai_notes_context(task, user),
         "history": task.assignments.select_related("assignee", "assigned_by")[:20],
         "deliverables": deliverables,
         "deliveries": task.deliveries.select_related("created_by")[:5],
@@ -1028,6 +1029,31 @@ def task_detail(request, code):
         or task.team_lead_id == user.id,
     }
     return render(request, "shared/task_detail.html", context)
+
+
+_SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
+def _ai_notes_context(task, user):
+    """The latest AI check, for the box at the top of the task page.
+
+    The team leader is the one told "notes are ready", so they see it -
+    they could not before, the card was for the translator and the admin
+    only (28/09/2026). Most serious first.
+
+    The open box at the top is the leader's and the admin's: the notes are
+    suggestions for the review, kept out of the translator's way the same as
+    in the chat (services.ai_suggestions_for). The translator keeps the check
+    card they always had.
+    """
+    reviewer = user.is_admin_role or task.team_lead_id == user.id
+    can_see = reviewer or task.translator_id == user.id
+    if not reviewer:
+        return {"ai_can_see": can_see, "ai_latest": None, "ai_issues": []}
+    latest = task.ai_checks.order_by("-created_at", "-id").first()
+    issues = [i for i in ((latest.issues or []) if latest else []) if isinstance(i, dict)]
+    issues.sort(key=lambda i: _SEVERITY_RANK.get(i.get("severity"), 1))
+    return {"ai_can_see": True, "ai_latest": latest, "ai_issues": issues}
 
 
 def _extension_context(task, user):
