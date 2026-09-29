@@ -15,6 +15,8 @@ SEED = (
     "operation1@eaglelingua.com",
     "operation2@eaglelingua.com",
     "operation@eaglelingua.com",
+    "sales1@eaglelingua.com",
+    "sales2@eaglelingua.com",
     "sales@eaglelingua.com",
 )
 
