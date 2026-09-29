@@ -1996,6 +1996,14 @@ class AppSettings(models.Model):
         default=False,
         help_text="Mail to an address nobody holds reaches the admin only.",
     )
+    #: The aliases that exist on the company mailbox, one per line - what the
+    #: staff page offers in its list. Typed here because the mailbox itself
+    #: (Google Workspace) is not asked: adding one there, then here, is two
+    #: steps on purpose - an address that is only here would never arrive.
+    mail_aliases = models.TextField(
+        blank=True,
+        help_text="One address per line: the aliases on the company mailbox.",
+    )
 
     smtp_host = models.CharField(
         max_length=120, blank=True,
@@ -2050,6 +2058,16 @@ class AppSettings(models.Model):
             },
         )
         return obj
+
+    @property
+    def alias_list(self):
+        """``mail_aliases`` as clean addresses, lower-case, in order, once each."""
+        out = []
+        for line in (self.mail_aliases or "").replace(",", "\n").splitlines():
+            address = line.strip().lower()
+            if address and "@" in address and address not in out:
+                out.append(address)
+        return out
 
     @property
     def keyword_list(self):

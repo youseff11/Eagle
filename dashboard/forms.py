@@ -574,15 +574,42 @@ class StaffEditForm(forms.ModelForm):
             "employment_type": forms.Select(attrs={"class": "input"}),
             "work_mode": forms.Select(attrs={"class": "input"}),
             "schedule_kind": forms.Select(attrs={"class": "input"}),
-            "mail_alias": forms.EmailInput(attrs={
-                "class": "input mono", "dir": "ltr", "placeholder": "operation1@…",
-            }),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["team_lead"].queryset = User.objects.filter(role=Role.TEAM_LEAD)
         self.fields["team_lead"].required = False
+        self._alias_as_list()
+
+    def _alias_as_list(self):
+        """A list of the mailbox's aliases instead of a box to type in.
+
+        Each one says who holds it, so the admin sees at a glance what is free.
+        The person's own address stays in the list even if it was taken off the
+        settings since - saving the form must not quietly empty it.
+        """
+        field = self.fields["mail_alias"]
+        current = (self.instance.mail_alias or "").strip().lower()
+        addresses = AppSettings.load().alias_list
+        if current and current not in addresses:
+            addresses = [current] + addresses
+        holders = dict(
+            User.objects.exclude(mail_alias="").exclude(pk=self.instance.pk)
+            .values_list("mail_alias", "username")
+        )
+        holders = {k.strip().lower(): v for k, v in holders.items()}
+        choices = [("", "— ولا عنوان —")]
+        for address in addresses:
+            holder = holders.get(address)
+            choices.append((address, f"{address} — مع {holder}" if holder else address))
+        self.fields["mail_alias"] = forms.ChoiceField(
+            choices=choices, required=False, label=field.label,
+            help_text=(
+                field.help_text + " القايمة دي من «العناوين الموجودة على ميل الشركة» في الإعدادات."
+            ),
+            widget=forms.Select(attrs={"class": "input mono", "dir": "ltr"}),
+        )
 
     def clean_mail_alias(self):
         return (self.cleaned_data.get("mail_alias") or "").strip().lower()
@@ -795,7 +822,7 @@ class SettingsForm(forms.ModelForm):
             "recruit_phone_number_id", "recruit_number_display",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
-            "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only",
+            "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
             "simulation_enabled", "poll_ms",
             "group_creator_roles",
         )
@@ -816,7 +843,27 @@ class SettingsForm(forms.ModelForm):
                 attrs={"class": "input", "dir": "ltr"}, render_value=True
             ),
             "rate_keywords": forms.Textarea(attrs={"class": "input", "rows": 2}),
+            "mail_aliases": forms.Textarea(attrs={
+                "class": "input mono", "rows": 4, "dir": "ltr",
+                "placeholder": "operation1@...\noperation2@...\nsales@...",
+            }),
         }
+
+    def clean_mail_aliases(self):
+        """One clean address per line - the same list the staff page offers."""
+        raw = self.cleaned_data.get("mail_aliases") or ""
+        kept, bad = [], []
+        for line in raw.replace(",", "\n").splitlines():
+            address = line.strip().lower()
+            if not address:
+                continue
+            if address.count("@") != 1 or " " in address or "." not in address.rpartition("@")[2]:
+                bad.append(address)
+            elif address not in kept:
+                kept.append(address)
+        if bad:
+            raise forms.ValidationError("مش إيميل صحيح: " + "، ".join(bad))
+        return "\n".join(kept)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

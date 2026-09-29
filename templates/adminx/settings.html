@@ -190,6 +190,14 @@
        data-en="Each person receives the address set for them on the staff page. This is for the rest (info@ itself, say): off = the whole operation room sees it, on = the admin alone.">
       كل موظف بيستقبل ميلات العنوان اللي متحدد له من صفحة الموظفين. الاختيار ده للباقي (زي info@ نفسه).</p>
 
+    <div class="field mt">
+      <label data-ar="العناوين الموجودة على ميل الشركة" data-en="Aliases on the company mailbox">العناوين الموجودة على ميل الشركة</label>
+      {{ form.mail_aliases }}
+      {{ form.mail_aliases.errors }}
+      <span class="helptext" data-ar="عنوان في كل سطر. دي القايمة اللي بتظهر في صفحة الموظف تختار منها. أي عنوان جديد لازم يتضاف الأول alias في Google Workspace."
+            data-en="One per line. This is the list the staff page offers. A new address must first be added as an alias in Google Workspace.">عنوان في كل سطر. دي القايمة اللي بتظهر في صفحة الموظف.</span>
+    </div>
+
     <div class="row row--tight mt">
       <input class="input" id="mailTestTo" style="max-width:240px" dir="ltr"
              data-ar-ph="إيميل للتجربة (اختياري)" data-en-ph="Test address (optional)"

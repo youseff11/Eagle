@@ -8343,6 +8343,10 @@ class MailAliasPerPersonTests(TestCase):
         self.ops2.save()
         conf = AppSettings.load()
         conf.imap_user = "info@eagle.example"
+        conf.mail_aliases = "\n".join([
+            "operation1@eagle.example", "operation2@eagle.example",
+            "operation3@eagle.example", "info@eagle.example", "operation3@gmail.com",
+        ])
         conf.save()
 
     def _letter(self, to, sender="buyer@client.example", subject="Quote"):
@@ -8445,7 +8449,7 @@ class MailAliasPerPersonTests(TestCase):
 
     def test_the_admin_gives_an_address_from_the_staff_page(self):
         ops3 = User.objects.create_user("ops3_ma", password="x", role=Role.OPERATION)
-        response = self._edit(ops3, mail_alias="Operation3@Eagle.example")
+        response = self._edit(ops3, mail_alias="operation3@eagle.example")
         self.assertEqual(response.status_code, 302)
         ops3.refresh_from_db()
         self.assertEqual(ops3.mail_alias, "operation3@eagle.example")
@@ -8469,9 +8473,37 @@ class MailAliasPerPersonTests(TestCase):
 
     def test_only_operation_and_sales_hold_one(self):
         lead = User.objects.create_user("lead_ma", password="x", role=Role.TEAM_LEAD)
-        self.assertEqual(self._edit(lead, mail_alias="lead@eagle.example").status_code, 200)
+        self.assertEqual(self._edit(lead, mail_alias="operation3@eagle.example").status_code, 200)
         lead.refresh_from_db()
         self.assertEqual(lead.mail_alias, "")
+
+    def test_the_staff_page_offers_the_list_and_says_who_holds_what(self):
+        ops3 = User.objects.create_user("ops3d_ma", password="x", role=Role.OPERATION)
+        self.client.force_login(self.admin)
+        page = self.client.get(f"/panel/users/{ops3.pk}/").content.decode()
+        self.assertIn('<select name="mail_alias"', page)
+        self.assertIn("operation3@eagle.example", page)
+        self.assertIn("operation1@eagle.example — مع ops1_ma", page)
+
+    def test_an_address_off_the_list_is_refused(self):
+        ops3 = User.objects.create_user("ops3e_ma", password="x", role=Role.OPERATION)
+        self.assertEqual(self._edit(ops3, mail_alias="operation9@eagle.example").status_code, 200)
+        ops3.refresh_from_db()
+        self.assertEqual(ops3.mail_alias, "")
+
+    def test_the_settings_keep_a_clean_list(self):
+        from .forms import SettingsForm
+
+        conf = AppSettings.load()
+        form = SettingsForm(instance=conf)
+        form.cleaned_data = {"mail_aliases": " Operation1@Eagle.example\n\noperation1@eagle.example, sales@eagle.example"}
+        self.assertEqual(form.clean_mail_aliases(),
+                         "operation1@eagle.example\nsales@eagle.example")
+        form.cleaned_data = {"mail_aliases": "not an address"}
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            form.clean_mail_aliases()
 
     def test_the_staff_list_shows_who_receives_what(self):
         self.client.force_login(self.admin)
