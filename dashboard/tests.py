@@ -8307,14 +8307,176 @@ class SalesLineTests(TestCase):
         })
         other.refresh_from_db()
         self.assertEqual(other.wa_phone_number_id, "555000222")
-        self.assertEqual(other.mail_alias, "sales2@eagle.example")
+        # The address is the admin's to give now (29/09/2026): a posted one
+        # is ignored.
+        self.assertEqual(other.mail_alias, "")
 
     def test_leaving_sales_gives_the_line_up(self):
-        self.sales.role = Role.OPERATION
+        self.sales.role = Role.TRANSLATOR
         self.sales.save()
         self.sales.refresh_from_db()
         self.assertEqual(self.sales.wa_phone_number_id, "")
         self.assertEqual(self.sales.mail_alias, "")
+
+    def test_moving_to_operation_keeps_the_address_but_not_the_number(self):
+        self.sales.role = Role.OPERATION
+        self.sales.save()
+        self.sales.refresh_from_db()
+        self.assertEqual(self.sales.wa_phone_number_id, "")
+        self.assertEqual(self.sales.mail_alias, "sales1@eagle.example")
+
+
+class MailAliasPerPersonTests(TestCase):
+    """The admin gives each address on the company mailbox to one person
+    (29/09/2026). A letter to it is theirs and the admin's; a letter to no
+    one's address is the operation room's - or the admin's alone when the
+    setting says so.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user("own_ma", password="x", role=Role.ADMIN)
+        self.ops1 = User.objects.create_user("ops1_ma", password="x", role=Role.OPERATION)
+        self.ops2 = User.objects.create_user("ops2_ma", password="x", role=Role.OPERATION)
+        self.ops1.mail_alias = "operation1@eagle.example"
+        self.ops1.save()
+        self.ops2.mail_alias = "operation2@eagle.example"
+        self.ops2.save()
+        conf = AppSettings.load()
+        conf.imap_user = "info@eagle.example"
+        conf.save()
+
+    def _letter(self, to, sender="buyer@client.example", subject="Quote"):
+        return services.ingest_message(
+            channel="email", subject=subject, body="please",
+            sender_identity=sender, recipients=[to],
+        )
+
+    def _admin_only(self, on=True):
+        conf = AppSettings.load()
+        conf.mail_unassigned_admin_only = on
+        conf.save()
+
+    def _sees(self, user, row):
+        return services.inbox_queryset(user).filter(pk=row.pk).exists()
+
+    # -- where a letter lands ----------------------------------------------------
+    def test_a_letter_to_an_operation_address_is_that_persons(self):
+        row = self._letter("Operation1@eagle.example")
+        self.assertEqual(row.owner, self.ops1)
+        self.assertTrue(self._sees(self.ops1, row))
+        self.assertTrue(self._sees(self.admin, row))
+        self.assertFalse(self._sees(self.ops2, row))
+        self.assertTrue(row.visible_to(self.ops1))
+        self.assertFalse(row.visible_to(self.ops2))
+        self.assertEqual(services.unseen_conversation_count(self.ops2), 0)
+
+    def test_only_the_owner_and_the_admin_are_told(self):
+        from .models import Notification
+
+        self._letter("operation1@eagle.example", sender="b2@client.example")
+        self.assertTrue(Notification.objects.filter(user=self.ops1).exists())
+        self.assertTrue(Notification.objects.filter(user=self.admin).exists())
+        self.assertFalse(Notification.objects.filter(user=self.ops2).exists())
+
+    def test_the_company_address_stays_the_operation_rooms_by_default(self):
+        row = self._letter("info@eagle.example", sender="b3@client.example")
+        self.assertIsNone(row.owner)
+        self.assertTrue(self._sees(self.ops1, row))
+        self.assertTrue(self._sees(self.ops2, row))
+        self.assertTrue(row.visible_to(self.ops1))
+
+    def test_the_admin_can_keep_the_company_address_for_themselves(self):
+        from .models import Notification
+
+        self._admin_only()
+        row = self._letter("info@eagle.example", sender="b4@client.example")
+        self.assertFalse(self._sees(self.ops1, row))
+        self.assertFalse(row.visible_to(self.ops1))
+        self.assertTrue(self._sees(self.admin, row))
+        self.assertFalse(Notification.objects.filter(user=self.ops1).exists())
+        self.assertTrue(Notification.objects.filter(user=self.admin).exists())
+        # Their own address still reaches them.
+        mine = self._letter("operation1@eagle.example", sender="b5@client.example")
+        self.assertTrue(self._sees(self.ops1, mine))
+
+    def test_keeping_mail_for_the_admin_leaves_the_whatsapp_line_alone(self):
+        from .models import Client, InboundMessage
+
+        self._admin_only()
+        client = Client.objects.create(name="WA", phone="+201000000777")
+        InboundMessage.objects.create(client=client, channel="whatsapp", body="hi",
+                                      sender_identity="+201000000777")
+        self.assertIn(client, services.client_conversations(self.ops1))
+
+    # -- the answer ------------------------------------------------------------------
+    def test_the_answer_leaves_from_their_address(self):
+        from unittest import mock
+
+        row = self._letter("operation1@eagle.example", sender="b6@client.example")
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, outbound, error = services.reply_to_thread(row, self.ops1, body="thanks")
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs["from_email"], "operation1@eagle.example")
+        self.assertEqual(outbound.owner, self.ops1)
+
+    def test_a_company_letter_is_answered_from_the_company_address(self):
+        from unittest import mock
+
+        row = self._letter("info@eagle.example", sender="b7@client.example")
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, outbound, error = services.reply_to_thread(row, self.ops1, body="thanks")
+        self.assertTrue(ok, error)
+        self.assertEqual(sent.call_args.kwargs.get("from_email") or "", "")
+        self.assertIsNone(outbound.owner)
+
+    # -- the admin sets it -------------------------------------------------------------
+    def _edit(self, person, **changes):
+        data = {
+            "first_name": person.first_name, "last_name": person.last_name,
+            "email": person.email, "phone": person.phone, "role": person.role,
+            "team_lead": "", "languages": person.languages, "is_active": "on",
+            "rating": str(person.rating), "employment_type": person.employment_type,
+            "work_mode": person.work_mode, "schedule_kind": person.schedule_kind,
+            "attendance_enabled": "on", "mail_alias": person.mail_alias,
+        }
+        data.update(changes)
+        self.client.force_login(self.admin)
+        return self.client.post(f"/panel/users/{person.pk}/", data)
+
+    def test_the_admin_gives_an_address_from_the_staff_page(self):
+        ops3 = User.objects.create_user("ops3_ma", password="x", role=Role.OPERATION)
+        response = self._edit(ops3, mail_alias="Operation3@Eagle.example")
+        self.assertEqual(response.status_code, 302)
+        ops3.refresh_from_db()
+        self.assertEqual(ops3.mail_alias, "operation3@eagle.example")
+        from .models import AuditLog
+
+        self.assertTrue(AuditLog.objects.filter(action="user.mail_alias").exists())
+
+    def test_one_address_one_person(self):
+        ops3 = User.objects.create_user("ops3b_ma", password="x", role=Role.OPERATION)
+        response = self._edit(ops3, mail_alias="operation1@eagle.example")
+        self.assertEqual(response.status_code, 200)
+        ops3.refresh_from_db()
+        self.assertEqual(ops3.mail_alias, "")
+
+    def test_the_company_address_and_other_domains_are_refused(self):
+        ops3 = User.objects.create_user("ops3c_ma", password="x", role=Role.OPERATION)
+        for bad in ("info@eagle.example", "operation3@gmail.com"):
+            self.assertEqual(self._edit(ops3, mail_alias=bad).status_code, 200)
+            ops3.refresh_from_db()
+            self.assertEqual(ops3.mail_alias, "")
+
+    def test_only_operation_and_sales_hold_one(self):
+        lead = User.objects.create_user("lead_ma", password="x", role=Role.TEAM_LEAD)
+        self.assertEqual(self._edit(lead, mail_alias="lead@eagle.example").status_code, 200)
+        lead.refresh_from_db()
+        self.assertEqual(lead.mail_alias, "")
+
+    def test_the_staff_list_shows_who_receives_what(self):
+        self.client.force_login(self.admin)
+        page = self.client.get("/panel/users/").content.decode()
+        self.assertIn("operation1@eagle.example", page)
 
 
 class HandInFromChatTests(TestCase):

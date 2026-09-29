@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from .models import (
     IDENTITY_GRANTABLE_ROLES,
+    MAIL_ALIAS_ROLES,
     AppSettings,
     Candidate,
     CandidateTest,
@@ -543,11 +544,18 @@ class StaffEditForm(forms.ModelForm):
             "employment_type", "work_mode", "schedule_kind",
             "attendance_enabled", "attendance_manager",
             "client_identity_access",
+            "mail_alias",
         )
         labels = {
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
+            "mail_alias": "بيستقبل ميلات العنوان ده",
         }
         help_texts = {
+            "mail_alias": (
+                "الأوبريشن والـSales بس. الميل اللي يتبعت للعنوان ده يروحله هو والأدمن، "
+                "وردّه يطلع منه. عنوان واحد لكل موظف، ومحدش تاني ياخده. "
+                "العنوان لازم يبقى متضاف alias على ميل الشركة في Google Workspace."
+            ),
             "client_identity_access": (
                 "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
                 "بتفرق مع Accounting بس — الـSales بيشوفها من غير الصلاحية دي. "
@@ -566,12 +574,18 @@ class StaffEditForm(forms.ModelForm):
             "employment_type": forms.Select(attrs={"class": "input"}),
             "work_mode": forms.Select(attrs={"class": "input"}),
             "schedule_kind": forms.Select(attrs={"class": "input"}),
+            "mail_alias": forms.EmailInput(attrs={
+                "class": "input mono", "dir": "ltr", "placeholder": "operation1@…",
+            }),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["team_lead"].queryset = User.objects.filter(role=Role.TEAM_LEAD)
         self.fields["team_lead"].required = False
+
+    def clean_mail_alias(self):
+        return (self.cleaned_data.get("mail_alias") or "").strip().lower()
 
     def clean(self):
         data = super().clean()
@@ -583,6 +597,16 @@ class StaffEditForm(forms.ModelForm):
                 "client_identity_access",
                 "الصلاحية دي لـSales وAccounting بس. الأوبريشن والليدر والمترجم بيشتغلوا بالكود.",
             )
+        alias = data.get("mail_alias") or ""
+        if alias:
+            if data.get("role") not in MAIL_ALIAS_ROLES:
+                self.add_error("mail_alias", "العنوان للأوبريشن والـSales بس — الأدمن بيشوف كل الميلات.")
+            else:
+                from . import lines
+
+                problem = lines.alias_problem(self.instance, alias)
+                if problem:
+                    self.add_error("mail_alias", problem)
         return data
 
 
@@ -771,7 +795,7 @@ class SettingsForm(forms.ModelForm):
             "recruit_phone_number_id", "recruit_number_display",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
-            "smtp_from", "smtp_use_tls",
+            "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only",
             "simulation_enabled", "poll_ms",
             "group_creator_roles",
         )

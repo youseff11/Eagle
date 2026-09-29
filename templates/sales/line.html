@@ -70,9 +70,10 @@ same number and address.
 
     <div class="field">
       <label for="alias" data-ar="عنوانك على ميل الشركة" data-en="Your address on the company mailbox">عنوانك على ميل الشركة</label>
-      <input class="input mono" id="alias" name="mail_alias" dir="ltr" type="email"
-             value="{{ values.mail_alias }}" placeholder="sales1@…" {% if not is_owner %}disabled{% endif %}>
-      {% if errors.mail_alias %}<small class="deadline--late">{{ errors.mail_alias }}</small>{% endif %}
+      <input class="input mono" id="alias" dir="ltr" type="email"
+             value="{{ values.mail_alias }}" placeholder="—" disabled>
+      <small class="muted" data-ar="الأدمن هو اللي بيحدد العنوان ده من صفحة الموظفين."
+             data-en="The admin sets this address on the staff page.">الأدمن هو اللي بيحدد العنوان ده من صفحة الموظفين.</small>
     </div>
 
     <div class="note note--info">

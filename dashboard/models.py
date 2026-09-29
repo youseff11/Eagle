@@ -34,6 +34,10 @@ class Role(models.TextChoices):
 #: else - operation, team leader, translator, HR, reviewer - executes on the
 #: client code, and a flag left ticked on them is ignored, not honoured.
 IDENTITY_GRANTABLE_ROLES = (Role.SALES, Role.ACCOUNTING)
+#: Who may hold an address on the company mailbox (``User.mail_alias``): the
+#: people who answer clients by mail. The admin sets it for each of them
+#: (29/09/2026); the admin needs none - they read every line.
+MAIL_ALIAS_ROLES = (Role.SALES, Role.OPERATION)
 
 
 class Channel(models.TextChoices):
@@ -433,11 +437,12 @@ class User(AbstractUser):
     )
     #: The number itself, as people dial it - shown, never used to send.
     wa_display_number = models.CharField(max_length=30, blank=True)
-    #: Their sub-address on the company mailbox (sales1@...). Mail sent to it
-    #: is theirs; their replies go out from it.
+    #: Their address on the company mailbox (operation1@..., sales1@...). Mail
+    #: sent to it is theirs; their replies go out from it. Chosen by the admin
+    #: on the staff page, one address per person, one person per address.
     mail_alias = models.CharField(
         max_length=254, blank=True, db_index=True,
-        help_text="Sales only: their own address on the company mailbox.",
+        help_text="Sales / Operation: the company-mailbox address this person receives.",
     )
 
     # -- employee profile --------------------------------------------------
@@ -484,6 +489,8 @@ class User(AbstractUser):
         if self.role != Role.SALES:
             self.wa_phone_number_id = ""
             self.wa_display_number = ""
+        # And the mail address, for anyone who no longer answers clients.
+        if self.role not in MAIL_ALIAS_ROLES:
             self.mail_alias = ""
         super().save(*args, **kwargs)
 
@@ -1148,10 +1155,13 @@ class InboundMessage(models.Model):
         if self.is_rate_blocked:
             return False
         # A Sales line is its owner's alone; the company line is the
-        # operation's. The same rule as ``lines.line_q``.
+        # operation's; a letter to someone's address is theirs. The same rule
+        # as ``lines.line_q``, in Python.
+        from . import lines
+
         if user.is_sales:
             return self.owner_id == user.pk
-        return user.is_operation and self.owner_id is None
+        return user.is_operation and lines.sees(user, self.owner_id, self.channel)
 
 
 class MailRead(models.Model):
@@ -1979,6 +1989,13 @@ class AppSettings(models.Model):
     mail_last_fetch_at = models.DateTimeField(null=True, blank=True)
     mail_last_count = models.PositiveIntegerField(default=0)
     mail_last_error = models.CharField(max_length=300, blank=True)
+    #: A letter sent to no one's address (info@ itself, or an address the
+    #: admin has not given anybody): off = the operation room sees it, as
+    #: before; on = the admin alone, who hands it on (owner, 29/09/2026).
+    mail_unassigned_admin_only = models.BooleanField(
+        default=False,
+        help_text="Mail to an address nobody holds reaches the admin only.",
+    )
 
     smtp_host = models.CharField(
         max_length=120, blank=True,

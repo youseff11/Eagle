@@ -164,10 +164,14 @@ def _outbound_open_to(user, attachment):
     if user.is_admin_role:
         return True
     # What was sent from a Sales line is that line's; the company's is the
-    # operation's. Same split as the conversations (lines.py).
-    if user.is_sales and attachment.message.owner_id == user.pk:
+    # operation's; from somebody's own address, theirs. Same split as the
+    # conversations (lines.py).
+    from . import lines
+
+    sent = attachment.message
+    if user.is_sales and sent.owner_id == user.pk:
         return True
-    if user.is_operation and attachment.message.owner_id is None:
+    if user.is_operation and lines.sees(user, sent.owner_id, sent.channel):
         return True
     task = attachment.message.task if attachment.message.task_id else None
     return _task_open_to(user, task)

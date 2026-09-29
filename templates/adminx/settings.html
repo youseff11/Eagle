@@ -182,6 +182,14 @@
     </div>
     <label class="switch">{{ form.smtp_use_tls }}<span>TLS</span></label>
 
+    <label class="switch mt">{{ form.mail_unassigned_admin_only }}
+      <span data-ar="الميل اللي على عنوان مش متحدد لحد يوصل للأدمن بس"
+            data-en="Mail to an address nobody holds reaches the admin only">الميل اللي على عنوان مش متحدد لحد يوصل للأدمن بس</span></label>
+    <p class="muted" style="font-size:.78rem"
+       data-ar="كل موظف بيستقبل ميلات العنوان اللي متحدد له من صفحة الموظفين. الاختيار ده للباقي (زي info@ نفسه): مقفول = الأوبريشن كلهم يشوفوه، مفتوح = الأدمن بس."
+       data-en="Each person receives the address set for them on the staff page. This is for the rest (info@ itself, say): off = the whole operation room sees it, on = the admin alone.">
+      كل موظف بيستقبل ميلات العنوان اللي متحدد له من صفحة الموظفين. الاختيار ده للباقي (زي info@ نفسه).</p>
+
     <div class="row row--tight mt">
       <input class="input" id="mailTestTo" style="max-width:240px" dir="ltr"
              data-ar-ph="إيميل للتجربة (اختياري)" data-en-ph="Test address (optional)"

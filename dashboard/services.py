@@ -124,8 +124,9 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
 
     ``owner`` is the Sales person whose own WhatsApp number this came in on
     (the webhook knows it from the number). ``recipients`` are the addresses
-    a letter was sent to; one of them being a Sales person's alias makes the
-    letter theirs. Neither = the company line, as before (``lines.py``).
+    a letter was sent to; one of them being somebody's address on the company
+    mailbox (``User.mail_alias``) makes the letter theirs. Neither = the
+    company line, as before (``lines.py``).
     """
     from . import lines, threads
 
@@ -216,9 +217,13 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         )
     else:
         # A Sales line rings its owner (and the admin), never the operation
-        # room - they do not see that conversation at all.
+        # room - they do not see that conversation at all. Same for a letter
+        # to somebody's own address, and for a letter to no one's when the
+        # admin keeps those (``lines.line_q``).
         if owner is not None:
             audience = User.objects.filter(Q(pk=owner.pk) | Q(role=Role.ADMIN), is_active=True)
+        elif is_mail and lines._unassigned_mail_is_admins():
+            audience = User.objects.filter(role=Role.ADMIN, is_active=True)
         else:
             audience = User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True)
         for user in audience:
@@ -1263,9 +1268,15 @@ def mirror_inbound_to_room(inbound):
     if inbound.client_id is None or inbound.is_rate_blocked:
         return None
     # A Sales person's own conversation stays theirs: the rooms are watched
-    # by the operation room and the task team.
+    # by the operation room and the task team. So does a letter to somebody's
+    # own address, and one the admin keeps for themselves.
     if inbound.owner_id:
         return None
+    if inbound.channel == Channel.EMAIL:
+        from . import lines
+
+        if lines._unassigned_mail_is_admins():
+            return None
 
     rooms = list(client_rooms_for(inbound.client_id)[:10])
     if not rooms:
@@ -4196,7 +4207,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         if channel == Channel.WHATSAPP and not from_number:
             line_missing = "مفيش رقم واتساب متسجّل للـSales ده — ضيفه من صفحة «خطي»."
         if channel == Channel.EMAIL and not from_address:
-            line_missing = "مفيش إيميل متسجّل للـSales ده — ضيفه من صفحة «خطي»."
+            line_missing = "مفيش إيميل متحدد لصاحب المحادثة دي — الأدمن يحدده من صفحة الموظف."
 
     # Convert first: a recording Meta would reject must never reach the thread
     # pretending it was sent.

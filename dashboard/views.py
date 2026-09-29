@@ -1351,11 +1351,16 @@ def admin_user_edit(request, pk):
     # Read before the form binds: ModelForm writes the posted values onto
     # the instance during validation, not at save().
     before = identity.access_snapshot(obj)
+    alias_before = obj.mail_alias
     form = StaffEditForm(request.POST or None, instance=obj)
     shift_form = ShiftForm()
     if request.method == "POST" and form.is_valid():
         form.save()
         services.log(request.user, "user.update", obj.username)
+        if obj.mail_alias != alias_before:
+            # Whose inbox a client's letters land in is worth a line of its own.
+            services.log(request.user, "user.mail_alias", obj.username,
+                         f"{alias_before or '-'} -> {obj.mail_alias or '-'}")
         identity.record_access_change(request, request.user, obj, before)
         flash.success(request, "saved")
         return redirect("dashboard:admin_user_edit", pk=pk)
@@ -2920,12 +2925,15 @@ def salary_request_decide(request, pk, action):
 
 @role_required(Role.SALES)
 def sales_line(request):
-    """Where a Sales person puts their own WhatsApp number and mail address.
+    """Where a Sales person puts their own WhatsApp number, and reads their address.
 
     Once set, clients who write to either land in this person's chats and
     mail only (and the admin's), and the answers leave from the same number
     and address - see ``lines.py``. The admin opens it for themselves too,
     to read what it asks for; only a Sales account holds a line.
+
+    The mail address is the admin's to give (staff page, 29/09/2026), so here
+    it is shown, not edited.
     """
     from . import lines
 
@@ -2941,20 +2949,18 @@ def sales_line(request):
         values = {
             "wa_phone_number_id": request.POST.get("wa_phone_number_id", "").strip()[:40],
             "wa_display_number": request.POST.get("wa_display_number", "").strip()[:30],
-            "mail_alias": request.POST.get("mail_alias", "").strip().lower()[:254],
+            "mail_alias": user.mail_alias,
         }
         problem = lines.number_problem(user, values["wa_phone_number_id"])
         if problem:
             errors["wa_phone_number_id"] = problem
-        problem = lines.alias_problem(user, values["mail_alias"])
-        if problem:
-            errors["mail_alias"] = problem
         if not errors:
-            for field, value in values.items():
-                setattr(user, field, value)
-            user.save(update_fields=list(values))
+            fields = ["wa_phone_number_id", "wa_display_number"]
+            for field in fields:
+                setattr(user, field, values[field])
+            user.save(update_fields=fields)
             services.log(user, "sales.line", user.username,
-                         f"wa={values['wa_phone_number_id'] or '-'} mail={values['mail_alias'] or '-'}")
+                         f"wa={values['wa_phone_number_id'] or '-'}")
             saved = True
 
     conf = AppSettings.load()
