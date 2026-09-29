@@ -2004,6 +2004,15 @@ class AppSettings(models.Model):
         blank=True,
         help_text="One address per line: the aliases on the company mailbox.",
     )
+    #: The branded letter Sales people's e-mails go out in (mailbrand.py).
+    sales_mail_website = models.CharField(
+        max_length=190, blank=True,
+        help_text="Shown under a Sales person's signature. Blank = not shown.",
+    )
+    sales_mail_footer = models.TextField(
+        blank=True,
+        help_text="The dark band under a Sales letter: hours, address. One line each.",
+    )
 
     smtp_host = models.CharField(
         max_length=120, blank=True,

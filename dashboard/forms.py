@@ -823,6 +823,7 @@ class SettingsForm(forms.ModelForm):
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
             "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
+            "sales_mail_website", "sales_mail_footer",
             "simulation_enabled", "poll_ms",
             "group_creator_roles",
         )
@@ -843,6 +844,10 @@ class SettingsForm(forms.ModelForm):
                 attrs={"class": "input", "dir": "ltr"}, render_value=True
             ),
             "rate_keywords": forms.Textarea(attrs={"class": "input", "rows": 2}),
+            "sales_mail_website": forms.TextInput(attrs={
+                "class": "input mono", "dir": "ltr", "placeholder": "www.eaglelingua.com",
+            }),
+            "sales_mail_footer": forms.Textarea(attrs={"class": "input", "rows": 2}),
             "mail_aliases": forms.Textarea(attrs={
                 "class": "input mono", "rows": 4, "dir": "ltr",
                 "placeholder": "operation1@...\noperation2@...\nsales@...",

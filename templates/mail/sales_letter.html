@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ subject }}</title></head>
+<body style="margin:0;padding:24px 12px;background:#f3f1ec;font-family:Arial,Helvetica,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e0d2;">
+  <tr><td style="height:5px;line-height:5px;font-size:0;background-color:#b8923a;">&nbsp;</td></tr>
+  <tr><td dir="auto" style="padding:28px 32px 8px;color:#1f2328;font-size:15px;line-height:1.7;">{{ body_html }}</td></tr>
+  <tr><td style="padding:16px 32px 28px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid #e6e0d2;">
+      <tr>
+        <td valign="top" style="width:74px;padding:18px 16px 0 0;">
+          {% if logo_cid %}<img src="cid:{{ logo_cid }}" width="56" height="76" alt="{{ brand }}" style="display:block;border:0;">{% endif %}
+        </td>
+        <td valign="top" style="padding:16px 0 0 16px;border-left:2px solid #c9a24a;">
+          <div style="font-size:17px;font-weight:bold;color:#1f2328;">{{ name }}</div>
+          {% if title %}<div style="font-size:13px;color:#a8822e;font-weight:bold;letter-spacing:.3px;margin-top:2px;">{{ title }}</div>{% endif %}
+          <div style="font-size:13px;color:#1f2328;margin-top:6px;">{{ brand }} &middot; <span style="color:#6b6f76;">{{ tagline }}</span></div>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:10px;font-size:13px;color:#3a3f45;line-height:1.8;">
+            {% if phone %}<tr><td style="color:#a8822e;padding-right:10px;font-weight:bold;">Mobile / WhatsApp</td><td dir="ltr">{{ phone }}</td></tr>{% endif %}
+            {% if address %}<tr><td style="color:#a8822e;padding-right:10px;font-weight:bold;">E-mail</td><td><a href="mailto:{{ address }}" style="color:#1f2328;text-decoration:none;">{{ address }}</a></td></tr>{% endif %}
+            {% if website %}<tr><td style="color:#a8822e;padding-right:10px;font-weight:bold;">Website</td><td><a href="{{ website_url }}" style="color:#1f2328;text-decoration:none;">{{ website }}</a></td></tr>{% endif %}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+  {% if footer_lines %}<tr><td dir="auto" style="background:#1c1b19;padding:14px 32px;color:#d9c79b;font-size:12px;line-height:1.7;">{% for line in footer_lines %}<div dir="auto">{{ line }}</div>{% endfor %}</td></tr>{% endif %}
+  <tr><td style="padding:10px 32px 16px;color:#9aa0a6;font-size:11px;line-height:1.5;">
+    This e-mail and its attachments are confidential and intended for the addressee only.
+    If you would rather not receive further e-mails from us, simply reply with &ldquo;unsubscribe&rdquo;.
+  </td></tr>
+</table>
+</body></html>

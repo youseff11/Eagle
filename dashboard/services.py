@@ -4317,12 +4317,23 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
             message_id = mailer.new_message_id(conf)
             parents = threads.message_ids(in_reply_to)
             chain = threads.message_ids(*references) if references else []
+            # A Sales person's letters go out dressed: logo, name, title,
+            # number (mailbrand.py). Everybody else's stay plain.
+            from . import mailbrand
+
+            html_body, inline_images = "", []
+            if mailbrand.applies_to(user):
+                html_body, inline_images = mailbrand.sales_letter(
+                    user, body or "مرفق الملفات.", mail_subject, conf, from_address,
+                )
             mailer.send_delivery(
                 conf, target,
                 subject=mail_subject,
                 body=body or "مرفق الملفات.",
                 attachments=payload,
                 from_email=from_address,
+                html_body=html_body,
+                inline_images=inline_images,
                 headers={
                     "Message-ID": message_id,
                     "In-Reply-To": parents[0] if parents else "",

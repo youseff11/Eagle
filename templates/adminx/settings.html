@@ -198,6 +198,18 @@
             data-en="One per line. This is the list the staff page offers. A new address must first be added as an alias in Google Workspace.">عنوان في كل سطر. دي القايمة اللي بتظهر في صفحة الموظف.</span>
     </div>
 
+    <div class="label mt" data-ar="شكل إيميلات الـSales" data-en="Sales letter">شكل إيميلات الـSales</div>
+    <p class="muted" style="font-size:.78rem"
+       data-ar="إيميلات الـSales بس بتطلع باللوجو واسم الموظف ووظيفته ورقمه (من صفحة الموظف). الباقي بيطلع عادي."
+       data-en="Only Sales people's e-mails carry the logo, their name, title and number (from the staff page). Everyone else's stay plain.">
+      إيميلات الـSales بس بتطلع باللوجو واسم الموظف ووظيفته ورقمه.</p>
+    <div class="form-grid">
+      <div class="field"><label data-ar="الموقع" data-en="Website">الموقع</label>{{ form.sales_mail_website }}
+        <span class="helptext" data-ar="فاضي = مش هيظهر." data-en="Blank = not shown.">فاضي = مش هيظهر.</span></div>
+      <div class="field"><label data-ar="الشريط اللي تحت (المواعيد والعنوان)" data-en="Bottom band (hours, address)">الشريط اللي تحت</label>{{ form.sales_mail_footer }}
+        <span class="helptext" data-ar="سطر لكل معلومة. فاضي = الشريط مش هيظهر." data-en="One line each. Blank = no band.">سطر لكل معلومة.</span></div>
+    </div>
+
     <div class="row row--tight mt">
       <input class="input" id="mailTestTo" style="max-width:240px" dir="ltr"
              data-ar-ph="إيميل للتجربة (اختياري)" data-en-ph="Test address (optional)"

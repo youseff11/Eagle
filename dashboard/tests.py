@@ -8511,6 +8511,78 @@ class MailAliasPerPersonTests(TestCase):
         self.assertIn("operation1@eagle.example", page)
 
 
+class SalesBrandedMailTests(TestCase):
+    """A Sales person's letters go out with the logo and their signature;
+    everybody else's stay plain (29/09/2026)."""
+
+    def setUp(self):
+        self.sales = User.objects.create_user(
+            "sales_br", password="x", role=Role.SALES,
+            first_name="Mona", last_name="Adel", phone="+20 100 000 0001",
+        )
+        self.sales.job_title = "Business Development"
+        self.sales.mail_alias = "sales1@eagle.example"
+        self.sales.save()
+        self.ops = User.objects.create_user("ops_br", password="x", role=Role.OPERATION)
+
+    def _reply(self, user, to, body="thanks <script>x</script>", sender="buyer@client.example"):
+        from unittest import mock
+
+        row = services.ingest_message(
+            channel="email", subject="Quote", body="please",
+            sender_identity=sender, recipients=[to],
+        )
+        with mock.patch("dashboard.mailer.send_delivery", return_value=True) as sent:
+            ok, _out, error = services.reply_to_thread(row, user, body=body)
+        self.assertTrue(ok, error)
+        return sent.call_args.kwargs
+
+    def test_a_sales_letter_carries_the_signature_and_the_logo(self):
+        sent = self._reply(self.sales, "sales1@eagle.example")
+        html = sent["html_body"]
+        self.assertIn("Mona Adel", html)
+        self.assertIn("Business Development", html)
+        self.assertIn("+20 100 000 0001", html)
+        self.assertIn("sales1@eagle.example", html)
+        self.assertIn("cid:eagle-logo", html)
+        self.assertEqual(sent["inline_images"][0][0], "eagle-logo")
+        # What the person typed is text in the letter, never markup.
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_the_operation_letters_stay_plain(self):
+        sent = self._reply(self.ops, "info@eagle.example", sender="b2@client.example")
+        self.assertEqual(sent["html_body"], "")
+        self.assertEqual(list(sent["inline_images"]), [])
+
+    def test_the_website_and_band_come_from_the_settings(self):
+        html = self._reply(self.sales, "sales1@eagle.example", sender="b3@client.example")["html_body"]
+        self.assertNotIn("Website", html)
+        conf = AppSettings.load()
+        conf.sales_mail_website = "www.eagle.example"
+        conf.sales_mail_footer = "SATURDAY - THURSDAY\nCairo, Egypt"
+        conf.save()
+        html = self._reply(self.sales, "sales1@eagle.example", sender="b4@client.example")["html_body"]
+        self.assertIn("https://www.eagle.example", html)
+        self.assertIn("Cairo, Egypt", html)
+
+    def test_the_letter_holds_the_logo_inside_it(self):
+        from . import mailer
+
+        conf = AppSettings.load()
+        message = mailer.build_message(
+            conf, "buyer@client.example", "Quote", "plain", [("a.pdf", b"%PDF", "application/pdf")],
+            from_email="sales1@eagle.example",
+            html_body='<img src="cid:eagle-logo">', inline_images=[("eagle-logo", b"\x89PNG", "image/png")],
+        )
+        raw = message.message().as_string()
+        self.assertIn("multipart/related", raw)
+        self.assertIn("text/html", raw)
+        self.assertIn("Content-ID: <eagle-logo>", raw)
+        self.assertIn("a.pdf", raw)
+        self.assertIn("Reply-To: sales1@eagle.example", raw)
+
+
 class HandInFromChatTests(TestCase):
     """«خلصت التاسك» in the group (27/09/2026).
 

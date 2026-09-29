@@ -6,7 +6,9 @@ credentials live. Falls back to the IMAP credentials when the SMTP ones are
 left blank (Gmail uses the same app password for both).
 """
 
-from django.core.mail import EmailMessage, get_connection
+from email.mime.image import MIMEImage
+
+from django.core.mail import EmailMessage, EmailMultiAlternatives, get_connection
 
 
 class MailError(Exception):
@@ -46,7 +48,45 @@ def new_message_id(conf):
     return email.utils.make_msgid(domain=domain)
 
 
-def send_delivery(conf, to, subject, body, attachments, headers=None, from_email=""):
+def build_message(conf, to, subject, body, attachments, headers=None, from_email="",
+                  html_body="", inline_images=(), connection=None):
+    """The letter itself, before it is sent - separate so a test can read it.
+
+    With ``html_body`` it is text *and* HTML (``multipart/alternative``), and
+    ``inline_images`` - ``(content_id, bytes, mime)`` - ride inside it for the
+    HTML to show as ``cid:`` (``mailbrand.py``). Without, it is the plain
+    letter it always was.
+    """
+    _host, user, _password = _credentials(conf)
+    extra = {k: v for k, v in (headers or {}).items() if v}
+    if from_email:
+        extra["Reply-To"] = from_email
+    kwargs = {
+        "subject": subject, "body": body,
+        "from_email": (from_email or conf.smtp_from or user), "to": [to],
+        "connection": connection, "headers": extra or None,
+    }
+    if html_body:
+        message = EmailMultiAlternatives(**kwargs)
+        message.attach_alternative(html_body, "text/html")
+        if inline_images:
+            # "related" so the images belong to the HTML and are not listed
+            # as files the client has to download.
+            message.mixed_subtype = "related"
+            for content_id, content, mime in inline_images:
+                image = MIMEImage(content, _subtype=(mime or "image/png").split("/")[-1])
+                image.add_header("Content-ID", f"<{content_id}>")
+                image.add_header("Content-Disposition", "inline", filename=f"{content_id}.png")
+                message.attach(image)
+    else:
+        message = EmailMessage(**kwargs)
+    for filename, content, mime in attachments:
+        message.attach(filename, content, mime or "application/octet-stream")
+    return message
+
+
+def send_delivery(conf, to, subject, body, attachments, headers=None, from_email="",
+                  html_body="", inline_images=()):
     """``attachments`` is a list of ``(filename, bytes, mime)`` tuples.
 
     ``headers`` is for threading — ``Message-ID``, ``In-Reply-To`` and
@@ -75,17 +115,11 @@ def send_delivery(conf, to, subject, body, attachments, headers=None, from_email
             username=user, password=password,
             use_tls=bool(conf.smtp_use_tls), fail_silently=False,
         )
-        extra = {k: v for k, v in (headers or {}).items() if v}
-        if from_email:
-            extra["Reply-To"] = from_email
-        message = EmailMessage(
-            subject=subject, body=body,
-            from_email=(from_email or conf.smtp_from or user), to=[to],
-            connection=connection,
-            headers=extra or None,
+        message = build_message(
+            conf, to, subject, body, attachments, headers=headers,
+            from_email=from_email, html_body=html_body,
+            inline_images=inline_images, connection=connection,
         )
-        for filename, content, mime in attachments:
-            message.attach(filename, content, mime or "application/octet-stream")
         message.send()
     except MailError:
         raise
