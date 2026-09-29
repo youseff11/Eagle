@@ -8583,6 +8583,54 @@ class SalesBrandedMailTests(TestCase):
         self.assertIn("Reply-To: sales1@eagle.example", raw)
 
 
+class ClearMailInboxTests(TestCase):
+    """``clear_mail_inbox``: a dry run by default; with --apply the letters
+    go, WhatsApp stays, and a letter that became a task stays unless asked."""
+
+    def _letter(self, sender, subject="Hi"):
+        return services.ingest_message(
+            channel="email", subject=subject, body="x", sender_identity=sender,
+        )
+
+    def _run(self, *args):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("clear_mail_inbox", *args, stdout=out)
+        return out.getvalue()
+
+    def test_a_dry_run_deletes_nothing(self):
+        from .models import InboundMessage
+
+        self._letter("a@client.example")
+        self.assertIn("letters: 1", self._run())
+        self.assertEqual(InboundMessage.objects.filter(channel="email").count(), 1)
+
+    def test_apply_empties_the_mail_and_leaves_whatsapp(self):
+        from .models import Client, InboundMessage
+
+        self._letter("b@client.example")
+        client = Client.objects.create(name="WA", phone="+201000000888")
+        InboundMessage.objects.create(client=client, channel="whatsapp", body="hi")
+        self._run("--apply")
+        self.assertEqual(InboundMessage.objects.filter(channel="email").count(), 0)
+        self.assertEqual(InboundMessage.objects.filter(channel="whatsapp").count(), 1)
+        self.assertTrue(Client.objects.filter(pk=client.pk).exists())
+
+    def test_a_letter_that_became_a_task_stays_unless_asked(self):
+        from .models import InboundMessage, Task
+
+        row = self._letter("c@client.example")
+        row.task = Task.objects.create(client=row.client, title="T")
+        row.save()
+        self._run("--apply")
+        self.assertTrue(InboundMessage.objects.filter(pk=row.pk).exists())
+        self._run("--apply", "--include-tasks")
+        self.assertFalse(InboundMessage.objects.filter(pk=row.pk).exists())
+
+
 class HandInFromChatTests(TestCase):
     """«خلصت التاسك» in the group (27/09/2026).
 
