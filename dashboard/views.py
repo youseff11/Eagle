@@ -1539,6 +1539,41 @@ def admin_reset_tasks(request):
 
 
 @admin_only
+def admin_reset_mail(request):
+    """Delete the mail - the admin's password again, like the tasks reset.
+
+    Same shape on purpose: GET draws what would go; POST does it and answers
+    with the backup as a download, which the page's script saves before it
+    moves on to the inbox. A refused POST re-draws the page with the reason
+    and nothing is touched.
+    """
+    from django.http import HttpResponse
+
+    error = ""
+    if request.method == "POST":
+        if request.POST.get("confirm") != "1":
+            error = "علّم على المربع اللي بيأكد إنك فاهم إن ده مسح نهائي."
+        else:
+            ok, error, backup, deleted, removed = services.reset_all_mail(
+                request.user, request.POST.get("password", "")
+            )
+            if ok:
+                identity.record_export(request, "mail-backup", deleted)
+                flash.success(request, f"اتمسح {deleted} ميل و{removed} ملف متخزّن.")
+                stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
+                response = HttpResponse(backup, content_type="application/json; charset=utf-8")
+                response["Content-Disposition"] = (
+                    f'attachment; filename="eagle-mail-backup-{stamp}.json"'
+                )
+                response["X-Eagle-Next"] = reverse("dashboard:ops_inbox")
+                return response
+    return render(request, "adminx/reset_mail.html", {
+        "counts": services.mail_reset_counts(),
+        "error": error,
+    }, status=400 if error else 200)
+
+
+@admin_only
 def admin_audit(request):
     """The audit log. ``?only=security`` narrows it to who saw a client's
     identity, who was refused something, and who was given access."""

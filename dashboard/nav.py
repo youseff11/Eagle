@@ -200,6 +200,8 @@ def groups_for(user):
     # At the very bottom on purpose (23/09/2026): out of the way of everyday
     # clicking, and red. The page behind it asks for the password again.
     out.append(_group("danger", "منطقة خطر", "Danger zone", [
+        Item("admin_reset_mail", "مسح الميلات", "Delete all mail",
+             "trash", danger=True) if admin else None,
         Item("admin_reset_tasks", "ريستارت التاسكات", "Reset all tasks",
              "refresh", danger=True) if admin else None,
     ]))
@@ -298,6 +300,7 @@ KEYWORDS = {
     "translator_payroll": "مستحقاتي فلوسي مرتبي my payroll",
     "notifications": "تنبيهات اشعارات notifications",
     "admin_reset_tasks": "ريستارت مسح كل التاسكات ابدأ من الاول ترقيم reset delete all tasks",
+    "admin_reset_mail": "مسح الميلات الايميلات البريد الوارد الصادر حذف delete all mail emails inbox",
 }
 
 

@@ -7402,6 +7402,216 @@ class ResetTasksTests(TestCase):
         )
 
 
+class ResetMailTests(TestCase):
+    """The admin's "delete the mail" - password first, all or nothing, and it
+    never takes the files out from under a task.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+
+        from .models import (
+            Channel, InboundMessage, MessageAttachment, OutboundAttachment, OutboundMessage,
+        )
+
+        self.admin = User.objects.create_user("admin_rm", password="right-pass", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_rm", password="x", role=Role.OPERATION)
+        self.acme = Client.objects.create(name="ACME", phone="+201000000077")
+
+        def letter(subject, channel=Channel.EMAIL, name=None):
+            message = InboundMessage.objects.create(
+                client=self.acme, channel=channel, subject=subject, body=subject,
+                sender_identity="acme@example.com",
+            )
+            file = None
+            if name:
+                file = MessageAttachment.objects.create(
+                    message=message, file=ContentFile(b"data", name=name),
+                    original_name=name, size=4, mime="application/pdf",
+                )
+            return message, file
+
+        self.free, self.free_file = letter("free", name="free.pdf")
+        self.built, self.built_file = letter("built on", name="built.pdf")
+        self.shared, self.shared_file = letter("files only", name="shared.pdf")
+        self.whatsapp, _ = letter("wa", channel=Channel.WHATSAPP)
+
+        # A task made from one letter, and a second task that only holds a file
+        # of another letter through the picker - both leave their letters alone.
+        self.task = services.create_task(
+            client=self.acme, title="Contract", created_by=self.ops, messages=[self.built],
+        )
+        self.other_task = services.create_task(
+            client=self.acme, title="Second", created_by=self.ops,
+        )
+        self.other_task.source_files.add(self.shared_file)
+
+        self.reply = OutboundMessage.objects.create(
+            client=self.acme, kind=OutboundMessage.Kind.CHAT, channel=Channel.EMAIL,
+            to_identity="acme@example.com", body="thanks",
+        )
+        self.delivery = OutboundMessage.objects.create(
+            client=self.acme, task=self.task, kind=OutboundMessage.Kind.DELIVERY,
+            channel=Channel.EMAIL, to_identity="acme@example.com", body="done",
+        )
+        self.wa_reply = OutboundMessage.objects.create(
+            client=self.acme, kind=OutboundMessage.Kind.CHAT, channel=Channel.WHATSAPP,
+            to_identity="+201000000077", body="hi",
+        )
+        self.reply_file = OutboundAttachment.objects.create(
+            message=self.reply, file=ContentFile(b"r", name="reply.pdf"),
+            original_name="reply.pdf", size=1, mime="application/pdf",
+        )
+
+    def _exists(self, model, pk):
+        return model.objects.filter(pk=pk).exists()
+
+    def test_the_wrong_password_deletes_nothing(self):
+        from .models import InboundMessage
+
+        before = InboundMessage.objects.count()
+        ok, error, _backup, _deleted, _removed = services.reset_all_mail(self.admin, "nope")
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        self.assertEqual(InboundMessage.objects.count(), before)
+
+    def test_only_the_admin(self):
+        from .models import InboundMessage
+
+        before = InboundMessage.objects.count()
+        ok, *_rest = services.reset_all_mail(self.ops, "x")
+        self.assertFalse(ok)
+        self.assertEqual(InboundMessage.objects.count(), before)
+
+    def test_it_deletes_the_loose_mail_both_ways_and_nothing_else(self):
+        from .models import InboundMessage, OutboundMessage
+
+        ok, error, _backup, deleted, _removed = services.reset_all_mail(self.admin, "right-pass")
+        self.assertTrue(ok, error)
+        self.assertEqual(deleted, 2)                      # one letter, one reply
+        self.assertFalse(self._exists(InboundMessage, self.free.pk))
+        self.assertFalse(self._exists(OutboundMessage, self.reply.pk))
+        # WhatsApp is never touched.
+        self.assertTrue(self._exists(InboundMessage, self.whatsapp.pk))
+        self.assertTrue(self._exists(OutboundMessage, self.wa_reply.pk))
+
+    def test_mail_a_task_stands_on_stays_with_its_files(self):
+        from django.core.files.storage import default_storage
+
+        from .models import InboundMessage, OutboundMessage
+
+        services.reset_all_mail(self.admin, "right-pass")
+        # Made into a task: the letter stays. Only a file picked: the letter stays.
+        self.assertTrue(self._exists(InboundMessage, self.built.pk))
+        self.assertTrue(self._exists(InboundMessage, self.shared.pk))
+        self.assertTrue(self._exists(OutboundMessage, self.delivery.pk))
+        self.assertTrue(default_storage.exists(self.built_file.file.name))
+        self.assertTrue(default_storage.exists(self.shared_file.file.name))
+        self.assertEqual(
+            [a.pk for a in services.task_source_files(self.task)], [self.built_file.pk]
+        )
+        self.assertEqual(
+            [a.pk for a in services.task_source_files(self.other_task)], [self.shared_file.pk]
+        )
+
+    def test_the_stored_files_of_deleted_mail_are_removed(self):
+        from django.core.files.storage import default_storage
+
+        free_name, reply_name = self.free_file.file.name, self.reply_file.file.name
+        self.assertTrue(default_storage.exists(free_name))
+        ok, _error, _backup, _deleted, removed = services.reset_all_mail(self.admin, "right-pass")
+        self.assertTrue(ok)
+        self.assertEqual(removed, 2)
+        self.assertFalse(default_storage.exists(free_name))
+        self.assertFalse(default_storage.exists(reply_name))
+
+    def test_a_stored_file_somebody_else_still_holds_is_kept(self):
+        from django.core.files.storage import default_storage
+
+        from .models import OutboundAttachment
+
+        name = self.free_file.file.name
+        # The kept delivery also sent that very file: one stored copy, two rows.
+        OutboundAttachment.objects.create(
+            message=self.delivery, file=name, original_name="free.pdf", size=4,
+            mime="application/pdf",
+        )
+        services.reset_all_mail(self.admin, "right-pass")
+        self.assertTrue(default_storage.exists(name))
+
+    def test_the_backup_holds_what_was_deleted_and_only_that(self):
+        import json
+
+        _ok, _error, backup, _deleted, _removed = services.reset_all_mail(
+            self.admin, "right-pass"
+        )
+        rows = json.loads(backup)
+        received = [r["fields"]["subject"] for r in rows if r["model"] == "dashboard.inboundmessage"]
+        self.assertEqual(received, ["free"])
+        self.assertTrue([r for r in rows if r["model"] == "dashboard.outboundmessage"])
+        self.assertTrue([r for r in rows if r["model"] == "dashboard.messageattachment"])
+
+    def test_it_is_written_in_the_audit_log(self):
+        from .models import AuditLog
+
+        services.reset_all_mail(self.admin, "nope")
+        services.reset_all_mail(self.admin, "right-pass")
+        self.assertTrue(AuditLog.objects.filter(action="mail.reset_refused").exists())
+        self.assertTrue(AuditLog.objects.filter(action="mail.reset", actor=self.admin).exists())
+
+    def test_the_page_is_the_admins_alone(self):
+        self.client.force_login(self.ops)
+        self.assertEqual(self.client.get("/panel/reset-mail/").status_code, 403)
+        self.assertEqual(self.client.post("/panel/reset-mail/", {"confirm": "1"}).status_code, 403)
+
+    def test_the_page_says_what_goes_and_what_stays(self):
+        self.client.force_login(self.admin)
+        html = self.client.get("/panel/reset-mail/").content.decode()
+        self.assertIn('id="resetMailForm"', html)
+        self.assertIn("اللي هيفضل لأن فيه تاسكات مبنية عليه", html)
+
+    def test_the_page_downloads_the_backup(self):
+        from .models import InboundMessage
+
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            "/panel/reset-mail/", {"password": "right-pass", "confirm": "1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertEqual(response["X-Eagle-Next"], "/ops/inbox/")
+        self.assertFalse(self._exists(InboundMessage, self.free.pk))
+
+    def test_without_the_tick_nothing_happens(self):
+        from .models import InboundMessage
+
+        self.client.force_login(self.admin)
+        response = self.client.post("/panel/reset-mail/", {"password": "right-pass"})
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._exists(InboundMessage, self.free.pk))
+
+    def test_a_wrong_password_on_the_page_is_refused_with_the_reason(self):
+        from .models import InboundMessage
+
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            "/panel/reset-mail/", {"password": "nope", "confirm": "1"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("الباسورد غلط", response.content.decode())
+        self.assertTrue(self._exists(InboundMessage, self.free.pk))
+
+    def test_it_sits_in_the_danger_zone_above_the_tasks_reset(self):
+        from . import nav
+
+        hrefs = [i["href"] for i in nav.sidebar(self.admin)[-1]["items"]]
+        self.assertEqual(hrefs, ["/panel/reset-mail/", "/panel/reset-tasks/"])
+        self.assertNotIn(
+            "/panel/reset-mail/",
+            [i["href"] for g in nav.sidebar(self.ops) for i in g["items"]],
+        )
+
+
 class ImagesInChatTests(TestCase):
     """A photo in the chat is shown as a photo, not as a file name."""
 

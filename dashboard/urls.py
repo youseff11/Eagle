@@ -188,6 +188,7 @@ urlpatterns = [
     path("panel/simulate/", views.admin_simulate, name="admin_simulate"),
     path("panel/audit/", views.admin_audit, name="admin_audit"),
     path("panel/reset-tasks/", views.admin_reset_tasks, name="admin_reset_tasks"),
+    path("panel/reset-mail/", views.admin_reset_mail, name="admin_reset_mail"),
 
     # -- json api -----------------------------------------------------------
     path("api/heartbeat/", api.heartbeat, name="api_heartbeat"),

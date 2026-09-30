@@ -1641,7 +1641,9 @@ window.Eagle = (function () {
   }
 
   function initResetTasks() {
-    var form = $("#resetTasksForm");
+    // The tasks reset and the mail clear-out are the same dance: post with the
+    // password, save the backup that comes back, then move on.
+    var form = $("#resetTasksForm") || $("#resetMailForm");
     if (!form) { return; }
     var box = $("#resetError");
     var button = $("#resetSubmit");

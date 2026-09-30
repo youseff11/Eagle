@@ -3564,6 +3564,125 @@ def reset_all_tasks(admin, password):
 
 
 # ---------------------------------------------------------------------------
+# Clearing the mail (admin only)
+# ---------------------------------------------------------------------------
+
+def _mail_to_clear():
+    """``(letters, sent, kept_letters, kept_sent)`` - what goes, and what stays.
+
+    A letter stays while a task stands on it: the task page reads the job's
+    files off the letter's attachments (``Task.source_files``, or every file
+    of the letter the task was made from), so deleting it would take the
+    original documents out from under work in progress. The same goes for a
+    delivery sent to the client on a task. Those leave with the task - the
+    reset on the tasks page - and not before.
+    """
+    from .models import MessageAttachment, OutboundMessage
+
+    used = MessageAttachment.objects.filter(tasks__isnull=False).values("message_id")
+    mail = InboundMessage.objects.filter(channel=Channel.EMAIL)
+    letters = mail.filter(task__isnull=True).exclude(pk__in=used)
+    sent_all = OutboundMessage.objects.filter(channel=Channel.EMAIL)
+    sent = sent_all.filter(task__isnull=True)
+    return letters, sent, mail.count() - letters.count(), sent_all.count() - sent.count()
+
+
+def mail_reset_counts():
+    """What clearing the mail would take - drawn on the page before anybody asks."""
+    from .models import MessageAttachment, OutboundAttachment
+
+    letters, sent, kept_letters, kept_sent = _mail_to_clear()
+    return {
+        "letters": letters.count(),
+        "sent": sent.count(),
+        "files": (
+            MessageAttachment.objects.filter(message__in=letters).count()
+            + OutboundAttachment.objects.filter(message__in=sent).count()
+        ),
+        "kept_letters": kept_letters,
+        "kept_sent": kept_sent,
+    }
+
+
+def _remove_unreferenced_files(stored):
+    """Delete the stored copy of each file that no row points at any more.
+
+    Forwarding moves a file into a chat without copying it, so the same
+    stored name can be held by a chat attachment as well; that one is left
+    alone. Best effort: a file that will not go is not worth failing the
+    clear-out for, and the rows are already gone.
+    """
+    from .models import ChatAttachment, MessageAttachment, OutboundAttachment
+
+    removed, seen = 0, set()
+    for storage, name in stored:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if any(
+            model.objects.filter(file=name).exists()
+            for model in (MessageAttachment, OutboundAttachment, ChatAttachment)
+        ):
+            continue
+        try:
+            storage.delete(name)
+            removed += 1
+        except Exception:  # noqa: BLE001 - see the docstring
+            logging.getLogger(__name__).warning("could not delete stored file %s", name)
+    return removed
+
+
+def reset_all_mail(admin, password):
+    """Delete every e-mail that no task depends on.
+
+    Returns ``(ok, error_ar, backup_json, deleted, files_removed)``.
+
+    Guarded the way the tasks reset is, because it is just as final: the admin
+    role, the admin's own password typed again, one transaction. It covers
+    every mailbox - the company's and each Sales person's own address - both
+    the letters that came in and the replies that went out, with their
+    attachments, and then the stored files nothing else uses. WhatsApp is not
+    touched. Nothing is done to the real mailbox: a letter still unread there
+    is fetched again by the next pull.
+
+    The JSON is a Django fixture of the rows deleted (files are not in it),
+    handed to the admin as a download and never kept on the server.
+    """
+    from django.core import serializers
+
+    from .models import MessageAttachment, OutboundAttachment, OutboundMessage
+
+    if admin is None or not admin.is_admin_role:
+        return False, "الخطوة دي للأدمن بس.", "", 0, 0
+    if not password or not admin.check_password(password):
+        log(admin, "mail.reset_refused", "", "wrong password")
+        return False, "الباسورد غلط.", "", 0, 0
+
+    with transaction.atomic():
+        letters_qs, sent_qs, _kept_letters, _kept_sent = _mail_to_clear()
+        letters = list(letters_qs)
+        sent = list(sent_qs)
+        letter_files = list(MessageAttachment.objects.filter(message__in=letters))
+        sent_files = list(OutboundAttachment.objects.filter(message__in=sent))
+        backup = serializers.serialize(
+            "json", [*letters, *letter_files, *sent, *sent_files],
+            indent=1, ensure_ascii=False,
+        )
+        stored = [(a.file.storage, a.file.name) for a in (*letter_files, *sent_files)]
+        for model, rows in ((InboundMessage, letters), (OutboundMessage, sent)):
+            ids = [row.pk for row in rows]
+            for start in range(0, len(ids), 500):
+                model.objects.filter(pk__in=ids[start:start + 500]).delete()
+    deleted = len(letters) + len(sent)
+    removed = _remove_unreferenced_files(stored)
+    log(
+        admin, "mail.reset", f"{deleted} mail(s)",
+        f"{len(letters)} received, {len(sent)} sent, {removed} stored file(s) removed",
+    )
+    return True, "", backup, deleted, removed
+
+
+# ---------------------------------------------------------------------------
 # Finding a task from the nav search
 # ---------------------------------------------------------------------------
 
