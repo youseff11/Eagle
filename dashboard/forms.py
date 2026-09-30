@@ -823,6 +823,7 @@ class SettingsForm(forms.ModelForm):
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
             "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
+            "mail_aliases_hidden", "google_client_id", "google_client_secret",
             "sales_mail_website", "sales_mail_footer",
             "simulation_enabled", "poll_ms",
             "group_creator_roles",
@@ -852,11 +853,25 @@ class SettingsForm(forms.ModelForm):
                 "class": "input mono", "rows": 4, "dir": "ltr",
                 "placeholder": "operation1@...\noperation2@...\nsales@...",
             }),
+            "mail_aliases_hidden": forms.Textarea(attrs={
+                "class": "input mono", "rows": 2, "dir": "ltr",
+                "placeholder": "hr@...\naccounts@...",
+            }),
+            "google_client_id": forms.TextInput(attrs={"class": "input mono", "dir": "ltr"}),
+            "google_client_secret": forms.PasswordInput(
+                attrs={"class": "input", "dir": "ltr"}, render_value=True
+            ),
         }
 
     def clean_mail_aliases(self):
         """One clean address per line - the same list the staff page offers."""
-        raw = self.cleaned_data.get("mail_aliases") or ""
+        return self._address_lines("mail_aliases")
+
+    def clean_mail_aliases_hidden(self):
+        return self._address_lines("mail_aliases_hidden")
+
+    def _address_lines(self, name):
+        raw = self.cleaned_data.get(name) or ""
         kept, bad = [], []
         for line in raw.replace(",", "\n").splitlines():
             address = line.strip().lower()
@@ -882,6 +897,11 @@ class SettingsForm(forms.ModelForm):
             self.initial["group_creator_roles"] = [
                 r for r in instance.group_roles if r != "admin"
             ]
+        # Connected to Google, the list is Google's: a stale page posted back
+        # must not overwrite what the last sync wrote.
+        if instance is not None and instance.google_refresh_token \
+                and instance.google_client_id and instance.google_client_secret:
+            self.fields["mail_aliases"].disabled = True
 
 
 class SimulateMessageForm(forms.Form):

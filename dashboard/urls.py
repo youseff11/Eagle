@@ -162,6 +162,10 @@ urlpatterns = [
     # -- admin panel --------------------------------------------------------
     path("panel/", views.admin_overview, name="admin_overview"),
     path("panel/settings/", views.admin_settings, name="admin_settings"),
+    path("panel/settings/google/connect/", views.google_connect, name="google_connect"),
+    path("panel/settings/google/callback/", views.google_callback, name="google_callback"),
+    path("panel/settings/google/sync/", views.google_sync, name="google_sync"),
+    path("panel/settings/google/disconnect/", views.google_disconnect, name="google_disconnect"),
     path("panel/users/", views.admin_users, name="admin_users"),
     path("panel/users/new/", views.admin_user_new, name="admin_user_new"),
     path("panel/users/<int:pk>/", views.admin_user_edit, name="admin_user_edit"),

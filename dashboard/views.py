@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import attendance, employees, identity, payroll, performance, recruitment, services, wordcount
+from . import attendance, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
 from .forms import (
     AICheckForm,
     AttendanceEditForm,
@@ -1303,6 +1303,9 @@ def admin_settings(request):
         if form.is_valid():
             form.save()
             services.log(request.user, "settings.update")
+            if "mail_aliases_hidden" in form.changed_data:
+                # A hidden address leaves the list now, not at the next sync.
+                galiases.sync(force=True)
             if is_ajax:
                 # The "save & test" button saves first, then calls the test API.
                 return JsonResponse({"ok": True})
@@ -1323,7 +1326,80 @@ def admin_settings(request):
         "is_local": host.split(":")[0] in ("127.0.0.1", "localhost", "0.0.0.0")
         or host.startswith("192.168.") or host.startswith("10."),
         "is_https": request.is_secure(),
+        "google_connected": galiases.is_connected(conf),
+        "google_redirect_uri": request.build_absolute_uri(reverse("dashboard:google_callback")),
     })
+
+
+# -- the alias list from Google Workspace (galiases.py) -----------------------
+
+GOOGLE_STATE_KEY = "google_alias_state"
+
+
+@admin_only
+def google_connect(request):
+    conf = AppSettings.load()
+    if not galiases.is_configured(conf):
+        flash.error(request, "اكتب Client ID وClient Secret واحفظ الأول.")
+        return redirect(reverse("dashboard:admin_settings") + "#s-email")
+    state = galiases.new_state()
+    request.session[GOOGLE_STATE_KEY] = state
+    redirect_uri = request.build_absolute_uri(reverse("dashboard:google_callback"))
+    return redirect(galiases.auth_url(conf, redirect_uri, state))
+
+
+@admin_only
+def google_callback(request):
+    back = reverse("dashboard:admin_settings") + "#s-email"
+    expected = request.session.pop(GOOGLE_STATE_KEY, None)
+    if not expected or request.GET.get("state") != expected:
+        flash.error(request, "الربط مع Google مااكتملش - جرّب تاني.")
+        return redirect(back)
+    if request.GET.get("error") or not request.GET.get("code"):
+        flash.error(request, "Google مااداش الصلاحية.")
+        return redirect(back)
+    conf = AppSettings.load()
+    redirect_uri = request.build_absolute_uri(reverse("dashboard:google_callback"))
+    try:
+        galiases.exchange_code(conf, request.GET["code"], redirect_uri)
+    except galiases.SyncError as exc:
+        flash.error(request, str(exc))
+        return redirect(back)
+    services.log(request.user, "settings.google_connect")
+    _report_sync(request, galiases.sync(conf, force=True))
+    return redirect(back)
+
+
+@admin_only
+@require_POST
+def google_sync(request):
+    _report_sync(request, galiases.sync(force=True))
+    return redirect(reverse("dashboard:admin_settings") + "#s-email")
+
+
+@admin_only
+@require_POST
+def google_disconnect(request):
+    galiases.disconnect(AppSettings.load())
+    services.log(request.user, "settings.google_disconnect")
+    flash.success(request, "اتفصل")
+    return redirect(reverse("dashboard:admin_settings") + "#s-email")
+
+
+def _report_sync(request, outcome):
+    ran, error, result = outcome
+    if error:
+        flash.error(request, error)
+    elif ran and result is not None:
+        added, removed, released = result
+        parts = []
+        if added:
+            parts.append("اتضاف: " + "، ".join(added))
+        if removed:
+            parts.append("اتشال: " + "، ".join(removed))
+        if released:
+            parts.append("اتشال العنوان من: " + "، ".join(str(p) for p in released))
+        flash.success(request, " · ".join(parts) or "القايمة زي Google بالظبط")
 
 
 @admin_only
@@ -1351,6 +1427,12 @@ def admin_user_edit(request, pk):
     # Read before the form binds: ModelForm writes the posted values onto
     # the instance during validation, not at save().
     before = identity.access_snapshot(obj)
+    if request.method != "POST":
+        # The admin is about to pick an address - often one they just added
+        # in Google. Refresh the list first (at most once a minute).
+        galiases.sync(every=galiases.STAFF_PAGE_EVERY_SECONDS)
+        obj.refresh_from_db(fields=["mail_alias"])
+        before = identity.access_snapshot(obj)
     alias_before = obj.mail_alias
     form = StaffEditForm(request.POST or None, instance=obj)
     shift_form = ShiftForm()

@@ -196,6 +196,60 @@
       {{ form.mail_aliases.errors }}
       <span class="helptext" data-ar="عنوان في كل سطر. دي القايمة اللي بتظهر في صفحة الموظف تختار منها. أي عنوان جديد لازم يتضاف الأول alias في Google Workspace."
             data-en="One per line. This is the list the staff page offers. A new address must first be added as an alias in Google Workspace.">عنوان في كل سطر. دي القايمة اللي بتظهر في صفحة الموظف.</span>
+      {% if google_connected %}
+        <span class="helptext" data-ar="مربوطة بـ Google: القايمة بتتحدّث لوحدها ومش بتتعدّل من هنا."
+              data-en="Linked to Google: the list updates itself and is not edited here.">مربوطة بـ Google: القايمة بتتحدّث لوحدها ومش بتتعدّل من هنا.</span>
+      {% endif %}
+    </div>
+
+    <div class="label mt" data-ar="مزامنة العناوين مع Google" data-en="Sync aliases with Google">مزامنة العناوين مع Google</div>
+    <p class="muted" style="font-size:.78rem"
+       data-ar="أي alias تضيفه أو تمسحه في Google Admin بيظهر أو يختفي من القايمة لوحده. لو عنوان اتمسح وكان متحدد لموظف، بيتشال منه وميلاته تروح للأدمن."
+       data-en="Any alias added or deleted in Google Admin appears in or leaves the list by itself. A deleted address held by someone is taken off them and their mail goes to the admin.">
+      أي alias تضيفه أو تمسحه في Google Admin بيظهر أو يختفي من القايمة لوحده.</p>
+    <div class="row row--tight">
+      {% if google_connected %}
+        <span class="badge badge--ok"><i class="badge__dot"></i><span data-ar="مربوط" data-en="Linked">مربوط</span></span>
+      {% else %}
+        <span class="badge badge--dead"><i class="badge__dot"></i><span data-ar="مش مربوط" data-en="Not linked">مش مربوط</span></span>
+      {% endif %}
+      {% if conf.google_sync_at %}
+        <span class="muted" style="font-size:.78rem"><span data-ar="آخر مزامنة:" data-en="Last sync:">آخر مزامنة:</span>
+          <span class="mono" dir="ltr">{{ conf.google_sync_at|date:"d/m H:i" }}</span></span>
+      {% endif %}
+    </div>
+    {% if conf.google_sync_error %}
+      <p class="errorlist mt" style="font-size:.8rem">{{ conf.google_sync_error }}</p>
+    {% endif %}
+    <div class="form-grid mt">
+      <div class="field"><label>Client ID</label>{{ form.google_client_id }}</div>
+      <div class="field"><label>Client Secret</label>{{ form.google_client_secret }}</div>
+      <div class="field"><label>Redirect URI</label>
+        <input class="input mono" dir="ltr" readonly value="{{ google_redirect_uri }}" onclick="this.select()">
+        <span class="helptext" data-ar="انسخه في Authorized redirect URIs في Google Cloud."
+              data-en="Paste it into Authorized redirect URIs in Google Cloud.">انسخه في Authorized redirect URIs في Google Cloud.</span></div>
+      <div class="field"><label data-ar="عناوين متستخبية" data-en="Hidden aliases">عناوين متستخبية</label>{{ form.mail_aliases_hidden }}
+        {{ form.mail_aliases_hidden.errors }}
+        <span class="helptext" data-ar="موجودة في Google بس مش هتظهر في صفحة الموظف (زي hr@ وaccounts@)."
+              data-en="On Google, but never offered on the staff page (hr@, accounts@).">موجودة في Google بس مش هتظهر في صفحة الموظف.</span></div>
+    </div>
+    <div class="row row--tight mt">
+      {% if conf.google_client_id and conf.google_client_secret %}
+        <a class="btn" href="{% url 'dashboard:google_connect' %}">
+          <span data-ar="{% if google_connected %}اربط تاني{% else %}اربط Google{% endif %}"
+                data-en="{% if google_connected %}Reconnect{% else %}Connect Google{% endif %}">{% if google_connected %}اربط تاني{% else %}اربط Google{% endif %}</span></a>
+      {% else %}
+        <span class="muted" style="font-size:.78rem" data-ar="اكتب Client ID وClient Secret واحفظ، وبعدين اربط."
+              data-en="Enter the Client ID and Secret, save, then connect.">اكتب Client ID وClient Secret واحفظ، وبعدين اربط.</span>
+      {% endif %}
+      {% if google_connected %}
+        <button class="btn btn--accent" type="submit" formnovalidate formmethod="post"
+                formaction="{% url 'dashboard:google_sync' %}">
+          {% icon "refresh" "ic--sm" %}<span data-ar="حدّث دلوقتي" data-en="Sync now">حدّث دلوقتي</span></button>
+        <button class="btn" type="submit" formnovalidate formmethod="post"
+                formaction="{% url 'dashboard:google_disconnect' %}">
+          <span data-ar="افصل" data-en="Disconnect">افصل</span></button>
+      {% endif %}
     </div>
 
     <div class="label mt" data-ar="شكل إيميلات الـSales" data-en="Sales letter">شكل إيميلات الـSales</div>

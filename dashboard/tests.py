@@ -9337,3 +9337,163 @@ class AIRecheckTests(TestCase):
             call_command("recheck_ai", "--dry-run", stdout=out)
         self.assertIn(self.task.code, out.getvalue())
         run.assert_not_called()
+
+
+class GoogleAliasSyncTests(TestCase):
+    """The alias list is read from Google Workspace (30/09/2026): an alias
+    added there joins the staff page's list, one deleted there leaves it and
+    whoever held it, and a failed read changes nothing.
+    """
+
+    def setUp(self):
+        from . import galiases
+
+        self.g = galiases
+        self.admin = User.objects.create_user("own_ga", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_ga", password="x", role=Role.OPERATION)
+        self.ops.mail_alias = "operation1@eagle.example"
+        self.ops.save()
+        conf = AppSettings.load()
+        conf.imap_user = "info@eagle.example"
+        conf.mail_aliases = "operation1@eagle.example\nsales@eagle.example"
+        conf.mail_aliases_hidden = "hr@eagle.example"
+        conf.google_client_id = "cid"
+        conf.google_client_secret = "secret"
+        conf.google_refresh_token = "refresh"
+        conf.save()
+
+    def _sync(self, aliases, **kw):
+        from unittest import mock
+
+        with mock.patch("dashboard.galiases.fetch_aliases", return_value=aliases):
+            return self.g.sync(force=True, **kw)
+
+    def test_a_new_alias_joins_the_list_and_hidden_ones_never_do(self):
+        ran, error, (added, removed, released) = self._sync([
+            "operation1@eagle.example", "sales@eagle.example",
+            "operation3@eagle.example", "hr@eagle.example",
+        ])
+        self.assertTrue(ran)
+        self.assertEqual(error, "")
+        self.assertEqual(added, ["operation3@eagle.example"])
+        self.assertEqual(removed, [])
+        self.assertEqual(released, [])
+        self.assertEqual(AppSettings.load().alias_list, [
+            "operation1@eagle.example", "operation3@eagle.example", "sales@eagle.example",
+        ])
+
+    def test_a_deleted_alias_leaves_the_list_and_its_holder(self):
+        from .models import AuditLog
+
+        _, _, (added, removed, released) = self._sync(["sales@eagle.example"])
+        self.assertEqual(removed, ["operation1@eagle.example"])
+        self.assertEqual(released, [self.ops])
+        self.assertEqual(AppSettings.load().alias_list, ["sales@eagle.example"])
+        self.ops.refresh_from_db()
+        self.assertEqual(self.ops.mail_alias, "")
+        self.assertTrue(AuditLog.objects.filter(
+            action="user.mail_alias", target=self.ops.username).exists())
+
+    def test_a_failed_read_changes_nothing_and_is_recorded(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.galiases.fetch_aliases",
+                        side_effect=self.g.SyncError("Client ID أو Client Secret غلط.")):
+            ran, error, result = self.g.sync(force=True)
+        self.assertTrue(ran)
+        self.assertIsNone(result)
+        conf = AppSettings.load()
+        self.assertEqual(conf.google_sync_error, error)
+        self.assertEqual(conf.alias_list, ["operation1@eagle.example", "sales@eagle.example"])
+        self.ops.refresh_from_db()
+        self.assertEqual(self.ops.mail_alias, "operation1@eagle.example")
+
+    def test_not_connected_never_asks_google(self):
+        from unittest import mock
+
+        conf = AppSettings.load()
+        conf.google_refresh_token = ""
+        conf.save()
+        with mock.patch("dashboard.galiases.fetch_aliases") as ask:
+            self.assertEqual(self.g.sync(force=True), (False, "", None))
+        ask.assert_not_called()
+
+    def test_it_waits_between_syncs_unless_forced(self):
+        from unittest import mock
+
+        self._sync(["sales@eagle.example", "operation1@eagle.example"])
+        with mock.patch("dashboard.galiases.fetch_aliases") as ask:
+            ran, _, _ = self.g.sync()
+        self.assertFalse(ran)
+        ask.assert_not_called()
+
+    def test_an_answer_without_kind_is_not_trusted(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.galiases._access_token", return_value="tok"), \
+                mock.patch("dashboard.galiases._call", return_value={}):
+            ran, error, result = self.g.sync(force=True)
+        self.assertIsNone(result)
+        self.assertTrue(error)
+        self.assertEqual(len(AppSettings.load().alias_list), 2)
+
+    def test_google_answer_is_read_lower_case(self):
+        from unittest import mock
+
+        answer = {"kind": "admin#directory#aliases", "aliases": [
+            {"alias": "Operation1@Eagle.example"}, {"alias": "sales@eagle.example"},
+        ]}
+        with mock.patch("dashboard.galiases._access_token", return_value="tok"), \
+                mock.patch("dashboard.galiases._call", return_value=answer):
+            self.assertEqual(self.g.fetch_aliases(AppSettings.load()),
+                             ["operation1@eagle.example", "sales@eagle.example"])
+
+    def test_the_mail_fetch_also_syncs(self):
+        from unittest import mock
+
+        from . import mailbox
+
+        with mock.patch("dashboard.mailbox._fetch_and_record", return_value=(0, "")), \
+                mock.patch("dashboard.galiases.sync") as sync:
+            self.assertEqual(mailbox.fetch_and_record(), (0, ""))
+        sync.assert_called_once()
+
+    def test_the_staff_page_offers_what_google_has(self):
+        from unittest import mock
+
+        self.client.force_login(self.admin)
+        with mock.patch("dashboard.galiases.fetch_aliases",
+                        return_value=["operation1@eagle.example", "operation9@eagle.example"]):
+            page = self.client.get(_rev("dashboard:admin_user_edit", args=[self.ops.pk]))
+        self.assertContains(page, "operation9@eagle.example")
+
+    def test_connected_the_list_is_not_edited_from_the_settings_page(self):
+        from .forms import SettingsForm
+
+        form = SettingsForm(instance=AppSettings.load())
+        self.assertTrue(form.fields["mail_aliases"].disabled)
+
+    def test_connect_needs_the_state_it_sent(self):
+        self.client.force_login(self.admin)
+        start = self.client.get(_rev("dashboard:google_connect"))
+        self.assertEqual(start.status_code, 302)
+        self.assertIn("accounts.google.com", start["Location"])
+        self.assertIn("admin.directory.user.alias.readonly", start["Location"])
+        back = self.client.get(_rev("dashboard:google_callback"),
+                               {"state": "forged", "code": "x"})
+        self.assertEqual(back.status_code, 302)
+        self.assertEqual(AppSettings.load().google_refresh_token, "refresh")
+
+    def test_only_the_admin_reaches_the_google_pages(self):
+        self.client.force_login(self.ops)
+        for name in ("google_connect", "google_callback"):
+            self.assertEqual(self.client.get(_rev(f"dashboard:{name}")).status_code, 403)
+        page = self.client.post(_rev("dashboard:google_disconnect"))
+        self.assertEqual(page.status_code, 403)
+        self.assertEqual(AppSettings.load().google_refresh_token, "refresh")
+
+
+def _rev(name, args=None):
+    from django.urls import reverse
+
+    return reverse(name, args=args)

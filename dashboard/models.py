@@ -1997,13 +1997,27 @@ class AppSettings(models.Model):
         help_text="Mail to an address nobody holds reaches the admin only.",
     )
     #: The aliases that exist on the company mailbox, one per line - what the
-    #: staff page offers in its list. Typed here because the mailbox itself
-    #: (Google Workspace) is not asked: adding one there, then here, is two
-    #: steps on purpose - an address that is only here would never arrive.
+    #: staff page offers in its list. Once Google is connected (below) this
+    #: is written by ``galiases.sync`` from Google's own list; before that,
+    #: or without it, the admin types it here.
     mail_aliases = models.TextField(
         blank=True,
         help_text="One address per line: the aliases on the company mailbox.",
     )
+    #: Aliases Google has that the staff page must never offer - hr@ and
+    #: accounts@, which Gmail files away before the dashboard reads the inbox.
+    mail_aliases_hidden = models.TextField(
+        blank=True,
+        help_text="Aliases on the mailbox never offered on the staff page. One per line.",
+    )
+    #: Reading the alias list from Google Workspace (galiases.py). An OAuth
+    #: "Web application" client with the Admin SDK API enabled; the refresh
+    #: token comes back from the "connect" button and is never typed.
+    google_client_id = models.CharField(max_length=200, blank=True)
+    google_client_secret = models.CharField(max_length=200, blank=True)
+    google_refresh_token = models.CharField(max_length=500, blank=True)
+    google_sync_at = models.DateTimeField(null=True, blank=True)
+    google_sync_error = models.CharField(max_length=300, blank=True)
     #: The branded letter Sales people's e-mails go out in (mailbrand.py).
     sales_mail_website = models.CharField(
         max_length=190, blank=True,
@@ -2077,6 +2091,15 @@ class AppSettings(models.Model):
             if address and "@" in address and address not in out:
                 out.append(address)
         return out
+
+    @property
+    def hidden_alias_list(self):
+        """``mail_aliases_hidden``, cleaned the same way."""
+        return [
+            line.strip().lower()
+            for line in (self.mail_aliases_hidden or "").replace(",", "\n").splitlines()
+            if "@" in line
+        ]
 
     @property
     def keyword_list(self):

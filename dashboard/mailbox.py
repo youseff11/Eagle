@@ -237,7 +237,22 @@ def fetch_and_record(limit=25, keep_unread=False):
 
     ``(created, error_ar)``. Never raises: both callers want to report, and a
     background loop that dies on a flaky mailbox stops fetching mail for good.
+
+    Also refreshes the alias list from Google (``galiases.sync``, at most every
+    ten minutes) - the scheduled fetch is the one loop that is always running,
+    and a failed sync is recorded on its own, never as a failed fetch.
     """
+    result = _fetch_and_record(limit=limit, keep_unread=keep_unread)
+    try:
+        from . import galiases
+
+        galiases.sync()
+    except Exception:  # noqa: BLE001 - sync() never raises; belt and braces
+        pass
+    return result
+
+
+def _fetch_and_record(limit=25, keep_unread=False):
     conf = AppSettings.load()
     try:
         created = fetch(limit=limit, keep_unread=keep_unread, conf=conf)
