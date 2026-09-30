@@ -96,17 +96,28 @@ def groups_for(user):
             Item("ops_chats", "الشاتات", "Chats", "message", counter="chats",
                  also=("ops_chat_detail", "ops_group_chat", "ops_staff_chat")),
         ]
-    out.append(_group("work", "الشغل", "Work", work))
+    # The admin starts on the overview, then the work itself.
+    if admin:
+        work.insert(0, Item("admin_overview", "نظرة عامة", "Overview", "chart"))
 
-    # -- clients ----------------------------------------------------------
-    out.append(_group("clients", "العملاء", "Clients", [
+    # Clients are part of the work, not a section of their own: two links
+    # (one, for most people) under a heading all by themselves was a whole
+    # extra fold to open. Somebody with no other work - accounting - still
+    # gets them, under their own heading, because a link needs one.
+    clients = [
         Item("client_list", "أكواد العملاء", "Client codes", "tag",
              also=("client_detail",)) if user.can_open_client_codes else None,
         Item("admin_clients", "بيانات العملاء", "Client records", "contact",
              also=("admin_client_new", "admin_client_edit")) if admin else None,
-    ]))
+    ]
+    if work:
+        out.append(_group("work", "الشغل", "Work", work + clients))
+    else:
+        out.append(_group("clients", "العملاء", "Clients", clients))
 
     # -- hiring -----------------------------------------------------------
+    # Only the everyday pages. The bot's question bank and its settings are
+    # things you set once, and live under "الإعدادات" with the other setup.
     out.append(_group("hiring", "التوظيف", "Recruitment", [
         Item("hr_recruitment", "لوحة التوظيف", "Recruitment board",
              "chart") if user.can_recruit else None,
@@ -120,20 +131,25 @@ def groups_for(user):
         # of its own with a single line beneath it.
         Item("reviewer_tests", "اختبارات المرشحين", "Candidate tests",
              "check-circle", also=("hr_test_score",)) if user.is_reviewer else None,
-        Item("hr_questions", "بنك الأسئلة", "Question bank",
-             "list-checks") if user.can_recruit else None,
         Item("hr_approvals", "موافقات التعيين", "Hiring approvals",
              "user-check") if user.can_approve_hiring else None,
-        Item("hr_recruitment_settings", "إعدادات التوظيف", "Recruitment settings",
-             "sliders") if user.can_recruit else None,
     ]))
 
-    # -- the people already hired -----------------------------------------
+    # -- the people already hired, and their attendance --------------------
+    # One section for both: they are the same person's file seen two ways,
+    # and two headings for them meant guessing which one held "الإجازات".
+    shift = user.can_manage_attendance
     out.append(_group("people", "الموظفين", "People", [
         Item("hr_employees", "ملفات الموظفين", "Employee files", "users",
              also=("hr_employee",)) if user.can_recruit else None,
+        Item("hr_attendance", "لوحة الحضور", "Attendance board", "users",
+             also=("hr_attendance_day",)) if shift else None,
+        Item("hr_schedules", "جداول العمل", "Schedules", "calendar") if shift else None,
         Item("hr_shifts", "الشيفتات", "Shifts", "clock",
-             also=("hr_shift_template_delete",)) if user.can_manage_attendance else None,
+             also=("hr_shift_template_delete",)) if shift else None,
+        Item("hr_leave", "طلبات الإجازة", "Leave requests", "hand") if shift else None,
+        Item("hr_overtime", "الأوفرتايم", "Overtime", "clock") if shift else None,
+        Item("hr_report", "التقرير الشهري", "Monthly report", "chart") if shift else None,
         Item("hr_probation", "فترة الاختبار", "Probation",
              "eye") if user.can_recruit else None,
         Item("hr_performance", "الأداء", "Performance",
@@ -142,22 +158,6 @@ def groups_for(user):
              "thumbs-down") if user.can_recruit else None,
         Item("hr_salary_requests", "طلبات تغيير الراتب", "Salary requests",
              "refresh") if user.can_recruit else None,
-        Item("hr_salary_plans", "خطط الرواتب", "Salary plans",
-             "layers") if user.can_approve_hiring else None,
-    ]))
-
-    # -- attendance, for whoever runs it ----------------------------------
-    shift = user.can_manage_attendance
-    out.append(_group("workforce", "إدارة الحضور", "Workforce", [
-        Item("hr_attendance", "لوحة الحضور", "Attendance board", "users",
-             also=("hr_attendance_day",)) if shift else None,
-        Item("hr_schedules", "جداول العمل", "Schedules", "calendar") if shift else None,
-        # Used to hang under no heading at all, between two sections.
-        Item("hr_leave", "طلبات الإجازة", "Leave requests", "hand") if shift else None,
-        Item("hr_overtime", "الأوفرتايم", "Overtime", "clock") if shift else None,
-        Item("hr_report", "التقرير الشهري", "Monthly report", "chart") if shift else None,
-        Item("hr_offices", "مواقع المكاتب", "Offices", "map-pin") if shift else None,
-        Item("hr_devices", "أجهزة الحضور", "Devices", "shield-check") if shift else None,
     ]))
 
     # -- money -------------------------------------------------------------
@@ -169,17 +169,27 @@ def groups_for(user):
              "timer") if admin else None,
         Item("accounts_violations", "المخالفات والخصومات", "Violations",
              "alert") if money else None,
-        Item("accounts_rules", "قواعد الحساب", "Payroll rules",
-             "list-checks") if admin else None,
     ]))
 
-    # -- running the place --------------------------------------------------
-    out.append(_group("admin", "الأدمن", "Admin", [
-        Item("admin_overview", "نظرة عامة", "Overview", "chart") if admin else None,
+    # -- setting the place up ----------------------------------------------
+    # Everything you configure once and come back to rarely, gathered from
+    # the five sections it used to be scattered over. The day-to-day pages
+    # stay short; this is where a rule, a place or an account is changed.
+    out.append(_group("settings", "الإعدادات", "Settings", [
         Item("admin_users", "المستخدمين والشيفتات", "Users & shifts", "lock",
              also=("admin_user_new", "admin_user_edit")) if admin else None,
         Item("admin_settings", "الإعدادات و AI", "Settings & AI",
              "sliders") if admin else None,
+        Item("accounts_rules", "قواعد الحساب", "Payroll rules",
+             "list-checks") if admin else None,
+        Item("hr_salary_plans", "خطط الرواتب", "Salary plans",
+             "layers") if user.can_approve_hiring else None,
+        Item("hr_offices", "مواقع المكاتب", "Offices", "map-pin") if shift else None,
+        Item("hr_devices", "أجهزة الحضور", "Devices", "shield-check") if shift else None,
+        Item("hr_recruitment_settings", "إعدادات التوظيف", "Recruitment settings",
+             "sliders") if user.can_recruit else None,
+        Item("hr_questions", "بنك الأسئلة", "Question bank",
+             "list-checks") if user.can_recruit else None,
         Item("admin_simulate", "محاكاة رسالة", "Simulate message",
              "beaker") if admin else None,
         Item("admin_audit", "سجل النشاط", "Audit log", "history") if admin else None,

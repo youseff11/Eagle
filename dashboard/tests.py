@@ -5799,9 +5799,75 @@ class NavTests(TestCase):
         for group in nav.sidebar(admin):
             for item in group["items"]:
                 where[item["ar"]] = group["ar"]
-        self.assertEqual(where["طلبات الإجازة"], "إدارة الحضور")
-        self.assertEqual(where["خطط الرواتب"], "الموظفين")
+        # 02/10/2026: attendance joined the people section, and the things
+        # you set up once moved to their own "الإعدادات".
+        self.assertEqual(where["طلبات الإجازة"], "الموظفين")
+        self.assertEqual(where["خطط الرواتب"], "الإعدادات")
         self.assertEqual(where["موافقات التعيين"], "التوظيف")
+
+    def test_the_admin_nav_is_five_sections_and_two_small_ones(self):
+        """It was nine headings and forty links to get lost in."""
+        from . import nav
+
+        admin = self._user("nav_admin5", Role.ADMIN)
+        self.assertEqual(
+            [group["key"] for group in nav.sidebar(admin)],
+            ["work", "hiring", "people", "accounts", "settings", "mine", "danger"],
+        )
+
+    def test_clients_sit_in_the_work_section_and_accounting_still_finds_them(self):
+        from . import nav
+
+        def where(user):
+            return {
+                item["ar"]: group["ar"]
+                for group in nav.sidebar(user) for item in group["items"]
+            }
+
+        self.assertEqual(where(self._user("nav_ops5", Role.OPERATION))["أكواد العملاء"], "الشغل")
+        self.assertEqual(where(self._user("nav_admin6", Role.ADMIN))["بيانات العملاء"], "الشغل")
+        # Nothing else to put them under, so they keep a heading of their own.
+        self.assertEqual(where(self._user("nav_acc5", Role.ACCOUNTING))["أكواد العملاء"], "العملاء")
+
+    def test_the_setup_pages_are_gathered_under_settings(self):
+        from . import nav
+
+        admin = self._user("nav_admin7", Role.ADMIN)
+        settings = next(g for g in nav.groups_for(admin) if g["key"] == "settings")
+        self.assertEqual(
+            {item.url for item in settings["items"]},
+            {"admin_users", "admin_settings", "accounts_rules", "hr_salary_plans",
+             "hr_offices", "hr_devices", "hr_recruitment_settings", "hr_questions",
+             "admin_simulate", "admin_audit"},
+        )
+        # HR gets the setup pages that are theirs, and none of the admin's.
+        hr = self._user("nav_hr5", Role.HR)
+        mine = next(g for g in nav.groups_for(hr) if g["key"] == "settings")
+        self.assertEqual(
+            {item.url for item in mine["items"]},
+            {"hr_offices", "hr_devices", "hr_recruitment_settings", "hr_questions"},
+        )
+
+    def test_no_page_was_lost_in_the_reshuffle(self):
+        """Fewer sections, same pages: the admin still reaches all forty."""
+        from . import nav
+
+        admin = self._user("nav_admin8", Role.ADMIN)
+        reachable = {item.url for group in nav.groups_for(admin) for item in group["items"]}
+        self.assertEqual(reachable, {
+            "admin_overview", "ops_inbox", "ops_chats", "ops_tasks", "ops_team",
+            "client_list", "admin_clients",
+            "hr_recruitment", "hr_vacancies", "hr_candidates", "hr_approvals",
+            "hr_employees", "hr_attendance", "hr_schedules", "hr_shifts", "hr_leave",
+            "hr_overtime", "hr_report", "hr_probation", "hr_performance",
+            "hr_complaints", "hr_salary_requests",
+            "accounts_overview", "accounts_attendance", "accounts_violations",
+            "admin_users", "admin_settings", "accounts_rules", "hr_salary_plans",
+            "hr_offices", "hr_devices", "hr_recruitment_settings", "hr_questions",
+            "admin_simulate", "admin_audit",
+            "my_attendance", "my_leave", "notifications",
+            "admin_reset_mail", "admin_reset_tasks",
+        })
 
     def test_the_client_groups_link_is_gone(self):
         """The feature was taken out; the link outlived it by two weeks."""
