@@ -129,6 +129,11 @@ urlpatterns = [
     path("hr/employees/", views.hr_employees, name="hr_employees"),
     path("hr/employees/<int:pk>/", views.hr_employee, name="hr_employee"),
     path("hr/employees/<int:pk>/shift/", views.hr_employee_shift, name="hr_employee_shift"),
+    path(
+        "hr/employees/<int:pk>/work-mode/",
+        views.hr_employee_workmode,
+        name="hr_employee_workmode",
+    ),
 
     # -- leave, probation, performance, pay ---------------------------------
     path("leave/", views.my_leave, name="my_leave"),

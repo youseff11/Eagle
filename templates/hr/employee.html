@@ -84,7 +84,7 @@
   </div>
 
   <div class="sticky-side">
-    {% if user.can_manage_attendance %}{% include "partials/shift_picker.html" %}{% endif %}
+    {% if user.can_manage_attendance %}{% include "partials/shift_picker.html" %}{% include "partials/work_mode_picker.html" %}{% endif %}
     <div class="card">
       <div class="card__head">
         {% icon "calendar" %}

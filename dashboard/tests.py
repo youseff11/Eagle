@@ -7612,6 +7612,192 @@ class ResetMailTests(TestCase):
         )
 
 
+class WorkModeTests(TestCase):
+    """Home or office, from the employee file: the office is tied to the zone
+    set on the offices page, home is not.
+    """
+
+    def setUp(self):
+        from .models import OfficeLocation, PayrollSettings, Shift, ShiftTemplate, WorkMode
+
+        self.WorkMode = WorkMode
+        PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        self.morning = ShiftTemplate.objects.get(name="Shift 1")
+        self.admin = User.objects.create_user("boss_wm", password="x", role=Role.ADMIN)
+        self.hr = User.objects.create_user(
+            "hr_wm", password="x", role=Role.OPERATION, attendance_manager=True
+        )
+        self.office = OfficeLocation.objects.create(
+            name="Head office", name_ar="المكتب الرئيسي", latitude=Decimal("30.044400"),
+            longitude=Decimal("31.235700"), radius_meters=150,
+        )
+
+        def worker(name, mode):
+            person = User.objects.create_user(
+                name, password="x", role=Role.TRANSLATOR, work_mode=mode
+            )
+            Shift.objects.create(user=person, weekday=0, template=self.morning)   # Mondays
+            return person
+
+        self.in_office = worker("in_office", WorkMode.OFFICE)
+        self.at_home = worker("at_home", WorkMode.OFFICE)   # moved to home by the test
+
+    def _at(self, hour, minute=0):
+        from datetime import datetime
+
+        return timezone.make_aware(datetime(2026, 9, 21, hour, minute))        # a Monday
+
+    def _set(self, person, mode):
+        response = self.client.post(
+            f"/hr/employees/{person.pk}/work-mode/", {"work_mode": mode}
+        )
+        # The request saved it through its own copy of the row; a real request
+        # loads the person fresh, so the test has to as well.
+        person.refresh_from_db()
+        return response
+
+    # -- the card -----------------------------------------------------------
+    def test_the_employee_file_offers_home_and_office_with_the_zone(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.in_office.pk}/").content.decode()
+        self.assertIn('name="work_mode"', html)
+        self.assertIn('value="office" checked', html)
+        self.assertIn("من البيت", html)
+        self.assertIn("المكتب الرئيسي", html)
+        self.assertIn("150", html)                           # the radius, in metres
+        self.assertNotIn('value="hybrid"', html)             # not offered as a new choice
+
+    def test_with_no_office_the_card_says_nothing_is_checked(self):
+        from .models import OfficeLocation
+
+        OfficeLocation.objects.all().delete()
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.in_office.pk}/").content.decode()
+        self.assertIn("مفيش مكتب متسجّل", html)
+
+    def test_a_roster_day_with_its_own_mode_is_called_out(self):
+        from .models import Shift
+
+        Shift.objects.filter(user=self.in_office).update(work_mode="office")
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.in_office.pk}/").content.decode()
+        self.assertIn("يوم في جدوله متحدد له نظام بنفسه", html)
+
+    def test_somebody_already_hybrid_keeps_that_option(self):
+        self.in_office.work_mode = self.WorkMode.HYBRID
+        self.in_office.save()
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.in_office.pk}/").content.decode()
+        self.assertIn('value="hybrid" checked', html)
+
+    # -- saving it ----------------------------------------------------------
+    def test_hr_moves_somebody_home_and_back_and_it_is_logged(self):
+        from .models import AuditLog
+
+        self.client.force_login(self.hr)
+        self.assertEqual(self._set(self.in_office, "remote").status_code, 302)
+        self.in_office.refresh_from_db()
+        self.assertEqual(self.in_office.work_mode, self.WorkMode.REMOTE)
+        self._set(self.in_office, "office")
+        self.in_office.refresh_from_db()
+        self.assertEqual(self.in_office.work_mode, self.WorkMode.OFFICE)
+        self.assertEqual(
+            AuditLog.objects.filter(action="employee.work_mode", actor=self.hr).count(), 2
+        )
+
+    def test_hybrid_cannot_be_picked_for_somebody_who_is_not_on_it(self):
+        self.client.force_login(self.hr)
+        self._set(self.in_office, "hybrid")
+        self._set(self.in_office, "nonsense")
+        self.in_office.refresh_from_db()
+        self.assertEqual(self.in_office.work_mode, self.WorkMode.OFFICE)
+
+    def test_a_translator_cannot_change_anybodys_mode(self):
+        self.client.force_login(self.in_office)
+        self.assertEqual(self._set(self.at_home, "remote").status_code, 403)
+        self.at_home.refresh_from_db()
+        self.assertEqual(self.at_home.work_mode, self.WorkMode.OFFICE)
+
+    # -- what it does to a punch ------------------------------------------------
+    def test_an_office_worker_far_from_the_zone_is_flagged_and_a_home_worker_is_not(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.client.force_login(self.hr)
+        self._set(self.at_home, "remote")
+
+        far = {"latitude": Decimal("30.100000"), "longitude": Decimal("31.235700")}
+        row, event = attendance.punch(
+            self.in_office, PunchKind.CHECK_IN, at=self._at(9, 3), **far
+        )
+        self.assertFalse(event.within_geofence)              # tied to the zone
+        self.assertTrue(row.off_site)
+
+        row, event = attendance.punch(
+            self.at_home, PunchKind.CHECK_IN, at=self._at(9, 3), **far
+        )
+        self.assertIsNone(event.within_geofence)             # never checked
+        self.assertFalse(row.off_site)
+        self.assertEqual(row.work_mode, "remote")
+
+    def test_an_office_worker_inside_the_zone_is_fine(self):
+        from . import attendance
+        from .models import PunchKind
+
+        row, event = attendance.punch(
+            self.in_office, PunchKind.CHECK_IN, at=self._at(9, 3),
+            latitude=Decimal("30.044900"), longitude=Decimal("31.235700"),      # about 55 m
+        )
+        self.assertTrue(event.within_geofence)
+        self.assertFalse(row.off_site)
+
+    def test_the_check_in_screen_asks_an_office_worker_for_a_location_and_a_home_worker_not(self):
+        from . import attendance
+
+        self.client.force_login(self.hr)
+        self._set(self.at_home, "remote")
+        self.assertTrue(attendance.gate_for(self.in_office, now=self._at(8, 50))["needs_location"])
+        self.assertFalse(attendance.gate_for(self.at_home, now=self._at(8, 50))["needs_location"])
+
+    # -- the offices page -----------------------------------------------------
+    def test_the_offices_page_offers_the_current_location_button_and_a_map_link(self):
+        self.client.force_login(self.admin)
+        html = self.client.get("/hr/offices/").content.decode()
+        self.assertIn("data-use-location", html)
+        self.assertIn('id="id_latitude"', html)
+        self.assertIn("google.com/maps?q=30.044400,31.235700", html)
+
+    def test_an_office_can_be_edited_from_the_page(self):
+        from decimal import Decimal
+
+        from .models import AuditLog
+
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/offices/?edit={self.office.pk}").content.decode()
+        self.assertIn('value="150"', html)
+
+        response = self.client.post(f"/hr/offices/?edit={self.office.pk}", {
+            "name": "Head office", "name_ar": "المكتب الرئيسي", "latitude": "30.050000",
+            "longitude": "31.240000", "radius_meters": "300", "is_active": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.office.refresh_from_db()
+        self.assertEqual(self.office.radius_meters, 300)
+        self.assertEqual(self.office.latitude, Decimal("30.050000"))
+        self.assertEqual(type(self.office).objects.count(), 1)       # edited, not duplicated
+        self.assertTrue(AuditLog.objects.filter(action="attendance.office.edit").exists())
+
+    def test_a_radius_under_twenty_metres_is_refused_on_edit(self):
+        self.client.force_login(self.admin)
+        self.client.post(f"/hr/offices/?edit={self.office.pk}", {
+            "name": "Head office", "latitude": "30.044400", "longitude": "31.235700",
+            "radius_meters": "5", "is_active": "on",
+        })
+        self.office.refresh_from_db()
+        self.assertEqual(self.office.radius_meters, 150)
+
+
 class ImagesInChatTests(TestCase):
     """A photo in the chat is shown as a photo, not as a file name."""
 

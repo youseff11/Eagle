@@ -80,6 +80,7 @@ from .models import (
     InboundMessage,
     Notification,
     OfficeLocation,
+    OffSitePolicy,
     OvertimeClaim,
     PayrollLine,
     PayrollPeriod,
@@ -2258,16 +2259,26 @@ def hr_template_add(request):
 
 @hr_required
 def hr_offices(request):
-    """Where a punch may be made from. Empty means no location check at all."""
-    form = OfficeLocationForm(request.POST or None)
+    """Where a punch may be made from. Empty means no location check at all.
+
+    ``?edit=<id>`` puts an office in the form, so its place or its radius can
+    be changed without deleting it and starting over.
+    """
+    raw = request.GET.get("edit") or ""
+    editing = OfficeLocation.objects.filter(pk=raw).first() if raw.isdigit() else None
+    form = OfficeLocationForm(request.POST or None, instance=editing)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        services.log(request.user, "attendance.office.add", form.cleaned_data["name"])
-        flash.success(request, "اتسجل")
+        office = form.save()
+        services.log(
+            request.user, "attendance.office.edit" if editing else "attendance.office.add",
+            office.name, f"{office.latitude},{office.longitude} r={office.radius_meters}m",
+        )
+        flash.success(request, "اتحفظ" if editing else "اتسجل")
         return redirect("dashboard:hr_offices")
 
     return render(request, "hr/offices.html", {
         "form": form,
+        "editing": editing,
         "offices": OfficeLocation.objects.all(),
         "conf": PayrollSettings.load(),
     })
@@ -2821,6 +2832,52 @@ def hr_employee_shift(request, pk):
     return redirect(target)
 
 
+def _work_mode_card(person, next_url):
+    """What the "home or office" card on a person's file needs to draw itself."""
+    conf = PayrollSettings.load()
+    return {
+        "person": person,
+        "offices": list(OfficeLocation.objects.filter(is_active=True)),
+        "is_hybrid": person.work_mode == WorkMode.HYBRID,
+        # A roster day that names its own mode beats the person's, so saying
+        # "home" here does not loosen a day the roster pinned to the office.
+        "pinned_days": person.shifts.filter(is_active=True).exclude(work_mode="").count(),
+        "policy_reject": conf.off_site_policy == OffSitePolicy.REJECT,
+        "next": next_url,
+    }
+
+
+@hr_required
+@require_POST
+def hr_employee_workmode(request, pk):
+    """Home or office, from the employee's file.
+
+    The office ties the punch to the zone set on the offices page; home does
+    not - a remote day is never asked for a location at all. Hybrid is only
+    kept for somebody already on it (the roster then decides each day): it is
+    not offered as a fresh choice.
+    """
+    person = get_object_or_404(User, pk=pk)
+    mode = request.POST.get("work_mode", "")
+    allowed = {WorkMode.OFFICE, WorkMode.REMOTE}
+    if person.work_mode == WorkMode.HYBRID:
+        allowed.add(WorkMode.HYBRID)
+    if mode not in allowed:
+        flash.error(request, "اختار من البيت أو من الشركة.")
+    else:
+        if mode != person.work_mode:
+            before = person.work_mode
+            person.work_mode = mode
+            person.save(update_fields=["work_mode"])
+            services.log(request.user, "employee.work_mode", person.username, f"{before} -> {mode}")
+        flash.success(request, "اتحفظ")
+
+    target = request.POST.get("next") or ""
+    if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        target = reverse("dashboard:hr_employee", args=[person.pk])
+    return redirect(target)
+
+
 @recruit_required
 def hr_employee(request, pk):
     """Section 18, with section 21's attendance read straight off the module."""
@@ -2842,6 +2899,7 @@ def hr_employee(request, pk):
         "leave_rows": person.leave_requests.all()[:6],
         "plans": SalaryPlan.objects.filter(is_active=True),
         "picker": _shift_picker(person, request.get_full_path()),
+        "work_mode_card": _work_mode_card(person, request.get_full_path()),
     })
 
 

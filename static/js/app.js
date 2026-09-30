@@ -1692,6 +1692,45 @@ window.Eagle = (function () {
     });
   }
 
+  /* The office form on /hr/offices/: fill the two coordinates from the device
+     HR is standing in the office with. One reading, taken when the button is
+     pressed and never again - there is no watchPosition here, in keeping with
+     section 14 of the attendance spec. Nothing is sent or stored until Save. */
+  function initOfficeLocation() {
+    var button = $("[data-use-location]");
+    if (!button) { return; }
+    var note = $("[data-location-note]");
+    function say(text, bad) {
+      if (!note) { return; }
+      note.removeAttribute("data-ar");
+      note.removeAttribute("data-en");
+      note.textContent = text;
+      note.style.color = bad ? "var(--danger)" : "";
+    }
+    button.addEventListener("click", function () {
+      if (!navigator.geolocation) {
+        say(t("المتصفح ده مابيدعمش تحديد الموقع — اكتب الإحداثيات بإيدك.",
+              "This browser cannot read a position - type the coordinates."), true);
+        return;
+      }
+      button.disabled = true;
+      say(t("بنحدد موقعك...", "Finding your position..."), false);
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        var lat = $("#id_latitude");
+        var lng = $("#id_longitude");
+        if (lat) { lat.value = pos.coords.latitude.toFixed(6); }
+        if (lng) { lng.value = pos.coords.longitude.toFixed(6); }
+        say(t("اتملت الإحداثيات (دقة ±" + Math.round(pos.coords.accuracy || 0) + " متر). راجعها واضغط احفظ.",
+              "Coordinates filled (accuracy ±" + Math.round(pos.coords.accuracy || 0) + " m). Check them, then Save."), false);
+        button.disabled = false;
+      }, function () {
+        say(t("مقدرتش أجيب الموقع — اسمح للمتصفح بالموقع أو اكتب الإحداثيات بإيدك.",
+              "Could not read the position - allow location for this site, or type the coordinates."), true);
+        button.disabled = false;
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+    });
+  }
+
   function initNavGroups() {
     var groups = $$("[data-nav-group]");
     if (!groups.length) { return; }
@@ -2209,6 +2248,7 @@ window.Eagle = (function () {
     initNavGroups();
     initNavSearch();
     initResetTasks();
+    initOfficeLocation();
     initLangPicks();
     initAssignPreview();
     initDeadlineBoxes();

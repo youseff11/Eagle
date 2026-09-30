@@ -31,6 +31,8 @@
             <td data-ar-label="المكتب" data-en-label="Office">{{ office.label }}</td>
             <td data-ar-label="الإحداثيات" data-en-label="Coordinates" class="mono" dir="ltr">
               {{ office.latitude }}, {{ office.longitude }}
+              <a class="muted" href="https://www.google.com/maps?q={{ office.latitude }},{{ office.longitude }}"
+                 target="_blank" rel="noopener noreferrer" data-ar="على الخريطة" data-en="On the map">على الخريطة</a>
             </td>
             <td data-ar-label="النطاق" data-en-label="Radius" class="mono">{{ office.radius_meters }}م</td>
             <td data-ar-label="الحالة" data-en-label="Status">
@@ -41,10 +43,16 @@
               {% endif %}
             </td>
             <td>
-              <form method="post" action="{% url 'dashboard:hr_office_delete' office.pk %}">
-                {% csrf_token %}
-                <button class="btn btn--sm btn--ghost" type="submit">{% icon "trash" "ic--sm" %}</button>
-              </form>
+              <div class="row row--tight">
+                <a class="btn btn--sm btn--ghost" href="?edit={{ office.pk }}">
+                  {% icon "pen" "ic--sm" %}<span data-ar="عدّل" data-en="Edit">عدّل</span>
+                </a>
+                <form method="post" action="{% url 'dashboard:hr_office_delete' office.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--sm btn--ghost" type="submit"
+                          aria-label="احذف" data-ar-title="احذف" data-en-title="Delete">{% icon "trash" "ic--sm" %}</button>
+                </form>
+              </div>
             </td>
           </tr>
         {% empty %}
@@ -61,10 +69,20 @@
     <div class="card">
       <div class="card__head">
         {% icon "plus" %}
-        <h3 data-ar="ضيف مكتب" data-en="Add an office">ضيف مكتب</h3>
+        <h3>
+          {% if editing %}<span data-ar="تعديل مكتب" data-en="Edit office">تعديل مكتب</span>
+          {% else %}<span data-ar="ضيف مكتب" data-en="Add an office">ضيف مكتب</span>{% endif %}
+        </h3>
+        {% if editing %}
+          <div class="grow"></div>
+          <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_offices' %}">
+            {% icon "plus" "ic--sm" %}<span data-ar="مكتب جديد" data-en="New office">مكتب جديد</span>
+          </a>
+        {% endif %}
       </div>
       <form method="post">
         {% csrf_token %}
+        {{ form.non_field_errors }}
         <div class="form-grid">
           <div class="field">
             <label data-ar="الاسم" data-en="Name">الاسم</label>
@@ -85,7 +103,18 @@
           <div class="field">
             <label data-ar="النطاق بالمتر" data-en="Radius (metres)">النطاق بالمتر</label>
             {{ form.radius_meters }}{{ form.radius_meters.errors }}
+            <small class="muted"
+                   data-ar="الموظف اللي شغال من الشركة لازم يسجّل جوه المسافة دي من المكتب."
+                   data-en="Somebody working from the office has to punch within this distance of it.">الموظف اللي شغال من الشركة لازم يسجّل جوه المسافة دي من المكتب.</small>
           </div>
+        </div>
+        <div class="mt">
+          <button class="btn btn--sm btn--block" type="button" data-use-location>
+            {% icon "map-pin" "ic--sm" %}<span data-ar="استخدم موقعي الحالي" data-en="Use my current location">استخدم موقعي الحالي</span>
+          </button>
+          <small class="muted" data-location-note aria-live="polite"
+                 data-ar="وانت واقف في المكتب دوس هنا يملى الإحداثيات. بيقرا موقع جهازك مرة واحدة وقت الضغط بس ومابيتخزنش غير لما تدوس احفظ."
+                 data-en="Standing in the office, press this to fill the coordinates. It reads this device once, when pressed, and nothing is stored until you Save.">وانت واقف في المكتب دوس هنا يملى الإحداثيات. بيقرا موقع جهازك مرة واحدة وقت الضغط بس ومابيتخزنش غير لما تدوس احفظ.</small>
         </div>
         <label class="switch">
           {{ form.is_active }}
