@@ -59,6 +59,7 @@ from .models import (
     Role,
     ScheduleOverride,
     Shift,
+    ShiftTemplate,
     User,
     WorkMode,
     WorkDay,
@@ -205,9 +206,29 @@ def current_template(user):
         counts[row.template_id] = counts.get(row.template_id, 0) + 1
     if not counts:
         return None
-    from .models import ShiftTemplate
-
     return ShiftTemplate.objects.filter(pk=max(counts, key=counts.get)).first()
+
+
+def shift_for_hours(start, end, name_ar="", actor=None):
+    """The company shift with these hours, making it when there is none yet.
+
+    This is the "a shift that does not exist yet" path on the employee file.
+    An active shift with the same hours is reused, so typing 5 to 1 a second
+    time does not leave two shifts that look identical in every picker.
+    """
+    existing = ShiftTemplate.objects.filter(
+        is_active=True, start_time=start, end_time=end
+    ).first()
+    if existing is not None:
+        return existing, False
+    label = (name_ar or "").strip()[:60] or clock.window12(start, end)
+    order = (ShiftTemplate.objects.order_by("-sort_order").values_list("sort_order", flat=True)
+             .first() or 0) + 1
+    template = ShiftTemplate.objects.create(
+        name=label, name_ar=label, start_time=start, end_time=end, sort_order=order,
+    )
+    services.log(actor, "schedule.template.add", template.name, clock.window12(start, end))
+    return template, True
 
 
 @transaction.atomic

@@ -28,6 +28,23 @@
           <span data-ar="من غير شيفت" data-en="No shift">من غير شيفت</span>
         </span>
       </label>
+      <label class="kv" style="cursor:pointer">
+        <span>
+          <input type="radio" name="template" value="new">
+          <b data-ar="شيفت جديد" data-en="New shift">شيفت جديد</b>
+        </span>
+      </label>
+      <div class="row row--tight" style="flex-wrap:wrap">
+        <input class="input" type="text" name="new_name" maxlength="60" style="flex:1 1 9rem"
+               placeholder="اسم الشيفت (اختياري)" data-ar-ph="اسم الشيفت (اختياري)" data-en-ph="Shift name (optional)">
+        <input class="input" type="time" name="new_start" dir="ltr" aria-label="من" style="flex:0 1 7rem">
+        <input class="input" type="time" name="new_end" dir="ltr" aria-label="إلى" style="flex:0 1 7rem">
+      </div>
+      <p class="muted" style="font-size:.8rem"
+         data-ar="لو النهاية قبل البداية (مثلًا 5 م لـ 1 ص) الشيفت بيعدّي نص الليل وبيتحسب على يوم بدايته. لو فيه شيفت بنفس المواعيد هيتستخدم هو."
+         data-en="If the end is before the start (e.g. 5 PM to 1 AM) the shift crosses midnight and counts on the day it started. A shift with the same hours is reused.">
+        لو النهاية قبل البداية (مثلًا 5 م لـ 1 ص) الشيفت بيعدّي نص الليل وبيتحسب على يوم بدايته. لو فيه شيفت بنفس المواعيد هيتستخدم هو.
+      </p>
     </div>
 
     <div class="field mt">

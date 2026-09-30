@@ -690,6 +690,20 @@ class ShiftTemplateForm(forms.ModelForm):
         }
 
 
+class NewShiftForm(forms.Form):
+    """The "shift that does not exist yet" fields on the employee file."""
+
+    name_ar = forms.CharField(max_length=60, required=False)
+    start_time = forms.TimeField()
+    end_time = forms.TimeField()
+
+    def clean(self):
+        data = super().clean()
+        if data.get("start_time") and data.get("start_time") == data.get("end_time"):
+            raise forms.ValidationError("بداية الشيفت ونهايته نفس الوقت.")
+        return data
+
+
 class ScheduleOverrideForm(forms.ModelForm):
     """Move one date without touching the standing roster."""
 

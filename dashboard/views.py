@@ -30,6 +30,7 @@ from .forms import (
     InterviewScoreForm,
     LeaveDecisionForm,
     LeaveRequestForm,
+    NewShiftForm,
     ProbationDecisionForm,
     OfficeLocationForm,
     PayrollSettingsForm,
@@ -2690,15 +2691,32 @@ def hr_employee_shift(request, pk):
     template = (
         ShiftTemplate.objects.filter(pk=raw, is_active=True).first() if raw.isdigit() else None
     )
-    if raw and template is None:
+    new_shift = None
+    if raw == "new":
+        # A shift nobody has made yet: built from the three fields under the
+        # "new shift" choice, then assigned like any other.
+        new_shift = NewShiftForm({
+            "name_ar": request.POST.get("new_name", ""),
+            "start_time": request.POST.get("new_start", ""),
+            "end_time": request.POST.get("new_end", ""),
+        })
+    weekdays = request.POST.getlist("weekdays")
+    if new_shift is not None and not new_shift.is_valid():
+        flash.error(request, "اكتب وقت بداية ونهاية الشيفت الجديد.")
+    elif raw and raw != "new" and template is None:
         flash.error(request, "الشيفت ده مش موجود.")
+    elif raw and not weekdays:
+        flash.error(request, "اختار أيام الشغل.")
     else:
-        weekdays = request.POST.getlist("weekdays")
-        if template is not None and not weekdays:
-            flash.error(request, "اختار أيام الشغل.")
-        else:
-            attendance.assign_shift(person, template, weekdays, actor=request.user)
-            flash.success(request, template.label if template else "اتشال الشيفت")
+        # Only now, with every check passed, so a refusal never leaves a
+        # half-made shift behind in the pickers.
+        if new_shift is not None:
+            template, _created = attendance.shift_for_hours(
+                new_shift.cleaned_data["start_time"], new_shift.cleaned_data["end_time"],
+                new_shift.cleaned_data["name_ar"], actor=request.user,
+            )
+        attendance.assign_shift(person, template, weekdays, actor=request.user)
+        flash.success(request, template.label if template else "اتشال الشيفت")
 
     target = request.POST.get("next") or ""
     if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):

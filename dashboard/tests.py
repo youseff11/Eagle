@@ -1373,6 +1373,97 @@ class AttendanceRulesTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_a_shift_that_does_not_exist_yet_can_be_made_from_the_file(self):
+        from datetime import time
+
+        from . import attendance
+        from .models import Shift, ShiftTemplate
+
+        self.client.force_login(self.hr)
+        before = ShiftTemplate.objects.count()
+        response = self.client.post(
+            f"/hr/employees/{self.person.pk}/shift/",
+            {
+                "template": "new", "new_name": "شيفت الصبح بدري",
+                "new_start": "07:00", "new_end": "15:00",
+                "weekdays": ["5", "6", "0"],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        made = ShiftTemplate.objects.get(name_ar="شيفت الصبح بدري")
+        self.assertEqual(ShiftTemplate.objects.count(), before + 1)
+        self.assertEqual((made.start_time, made.end_time), (time(7, 0), time(15, 0)))
+        self.assertEqual(Shift.objects.filter(user=self.person, template=made).count(), 3)
+        self.assertEqual(attendance.current_template(self.person), made)
+
+    def test_a_new_shift_with_the_hours_of_an_existing_one_is_not_duplicated(self):
+        from .models import ShiftTemplate
+
+        self.client.force_login(self.hr)
+        before = ShiftTemplate.objects.count()
+        self.client.post(
+            f"/hr/employees/{self.person.pk}/shift/",
+            {"template": "new", "new_start": "12:00", "new_end": "20:00", "weekdays": ["0"]},
+        )
+        self.assertEqual(ShiftTemplate.objects.count(), before)
+        from .models import Shift
+        self.assertEqual(Shift.objects.get(user=self.person).template, self.noon)
+
+    def test_a_new_shift_without_hours_or_days_changes_nothing(self):
+        from .models import Shift, ShiftTemplate
+
+        self.roster()
+        self.client.force_login(self.hr)
+        before = ShiftTemplate.objects.count()
+        for data in (
+            {"template": "new", "new_start": "", "new_end": "15:00", "weekdays": ["0"]},
+            {"template": "new", "new_start": "09:00", "new_end": "09:00", "weekdays": ["0"]},
+            {"template": "new", "new_start": "06:00", "new_end": "14:00"},
+        ):
+            self.client.post(f"/hr/employees/{self.person.pk}/shift/", data)
+        self.assertEqual(ShiftTemplate.objects.count(), before)
+        self.assertEqual(Shift.objects.get(user=self.person).template, self.morning)
+
+    def test_the_employee_file_offers_a_new_shift(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.person.pk}/").content.decode()
+        self.assertIn('value="new"', html)
+        self.assertIn('name="new_start"', html)
+
+    def test_the_three_company_shifts_are_the_contracts_hours(self):
+        from datetime import time
+
+        from .models import ShiftTemplate
+
+        hours = {
+            t.name: (t.start_time, t.end_time) for t in ShiftTemplate.objects.all()
+        }
+        self.assertEqual(hours["Shift 1"], (time(9, 0), time(17, 0)))
+        self.assertEqual(hours["Shift 2"], (time(12, 0), time(20, 0)))
+        self.assertEqual(hours["Shift 3"], (time(17, 0), time(1, 0)))
+
+    def test_the_night_shift_with_extra_time_stays_on_the_day_it_started(self):
+        from . import attendance
+        from .models import DayStatus, PunchKind, ShiftTemplate, WorkDay
+
+        night = ShiftTemplate.objects.get(name="Shift 3")
+        self.roster(night)                                # Mondays, 17:00 -> 01:00
+        opened, _ = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(17, 0))
+        extra, _ = attendance.punch(
+            self.person, PunchKind.EXTRA_START, at=self.at(1, 5, day=22)
+        )
+        self.assertEqual(extra.pk, opened.pk)
+        closed, _ = attendance.punch(
+            self.person, PunchKind.CHECK_OUT, at=self.at(3, 5, day=22)
+        )
+
+        self.assertEqual(closed.pk, opened.pk)
+        self.assertEqual(closed.date.day, 21)             # Monday, not Tuesday
+        self.assertEqual(WorkDay.objects.filter(user=self.person).count(), 1)
+        self.assertEqual(closed.status, DayStatus.PRESENT)
+        self.assertEqual(closed.overtime_minutes, 120)    # from the button, 01:05 -> 03:05
+        self.assertEqual(closed.short_minutes, 0)
+
     def test_the_employee_file_shows_the_three_shifts(self):
         self.client.force_login(self.admin)
         html = self.client.get(f"/hr/employees/{self.person.pk}/").content.decode()
