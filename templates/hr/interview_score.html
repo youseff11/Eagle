@@ -6,7 +6,7 @@
 {% block content %}
 <div class="page-head">
   <h1>{{ interview.candidate.display_name }}</h1>
-  <div class="page-head__sub mono">{{ interview.scheduled_at|date:"Y-m-d H:i" }} · {{ interview.get_kind_display }}</div>
+  <div class="page-head__sub mono">{{ interview.scheduled_at|clock12:"Y-m-d" }} · {{ interview.get_kind_display }}</div>
 </div>
 
 <div class="grid grid--main">

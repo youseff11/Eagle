@@ -26,7 +26,7 @@ taken it is a separate thing, and the tags below say so either way.
           <span class="mail__count mono" data-ar-title="عدد الميلات في المحادثة"
                 data-en-title="Letters in this conversation">{{ thread.count }}</span>
         {% endif %}
-        <span class="mail__time mono">{{ last.received_at|date:"Y-m-d H:i" }}</span>
+        <span class="mail__time mono">{{ last.received_at|clock12:"Y-m-d" }}</span>
       </span>
 
       <span class="mail__subject">

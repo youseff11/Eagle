@@ -957,7 +957,7 @@ class PayrollSettingsForm(forms.ModelForm):
             "overtime_enabled", "overtime_min_minutes", "overtime_hourly_rate",
             "overtime_multiplier", "overtime_needs_approval",
             "missing_checkin_after_minutes", "missing_checkout_after_minutes",
-            "short_hours_alert_minutes",
+            "checkin_prompt_before_minutes", "short_hours_alert_minutes",
             # -- leave and performance (sections 20 and 22) -----------------
             "leave_needs_manager", "permission_max_minutes",
             "weight_productivity", "weight_quality",

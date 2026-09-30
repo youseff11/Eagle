@@ -1449,6 +1449,7 @@ def admin_user_edit(request, pk):
     return render(request, "adminx/user_form.html", {
         "form": form, "obj": obj, "shift_form": shift_form,
         "shifts": obj.shifts.all(), "events": obj.rating_events.all()[:20],
+        "picker": _shift_picker(obj, request.get_full_path()),
     })
 
 
@@ -1878,6 +1879,8 @@ def my_attendance(request):
     """
     user = request.user
     today = timezone.localdate()
+    # A day whose check-out never came is settled before it is drawn.
+    attendance.expire_open_days(user=user)
     plan = attendance.plan_for(user, today)
     day, _resolved = attendance.resolve_work_date(user)
     row = WorkDay.objects.filter(user=user, date=day).first()
@@ -1930,6 +1933,8 @@ def _range_for(request):
 def hr_attendance(request):
     """Everybody's attendance for a day, a week or a month, with filters."""
     mode, anchor, first_day, last_day = _range_for(request)
+    # Days nobody checked out of stop counting here too, sweep or no sweep.
+    attendance.expire_open_days()
 
     people = User.objects.filter(is_active=True, attendance_enabled=True)
     if request.GET.get("role"):
@@ -2652,6 +2657,55 @@ def hr_employees(request):
     })
 
 
+def _shift_picker(person, next_url):
+    """What the "which shift" card on a person's file needs to draw itself."""
+    current = attendance.current_template(person)
+    working = set(
+        person.shifts.filter(is_active=True).values_list("weekday", flat=True)
+    ) or set(attendance.DEFAULT_WORKDAYS)
+    return {
+        "person": person,
+        "templates": ShiftTemplate.objects.filter(is_active=True),
+        "current": current,
+        "has_custom": person.shifts.filter(template__isnull=True).exists(),
+        "days": [
+            {
+                "num": day,
+                "ar": attendance.WEEKDAY_NAMES[day][0],
+                "en": attendance.WEEKDAY_NAMES[day][1],
+                "checked": day in working,
+            }
+            for day in attendance.WEEK_ORDER
+        ],
+        "next": next_url,
+    }
+
+
+@hr_required
+@require_POST
+def hr_employee_shift(request, pk):
+    """Pick one of the company's shifts for somebody, from their file."""
+    person = get_object_or_404(User, pk=pk)
+    raw = request.POST.get("template") or ""
+    template = (
+        ShiftTemplate.objects.filter(pk=raw, is_active=True).first() if raw.isdigit() else None
+    )
+    if raw and template is None:
+        flash.error(request, "الشيفت ده مش موجود.")
+    else:
+        weekdays = request.POST.getlist("weekdays")
+        if template is not None and not weekdays:
+            flash.error(request, "اختار أيام الشغل.")
+        else:
+            attendance.assign_shift(person, template, weekdays, actor=request.user)
+            flash.success(request, template.label if template else "اتشال الشيفت")
+
+    target = request.POST.get("next") or ""
+    if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        target = reverse("dashboard:hr_employee", args=[person.pk])
+    return redirect(target)
+
+
 @recruit_required
 def hr_employee(request, pk):
     """Section 18, with section 21's attendance read straight off the module."""
@@ -2672,6 +2726,7 @@ def hr_employee(request, pk):
         "probation_reviews": person.probation_reviews.all(),
         "leave_rows": person.leave_requests.all()[:6],
         "plans": SalaryPlan.objects.filter(is_active=True),
+        "picker": _shift_picker(person, request.get_full_path()),
     })
 
 

@@ -29,7 +29,7 @@
               → <span class="mono">{{ row.end_date }}</span>
               <span class="mono">({{ row.day_count }} يوم)</span>
             {% else %}
-              <span class="mono">{{ row.start_time|time:"H:i" }}–{{ row.end_time|time:"H:i" }}</span>
+              <span class="mono">{{ row.start_time|clock12 }}–{{ row.end_time|clock12 }}</span>
             {% endif %}
           </div>
           {% if row.reason %}<div class="muted">{{ row.reason }}</div>{% endif %}

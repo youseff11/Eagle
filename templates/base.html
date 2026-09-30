@@ -53,6 +53,7 @@
 
 {% include "partials/assign_modal.html" %}
 {% if user.is_authenticated %}{% include "partials/call_overlay.html" %}{% endif %}
+{% if user.is_authenticated and user.attendance_enabled %}{% include "partials/attendance_gate.html" %}{% endif %}
 
 <script>
   window.EAGLE_CFG = {
@@ -66,12 +67,14 @@
     declineUrl: "{% url 'dashboard:api_decline' 0 %}",
     chatFetchUrl: "{% url 'dashboard:api_chat_fetch' 0 %}",
     chatSendUrl: "{% url 'dashboard:api_chat_send' 0 %}",
-    presenceUrl: "{% url 'dashboard:api_presence' %}"
+    presenceUrl: "{% url 'dashboard:api_presence' %}",
+    attPunchUrl: "{% if user.is_authenticated %}{% url 'dashboard:api_attendance_punch' %}{% endif %}"
   };
 </script>
 <script src="{% static 'js/app.js' %}"></script>
 {% if user.is_authenticated %}<script src="{% static 'js/previews.js' %}" defer></script>{% endif %}
 {% if user.is_authenticated %}<script src="{% static 'js/calls.js' %}"></script>{% endif %}
+{% if user.is_authenticated and user.attendance_enabled %}<script src="{% static 'js/attendance.js' %}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -88,7 +88,7 @@
                 <span class="chip chip--sm cthread__tag"
                       data-ar="مع العميل" data-en="With the client">مع العميل</span>
               {% endif %}
-              <span class="muted mono cthread__time">{{ row.preview.at|date:"H:i" }}</span>
+              <span class="muted mono cthread__time">{{ row.preview.at|clock12 }}</span>
             </span>
             <span class="cthread__line">
               <span class="cthread__snippet">

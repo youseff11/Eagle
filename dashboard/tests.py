@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from . import services
+from .clock import both, fmt12, fmt12_html
 from .models import (
     AppSettings,
     AssignmentStatus,
@@ -991,8 +992,9 @@ class AttendanceTests(TestCase):
         self.assertEqual(row.late_minutes, 0)
         trail = AttendanceEdit.objects.get(work_day=row, field="check_in")
         self.assertEqual(trail.actor, self.hr)
-        self.assertIn("09:40", trail.old_value)
-        self.assertIn("09:00", trail.new_value)
+        # Cairo time on a twelve-hour clock, like everything a person reads.
+        self.assertIn("9:40 ص", trail.old_value)
+        self.assertIn("9:00 ص", trail.new_value)
         # The punch itself is untouched - the evidence survives the correction.
         self.assertEqual(
             timezone.localtime(row.events.first().at).strftime("%H:%M"), "09:40"
@@ -1032,6 +1034,8 @@ class AttendanceTests(TestCase):
         )
         self.roster(self.person, 0, self.morning)
         attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        # Staying on is announced with the "extra time" button.
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(2026, 9, 21, 17, 0))
         row, _ = attendance.punch(
             self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 19, 0)
         )
@@ -1045,9 +1049,10 @@ class AttendanceTests(TestCase):
 
         claim.approve(self.hr)
         line = payroll.compute_line(self.person, 2026, 9)
-        # 5200 / 26 = 200 a day, / 8 hours = 25 an hour, two hours = 50.
-        self.assertEqual(line.overtime_bonus, Decimal("50.00"))
-        self.assertEqual(line.gross, line.base_salary + Decimal("50.00"))
+        # 5200 / 26 = 200 a day, / 8 hours = 25 an hour, at an hour and a
+        # half = 37.50, two hours = 75.
+        self.assertEqual(line.overtime_bonus, Decimal("75.00"))
+        self.assertEqual(line.gross, line.base_salary + Decimal("75.00"))
 
     def test_recomputing_does_not_resurrect_a_rejected_claim(self):
         from datetime import date
@@ -1060,6 +1065,7 @@ class AttendanceTests(TestCase):
         )
         self.roster(self.person, 0, self.morning)
         attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 0))
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(2026, 9, 21, 17, 0))
         attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(2026, 9, 21, 19, 0))
 
         payroll.compute_line(self.person, 2026, 9)
@@ -1096,6 +1102,305 @@ class AttendanceTests(TestCase):
         self.assertEqual(summary["remote_days"], 1)
         self.assertEqual(summary["present_days"], 2)
         self.assertEqual(summary["work_minutes"], 960)
+
+
+class AttendanceRulesTests(TestCase):
+    """The owner's rules of 30/09/2026.
+
+    The check-in screen opens by itself in the shift; ten minutes of grace,
+    after which lateness goes to HR and the person is told so; a forgotten
+    check-out loses the whole day; overtime only after the extra-time button,
+    at an hour and a half; the shift is picked from the employee file; and
+    every time is Egypt time on a twelve-hour clock.
+    """
+
+    def setUp(self):
+        from .models import PayrollSettings, ShiftTemplate
+
+        self.conf = PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        self.morning = ShiftTemplate.objects.get(name="Shift 1")      # 09:00-17:00
+        self.noon = ShiftTemplate.objects.get(name="Shift 2")         # 12:00-20:00
+        self.person = User.objects.create_user("mona", password="x", role=Role.TRANSLATOR)
+        self.hr = User.objects.create_user(
+            "hrx", password="x", role=Role.OPERATION, attendance_manager=True
+        )
+        self.admin = User.objects.create_user("boss", password="x", role=Role.ADMIN)
+
+    # -- helpers -----------------------------------------------------------
+    def at(self, hour, minute=0, day=21):
+        """2026-09-21 is a Monday."""
+        from datetime import datetime
+
+        return timezone.make_aware(datetime(2026, 9, day, hour, minute))
+
+    def roster(self, template=None, weekday=0):
+        from .models import Shift
+
+        return Shift.objects.create(
+            user=self.person, weekday=weekday, template=template or self.morning
+        )
+
+    def notes(self, user, key):
+        from .models import Notification
+
+        return Notification.objects.filter(user=user, url__contains=key)
+
+    # -- the defaults the owner set ---------------------------------------
+    def test_the_owners_numbers_are_the_defaults(self):
+        self.assertEqual(self.conf.grace_minutes, 10)
+        self.assertEqual(self.conf.overtime_multiplier, Decimal("1.50"))
+        self.assertEqual(self.conf.checkin_prompt_before_minutes, 15)
+
+    # -- lateness ------------------------------------------------------------
+    def test_inside_the_grace_window_nobody_is_told(self):
+        from . import attendance
+        from .models import Notification, PunchKind
+
+        self.roster()
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 10))
+        self.assertEqual(row.late_minutes, 0)
+        self.assertFalse(Notification.objects.filter(url__contains="attendance.late").exists())
+
+    def test_late_past_grace_goes_to_hr_and_the_person_is_told(self):
+        from . import attendance
+        from .models import Notification, PunchKind
+
+        self.roster()
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 14))
+        # The whole delay, not the part past the window.
+        self.assertEqual(row.late_minutes, 14)
+
+        mine = self.notes(self.person, "attendance.late").get()
+        self.assertIn("اتحوّل للـHR", mine.body_ar)
+        self.assertIn("9:14 ص", mine.body_ar)
+        self.assertIn("9:00 ص", mine.body_ar)
+        self.assertTrue(
+            Notification.objects.filter(user=self.hr, title_en__startswith="Late").exists()
+        )
+
+        # The sweep does not say it twice.
+        attendance.sweep_alerts(now=self.at(10, 0))
+        self.assertEqual(self.notes(self.person, "attendance.late").count(), 1)
+
+    # -- a forgotten check-out ----------------------------------------------
+    def test_a_forgotten_check_out_loses_the_whole_day(self):
+        from . import attendance
+        from .models import DayStatus, PunchKind, WorkDay
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+
+        # Still inside the window: nothing happens.
+        self.assertEqual(attendance.expire_open_days(now=self.at(17, 59)), 0)
+        # Past it (17:00 + 60 minutes).
+        self.assertEqual(attendance.expire_open_days(now=self.at(18, 1)), 1)
+
+        row = WorkDay.objects.get(user=self.person)
+        self.assertEqual(row.status, DayStatus.UNEXCUSED)
+        self.assertTrue(row.checkout_missed)
+        self.assertTrue(row.needs_review)
+        self.assertEqual(row.work_minutes, 0)
+        self.assertTrue(self.notes(self.person, "attendance.checkout_missed").exists())
+        self.assertTrue(self.notes(self.hr, "attendance.checkout_missed").exists())
+        # The change is on the day's trail, not silent.
+        self.assertTrue(row.edits.filter(field="status", new_value="unexcused").exists())
+
+    def test_a_check_out_after_the_deadline_is_refused_and_the_day_stays_lost(self):
+        from . import attendance
+        from .models import DayStatus, PunchKind, WorkDay
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        with self.assertRaises(attendance.PunchRefused) as caught:
+            attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(18, 30))
+        self.assertEqual(caught.exception.code, "checkout_missed")
+        # The refusal did not roll the verdict back.
+        row = WorkDay.objects.get(user=self.person)
+        self.assertEqual(row.status, DayStatus.UNEXCUSED)
+        self.assertIsNone(row.check_out)
+
+    def test_hr_can_restore_a_lost_day_with_a_reason(self):
+        from . import attendance
+        from .models import DayStatus, PunchKind, WorkDay
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        attendance.expire_open_days(now=self.at(18, 30))
+        row = WorkDay.objects.get(user=self.person)
+        attendance.apply_edit(
+            row, self.hr,
+            {"status": DayStatus.PRESENT, "check_out": self.at(17, 0)},
+            "النت فصل وقت الانصراف",
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.status, DayStatus.PRESENT)
+        self.assertFalse(row.checkout_missed)
+        self.assertEqual(row.work_minutes, 480)
+
+    # -- extra time ------------------------------------------------------------
+    def test_staying_late_without_the_button_is_not_overtime(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(17, 50))
+        self.assertEqual(row.overtime_minutes, 0)
+        self.assertEqual(row.short_minutes, 0)
+
+    def test_extra_time_cannot_start_before_the_shift_ends(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        with self.assertRaises(attendance.PunchRefused) as caught:
+            attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(16, 30))
+        self.assertEqual(caught.exception.code, "extra_early")
+
+    def test_extra_time_is_a_claim_for_hr_at_time_and_a_half(self):
+        from datetime import date
+
+        from . import attendance
+        from .models import OvertimeClaim, PunchKind, SalaryRecord
+
+        SalaryRecord.objects.create(
+            user=self.person, amount=Decimal("5200.00"), effective_from=date(2026, 1, 1)
+        )
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        row, _ = attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 5))
+        self.assertTrue(row.extra_running)
+        # Past the normal 18:00 deadline: extra time keeps the day open.
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(19, 5))
+        self.assertEqual(row.overtime_minutes, 120)
+        self.assertEqual(row.short_minutes, 0)
+
+        # In HR's queue the same day, priced, and not paid until approved.
+        claim = OvertimeClaim.objects.get(user=self.person, date=row.date)
+        self.assertEqual(claim.status, "pending")
+        # 5200 / 26 / 8 = 25 an hour, x 1.5 = 37.50, x 2 hours = 75.
+        self.assertEqual(claim.amount, Decimal("75.00"))
+        self.assertTrue(self.notes(self.hr, "attendance.extra").exists())
+
+    def test_a_late_start_is_not_filled_by_extra_time(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(10, 0))
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 0))
+        row, _ = attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(18, 0))
+        self.assertEqual(row.overtime_minutes, 60)
+        self.assertEqual(row.short_minutes, 60)
+
+    # -- the check-in screen -------------------------------------------------
+    def test_the_screen_opens_in_the_shift_and_closes_on_check_in(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        self.assertIsNone(attendance.gate_for(self.person, now=self.at(8, 40)))
+        gate = attendance.gate_for(self.person, now=self.at(8, 50))
+        self.assertEqual(gate["kind"], "check_in")
+        self.assertEqual(gate["start"]["ar"], "9:00 ص")
+        self.assertEqual(gate["grace_until"]["en"], "9:10 AM")
+        self.assertEqual(gate["late_now"], 0)
+
+        self.assertEqual(attendance.gate_for(self.person, now=self.at(9, 25))["late_now"], 25)
+
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 5))
+        self.assertIsNone(attendance.gate_for(self.person, now=self.at(9, 6)))
+
+    def test_after_the_shift_it_reminds_until_check_out_or_extra_time(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        gate = attendance.gate_for(self.person, now=self.at(17, 10))
+        self.assertEqual(gate["kind"], "check_out")
+        self.assertEqual(gate["deadline"]["ar"], "6:00 م")
+
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 12))
+        self.assertIsNone(attendance.gate_for(self.person, now=self.at(17, 13)))
+
+    def test_nobody_without_a_roster_is_asked(self):
+        from . import attendance
+
+        self.assertIsNone(attendance.gate_for(self.person, now=self.at(9, 0)))
+
+    def test_the_screen_is_on_every_page_while_it_is_due(self):
+        from unittest import mock
+
+        from . import attendance
+
+        self.roster(weekday=timezone.localdate().weekday())
+        self.client.force_login(self.person)
+        with mock.patch.object(attendance, "gate_for", return_value={
+            "kind": "check_in", "date": "2026-09-21", "shift": "الشيفت 1",
+        }):
+            html = self.client.get("/attendance/").content.decode()
+        self.assertIn('id="attendanceGate"', html)
+        self.assertIn('"kind": "check_in"', html)
+        self.assertIn("js/attendance", html)
+
+    # -- the employee file ---------------------------------------------------
+    def test_the_shift_is_picked_from_the_employee_file(self):
+        from . import attendance
+        from .models import Shift
+
+        self.roster()                                   # was on shift 1, Mondays
+        self.client.force_login(self.hr)
+        response = self.client.post(
+            f"/hr/employees/{self.person.pk}/shift/",
+            {"template": self.noon.pk, "weekdays": ["5", "6", "0", "1", "2", "3"]},
+        )
+        self.assertEqual(response.status_code, 302)
+        rows = Shift.objects.filter(user=self.person)
+        self.assertEqual(rows.count(), 6)
+        self.assertEqual({r.template_id for r in rows}, {self.noon.pk})
+        self.assertFalse(rows.filter(weekday=4).exists())   # Friday off
+        plan = attendance.plan_for(self.person, self.at(9).date())
+        self.assertEqual(timezone.localtime(plan.start).hour, 12)
+        self.assertEqual(attendance.current_template(self.person), self.noon)
+
+    def test_a_translator_cannot_pick_shifts(self):
+        self.client.force_login(self.person)
+        response = self.client.post(
+            f"/hr/employees/{self.person.pk}/shift/", {"template": self.noon.pk, "weekdays": ["0"]}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_the_employee_file_shows_the_three_shifts(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(f"/hr/employees/{self.person.pk}/").content.decode()
+        self.assertIn("احفظ الشيفت", html)
+        for template in (self.morning, self.noon):
+            self.assertIn(template.label, html)
+
+    # -- Egypt time, twelve hours -------------------------------------------
+    def test_every_time_is_egypt_time_on_a_twelve_hour_clock(self):
+        from datetime import datetime, time
+        from datetime import timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+
+        from django.conf import settings
+
+        from .clock import fmt12, window12
+
+        self.assertEqual(settings.TIME_ZONE, "Africa/Cairo")
+        self.assertEqual(fmt12(time(17, 30)), "5:30 م")
+        self.assertEqual(fmt12(time(17, 30), "en"), "5:30 PM")
+        self.assertEqual(fmt12(time(0, 5)), "12:05 ص")
+        self.assertEqual(fmt12(time(12, 0)), "12:00 م")
+        self.assertEqual(window12(time(17, 0), time(1, 0)), "5:00 م - 1:00 ص")
+
+        utc = datetime(2026, 9, 21, 14, 30, tzinfo=dt_timezone.utc)
+        cairo = utc.astimezone(ZoneInfo("Africa/Cairo"))
+        hour = cairo.hour % 12 or 12
+        self.assertEqual(fmt12(utc, "en"), f"{hour}:{cairo.minute:02d} PM")
 
 
 class AttendancePageTests(TestCase):
@@ -5409,8 +5714,8 @@ class TranslatorDeadlineTests(TestCase):
 
         self.client.force_login(self.tr)
         html = self.client.get(f"/tasks/{task.code}/").content.decode()
-        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M"), html)
-        self.assertNotIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
+        self.assertIn(fmt12_html(task.translator_deadline, "%Y-%m-%d"), html)
+        self.assertNotIn(fmt12_html(self.client_due, "%Y-%m-%d"), html)
 
     def test_the_leader_sees_both(self):
         task = self._task()
@@ -5419,8 +5724,8 @@ class TranslatorDeadlineTests(TestCase):
 
         self.client.force_login(self.lead)
         html = self.client.get(f"/tasks/{task.code}/").content.decode()
-        self.assertIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
-        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%m-%d %H:%M"), html)
+        self.assertIn(fmt12_html(self.client_due, "%Y-%m-%d"), html)
+        self.assertIn(fmt12_html(task.translator_deadline, "%m-%d"), html)
 
     def test_the_translators_board_shows_their_own_date(self):
         task = self._task()
@@ -5432,8 +5737,8 @@ class TranslatorDeadlineTests(TestCase):
 
         self.client.force_login(self.tr)
         html = self.client.get("/translator/").content.decode()
-        self.assertIn(timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M"), html)
-        self.assertNotIn(timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M"), html)
+        self.assertIn(fmt12_html(task.translator_deadline, "%Y-%m-%d"), html)
+        self.assertNotIn(fmt12_html(self.client_due, "%Y-%m-%d"), html)
 
     def test_the_hand_over_card_shows_the_translator_their_own_date(self):
         """The 60-second accept window quotes a deadline. It has to be the
@@ -5445,8 +5750,8 @@ class TranslatorDeadlineTests(TestCase):
         task.refresh_from_db()
         pending = task.assignments.order_by("-id").first()
 
-        theirs = timezone.localtime(task.translator_deadline).strftime("%Y-%m-%d %H:%M")
-        clients = timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M")
+        theirs = fmt12(task.translator_deadline, "en", "%Y-%m-%d")
+        clients = fmt12(self.client_due, "en", "%Y-%m-%d")
         self.assertEqual(_pending_json(pending, self.tr)["deadline"], theirs)
         self.assertEqual(_pending_json(pending, self.lead)["deadline"], clients)
 
@@ -5458,10 +5763,10 @@ class TranslatorDeadlineTests(TestCase):
         task.refresh_from_db()
         services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)
 
-        clients = timezone.localtime(self.client_due).strftime("%Y-%m-%d %H:%M")
+        clients_ar, clients_en = both(self.client_due, "%Y-%m-%d")
         for note in Notification.objects.filter(user=self.tr):
-            self.assertNotIn(clients, note.body_ar)
-            self.assertNotIn(clients, note.body_en)
+            self.assertNotIn(clients_ar, note.body_ar)
+            self.assertNotIn(clients_en, note.body_en)
 
     # -- the countdowns ---------------------------------------------------
 

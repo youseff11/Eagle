@@ -113,7 +113,7 @@
             <td data-ar-label="الوظيفة" data-en-label="Vacancy" class="muted">{{ row.vacancy.title|default:"—" }}</td>
             <td data-ar-label="المصدر" data-en-label="Source" class="muted">{{ row.get_source_display }}</td>
             <td data-ar-label="الحالة" data-en-label="Status">{% candidate_badge row.status %}</td>
-            <td data-ar-label="التاريخ" data-en-label="Applied" class="mono muted">{{ row.applied_at|date:"m-d H:i" }}</td>
+            <td data-ar-label="التاريخ" data-en-label="Applied" class="mono muted">{{ row.applied_at|clock12:"m-d" }}</td>
           </tr>
         {% empty %}
           <tr><td colspan="6" class="empty"
@@ -137,7 +137,7 @@
             <a href="{% url 'dashboard:hr_candidate' row.candidate.code %}">{{ row.candidate.display_name }}</a>
             <span class="muted">{{ row.get_kind_display }}</span>
           </span>
-          <b class="mono">{{ row.scheduled_at|date:"H:i" }}</b>
+          <b class="mono">{{ row.scheduled_at|clock12 }}</b>
         </div>
       {% empty %}
         <div class="muted" data-ar="مفيش مقابلات النهارده." data-en="Nothing today.">مفيش مقابلات النهارده.</div>

@@ -32,7 +32,7 @@
         <div class="msg-item__body">
           <div class="row row--between">
             <strong class="mono">{{ message.client_code }}</strong>
-            <small class="mono">{{ message.received_at|date:"m-d H:i" }}</small>
+            <small class="mono">{{ message.received_at|clock12:"m-d" }}</small>
           </div>
           <div class="msg-item__text">{{ message.body|strip_image_tags|truncatechars:200 }}</div>
           {% with files=message.attachments.all %}
@@ -81,7 +81,7 @@
           <li>
             <a class="mono" href="{% url 'dashboard:task_detail' task.code %}">{{ task.code }}</a>
             <span class="grow">{{ task.translator.short_name|default:"—" }}</span>
-            <span class="badge badge--dead mono">{{ task.deadline|date:"m-d H:i" }}</span>
+            <span class="badge badge--dead mono">{{ task.deadline|clock12:"m-d" }}</span>
           </li>
         {% empty %}
           <li class="muted" data-ar="كله في ميعاده." data-en="All on time.">كله في ميعاده.</li>

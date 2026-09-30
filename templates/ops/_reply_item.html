@@ -16,7 +16,7 @@ screen, marked, with the reason — never silently gone.
         <b class="mail__from">
           <span data-ar="ردّنا" data-en="Our reply">ردّنا</span>{% if reply.created_by_id %} · {{ reply.created_by.short_name }}{% endif %}
         </b>
-        <span class="mail__time mono">{{ reply.created_at|date:"Y-m-d H:i" }}</span>
+        <span class="mail__time mono">{{ reply.created_at|clock12:"Y-m-d" }}</span>
       </span>
 
       <span class="mail__snippet">

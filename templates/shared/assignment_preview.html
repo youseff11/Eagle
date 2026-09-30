@@ -85,7 +85,7 @@ countdown, accept and decline are here already.
         </div>
         <div class="kv">
           <span data-ar="الديدلاين" data-en="Deadline">الديدلاين</span>
-          <strong class="mono">{% if deadline %}{{ deadline|date:"Y-m-d H:i" }}{% else %}—{% endif %}</strong>
+          <strong class="mono">{% if deadline %}{{ deadline|clock12:"Y-m-d" }}{% else %}—{% endif %}</strong>
         </div>
         <div class="deadline-left" id="previewDeadlineLeft"></div>
       </div>

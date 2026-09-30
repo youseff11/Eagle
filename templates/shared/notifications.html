@@ -17,7 +17,7 @@
       {% elif item.level == 'success' %}{% icon "check-circle" %}
       {% else %}{% icon "info" %}{% endif %}
       <div class="grow">
-        <div class="note__where mono">{{ item.created_at|date:"Y-m-d H:i" }}</div>
+        <div class="note__where mono">{{ item.created_at|clock12:"Y-m-d" }}</div>
         <strong data-ar="{{ item.title_ar }}" data-en="{{ item.title_en }}">{{ item.title_ar }}</strong>
         {% if item.body_ar %}
           <div class="muted" data-ar="{{ item.body_ar }}" data-en="{{ item.body_en }}">{{ item.body_ar }}</div>

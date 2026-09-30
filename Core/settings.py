@@ -223,7 +223,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # ---------------------------------------------------------------------------
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = env("EAGLE_TIME_ZONE", "TIME_ZONE", default="Africa/Cairo")
+# Always Egypt. Not read from the environment on purpose: a stray TIME_ZONE on
+# the server would move every shift, every late mark and every deadline.
+# Africa/Cairo follows Egypt's own summer-time switch on its own.
+TIME_ZONE = "Africa/Cairo"
 USE_I18N = True
 USE_TZ = True
 

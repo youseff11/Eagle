@@ -63,7 +63,7 @@
               <td data-ar-label="اليوم" data-en-label="Day">{{ shift.get_weekday_display }}</td>
               <td data-ar-label="الشيفت" data-en-label="Shift">{{ shift.template.label|default:"—" }}</td>
               <td data-ar-label="الوقت" data-en-label="Hours" class="mono">
-                {{ shift.start|time:"H:i" }} – {{ shift.end|time:"H:i" }}
+                {{ shift.start|clock12 }} – {{ shift.end|clock12 }}
                 {% if shift.crosses_midnight %}
                   <span class="badge badge--info" data-ar="لليوم التالي" data-en="Overnight">لليوم التالي</span>
                 {% endif %}
@@ -164,7 +164,7 @@
                 {% else %}<span class="muted" data-ar="أجازة" data-en="Off">أجازة</span>{% endif %}
               </td>
               <td data-ar-label="الوقت" data-en-label="Hours" class="mono">
-                {% if plan.working %}{{ plan.start|date:"H:i" }} – {{ plan.end|date:"H:i" }}{% else %}—{% endif %}
+                {% if plan.working %}{{ plan.start|clock12 }} – {{ plan.end|clock12 }}{% else %}—{% endif %}
               </td>
               <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge plan.mode %}</td>
               <td data-ar-label="المصدر" data-en-label="From" class="muted mono">{{ plan.source }}</td>
@@ -278,7 +278,7 @@
       {% for template in templates %}
         <div class="kv">
           <span>{{ template.label }} {% if not template.is_active %}<span class="badge">مقفول</span>{% endif %}</span>
-          <b class="mono">{{ template.start_time|time:"H:i" }}–{{ template.end_time|time:"H:i" }}</b>
+          <b class="mono">{{ template.start_time|clock12 }}–{{ template.end_time|clock12 }}</b>
         </div>
       {% endfor %}
       <form method="post" action="{% url 'dashboard:hr_template_add' %}" class="mt">

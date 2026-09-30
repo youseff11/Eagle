@@ -1889,3 +1889,23 @@ img, video, canvas, svg:not(.ic) { max-width: 100%; }
   background: color-mix(in srgb, var(--ok) 9%, transparent);
 }
 @media (max-width: 640px) { .ai-issue__pair { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------ the check-in screen
+   partials/attendance_gate.html. It sits above everything except the site's
+   own confirm box, and nothing on the page behind it can be reached until
+   the person checks in. */
+.gate { z-index: 420; }
+.gate [hidden] { display: none !important; }
+.gate__box { width: min(440px, 100%); }
+.gate__box .punch__now { font-size: 2rem; margin: 6px 0 12px; }
+.gate__facts { text-align: start; padding: 10px 14px; margin-bottom: 12px; }
+.gate__box .note { text-align: start; margin-bottom: 10px; }
+.gate__rules {
+  text-align: start; margin: 0 0 4px; padding-inline-start: 18px;
+  font-size: .84rem; color: var(--muted); display: grid; gap: 6px;
+}
+.gate__rules b { color: var(--heading); }
+.gate .modal__actions { justify-content: center; gap: 8px; }
+html.has-gate, html.has-gate body { overflow: hidden; }
+.punch__extra { margin-top: 10px; font-size: .84rem; text-align: center; }
+.punch__extra[hidden] { display: none; }

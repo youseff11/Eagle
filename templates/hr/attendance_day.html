@@ -63,7 +63,7 @@
                   <span class="badge" data-ar="نهاية بريك" data-en="Break end">نهاية بريك</span>
                 {% endif %}
               </td>
-              <td data-ar-label="الوقت" data-en-label="Time" class="mono">{{ event.at|date:"Y-m-d H:i" }}</td>
+              <td data-ar-label="الوقت" data-en-label="Time" class="mono">{{ event.at|clock12:"Y-m-d" }}</td>
               <td data-ar-label="الموقع" data-en-label="Location" class="mono">
                 {% if event.within_geofence is None %}
                   <span class="muted" data-ar="مااتفحصش" data-en="Not checked">مااتفحصش</span>
@@ -115,7 +115,7 @@
               <td data-ar-label="قبل" data-en-label="Before" class="mono muted">{{ edit.old_value|default:"—" }}</td>
               <td data-ar-label="بعد" data-en-label="After" class="mono">{{ edit.new_value|default:"—" }}</td>
               <td data-ar-label="السبب" data-en-label="Reason">{{ edit.reason }}</td>
-              <td data-ar-label="الوقت" data-en-label="When" class="mono muted">{{ edit.created_at|date:"Y-m-d H:i" }}</td>
+              <td data-ar-label="الوقت" data-en-label="When" class="mono muted">{{ edit.created_at|clock12:"Y-m-d" }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="6" class="empty"
@@ -189,15 +189,28 @@
       <div class="kv"><span data-ar="الشيفت" data-en="Shift">الشيفت</span>
         <b class="mono">{{ row.schedule_label|default:"—" }}</b></div>
       <div class="kv"><span data-ar="من" data-en="From">من</span>
-        <b class="mono">{{ row.scheduled_start|date:"H:i"|default:"—" }}</b></div>
+        <b class="mono">{{ row.scheduled_start|clock12|default:"—" }}</b></div>
       <div class="kv"><span data-ar="إلى" data-en="To">إلى</span>
-        <b class="mono">{{ row.scheduled_end|date:"H:i"|default:"—" }}</b></div>
+        <b class="mono">{{ row.scheduled_end|clock12|default:"—" }}</b></div>
       <div class="kv"><span data-ar="المطلوب" data-en="Required">المطلوب</span>
         <b class="mono">{{ row.scheduled_minutes|minutes_hm }}</b></div>
       <div class="kv"><span data-ar="فترة السماح" data-en="Grace">فترة السماح</span>
         <b class="mono">{{ row.grace_minutes }}د</b></div>
       <div class="kv"><span data-ar="اتحسب" data-en="Worked">اتحسب</span>
         <b class="mono">{{ row.work_minutes|minutes_hm }}</b></div>
+      <div class="kv"><span data-ar="اكسترا تايم من" data-en="Extra time from">اكسترا تايم من</span>
+        <b class="mono">{{ row.extra_started_at|clock12|default:"—" }}</b></div>
+      <div class="kv"><span data-ar="أوفرتايم" data-en="Overtime">أوفرتايم</span>
+        <b class="mono">{{ row.overtime_minutes|minutes_hm }}</b></div>
+      {% if row.checkout_missed %}
+        <div class="note note--warn mt">
+          {% icon "alert" %}
+          <div data-ar="اليوم ده اتلغى لأن الانصراف متسجلش في الميعاد. لو فيه عذر، رجّع الحالة «حاضر» واكتب ميعاد الانصراف والسبب."
+               data-en="This day was voided: no check-out in time. If there is a reason, set it back to Present with the check-out time and a reason.">
+            اليوم ده اتلغى لأن الانصراف متسجلش في الميعاد. لو فيه عذر، رجّع الحالة «حاضر» واكتب ميعاد الانصراف والسبب.
+          </div>
+        </div>
+      {% endif %}
       <small class="muted"
              data-ar="دي نسخة الجدول وقت ما اليوم حصل. تغيير الجدول دلوقتي مش بيلمسها."
              data-en="This is the schedule as it stood when the day happened. Changing the roster now does not touch it.">

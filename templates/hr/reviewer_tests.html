@@ -36,7 +36,7 @@
           </td>
           <td data-ar-label="القسم" data-en-label="Department" class="muted">{{ row.department.label|default:"—" }}</td>
           <td data-ar-label="التسليم" data-en-label="Submitted" class="mono muted">
-            {% if row.is_submitted %}{{ row.submitted_at|date:"m-d H:i" }}
+            {% if row.is_submitted %}{{ row.submitted_at|clock12:"m-d" }}
             {% else %}<span data-ar="لسه" data-en="not yet">لسه</span>{% endif %}
           </td>
           <td>

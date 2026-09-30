@@ -148,13 +148,13 @@
           <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge row.work_mode %}</td>
           <td data-ar-label="الشيفت" data-en-label="Shift" class="mono muted">{{ row.schedule_label|default:"—" }}</td>
           <td data-ar-label="حضور" data-en-label="In" class="mono {% if row.late_minutes %}deadline--late{% endif %}">
-            {{ row.check_in|date:"H:i"|default:"—" }}
+            {{ row.check_in|clock12|default:"—" }}
           </td>
           <td data-ar-label="انصراف" data-en-label="Out" class="mono">
             {% if row.is_open %}
               <span class="badge badge--work" data-ar="لسه شغال" data-en="Still open">لسه شغال</span>
             {% else %}
-              {{ row.check_out|date:"H:i"|default:"—" }}
+              {{ row.check_out|clock12|default:"—" }}
             {% endif %}
           </td>
           <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ row.work_minutes|minutes_hm }}</td>
@@ -165,6 +165,8 @@
             {% if row.short_minutes %}<span class="badge badge--dead mono">ناقص {{ row.short_minutes }}د</span>{% endif %}
             {% if row.overtime_minutes %}<span class="badge badge--ok mono">OT {{ row.overtime_minutes }}د</span>{% endif %}
             {% if row.off_site %}<span class="badge badge--dead" data-ar="بره النطاق" data-en="Off site">بره النطاق</span>{% endif %}
+            {% if row.extra_started_at %}<span class="badge badge--info mono"><span data-ar="اكسترا من" data-en="Extra from">اكسترا من</span> {{ row.extra_started_at|clock12 }}</span>{% endif %}
+            {% if row.checkout_missed %}<span class="badge badge--dead" data-ar="مسجلش انصراف — مش محسوب" data-en="No check-out - not counted">مسجلش انصراف — مش محسوب</span>{% endif %}
           </td>
           <td>
             <a class="btn btn--sm btn--ghost" href="{% url 'dashboard:hr_attendance_day' row.pk %}">

@@ -113,7 +113,7 @@ Expects: entry (dict from services.client_thread)
       {% endif %}
       {% if entry.task_code %}<span class="mono muted">{{ entry.task_code }}</span>{% endif %}
       {% if entry.sender %}<span class="muted">{{ entry.sender }}</span>{% endif %}
-      <span class="bub__time mono">{{ entry.at|date:"H:i" }}</span>
+      <span class="bub__time mono">{{ entry.at|clock12 }}</span>
       {% if entry.kind == 'out' %}{% include "ops/_ticks.html" %}{% endif %}
     </div>
 

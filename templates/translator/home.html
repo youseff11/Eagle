@@ -36,7 +36,7 @@
             {% with due=task|deadline_for:user %}
             <span class="row row--tight mono deadline--{{ task|deadline_state_for:user }}">
               {% icon "clock" "ic--sm" %}
-              {% if due %}{{ due|date:"Y-m-d H:i" }}
+              {% if due %}{{ due|clock12:"Y-m-d" }}
               {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
             </span>
             {% endwith %}

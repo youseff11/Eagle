@@ -90,7 +90,7 @@
       {% icon "clock" %}
       <div>
         <span data-ar="آخر جلب:" data-en="Last fetch:">آخر جلب:</span>
-        <span class="mono">{{ mail_last_fetch_at|date:"Y-m-d H:i" }}</span>
+        <span class="mono">{{ mail_last_fetch_at|clock12:"Y-m-d" }}</span>
         ·
         <span data-ar="جاب" data-en="brought">جاب</span>
         <strong class="mono">{{ mail_last_count }}</strong>

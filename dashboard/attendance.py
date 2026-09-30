@@ -43,7 +43,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import services
+from . import clock, services
 from .models import (
     ApprovalStatus,
     AttendanceEdit,
@@ -187,6 +187,52 @@ def plan_for(user, day):
     )
 
 
+#: Saturday first, Friday off - the Egyptian week, and the default the
+#: employee file ticks when somebody has no roster yet.
+WEEK_ORDER = (5, 6, 0, 1, 2, 3, 4)
+DEFAULT_WORKDAYS = (5, 6, 0, 1, 2, 3)
+WEEKDAY_NAMES = {
+    0: ("الاتنين", "Monday"), 1: ("التلات", "Tuesday"), 2: ("الأربع", "Wednesday"),
+    3: ("الخميس", "Thursday"), 4: ("الجمعة", "Friday"), 5: ("السبت", "Saturday"),
+    6: ("الحد", "Sunday"),
+}
+
+
+def current_template(user):
+    """The shift most of this person's roster rows point at, or ``None``."""
+    counts = {}
+    for row in Shift.objects.filter(user=user, is_active=True, template__isnull=False):
+        counts[row.template_id] = counts.get(row.template_id, 0) + 1
+    if not counts:
+        return None
+    from .models import ShiftTemplate
+
+    return ShiftTemplate.objects.filter(pk=max(counts, key=counts.get)).first()
+
+
+@transaction.atomic
+def assign_shift(user, template, weekdays, actor=None):
+    """Put somebody on one company shift for the chosen weekdays.
+
+    Replaces their standing roster in one go - which is what "this person is
+    on shift 2" means. Days already recorded keep the shift they were worked
+    under (the schedule is frozen onto each day), so nothing in the past moves.
+    ``template=None`` clears the roster.
+    """
+    days = sorted({int(d) for d in weekdays if str(d).isdigit() and 0 <= int(d) <= 6})
+    Shift.objects.filter(user=user).delete()
+    rows = []
+    if template is not None:
+        rows = Shift.objects.bulk_create([
+            Shift(user=user, weekday=day, template=template) for day in days
+        ])
+    services.log(
+        actor, "schedule.assign", user.username,
+        f"{template.name if template else '-'} {','.join(str(d) for d in days)}",
+    )
+    return rows
+
+
 def resolve_work_date(user, at=None):
     """Which working day a punch made at ``at`` belongs to.
 
@@ -213,7 +259,7 @@ def resolve_work_date(user, at=None):
         # somebody who checked in off-schedule can still check out.
         open_day = WorkDay.objects.filter(
             user=user, check_in__isnull=False, check_out__isnull=True,
-            date__in=(yesterday, today),
+            status=DayStatus.PRESENT, date__in=(yesterday, today),
         ).order_by("-date").first()
         if open_day is not None:
             return open_day.date, plan_for(user, open_day.date)
@@ -224,7 +270,7 @@ def resolve_work_date(user, at=None):
     open_dates = set(
         WorkDay.objects.filter(
             user=user, check_in__isnull=False, check_out__isnull=True,
-            date__in=[p.date for p in candidates],
+            status=DayStatus.PRESENT, date__in=[p.date for p in candidates],
         ).values_list("date", flat=True)
     )
     for plan in candidates:
@@ -346,9 +392,30 @@ def _notify_hr(**kwargs):
         services.notify(person, **kwargs)
 
 
+def punch(user, kind, *, at=None, **details):
+    """Record one punch and return ``(work_day, event)``.
+
+    A check-out (or any punch) that arrives after the day's check-out
+    deadline finds the day already lost: it is settled as not counted first,
+    outside the punch's own transaction so the refusal cannot roll it back,
+    and the punch is refused with the reason.
+    """
+    at = at or timezone.now()
+    if kind != PunchKind.CHECK_IN and user.attendance_enabled:
+        day, _plan = resolve_work_date(user, at)
+        row = WorkDay.objects.filter(user=user, date=day).first()
+        if row is not None and expire_if_forgotten(row, now=at):
+            raise PunchRefused(
+                "checkout_missed",
+                "عدّى ميعاد الانصراف ومسجلتش — اليوم ده مش محسوب واتحوّل للـHR.",
+                "The check-out deadline passed - this day does not count and went to HR.",
+            )
+    return _punch(user, kind, at=at, **details)
+
+
 @transaction.atomic
-def punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=None,
-          fingerprint="", ip=None, user_agent="", source="web", note=""):
+def _punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=None,
+           fingerprint="", ip=None, user_agent="", source="web", note=""):
     """Record one punch and return ``(work_day, event)``.
 
     Raises :class:`PunchRefused` when the policy says no - an unfinished day,
@@ -383,6 +450,8 @@ def punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=None
         raise PunchRefused(
             "break_open", "اقفل البريك الأول.", "End the break before checking out."
         )
+    if kind == PunchKind.EXTRA_START:
+        _extra_allowed(row, at)
 
     # -- the device ---------------------------------------------------------
     device, device_ok = touch_device(user, conf, fingerprint, user_agent)
@@ -436,10 +505,44 @@ def punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=None
         row.self_recorded = True
     elif kind == PunchKind.CHECK_OUT:
         row.check_out = at
+    elif kind == PunchKind.EXTRA_START:
+        row.extra_started_at = at
 
     recompute(row, conf=conf, save=False)
     row.save()
+
+    # Late past the grace window: HR hears about it now, and so does the
+    # person - told in so many words that it went to HR.
+    if kind == PunchKind.CHECK_IN and row.late_minutes:
+        _late_alert(user, row)
+    if kind == PunchKind.CHECK_OUT and row.overtime_minutes:
+        _claim_extra(row, conf)
     return row, event
+
+
+def _extra_allowed(row, at):
+    """Extra time starts after the shift ends, once, and not during a break."""
+    if not row.scheduled_end:
+        raise PunchRefused(
+            "extra_no_shift",
+            "مفيش شيفت متسجل ليك النهارده — الاكسترا تايم محتاج شيفت.",
+            "No shift is set for you today - extra time needs one.",
+        )
+    if row.extra_started_at:
+        raise PunchRefused(
+            "extra_running", "الاكسترا تايم شغال بالفعل.", "Extra time is already running."
+        )
+    if row.on_break:
+        raise PunchRefused(
+            "break_open", "اقفل البريك الأول.", "End the break first."
+        )
+    if at < row.scheduled_end:
+        end_ar, end_en = clock.both(row.scheduled_end)
+        raise PunchRefused(
+            "extra_early",
+            f"الاكسترا تايم بيبدأ بعد نهاية الشيفت ({end_ar}).",
+            f"Extra time starts after the shift ends ({end_en}).",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +566,16 @@ def break_minutes_of(row, events=None):
             total += max(0, int((event.at - started).total_seconds() // 60))
             started = None
     return total
+
+
+def extra_minutes_of(row):
+    """Minutes from the extra-time punch (never before the shift end) to out."""
+    if not (row.extra_started_at and row.check_out):
+        return 0
+    begin = row.extra_started_at
+    if row.scheduled_end and row.scheduled_end > begin:
+        begin = row.scheduled_end
+    return max(0, int((row.check_out - begin).total_seconds() // 60))
 
 
 def recompute(row, conf=None, save=True, keep_break=False):
@@ -520,17 +633,22 @@ def recompute(row, conf=None, save=True, keep_break=False):
 
     row.short_minutes = 0
     row.overtime_minutes = 0
+    extra = extra_minutes_of(row)
+    if conf.overtime_enabled and extra >= conf.overtime_min_minutes:
+        # Only time after the "extra time" button is overtime. Staying late
+        # without pressing it is not, because HR can only review what it was
+        # told about.
+        row.overtime_minutes = extra
     if row.scheduled_minutes and row.check_out:
         # An approved permission is time HR agreed the person would be away,
         # so it is not a shortfall. Without this line a granted permission
         # still reads as short hours and can price a deduction, which is the
         # fastest way to make people stop asking for one.
         owed = max(0, row.scheduled_minutes - row.excused_minutes)
-        difference = row.work_minutes - owed
-        if difference < 0:
-            row.short_minutes = -difference
-        elif conf.overtime_enabled and difference >= conf.overtime_min_minutes:
-            row.overtime_minutes = difference
+        # The extra hour is paid as extra; it does not also fill a late start.
+        regular = row.work_minutes - extra
+        if regular < owed:
+            row.short_minutes = owed - regular
 
     if save:
         row.save()
@@ -551,7 +669,7 @@ def _readable(value):
     if value is None or value == "":
         return ""
     if hasattr(value, "tzinfo") and value.tzinfo is not None:
-        return timezone.localtime(value).strftime("%Y-%m-%d %H:%M")
+        return clock.fmt12(value, "ar", "%Y-%m-%d")
     return str(value)
 
 
@@ -587,6 +705,9 @@ def apply_edit(row, actor, changes, reason):
 
     if row.check_in or row.check_out:
         row.self_recorded = False
+    if row.checkout_missed and row.status == DayStatus.PRESENT and row.check_out:
+        # HR restored a day lost to a forgotten check-out.
+        row.checkout_missed = False
     recompute(
         row, save=False,
         keep_break=any(edit.field == "break_minutes" for edit in written),
@@ -706,29 +827,18 @@ def sweep_alerts(now=None):
             if row is None:
                 continue
 
-            # 2. Late arrival.
+            # 2. Late arrival. Normally already sent at the punch itself.
             if row.late_minutes:
-                raised += _alert_once(
-                    user, day, "attendance.late",
-                    title_ar="تسجيل حضور متأخر",
-                    title_en="Late check-in",
-                    body_ar=f"تأخير {row.late_minutes} دقيقة يوم {day}.",
-                    body_en=f"{row.late_minutes} minutes late on {day}.",
-                    level="warning", hr_too=True,
-                )
+                raised += _late_alert(user, row)
 
-            # 3. Still open well after the shift ended.
-            if row.check_in and not row.check_out and now > plan.end + timedelta(
-                minutes=conf.missing_checkout_after_minutes
-            ):
-                raised += _alert_once(
-                    user, day, "attendance.no_checkout",
-                    title_ar="مسجلتش انصراف",
-                    title_en="No check-out recorded",
-                    body_ar=f"يوم {day} لسه مفتوح من غير انصراف.",
-                    body_en=f"{day} is still open with no check-out.",
-                    level="danger", hr_too=True,
-                )
+            # 3. The shift is over and the day is still open: remind first,
+            #    and once the deadline passes the day stops counting.
+            if expire_if_forgotten(row, now=now, conf=conf):
+                raised += 1
+                continue
+            if row.is_open and row.scheduled_end and not row.extra_started_at \
+                    and now >= row.scheduled_end:
+                raised += _checkout_reminder(user, row, conf)
 
             # 4. A punch that failed its location check.
             if row.off_site:
@@ -774,6 +884,239 @@ def _alert_once(user, day, key, *, title_ar, title_en, body_ar, body_en,
             url=f"/hr/attendance/#{marker}",
         )
     return 1
+
+
+# ---------------------------------------------------------------------------
+# Late arrival, a forgotten check-out, extra time
+# ---------------------------------------------------------------------------
+
+#: What a day lost to a forgotten check-out says on the HR board.
+MISSED_CHECKOUT_REASON = "مسجلش انصراف في الميعاد — اليوم مش محسوب"
+
+
+def _late_alert(user, row):
+    """Past the grace window: HR is told, and the person is told HR was told.
+
+    Sent once per day. The punch sends it the moment it happens; the sweep
+    only catches a day that somehow reached it without one.
+    """
+    start_ar, start_en = clock.both(row.scheduled_start)
+    in_ar, in_en = clock.both(row.check_in)
+    minutes = row.late_minutes
+    marker_day = row.date
+    sent = _alert_once(
+        user, marker_day, "attendance.late",
+        title_ar="التأخير اتحوّل للـHR",
+        title_en="Your lateness went to HR",
+        body_ar=(
+            f"سجّلت حضور {in_ar} والشيفت بيبدأ {start_ar} — "
+            f"تأخير {minutes} دقيقة بعد فترة السماح، واتحوّل للـHR."
+        ),
+        body_en=(
+            f"You checked in at {in_en}; the shift starts at {start_en}. "
+            f"{minutes} minutes late past the grace window - sent to HR."
+        ),
+        level="warning",
+    )
+    if sent:
+        _notify_hr(
+            title_ar=f"تأخير — {user.short_name}",
+            title_en=f"Late — {user.short_name}",
+            body_ar=(
+                f"{user.short_name} سجّل حضور {in_ar} والشيفت {start_ar}: "
+                f"تأخير {minutes} دقيقة يوم {row.date}."
+            ),
+            body_en=(
+                f"{user.short_name} checked in at {in_en} for a {start_en} shift: "
+                f"{minutes} minutes late on {row.date}."
+            ),
+            level="warning", url=f"/hr/attendance/{row.pk}/",
+        )
+    return sent
+
+
+def checkout_deadline(row, conf=None):
+    """The last moment a check-out still counts for this day, or ``None``.
+
+    The shift end plus ``missing_checkout_after_minutes``. Somebody on extra
+    time has told us they are staying, so their day stays open until the
+    punch window itself closes. A day with no frozen shift has no deadline -
+    there is nothing to measure "forgot" against.
+    """
+    if not row.scheduled_end:
+        return None
+    if row.extra_started_at:
+        return row.scheduled_end + timedelta(minutes=LATE_WINDOW_MINUTES)
+    conf = conf or PayrollSettings.load()
+    return row.scheduled_end + timedelta(minutes=conf.missing_checkout_after_minutes)
+
+
+def expire_if_forgotten(row, now=None, conf=None):
+    """Settle a day whose check-out never came. Returns True when it did.
+
+    The rule the owner set: forget to check out and the whole day does not
+    count. The day becomes an unexcused absence - which, like every other
+    deduction, still waits for a person to approve it - and it is flagged so
+    HR sees why. HR can restore it from the day page, with a reason.
+    """
+    if not row.is_open:
+        return False
+    now = now or timezone.now()
+    conf = conf or PayrollSettings.load()
+    deadline = checkout_deadline(row, conf)
+    if deadline is None or now <= deadline:
+        return False
+
+    row.status = DayStatus.UNEXCUSED
+    row.checkout_missed = True
+    row.needs_review = True
+    row.review_reason = MISSED_CHECKOUT_REASON
+    recompute(row, conf=conf, save=False)
+    row.save()
+    AttendanceEdit.objects.create(
+        work_day=row, actor=None, field="status",
+        old_value=DayStatus.PRESENT, new_value=DayStatus.UNEXCUSED,
+        reason="system: no check-out by the deadline",
+    )
+    end_ar, end_en = clock.both(deadline)
+    _alert_once(
+        row.user, row.date, "attendance.checkout_missed",
+        title_ar="اليوم مش محسوب — مسجلتش انصراف",
+        title_en="Day not counted - no check-out",
+        body_ar=f"يوم {row.date} اتقفل من غير انصراف لحد {end_ar}، فمش محسوب واتحوّل للـHR.",
+        body_en=f"{row.date} had no check-out by {end_en}, so it does not count and went to HR.",
+        level="danger", hr_too=True,
+    )
+    return True
+
+
+def expire_open_days(now=None, user=None, conf=None):
+    """Run :func:`expire_if_forgotten` over every day that could be due."""
+    now = now or timezone.now()
+    conf = conf or PayrollSettings.load()
+    rows = WorkDay.objects.filter(
+        status=DayStatus.PRESENT, check_in__isnull=False, check_out__isnull=True,
+        scheduled_end__lt=now - timedelta(minutes=conf.missing_checkout_after_minutes),
+    ).select_related("user")
+    if user is not None:
+        rows = rows.filter(user=user)
+    return sum(1 for row in rows if expire_if_forgotten(row, now=now, conf=conf))
+
+
+def _checkout_reminder(user, row, conf):
+    deadline = checkout_deadline(row, conf)
+    end_ar, end_en = clock.both(deadline)
+    return _alert_once(
+        user, row.date, "attendance.checkout_reminder",
+        title_ar="الشيفت خلص — سجّل انصراف",
+        title_en="Your shift is over - check out",
+        body_ar=(
+            f"سجّل انصراف قبل {end_ar}، ولو هتكمّل دوس «اكسترا تايم». "
+            "لو نسيت تسجل انصراف اليوم كله مش هيتحسب."
+        ),
+        body_en=(
+            f"Check out before {end_en}, or press Extra time if you are staying. "
+            "Forget to check out and the whole day does not count."
+        ),
+        level="warning",
+    )
+
+
+def _claim_extra(row, conf):
+    """Price the extra time as a claim HR has to approve, and tell HR.
+
+    ``raise_overtime`` does the same thing when the month is computed; doing
+    it at the check-out as well puts the claim in HR's queue the same day.
+    """
+    if not (conf.overtime_enabled and row.overtime_minutes):
+        return None
+    from . import payroll  # payroll imports this module at the top
+    from .models import SalaryRecord
+
+    rules = payroll.rules_for(row.user, conf)
+    base = SalaryRecord.amount_on(row.user, row.date)
+    day_value = payroll.money(base / Decimal(rules.working_days_per_month or 1))
+    rate = rules.overtime_rate(day_value)
+    amount = (rate * Decimal(row.overtime_minutes) / Decimal(60)).quantize(Decimal("0.01"))
+    claim = _overtime_draft(row.user, row, rate, amount, rules)
+    _alert_once(
+        row.user, row.date, "attendance.extra",
+        title_ar=f"اكسترا تايم للمراجعة — {row.user.short_name}",
+        title_en=f"Extra time to review — {row.user.short_name}",
+        body_ar=f"{row.overtime_minutes} دقيقة اكسترا تايم يوم {row.date} مستنية مراجعتك.",
+        body_en=f"{row.overtime_minutes} minutes of extra time on {row.date} wait for review.",
+        level="info", hr_too=True, to_user=False,
+    )
+    return claim
+
+
+# ---------------------------------------------------------------------------
+# The check-in screen
+# ---------------------------------------------------------------------------
+
+def gate_for(user, now=None, conf=None):
+    """What the screen should ask this person right now, or ``None``.
+
+    ``check_in``: a shift is on (or about to be) and nobody has checked in -
+    the screen opens by itself and stays until they do. ``check_out``: the
+    shift has ended, the day is still open and no extra time was started - a
+    reminder that a forgotten check-out costs the whole day.
+
+    Also settles this person's own forgotten days on the way, so the rule
+    holds even on a server where the sweep is not scheduled.
+    """
+    if not (getattr(user, "is_authenticated", False) and user.attendance_enabled):
+        return None
+    # Most page loads and every heartbeat come through here, so somebody with
+    # no roster and nothing open costs three cheap queries and nothing more.
+    if not (
+        Shift.objects.filter(user=user, is_active=True).exists()
+        or ScheduleOverride.objects.filter(user=user).exists()
+        or WorkDay.objects.filter(
+            user=user, check_in__isnull=False, check_out__isnull=True,
+            status=DayStatus.PRESENT,
+        ).exists()
+    ):
+        return None
+    now = now or timezone.now()
+    conf = conf or PayrollSettings.load()
+    expire_open_days(now, user=user, conf=conf)
+
+    day, plan = resolve_work_date(user, now)
+    row = WorkDay.objects.filter(user=user, date=day).first()
+    if row is not None and row.status != DayStatus.PRESENT:
+        return None
+
+    if plan.working and (row is None or not row.check_in):
+        opens = plan.start - timedelta(minutes=conf.checkin_prompt_before_minutes)
+        if not (opens <= now < plan.end):
+            return None
+        grace_until = plan.start + timedelta(minutes=conf.grace_minutes)
+        return {
+            "kind": "check_in",
+            "date": day.isoformat(),
+            "shift": plan.label,
+            "start": dict(zip(("ar", "en"), clock.both(plan.start))),
+            "end": dict(zip(("ar", "en"), clock.both(plan.end))),
+            "grace_until": dict(zip(("ar", "en"), clock.both(grace_until))),
+            "grace": conf.grace_minutes,
+            "late_now": late_after_grace(plan.start, now, conf.grace_minutes),
+            "needs_location": plan.mode == WorkMode.OFFICE,
+            "checkout_after": conf.missing_checkout_after_minutes,
+        }
+
+    if (row is not None and row.is_open and row.scheduled_end
+            and not row.extra_started_at and now >= row.scheduled_end):
+        deadline = checkout_deadline(row, conf)
+        return {
+            "kind": "check_out",
+            "date": day.isoformat(),
+            "shift": row.schedule_label,
+            "end": dict(zip(("ar", "en"), clock.both(row.scheduled_end))),
+            "deadline": dict(zip(("ar", "en"), clock.both(deadline))),
+            "needs_location": row.is_office_day and conf.checkout_needs_location,
+        }
+    return None
 
 
 # ---------------------------------------------------------------------------

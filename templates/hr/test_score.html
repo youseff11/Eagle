@@ -71,7 +71,7 @@
       <div class="kv"><span data-ar="عدد الكلمات" data-en="Word count">عدد الكلمات</span>
         <b class="mono">{{ test.word_count }}</b></div>
       <div class="kv"><span data-ar="آخر موعد" data-en="Deadline">آخر موعد</span>
-        <b class="mono">{{ test.deadline|date:"Y-m-d H:i"|default:"—" }}</b></div>
+        <b class="mono">{{ test.deadline|clock12:"Y-m-d"|default:"—" }}</b></div>
       {% if test.assignment %}
         <a class="btn btn--sm btn--block mt" href="{{ test.assignment.url }}" target="_blank" rel="noopener">
           {% icon "paperclip" "ic--sm" %}<span data-ar="ملف الاختبار" data-en="Assignment">ملف الاختبار</span>

@@ -16,7 +16,9 @@
     <div class="card punch" id="punchCard"
          data-state="{% if row.check_out %}closed{% elif row.check_in %}open{% else %}none{% endif %}"
          data-needs-location="{% if needs_location %}1{% else %}0{% endif %}"
-         data-on-break="{% if row.on_break %}1{% else %}0{% endif %}">
+         data-on-break="{% if row.on_break %}1{% else %}0{% endif %}"
+         data-extra="{% if row.extra_running %}1{% else %}0{% endif %}"
+         data-shift-end="{% if row.scheduled_end %}{{ row.scheduled_end|date:'c' }}{% elif plan.working %}{{ plan.end|date:'c' }}{% endif %}">
       <div class="card__head">
         {% icon "timer" %}
         <h3 data-ar="اليوم" data-en="Today">اليوم</h3>
@@ -38,7 +40,11 @@
         <div class="punch__meta muted">
           {% if plan.working %}
             <span data-ar="الشيفت" data-en="Shift">الشيفت</span>
-            <span class="mono">{{ plan.start|date:"H:i" }} – {{ plan.end|date:"H:i" }}</span>
+            <span class="mono">{{ plan.start|clock12 }} – {{ plan.end|clock12 }}</span>
+            <span class="muted">·</span>
+            <span data-ar="سماح" data-en="Grace">سماح</span>
+            <span class="mono">{{ conf.grace_minutes }}</span>
+            <span data-ar="دقايق" data-en="min">دقايق</span>
           {% else %}
             <span data-ar="تقدر تسجل برضه، والـHR هتراجعه."
                   data-en="You can still punch; HR will review it.">تقدر تسجل برضه، والـHR هتراجعه.</span>
@@ -49,11 +55,11 @@
       <div class="punch__grid">
         <div class="punch__cell">
           <div class="punch__label" data-ar="حضور" data-en="In">حضور</div>
-          <div class="punch__value mono" data-field="check_in">{{ row.check_in|date:"H:i"|default:"—" }}</div>
+          <div class="punch__value mono" data-field="check_in">{{ row.check_in|clock12|default:"—" }}</div>
         </div>
         <div class="punch__cell">
           <div class="punch__label" data-ar="انصراف" data-en="Out">انصراف</div>
-          <div class="punch__value mono" data-field="check_out">{{ row.check_out|date:"H:i"|default:"—" }}</div>
+          <div class="punch__value mono" data-field="check_out">{{ row.check_out|clock12|default:"—" }}</div>
         </div>
         <div class="punch__cell">
           <div class="punch__label" data-ar="بريك" data-en="Break">بريك</div>
@@ -75,17 +81,40 @@
         <button class="btn btn--block" type="button" data-punch="break_end">
           {% icon "play" "ic--sm" %}<span data-ar="إنهاء البريك" data-en="End break">إنهاء البريك</span>
         </button>
+        <button class="btn btn--block" type="button" data-punch="extra_start" hidden>
+          {% icon "plus" "ic--sm" %}<span data-ar="اكسترا تايم" data-en="Extra time">اكسترا تايم</span>
+        </button>
         <button class="btn btn--danger btn--block" type="button" data-punch="check_out">
           {% icon "stop" "ic--sm" %}<span data-ar="تسجيل انصراف" data-en="Check out">تسجيل انصراف</span>
         </button>
       </div>
 
+      <div class="punch__extra" data-extra-line {% if not row.extra_started_at %}hidden{% endif %}>
+        <span class="badge badge--ok" data-ar="اكسترا تايم شغال" data-en="Extra time running">اكسترا تايم شغال</span>
+        <span data-ar="من" data-en="since">من</span>
+        <span class="mono" data-field="extra_started_at">{{ row.extra_started_at|clock12|default:"—" }}</span>
+      </div>
+
       <div class="punch__status muted" id="punchStatus" aria-live="polite"></div>
+
+      <div class="note note--warn mt">
+        {% icon "alert" %}
+        <div>
+          <b data-ar="لو نسيت تسجل انصراف، اليوم كله مش هيتحسب." data-en="Forget to check out and the whole day does not count.">لو نسيت تسجل انصراف، اليوم كله مش هيتحسب.</b>
+          <span data-ar="مهلة الانصراف بعد نهاية الشيفت:" data-en="Check-out window after the shift:">مهلة الانصراف بعد نهاية الشيفت:</span>
+          <span class="mono">{{ conf.missing_checkout_after_minutes }}</span>
+          <span data-ar="دقيقة. هتكمّل؟ دوس «اكسترا تايم» والـHR تراجعه (الساعة بساعة ونص)."
+                data-en="minutes. Staying on? Press Extra time and HR reviews it (paid at time and a half).">دقيقة. هتكمّل؟ دوس «اكسترا تايم» والـHR تراجعه (الساعة بساعة ونص).</span>
+        </div>
+      </div>
 
       {% if row.needs_review %}
         <div class="note note--warn">
           {% icon "alert" %}
           <div>
+            {% if row.checkout_missed %}
+              <b data-ar="اليوم ده مش محسوب — مسجلتش انصراف في الميعاد." data-en="This day does not count - no check-out in time.">اليوم ده مش محسوب — مسجلتش انصراف في الميعاد.</b>
+            {% endif %}
             <span data-ar="اليوم ده متعلّم للمراجعة:" data-en="This day is flagged for review:">اليوم ده متعلّم للمراجعة:</span>
             <span class="mono">{{ row.review_reason }}</span>
           </div>
@@ -118,8 +147,8 @@
               <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
               <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge day.work_mode %}</td>
               <td data-ar-label="الشيفت" data-en-label="Shift" class="mono muted">{{ day.schedule_label|default:"—" }}</td>
-              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
-              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|clock12|default:"—" }}</td>
+              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|clock12|default:"—" }}</td>
               <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ day.hours_display }}</td>
               <td data-ar-label="الحالة" data-en-label="Status">
                 {% day_status_badge day.status %}
@@ -128,6 +157,9 @@
                 {% endif %}
                 {% if day.overtime_minutes %}
                   <span class="badge badge--ok mono">OT {{ day.overtime_minutes }}د</span>
+                {% endif %}
+                {% if day.checkout_missed %}
+                  <span class="badge badge--dead" data-ar="مسجلش انصراف" data-en="No check-out">مسجلش انصراف</span>
                 {% endif %}
               </td>
             </tr>
@@ -208,14 +240,4 @@
     {% endif %}
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  window.EAGLE_ATTENDANCE = {
-    punchUrl: "{% url 'dashboard:api_attendance_punch' %}",
-    stateUrl: "{% url 'dashboard:api_attendance_state' %}"
-  };
-</script>
-<script src="{% static 'js/attendance.js' %}"></script>
 {% endblock %}

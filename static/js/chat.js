@@ -198,7 +198,7 @@
     }
     if (msg.task_code) { foot.push('<span class="mono muted">' + esc(msg.task_code) + "</span>"); }
     if (msg.sender) { foot.push('<span class="muted">' + esc(msg.sender) + "</span>"); }
-    foot.push('<span class="bub__time mono">' + esc(msg.time) + "</span>");
+    foot.push('<span class="bub__time mono">' + esc(window.Eagle.ampm(msg.time)) + "</span>");
     if (msg.kind === "out") { foot.push(ticksHtml(msg)); }
     parts.push('<div class="bub__foot">' + foot.join("") + "</div>");
 
@@ -423,7 +423,7 @@
             ? ticksHtml({ status: item.status, receipt: item.receipt, mine: true })
             : "") + E.escapeHtml(item.text);
         }
-        if (time) { time.textContent = item.time; }
+        if (time) { time.textContent = window.Eagle.ampm(item.time); }
         drawUnread(row, item);
         if (isNew) {
           if (firstRow) { threadList.insertBefore(row, firstRow); }

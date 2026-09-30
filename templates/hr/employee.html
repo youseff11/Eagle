@@ -84,6 +84,7 @@
   </div>
 
   <div class="sticky-side">
+    {% if user.can_manage_attendance %}{% include "partials/shift_picker.html" %}{% endif %}
     <div class="card">
       <div class="card__head">
         {% icon "calendar" %}
@@ -92,7 +93,7 @@
       {% for shift in shifts %}
         <div class="kv">
           <span>{{ shift.get_weekday_display }}</span>
-          <b class="mono">{{ shift.start|time:"H:i" }}–{{ shift.end|time:"H:i" }}</b>
+          <b class="mono">{{ shift.start|clock12 }}–{{ shift.end|clock12 }}</b>
         </div>
       {% empty %}
         <div class="muted" data-ar="مفيش جدول لسه." data-en="No roster yet.">مفيش جدول لسه.</div>

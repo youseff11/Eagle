@@ -269,6 +269,20 @@ def dict_get(mapping, key):
 
 
 @register.filter
+def clock12(value, date_format=""):
+    """Egypt time, twelve-hour: ``17:05`` -> ``5:05 م`` (PM in English).
+
+    ``{{ when|clock12 }}`` for the time alone, ``{{ when|clock12:"Y-m-d" }}``
+    with the date in front (``Y`` ``m`` ``d`` as in Django's own filter).
+    Empty in, empty out, so ``|default:"—"`` still works after it.
+    """
+    from dashboard.clock import fmt12_html
+
+    strf = "".join(f"%{ch}" if ch in "Ymd" else ch for ch in (date_format or ""))
+    return mark_safe(fmt12_html(value, strf))
+
+
+@register.filter
 def minutes_hm(value):
     """126 -> ``2:06``. Templates keep asking for it, so it lives here once."""
     try:

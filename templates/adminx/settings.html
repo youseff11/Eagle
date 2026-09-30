@@ -215,7 +215,7 @@
       {% endif %}
       {% if conf.google_sync_at %}
         <span class="muted" style="font-size:.78rem"><span data-ar="آخر مزامنة:" data-en="Last sync:">آخر مزامنة:</span>
-          <span class="mono" dir="ltr">{{ conf.google_sync_at|date:"d/m H:i" }}</span></span>
+          <span class="mono" dir="ltr">{{ conf.google_sync_at|clock12:"d/m" }}</span></span>
       {% endif %}
     </div>
     {% if conf.google_sync_error %}

@@ -106,6 +106,30 @@ window.Eagle = (function () {
 
   function t(ar, en) { return state.lang === "ar" ? ar : en; }
 
+  /* Egypt time on a twelve-hour clock. The server writes "5:30 PM"; an
+     Arabic page reads "5:30 م". */
+  function ampm(text) {
+    if (!text) { return ""; }
+    text = String(text).replace(/\u202f/g, " ");
+    if (state.lang !== "ar") { return text; }
+    return text.replace(/\bAM\b/g, "ص").replace(/\bPM\b/g, "م");
+  }
+
+  /* A Date as Cairo wall-clock time, whatever the computer's own zone is. */
+  function cairoClock(when) {
+    var text;
+    try {
+      text = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Africa/Cairo", hour: "numeric", minute: "2-digit", hour12: true
+      }).format(when || new Date());
+    } catch (err) {
+      var d = when || new Date();
+      var h = d.getHours() % 12 || 12;
+      text = h + ":" + ("0" + d.getMinutes()).slice(-2) + " " + (d.getHours() < 12 ? "AM" : "PM");
+    }
+    return ampm(text);
+  }
+
   /* ---------------------------------------------------------------- theme */
 
   function applyTheme(theme, persist) {
@@ -330,7 +354,7 @@ window.Eagle = (function () {
     $("#assignTask").textContent = pending.task_code + " · " + pending.task_title;
     $("#assignClient").textContent = pending.client;
     $("#assignFrom").textContent = pending.assigned_by || "—";
-    $("#assignDeadline").textContent = pending.deadline || "—";
+    $("#assignDeadline").textContent = ampm(pending.deadline) || "—";
     $("#assignNote").textContent = pending.note || "";
     $("#assignOpen").setAttribute("href", pending.task_url);
 
@@ -573,6 +597,11 @@ window.Eagle = (function () {
       .then(function (data) {
         if (!data || !data.ok) { return; }
         liveNotice(data.live, data.task_live);
+        // The check-in screen (static/js/attendance.js) opens when a shift
+        // starts, even on a page that was already open.
+        if (window.EagleAttendance && "attendance" in data) {
+          window.EagleAttendance.gate(data.attendance);
+        }
 
         (data.notifications || []).forEach(function (n) {
           state.lastNotification = Math.max(state.lastNotification, n.id);
@@ -661,7 +690,7 @@ window.Eagle = (function () {
             (message.relay_status === "failed" ? svgIcon("alert", "ic--sm") : "");
 
         wrap.innerHTML =
-          '<div class="bubble__meta">' + who + " · " + message.time + "</div>" +
+          '<div class="bubble__meta">' + who + " · " + ampm(message.time) + "</div>" +
           '<div class="bubble__box">' + escapeHtml(message.body) +
           (attachments ? '<div class="files">' + attachments + "</div>" : "") + "</div>" +
           (message.relay_error
@@ -1775,7 +1804,7 @@ window.Eagle = (function () {
       } else {
         var when = new Date(Date.now() + total * 60000);
         var day = pad(when.getDate()) + "-" + pad(when.getMonth() + 1) + "-" + when.getFullYear();
-        var clock = pad(when.getHours()) + ":" + pad(when.getMinutes());
+        var clock = cairoClock(when);
         ar = "يعني " + DEADLINE_DAYS_AR[when.getDay()] + " " + day
            + (hasClock ? " الساعة " + clock : "");
         en = DEADLINE_DAYS_EN[when.getDay()] + " " + day
@@ -2194,6 +2223,7 @@ window.Eagle = (function () {
 
   return {
     t: t, toast: toast, beep: beep, post: post, get: get, ask: ask, labelTables: labelTables,
+    ampm: ampm, cairoClock: cairoClock,
     applyLang: applyLang, applyTheme: applyTheme, escapeHtml: escapeHtml,
     voiceHtml: voiceHtml, svgIcon: svgIcon
   };

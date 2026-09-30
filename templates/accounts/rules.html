@@ -199,6 +199,11 @@
           <div class="field">
             <label data-ar="المضاعف" data-en="Multiplier">المضاعف</label>
             {{ form.overtime_multiplier }}
+            <small class="muted"
+                   data-ar="1.5 = الساعة بساعة ونص. الأوفرتايم بيتحسب بس من بعد زرار «اكسترا تايم»."
+                   data-en="1.5 = time and a half. Only time after the Extra time button counts.">
+              1.5 = الساعة بساعة ونص. الأوفرتايم بيتحسب بس من بعد زرار «اكسترا تايم».
+            </small>
           </div>
         </div>
         <label class="switch mt">
@@ -223,8 +228,17 @@
             {{ form.missing_checkin_after_minutes }}
           </div>
           <div class="field">
-            <label data-ar="تنبيه عدم تسجيل انصراف بعد (دقيقة)" data-en="No check-out after (minutes)">مفيش انصراف بعد</label>
+            <label data-ar="مهلة الانصراف بعد نهاية الشيفت (دقيقة)" data-en="Check-out window after the shift (minutes)">مهلة الانصراف بعد نهاية الشيفت</label>
             {{ form.missing_checkout_after_minutes }}
+            <small class="muted"
+                   data-ar="بعدها من غير انصراف اليوم كله مش بيتحسب (غياب) ويتحوّل للـHR."
+                   data-en="Past it with no check-out the whole day does not count (absence) and goes to HR.">
+              بعدها من غير انصراف اليوم كله مش بيتحسب (غياب) ويتحوّل للـHR.
+            </small>
+          </div>
+          <div class="field">
+            <label data-ar="شاشة الحضور تظهر قبل الشيفت بـ (دقيقة)" data-en="Check-in screen opens before the shift (minutes)">شاشة الحضور تظهر قبل الشيفت بـ</label>
+            {{ form.checkin_prompt_before_minutes }}
           </div>
           <div class="field">
             <label data-ar="نقص الساعات يبدأ من (دقيقة)" data-en="Short hours from (minutes)">نقص الساعات من</label>

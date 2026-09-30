@@ -146,7 +146,7 @@
         {% for row in source_messages %}
           <div class="src-msg">
             {% if source_messages|length > 1 %}
-              <div class="muted mono src-msg__at">{{ row.received_at|date:"d/m H:i" }}</div>
+              <div class="muted mono src-msg__at">{{ row.received_at|clock12:"d/m" }}</div>
             {% endif %}
             {% if row.body %}<div class="msg-item__text">{{ row.body }}</div>{% endif %}
             {% if row.attachments.all %}

@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, identity, services
+from . import ai, attendance, clock, identity, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -53,12 +53,12 @@ def _notification_json(item):
         "body_en": item.body_en,
         "url": item.url,
         "sound": item.sound,
-        "created": timezone.localtime(item.created_at).strftime("%H:%M"),
+        "created": clock.fmt12(item.created_at, "en"),
     }
 
 
 def _stamp(moment):
-    return timezone.localtime(moment).strftime("%Y-%m-%d %H:%M") if moment else ""
+    return clock.fmt12(moment, "en", "%Y-%m-%d") if moment else ""
 
 
 def _pending_json(assignment, viewer):
@@ -154,6 +154,9 @@ def heartbeat(request):
     # Live pages: a board re-fetches itself when this moves, and a task page
     # follows its own task (static/js/app.js, initLive).
     data["live"] = services.live_stamp()
+    # The check-in screen: opens by itself when a shift starts, even on a page
+    # that was already open (static/js/attendance.js).
+    data["attendance"] = attendance.gate_for(user)
     code = (request.GET.get("task") or "").strip()
     if code:
         task = Task.objects.filter(code=code).first()
@@ -233,7 +236,7 @@ def _seen_label(seconds, stamp, lang):
     if seconds < 86400 * 7:
         n = seconds // 86400
         return f"من {n} يوم" if lang == "ar" else f"{n}d ago"
-    return timezone.localtime(stamp).strftime("%Y-%m-%d %H:%M")
+    return clock.fmt12(stamp, lang, "%Y-%m-%d")
 
 
 @login_required
@@ -616,8 +619,8 @@ def set_deadline(request, code):
             task.translator,
             title_ar="اتحدد ديدلاين جديد",
             title_en="Deadline updated",
-            body_ar=f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}" if due else "الديدلاين اتشال.",
-            body_en=f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}" if due else "Deadline cleared.",
+            body_ar=f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}" if due else "الديدلاين اتشال.",
+            body_en=f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}" if due else "Deadline cleared.",
             level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
         )
     return JsonResponse({"ok": True})
@@ -864,7 +867,7 @@ def _message_json(message, viewer):
         "role": message.sender.role if message.sender_id else "",
         "initials": message.sender.initials if message.sender_id else "•",
         "mine": message.sender_id == viewer.id,
-        "time": timezone.localtime(message.created_at).strftime("%H:%M"),
+        "time": clock.fmt12(message.created_at, "en"),
         "date": timezone.localtime(message.created_at).strftime("%Y-%m-%d"),
         # Relay bookkeeping — only ever set in a client room.
         "from_client": from_client,
@@ -1057,7 +1060,7 @@ def _thread_entry_json(entry, viewer):
         "is_delivery": entry.get("is_delivery", False),
         "quote": entry.get("quote", ""),
         "quote_who": entry.get("quote_who", ""),
-        "time": timezone.localtime(entry["at"]).strftime("%H:%M"),
+        "time": clock.fmt12(entry["at"], "en"),
         "date": timezone.localtime(entry["at"]).strftime("%Y-%m-%d"),
         "files": entry.get("files", []),
         # The ticks: "" (sent), "delivered" or "read" - see services.
@@ -1084,7 +1087,7 @@ def _conversation_json(client, viewer, unread=0):
         "outgoing": preview["outgoing"],
         "status": preview.get("status", ""),
         "receipt": preview.get("receipt", ""),
-        "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+        "time": clock.fmt12(preview["at"], "en"),
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         # The 24-hour rule is a WhatsApp rule — e-mail has no such window.
         "channel": services.client_channel(client),
@@ -1113,7 +1116,7 @@ def _group_json(room, viewer, unread=0):
             "outgoing": preview["outgoing"],
             "status": preview.get("status", ""),
             "receipt": preview.get("receipt", ""),
-            "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+            "time": clock.fmt12(preview["at"], "en"),
             "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
             "channel": "",
             "window_open": False,
@@ -1133,7 +1136,7 @@ def _group_json(room, viewer, unread=0):
         "outgoing": preview["outgoing"],
         "status": preview.get("status", ""),
         "receipt": preview.get("receipt", ""),
-        "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+        "time": clock.fmt12(preview["at"], "en"),
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         "channel": services.client_channel(client) if client else "",
         "window_open": client.reply_window_open if client else False,
@@ -1178,7 +1181,7 @@ def client_chat_list(request):
                 "outgoing": preview["outgoing"],
                 "status": preview.get("status", ""),
                 "receipt": preview.get("receipt", ""),
-                "time": timezone.localtime(preview["at"]).strftime("%H:%M") if preview["at"] else "",
+                "time": clock.fmt12(preview["at"], "en"),
                 "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
                 "channel": "",
                 "window_open": False,
@@ -1718,12 +1721,18 @@ def _day_json(row, plan=None):
             "late_minutes": 0,
             "work_minutes": 0,
             "needs_review": False,
+            "extra_running": False,
+            "after_shift": False,
         }
     return {
         "state": "closed" if row.check_out else ("open" if row.check_in else "none"),
         "date": row.date.isoformat(),
-        "check_in": timezone.localtime(row.check_in).strftime("%H:%M") if row.check_in else None,
-        "check_out": timezone.localtime(row.check_out).strftime("%H:%M") if row.check_out else None,
+        "check_in": clock.fmt12(row.check_in, "en") or None,
+        "check_out": clock.fmt12(row.check_out, "en") or None,
+        "extra_started_at": clock.fmt12(row.extra_started_at, "en") or None,
+        "extra_running": row.extra_running,
+        "after_shift": bool(row.scheduled_end and timezone.now() >= row.scheduled_end),
+        "checkout_missed": row.checkout_missed,
         "break_minutes": row.break_minutes,
         "on_break": row.on_break,
         "late_minutes": row.late_minutes,
@@ -1753,6 +1762,7 @@ def attendance_state(request):
         "work_mode": row.work_mode if row is not None else plan.mode,
         "needs_location": (row.is_office_day if row is not None else plan.mode == "office"),
         "day": _day_json(row, plan),
+        "gate": attendance.gate_for(user),
     })
 
 
@@ -1789,6 +1799,8 @@ def attendance_punch(request):
     return JsonResponse({
         "ok": True,
         "action": kind,
-        "at": timezone.localtime(event.at).strftime("%H:%M"),
+        "at": clock.fmt12(event.at, "en"),
+        "late_minutes": row.late_minutes if kind == PunchKind.CHECK_IN else 0,
+        "overtime_minutes": row.overtime_minutes if kind == PunchKind.CHECK_OUT else 0,
         "day": _day_json(row),
     })

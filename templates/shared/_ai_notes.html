@@ -20,7 +20,7 @@ a one-line summary at the bottom of a card only some people could see
     {% else %}
       <span class="badge badge--dead" data-ar="الفحص مخلصش" data-en="Did not finish">الفحص مخلصش</span>
     {% endif %}
-    <span class="muted mono ai-notes__when">{{ check.created_at|date:"m-d H:i" }}{% if not check.requested_by %} · <span data-ar="تلقائي" data-en="automatic">تلقائي</span>{% endif %}</span>
+    <span class="muted mono ai-notes__when">{{ check.created_at|clock12:"m-d" }}{% if not check.requested_by %} · <span data-ar="تلقائي" data-en="automatic">تلقائي</span>{% endif %}</span>
     {% if check.status != 'running' %}
       <button class="btn btn--sm" type="button"
               data-action="{% url 'dashboard:api_ai_recheck' task.code %}">

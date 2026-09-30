@@ -15,7 +15,13 @@ def eagle(request):
 
     unread = 0
     last_id = 0
+    gate = None
     if user is not None and user.is_authenticated:
+        # The check-in screen: open on its own when a shift is on and nobody
+        # has checked in (templates/partials/attendance_gate.html).
+        from . import attendance
+
+        gate = attendance.gate_for(user)
         unread = Notification.objects.filter(user=user, is_read=False).count()
         last_id = (
             Notification.objects.filter(user=user).order_by("-id")
@@ -31,4 +37,5 @@ def eagle(request):
         "last_notification_id": last_id,
         "eagle_poll_ms": conf.poll_ms,
         "eagle_window": conf.response_window_seconds,
+        "attendance_gate": gate,
     }

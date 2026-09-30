@@ -68,8 +68,8 @@
               <td data-ar-label="اليوم" data-en-label="Date" class="mono">{{ day.date }}</td>
               <td data-ar-label="الحالة" data-en-label="Status">{% day_status_badge day.status %}</td>
               <td data-ar-label="النظام" data-en-label="Mode">{% work_mode_badge day.work_mode %}</td>
-              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
-              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+              <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|clock12|default:"—" }}</td>
+              <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|clock12|default:"—" }}</td>
               <td data-ar-label="بريك" data-en-label="Break" class="mono">{{ day.break_minutes }}د</td>
               <td data-ar-label="ساعات" data-en-label="Hours" class="mono">{{ day.work_minutes|minutes_hm }}</td>
               <td data-ar-label="تأخير" data-en-label="Late" class="mono {% if day.late_minutes %}deadline--late{% endif %}">{{ day.late_minutes }}</td>

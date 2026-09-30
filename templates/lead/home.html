@@ -47,7 +47,7 @@
             <td>{% status_badge task.status %}</td>
             <td>{{ task.translator.short_name|default:"—" }}</td>
             <td class="mono deadline--{{ task.deadline_state }}">
-              {% if task.deadline %}{{ task.deadline|date:"m-d H:i" }}{% else %}—{% endif %}
+              {% if task.deadline %}{{ task.deadline|clock12:"m-d" }}{% else %}—{% endif %}
             </td>
             <td>
               <a class="btn btn--sm {% if task.status == 'lead_accepted' or task.status == 'under_review' %}btn--primary{% endif %}"

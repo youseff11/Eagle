@@ -20,7 +20,7 @@
   {% with due=task|deadline_for:user %}
   <span class="row row--tight mono deadline--{{ task|deadline_state_for:user }}">
     {% icon "clock" "ic--sm" %}
-    {% if due %}{{ due|date:"Y-m-d H:i" }}
+    {% if due %}{{ due|clock12:"Y-m-d" }}
     {% else %}<span data-ar="من غير ديدلاين" data-en="No deadline">من غير ديدلاين</span>{% endif %}
   </span>
   {% endwith %}
@@ -38,7 +38,7 @@
   {% if not user.is_translator and task.translator_deadline %}
     <span class="chip chip--sm" data-ar-title="الديدلاين اللي المترجم شايفه"
           data-en-title="What the translator was given">
-      {% icon "pen" "ic--sm" %}<span class="mono">{{ task.translator_deadline|date:"m-d H:i" }}</span>
+      {% icon "pen" "ic--sm" %}<span class="mono">{{ task.translator_deadline|clock12:"m-d" }}</span>
     </span>
   {% endif %}
 </div>
@@ -132,7 +132,7 @@
                   <a class="file-pill" href="{{ attachment.file.url }}" target="_blank" rel="noopener"
                      title="{{ attachment.pretty_size }} · {{ attachment.message.created_at|date:'m-d H:i' }}">
                     {% icon "file" "ic--sm" %}{{ attachment.original_name|default:attachment.file.name }}
-                    <span class="muted mono">{{ attachment.message.created_at|date:"m-d H:i" }}</span></a>
+                    <span class="muted mono">{{ attachment.message.created_at|clock12:"m-d" }}</span></a>
                 {% endif %}
               {% endfor %}
             </div>
@@ -265,7 +265,7 @@
                       {% if message.relay_status == 'sent' %}{% icon "check" "ic--sm" %}
                       {% elif message.relay_status == 'failed' %}{% icon "alert" "ic--sm" %}{% endif %}
                     {% endif %}
-                    · {{ message.created_at|date:"H:i" }}
+                    · {{ message.created_at|clock12 }}
                   </div>
                   <div class="bubble__box">{{ message.body }}
                     {% if message.relay_files %}
@@ -368,7 +368,7 @@
             {% elif check.status == 'running' %}{% icon "timer" %}
             {% else %}{% icon "check-circle" %}{% endif %}
             <div>
-              <div class="note__where mono">{{ check.created_at|date:"m-d H:i" }} ·
+              <div class="note__where mono">{{ check.created_at|clock12:"m-d" }} ·
                 {{ check.get_status_display }} · {{ check.issue_count }}
                 {% if not check.requested_by %}
                   · <span data-ar="تلقائي" data-en="automatic">تلقائي</span>
@@ -442,7 +442,7 @@
             <div>
               <div class="note__where mono">
                 {{ task.handover_ack_by.short_name|default:"—" }} ·
-                {{ task.handover_ack_at|date:"m-d H:i" }}
+                {{ task.handover_ack_at|clock12:"m-d" }}
               </div>
               <div data-ar="التاسك مستلمة — تقدر تبعتها للعميل."
                    data-en="Taken over — you can send it to the client.">
@@ -588,7 +588,7 @@
             {% if task.deadline %}
               <small class="muted mono"
                      data-ar-title="ديدلاين العميل" data-en-title="The client's deadline">
-                {% icon "clock" "ic--sm" %}{{ task.deadline|date:"Y-m-d H:i" }}
+                {% icon "clock" "ic--sm" %}{{ task.deadline|clock12:"Y-m-d" }}
               </small>
             {% endif %}
           </div>
@@ -626,8 +626,8 @@
               <div>{{ extension_pending.pretty_length }}{% if extension_pending.reason %} — {{ extension_pending.reason }}{% endif %}</div>
               <div class="muted mono">
                 <span data-ar="ديدلاينه هيبقى" data-en="Their deadline becomes">ديدلاينه هيبقى</span>
-                {{ extension_new_due|date:"Y-m-d H:i" }}
-                {% if task.deadline %}· <span data-ar="العميل" data-en="Client">العميل</span> {{ task.deadline|date:"Y-m-d H:i" }}{% endif %}
+                {{ extension_new_due|clock12:"Y-m-d" }}
+                {% if task.deadline %}· <span data-ar="العميل" data-en="Client">العميل</span> {{ task.deadline|clock12:"Y-m-d" }}{% endif %}
               </div>
             </div>
           </div>
@@ -697,7 +697,7 @@
           <div class="note {% if extension_last.status == 'approved' %}note--ok{% else %}note--high{% endif %} mt">
             {% icon "timer" %}
             <div>
-              <div class="note__where mono">{{ extension_last.decided_at|date:"m-d H:i" }} · {{ extension_last.pretty_length }}</div>
+              <div class="note__where mono">{{ extension_last.decided_at|clock12:"m-d" }} · {{ extension_last.pretty_length }}</div>
               {% if extension_last.status == 'approved' %}
                 <div data-ar="التيم ليدر وافق على الوقت الإضافي." data-en="The team leader approved the extra time.">التيم ليدر وافق على الوقت الإضافي.</div>
               {% else %}
@@ -847,7 +847,7 @@
             {% else %}{% icon "info" %}{% endif %}
             <div>
               <div class="note__where mono">
-                {{ delivery.created_at|date:"m-d H:i" }} · {{ delivery.get_channel_display }} ·
+                {{ delivery.created_at|clock12:"m-d" }} · {{ delivery.get_channel_display }} ·
                 {{ delivery.file_count }} · {{ delivery.created_by.short_name|default:"—" }}
               </div>
               {% if delivery.error_message %}
@@ -869,7 +869,7 @@
           <div class="note">
             {% if message.channel == 'whatsapp' %}{% icon "phone" %}{% else %}{% icon "mail" %}{% endif %}
             <div>
-              <div class="note__where mono">{{ message.get_channel_display }} · {{ message.received_at|date:"m-d H:i" }}</div>
+              <div class="note__where mono">{{ message.get_channel_display }} · {{ message.received_at|clock12:"m-d" }}</div>
               {% with text=message.body|client_text %}{% if text %}<div>{{ text|truncatechars:220 }}</div>{% endif %}{% endwith %}
               {% if message.attachments.all %}
                 <div class="files">
@@ -895,7 +895,7 @@
             <div class="grow">
               <div>{{ assignment.assignee.short_name }}
                 <span class="chip">{{ assignment.get_target_role_display }}</span></div>
-              <small class="muted mono">{{ assignment.assigned_at|date:"m-d H:i" }}</small>
+              <small class="muted mono">{{ assignment.assigned_at|clock12:"m-d" }}</small>
             </div>
             {% if assignment.status == 'accepted' %}
               <span class="badge badge--ok" data-ar="استلم" data-en="Accepted">استلم</span>

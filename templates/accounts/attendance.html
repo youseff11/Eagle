@@ -78,8 +78,8 @@
                 <span class="badge">{{ day.get_status_display }}</span>
               {% endif %}
             </td>
-            <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|date:"H:i"|default:"—" }}</td>
-            <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|date:"H:i"|default:"—" }}</td>
+            <td data-ar-label="حضور" data-en-label="In" class="mono">{{ day.check_in|clock12|default:"—" }}</td>
+            <td data-ar-label="انصراف" data-en-label="Out" class="mono">{{ day.check_out|clock12|default:"—" }}</td>
             <td data-ar-label="تأخير" data-en-label="Late" class="mono">{{ day.late_minutes }}</td>
             <td data-ar-label="الكلمات" data-en-label="Words" class="mono {% if day.under_floor %}deadline--late{% endif %}">{{ day.words }}</td>
             <td data-ar-label="ملاحظة" data-en-label="Note" class="muted">{{ day.absence_reason }}{{ day.note }}</td>

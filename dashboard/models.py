@@ -9,6 +9,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
+from .clock import window12
+
 
 # ---------------------------------------------------------------------------
 # Choices
@@ -145,6 +147,9 @@ class PunchKind(models.TextChoices):
     CHECK_OUT = "check_out", "Check out"
     BREAK_START = "break_start", "Break start"
     BREAK_END = "break_end", "Break end"
+    #: Pressed after the shift ends by somebody staying on. Only time after
+    #: this punch is overtime - staying late without pressing it is not.
+    EXTRA_START = "extra_start", "Extra time start"
 
 
 class OffSitePolicy(models.TextChoices):
@@ -715,7 +720,7 @@ class ShiftTemplate(models.Model):
         ordering = ("sort_order", "start_time")
 
     def __str__(self):
-        return f"{self.label} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
+        return f"{self.label} ({window12(self.start_time, self.end_time)})"
 
     @property
     def label(self):
@@ -778,7 +783,7 @@ class Shift(models.Model):
 
     def __str__(self):
         start, end = self.start, self.end
-        window = f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+        window = window12(start, end)
         return f"{self.user} · {self.get_weekday_display()} {window}"
 
     # -- resolved hours ----------------------------------------------------
@@ -795,7 +800,7 @@ class Shift(models.Model):
         if self.template_id:
             return self.template.label
         start, end = self.start, self.end
-        return f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+        return window12(start, end)
 
     @property
     def minutes(self):
@@ -2496,12 +2501,20 @@ class PayrollSettings(models.Model):
         max_digits=9, decimal_places=2, default=Decimal("0.00"),
         help_text="0 derives the rate from the salary: day value / daily hours.",
     )
-    overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("1.00"))
+    #: One overtime hour pays an hour and a half.
+    overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("1.50"))
     overtime_needs_approval = models.BooleanField(default=True)
 
     #: Alerts (section 10). Minutes after the scheduled edge before the nudge.
     missing_checkin_after_minutes = models.PositiveSmallIntegerField(default=30)
-    missing_checkout_after_minutes = models.PositiveSmallIntegerField(default=60)
+    missing_checkout_after_minutes = models.PositiveSmallIntegerField(
+        default=60,
+        help_text="Minutes after the shift ends to check out. Past it with no check-out the day is not counted.",
+    )
+    #: How early the check-in screen appears on its own before a shift starts.
+    checkin_prompt_before_minutes = models.PositiveSmallIntegerField(
+        default=15, help_text="The check-in screen opens by itself this many minutes before the shift.",
+    )
     short_hours_alert_minutes = models.PositiveSmallIntegerField(
         default=60, help_text="Missing this much of the scheduled day raises an alert.",
     )
@@ -2706,6 +2719,13 @@ class WorkDay(models.Model):
     #: trusting the whole module.
     excused_minutes = models.PositiveSmallIntegerField(default=0)
 
+    #: When the person pressed "extra time". Overtime is counted from here to
+    #: the check-out and from nowhere else.
+    extra_started_at = models.DateTimeField(null=True, blank=True)
+    #: The day was checked in and never checked out in time, so it does not
+    #: count. Kept apart from the status so HR can see why it is an absence.
+    checkout_missed = models.BooleanField(default=False)
+
     off_site = models.BooleanField(
         default=False, help_text="An office day punched from outside the allowed radius."
     )
@@ -2757,7 +2777,14 @@ class WorkDay(models.Model):
     @property
     def is_open(self):
         """Checked in and not out yet - the shift is still running."""
-        return bool(self.check_in) and not self.check_out
+        return (
+            bool(self.check_in) and not self.check_out
+            and self.status == DayStatus.PRESENT
+        )
+
+    @property
+    def extra_running(self):
+        return bool(self.extra_started_at) and self.is_open
 
     @property
     def on_break(self):
@@ -3110,7 +3137,7 @@ class ScheduleOverride(models.Model):
         if self.template_id:
             return self.template.label
         start, end = self.start, self.end
-        return f"{start:%H:%M}-{end:%H:%M}" if start and end else "—"
+        return window12(start, end)
 
     @property
     def minutes(self):

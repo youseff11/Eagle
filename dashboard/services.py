@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from . import clock
 from .models import (
     ACTIVE_TASK_STATUSES,
     AICheckResult,
@@ -1786,9 +1787,9 @@ def set_translator_deadline(task, moment, by_user, tell_translator=True):
             title_ar="اتحدد ديدلاين جديد",
             title_en="Deadline updated",
             # The translator's own date, never the client's.
-            body_ar=(f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}"
+            body_ar=(f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}"
                      if due else "الديدلاين اتشال."),
-            body_en=(f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}"
+            body_en=(f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}"
                      if due else "Deadline cleared."),
             level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
         )
@@ -1803,7 +1804,7 @@ MAX_EXTENSION_MINUTES = 14 * 24 * 60
 
 
 def _moment_text(moment):
-    return f"{timezone.localtime(moment):%Y-%m-%d %H:%M}" if moment else "—"
+    return clock.fmt12(moment, "ar", "%Y-%m-%d") if moment else "—"
 
 
 def extension_new_due(task, minutes, now=None):
@@ -2063,8 +2064,8 @@ def accept_assignment(assignment, user):
                 user,
                 title_ar="الديدلاين بتاع التاسك",
                 title_en="Task deadline",
-                body_ar=f"ديدلاين {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}",
-                body_en=f"Deadline for {task.code}: {timezone.localtime(due):%Y-%m-%d %H:%M}",
+                body_ar=f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}",
+                body_en=f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}",
                 level="info", url=f"/tasks/{task.code}/", task=task,
             )
     log(user, "assignment.accept", task.code)

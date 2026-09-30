@@ -39,7 +39,7 @@
           <a class="file-pill mono deadline--{{ task.deadline_state }}"
              href="{% url 'dashboard:task_detail' task.code %}">
             {% icon "arrow-right" "ic--sm" %}{{ task.code }}
-            {% if task.deadline %} · {{ task.deadline|date:"m-d H:i" }}{% endif %}
+            {% if task.deadline %} · {{ task.deadline|clock12:"m-d" }}{% endif %}
           </a>
         {% endfor %}
       </div>
@@ -110,7 +110,7 @@
           </td>
 
           <td class="mono deadline--{% if row.tasks %}{{ row.tasks.0.deadline_state }}{% else %}none{% endif %}">
-            {% if row.next_deadline %}{{ row.next_deadline|date:"m-d H:i" }}{% else %}—{% endif %}
+            {% if row.next_deadline %}{{ row.next_deadline|clock12:"m-d" }}{% else %}—{% endif %}
           </td>
 
           <td>{% stars_html row.person.rating %}</td>
