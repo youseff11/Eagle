@@ -54,9 +54,9 @@
 
       <div class="note note--warn">
         {% icon "alert" %}
-        <div data-ar="لو مسجلتش انصراف قبل الميعاد ده، اليوم كله مش هيتحسب. ولو هتكمّل شغل، دوس «اكسترا تايم» والـHR هتراجع الوقت الزيادة."
-             data-en="No check-out before this time and the whole day does not count. Staying on? Press Extra time and HR will review the extra hours.">
-          لو مسجلتش انصراف قبل الميعاد ده، اليوم كله مش هيتحسب. ولو هتكمّل شغل، دوس «اكسترا تايم» والـHR هتراجع الوقت الزيادة.
+        <div data-ar="لو مسجلتش انصراف قبل الميعاد ده، اليوم كله مش هيتحسب. ولو هتكمّل شغل، دوس «اكسترا تايم»: الساعة بتتحسب بساعة ونص والتيم ليدر والأدمن بيتبلّغوا، ولازم تسجّل انصراف لما تخلص."
+             data-en="No check-out before this time and the whole day does not count. Staying on? Press Extra time: it is paid at time and a half, your team leader and the admins are told, and you must check out when you finish.">
+          لو مسجلتش انصراف قبل الميعاد ده، اليوم كله مش هيتحسب. ولو هتكمّل شغل، دوس «اكسترا تايم»: الساعة بتتحسب بساعة ونص والتيم ليدر والأدمن بيتبلّغوا، ولازم تسجّل انصراف لما تخلص.
         </div>
       </div>
 
@@ -69,6 +69,35 @@
         </button>
         <button class="btn btn--ghost" type="button" data-gate-later>
           <span data-ar="بعدين" data-en="Later">بعدين</span>
+        </button>
+      </div>
+    </div>
+
+    <div data-gate="extra" hidden>
+      <div class="ask__icon">{% icon "timer" %}</div>
+      <div class="modal__title" data-ar="الاكسترا تايم شغال" data-en="Extra time is running">الاكسترا تايم شغال</div>
+      <div class="punch__now mono" data-gate-clock>--:--</div>
+
+      <div class="card card--flat gate__facts">
+        <div class="kv"><span data-ar="الشيفت خلص" data-en="Shift ended">الشيفت خلص</span><b class="mono" data-gate-field="end">—</b></div>
+        <div class="kv"><span data-ar="الاكسترا بدأ" data-en="Extra time since">الاكسترا بدأ</span><b class="mono" data-gate-field="extra_since">—</b></div>
+        <div class="kv"><span data-ar="سجّل انصراف قبل" data-en="Check out before">سجّل انصراف قبل</span><b class="mono" data-gate-field="deadline">—</b></div>
+      </div>
+
+      <div class="note note--warn">
+        {% icon "alert" %}
+        <div data-ar="لما تخلّص اكسترا تايم لازم تسجّل انصراف. لو مسجلتش قبل الميعاد ده، اليوم كله مش هيتحسب."
+             data-en="When you finish your extra time you must check out. No check-out before this time and the whole day does not count.">
+          لما تخلّص اكسترا تايم لازم تسجّل انصراف. لو مسجلتش قبل الميعاد ده، اليوم كله مش هيتحسب.
+        </div>
+      </div>
+
+      <div class="modal__actions row">
+        <button class="btn btn--danger" type="button" data-gate-punch="check_out">
+          {% icon "stop" "ic--sm" %}<span data-ar="خلّصت — تسجيل انصراف" data-en="Done - check out">خلّصت — تسجيل انصراف</span>
+        </button>
+        <button class="btn btn--ghost" type="button" data-gate-later>
+          <span data-ar="لسه شغال" data-en="Still working">لسه شغال</span>
         </button>
       </div>
     </div>

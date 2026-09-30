@@ -72,6 +72,10 @@ from .models import (
 EARLY_WINDOW_MINUTES = 6 * 60
 LATE_WINDOW_MINUTES = 8 * 60
 
+#: How long extra time runs before the person is reminded, in their
+#: notifications, that it only ends with a check-out.
+EXTRA_REMINDER_MINUTES = 60
+
 
 class PunchRefused(Exception):
     """A punch the policy will not record. Carries a bilingual reason."""
@@ -536,6 +540,8 @@ def _punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=Non
     # person - told in so many words that it went to HR.
     if kind == PunchKind.CHECK_IN and row.late_minutes:
         _late_alert(user, row)
+    if kind == PunchKind.EXTRA_START:
+        _extra_started_alert(user, row)
     if kind == PunchKind.CHECK_OUT and row.overtime_minutes:
         _claim_extra(row, conf)
     return row, event
@@ -860,6 +866,10 @@ def sweep_alerts(now=None):
             if row.is_open and row.scheduled_end and not row.extra_started_at \
                     and now >= row.scheduled_end:
                 raised += _checkout_reminder(user, row, conf)
+            elif row.extra_running and now >= row.extra_started_at + timedelta(
+                minutes=EXTRA_REMINDER_MINUTES
+            ):
+                raised += _extra_reminder(user, row, conf)
 
             # 4. A punch that failed its location check.
             if row.off_site:
@@ -1043,6 +1053,100 @@ def _checkout_reminder(user, row, conf):
     )
 
 
+def _extra_watchers(user):
+    """Who is told when somebody goes into extra time: their team leader and
+    every admin. The person themselves is never in the list.
+    """
+    people = {}
+    lead = user.team_lead
+    if lead is not None and lead.is_active:
+        people[lead.pk] = lead
+    for admin in User.objects.filter(is_active=True).filter(
+        Q(role=Role.ADMIN) | Q(is_superuser=True)
+    ):
+        people[admin.pk] = admin
+    people.pop(user.pk, None)
+    return list(people.values())
+
+
+def _watch_url(person, row):
+    """Where the notification lands: the day for HR and admins, the team page
+    for a leader, who has no right to the HR board.
+    """
+    return f"/hr/attendance/{row.pk}/" if person.can_manage_attendance else "/lead/translators/"
+
+
+def _extra_started_alert(user, row):
+    """Extra time began: the team leader and the admins hear about it now."""
+    began_ar, began_en = clock.both(row.extra_started_at)
+    end_ar, end_en = clock.both(row.scheduled_end)
+    for person in _extra_watchers(user):
+        services.notify(
+            person,
+            title_ar=f"اكسترا تايم بدأ — {user.short_name}",
+            title_en=f"Extra time started — {user.short_name}",
+            body_ar=(
+                f"{user.short_name} بدأ اكسترا تايم {began_ar} والشيفت خلص {end_ar}. "
+                "الساعة بتتحسب بساعة ونص، ولازم يسجّل انصراف لما يخلص."
+            ),
+            body_en=(
+                f"{user.short_name} started extra time at {began_en}; the shift ended at "
+                f"{end_en}. Paid at time and a half; they must check out when they finish."
+            ),
+            level="info", url=_watch_url(person, row),
+        )
+
+
+def _extra_finished_alert(row):
+    """The day closed after extra time: the team leader is told how long.
+
+    HR and the admins already get the claim itself from ``_claim_extra``; a
+    leader who is neither is the one person left out of that.
+    """
+    lead = row.user.team_lead
+    if lead is None or not lead.is_active or lead.can_manage_attendance:
+        return
+    out_ar, out_en = clock.both(row.check_out)
+    services.notify(
+        lead,
+        title_ar=f"اكسترا تايم خلص — {row.user.short_name}",
+        title_en=f"Extra time finished — {row.user.short_name}",
+        body_ar=(
+            f"{row.user.short_name} سجّل انصراف {out_ar} بعد "
+            f"{row.overtime_minutes} دقيقة اكسترا تايم."
+        ),
+        body_en=(
+            f"{row.user.short_name} checked out at {out_en} after "
+            f"{row.overtime_minutes} minutes of extra time."
+        ),
+        level="info", url=_watch_url(lead, row),
+    )
+
+
+def _extra_reminder(user, row, conf):
+    """Extra time has run a while with no check-out: tell the person, once.
+
+    The screen only reaches somebody with the site open; this one waits in
+    their notifications for whoever closed the tab and walked out.
+    """
+    since_ar, since_en = clock.both(row.extra_started_at)
+    end_ar, end_en = clock.both(checkout_deadline(row, conf))
+    return _alert_once(
+        user, row.date, "attendance.extra_reminder",
+        title_ar="الاكسترا تايم شغال — سجّل انصراف لما تخلص",
+        title_en="Extra time is running - check out when you finish",
+        body_ar=(
+            f"بدأت اكسترا تايم {since_ar}. لما تخلص سجّل انصراف قبل {end_ar}، "
+            "ولو مسجلتش اليوم كله مش هيتحسب."
+        ),
+        body_en=(
+            f"Your extra time began at {since_en}. Check out before {end_en} when you "
+            "finish, or the whole day does not count."
+        ),
+        level="warning",
+    )
+
+
 def _claim_extra(row, conf):
     """Price the extra time as a claim HR has to approve, and tell HR.
 
@@ -1068,6 +1172,7 @@ def _claim_extra(row, conf):
         body_en=f"{row.overtime_minutes} minutes of extra time on {row.date} wait for review.",
         level="info", hr_too=True, to_user=False,
     )
+    _extra_finished_alert(row)
     return claim
 
 
@@ -1135,6 +1240,21 @@ def gate_for(user, now=None, conf=None):
             "shift": row.schedule_label,
             "end": dict(zip(("ar", "en"), clock.both(row.scheduled_end))),
             "deadline": dict(zip(("ar", "en"), clock.both(deadline))),
+            "needs_location": row.is_office_day and conf.checkout_needs_location,
+        }
+
+    # Extra time is running: the person said they were staying, so the only
+    # way the day ends well is a check-out. The screen can be put off while
+    # they work - the browser brings it back - but the day is not counted
+    # without that check-out.
+    if row is not None and row.extra_running and row.scheduled_end:
+        return {
+            "kind": "extra",
+            "date": day.isoformat(),
+            "shift": row.schedule_label,
+            "end": dict(zip(("ar", "en"), clock.both(row.scheduled_end))),
+            "extra_since": dict(zip(("ar", "en"), clock.both(row.extra_started_at))),
+            "deadline": dict(zip(("ar", "en"), clock.both(checkout_deadline(row, conf)))),
             "needs_location": row.is_office_day and conf.checkout_needs_location,
         }
     return None

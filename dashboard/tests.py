@@ -1284,6 +1284,117 @@ class AttendanceRulesTests(TestCase):
         self.assertEqual(claim.amount, Decimal("75.00"))
         self.assertTrue(self.notes(self.hr, "attendance.extra").exists())
 
+    def _with_lead(self):
+        lead = User.objects.create_user("tl_extra", password="x", role=Role.TEAM_LEAD)
+        self.person.team_lead = lead
+        self.person.save(update_fields=["team_lead"])
+        return lead
+
+    def test_starting_extra_time_tells_the_team_leader_and_the_admin(self):
+        from . import attendance
+        from .models import Notification, PunchKind
+
+        lead = self._with_lead()
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        row, _ = attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 5))
+
+        def told(user):
+            return Notification.objects.filter(user=user, title_en__startswith="Extra time started")
+
+        mine = told(lead).get()
+        self.assertIn("5:05 م", mine.body_ar)
+        self.assertIn("ساعة ونص", mine.body_ar)
+        self.assertEqual(mine.url, "/lead/translators/")      # a leader has no HR board
+        self.assertEqual(told(self.admin).get().url, f"/hr/attendance/{row.pk}/")
+        self.assertFalse(told(self.person).exists())          # never the person themselves
+        self.assertFalse(told(self.hr).exists())              # the spec names the leader and the admins
+
+    def test_an_admin_on_extra_time_is_not_told_about_themselves(self):
+        from datetime import date
+
+        from . import attendance
+        from .models import Notification, PunchKind, Shift
+
+        for weekday in range(7):
+            Shift.objects.create(user=self.admin, weekday=weekday, template=self.morning)
+        attendance.punch(self.admin, PunchKind.CHECK_IN, at=self.at(9, 0))
+        attendance.punch(self.admin, PunchKind.EXTRA_START, at=self.at(17, 5))
+        self.assertFalse(
+            Notification.objects.filter(
+                user=self.admin, title_en__startswith="Extra time started"
+            ).exists()
+        )
+
+    def test_finishing_extra_time_tells_the_team_leader_how_long(self):
+        from . import attendance
+        from .models import Notification, PunchKind
+
+        lead = self._with_lead()
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 5))
+        attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(19, 5))
+
+        done = Notification.objects.filter(
+            user=lead, title_en__startswith="Extra time finished"
+        ).get()
+        self.assertIn("120", done.body_ar)
+        self.assertIn("7:05 م", done.body_ar)
+
+    def test_the_extra_time_screen_stays_until_the_person_checks_out(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        self.assertEqual(attendance.gate_for(self.person, now=self.at(17, 10))["kind"], "check_out")
+
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 12))
+        gate = attendance.gate_for(self.person, now=self.at(18, 30))
+        self.assertEqual(gate["kind"], "extra")
+        self.assertEqual(gate["extra_since"]["ar"], "5:12 م")
+        self.assertEqual(gate["end"]["ar"], "5:00 م")
+        self.assertIn("deadline", gate)
+
+        attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(19, 0))
+        self.assertIsNone(attendance.gate_for(self.person, now=self.at(19, 1)))
+
+    def test_forgetting_to_check_out_after_extra_time_still_loses_the_day(self):
+        from . import attendance
+        from .models import DayStatus, PunchKind, WorkDay
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 5))
+        # The extra-time window is the punch window (8 hours past the shift).
+        attendance.expire_open_days(now=self.at(2, 0, day=22))
+        self.assertEqual(WorkDay.objects.get(user=self.person).status, DayStatus.UNEXCUSED)
+
+    def test_the_sweep_reminds_somebody_whose_extra_time_has_run_an_hour(self):
+        from . import attendance
+        from .models import PunchKind
+
+        self.roster()
+        attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
+        attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 5))
+
+        attendance.sweep_alerts(now=self.at(17, 50))                # 45 minutes in
+        self.assertFalse(self.notes(self.person, "attendance.extra_reminder").exists())
+
+        attendance.sweep_alerts(now=self.at(18, 10))                # past the hour
+        attendance.sweep_alerts(now=self.at(18, 40))                # and once only
+        reminder = self.notes(self.person, "attendance.extra_reminder").get()
+        self.assertIn("5:05 م", reminder.body_ar)
+        self.assertIn("انصراف", reminder.body_ar)
+
+    def test_every_page_carries_the_extra_time_screen(self):
+        self.roster(weekday=timezone.localdate().weekday())
+        self.client.force_login(self.person)
+        html = self.client.get("/attendance/").content.decode()
+        self.assertIn('data-gate="extra"', html)
+        self.assertIn('data-gate-punch="check_out"', html)
+
     def test_a_late_start_is_not_filled_by_extra_time(self):
         from . import attendance
         from .models import PunchKind
@@ -1324,7 +1435,9 @@ class AttendanceRulesTests(TestCase):
         self.assertEqual(gate["deadline"]["ar"], "6:00 م")
 
         attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 12))
-        self.assertIsNone(attendance.gate_for(self.person, now=self.at(17, 13)))
+        # The "shift is over" reminder is done with; what replaces it is the
+        # extra-time screen, which only ends with a check-out.
+        self.assertEqual(attendance.gate_for(self.person, now=self.at(17, 13))["kind"], "extra")
 
     def test_nobody_without_a_roster_is_asked(self):
         from . import attendance
@@ -1500,6 +1613,18 @@ class AttendanceRulesTests(TestCase):
         self.client.post(f"/hr/shifts/{self.noon.pk}/delete/")
         self.assertTrue(ShiftTemplate.objects.filter(pk=self.noon.pk).exists())
         self.assertEqual(list(vacancy.shifts.all()), [self.noon])
+
+    def test_each_time_on_the_shifts_page_is_its_own_left_to_right_unit(self):
+        """5:00 م - 1:00 ص was drawn 5:00 ص 1:00 - م inside a .mono cell.
+
+        The Arabic suffix joined the next number's run; isolating every time
+        keeps each AM/PM beside its own hour.
+        """
+        self.client.force_login(self.admin)
+        html = self.client.get("/hr/shifts/").content.decode()
+        self.assertIn('<bdi dir="ltr">5:00 <span data-ar="م" data-en="PM">م</span></bdi>', html)
+        self.assertIn('<bdi dir="ltr">1:00 <span data-ar="ص" data-en="AM">ص</span></bdi>', html)
+        self.assertIn('<bdi dir="ltr">9:00 <span data-ar="ص" data-en="AM">ص</span></bdi>', html)
 
     def test_a_shift_with_equal_start_and_end_is_refused(self):
         from .models import ShiftTemplate

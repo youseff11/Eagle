@@ -172,8 +172,8 @@
       return {
         ok: true, level: "success",
         text: lang() === "en"
-          ? "Extra time started at " + at + ". Remember to check out when you finish."
-          : "الاكسترا تايم بدأ " + at + ". متنساش تسجل انصراف لما تخلص."
+          ? "Extra time started at " + at + ". Your team leader and the admins were told. Check out when you finish."
+          : "الاكسترا تايم بدأ " + at + ". التيم ليدر والأدمن اتبلّغوا. سجّل انصراف لما تخلص."
       };
     }
     return { ok: true, level: "success", text: t(TEXT.done) + " " + at };
@@ -194,7 +194,27 @@
     try {
       var raw = window.sessionStorage.getItem("eagle.gate.dismissed");
       if (raw) { dismissed[raw] = true; }
+      var extra = (window.sessionStorage.getItem("eagle.gate.extra") || "").split("|");
+      if (extra.length === 2) { extraSnooze = { date: extra[0], at: Number(extra[1]) || 0 }; }
     } catch (err) { /* nothing kept */ }
+  }
+
+  /* The extra-time reminder is not put off for good, like the one after the
+     shift: somebody who is still working sees it again every hour, because
+     the one way the day is lost is walking away without checking out. */
+  var EXTRA_NUDGE_MS = 60 * 60 * 1000;
+  var extraSnooze = { date: "", at: 0 };
+
+  function extraSnoozed(date) {
+    return extraSnooze.date === date && (Date.now() - extraSnooze.at) < EXTRA_NUDGE_MS;
+  }
+
+  function snoozeExtra(date) {
+    if (!date) { return; }
+    extraSnooze = { date: date, at: Date.now() };
+    try {
+      window.sessionStorage.setItem("eagle.gate.extra", date + "|" + extraSnooze.at);
+    } catch (err) { /* kept in memory only */ }
   }
 
   function gateSay(pair, tone) {
@@ -223,6 +243,7 @@
     fill("end", pick(gateData.end));
     fill("grace_until", pick(gateData.grace_until));
     fill("deadline", pick(gateData.deadline));
+    fill("extra_since", pick(gateData.extra_since));
     fill("grace", String(gateData.grace || 0));
     fill("checkout_after", String(gateData.checkout_after || 0));
     fill("late_now", String(gateData.late_now || 0));
@@ -256,6 +277,7 @@
     if (!data) { gateData = null; closeGate(); return; }
     // The reminder after the shift can be put off; the check-in cannot.
     if (data.kind === "check_out" && dismissed[dismissKey(data)]) { return; }
+    if (data.kind === "extra" && extraSnoozed(data.date)) { return; }
     openGate(data);
   }
 
@@ -271,6 +293,8 @@
         return;
       }
       toast(result.text, result.level);
+      // Pressing Extra time must not bring the extra-time screen straight back.
+      if (action === "extra_start") { snoozeExtra(gateData.date); }
       gateData = null;
       closeGate();
       if (onAttendancePage()) { window.location.reload(); }
@@ -291,6 +315,9 @@
         var key = dismissKey(gateData);
         dismissed[key] = true;
         try { window.sessionStorage.setItem("eagle.gate.dismissed", key); } catch (err) { /* ok */ }
+        closeGate();
+      } else if (event.target.closest("[data-gate-later]") && gateData && gateData.kind === "extra") {
+        snoozeExtra(gateData.date);
         closeGate();
       }
     });
@@ -383,6 +410,7 @@
       render(data.day);
       say(result.text, result.level === "warning" ? "warn" : "ok");
       toast(result.text, result.level);
+      if (action === "extra_start" && data.day) { snoozeExtra(data.day.date); }
       if (window.EagleAttendance) { gate(null); }
     }).catch(function () {
       say(TEXT.failed, "warn");
