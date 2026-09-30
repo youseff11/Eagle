@@ -1430,6 +1430,95 @@ class AttendanceRulesTests(TestCase):
         self.assertIn('value="new"', html)
         self.assertIn('name="new_start"', html)
 
+    # -- the shifts page -----------------------------------------------------
+    def test_the_shifts_page_lists_the_shifts_and_is_in_the_people_section(self):
+        from .nav import groups_for
+
+        self.client.force_login(self.admin)
+        html = self.client.get("/hr/shifts/").content.decode()
+        for template in (self.morning, self.noon):
+            self.assertIn(template.label, html)
+        people = next(g for g in groups_for(self.admin) if g["key"] == "people")
+        self.assertIn("hr_shifts", [item.url for item in people["items"]])
+
+    def test_a_shift_is_added_edited_and_deleted_from_the_shifts_page(self):
+        from datetime import time
+
+        from .models import ShiftTemplate
+
+        self.client.force_login(self.hr)
+        self.client.post("/hr/shifts/", {
+            "name_ar": "شيفت الويك إند", "start_time": "10:00", "end_time": "18:00",
+            "break_minutes": "0", "sort_order": "9", "is_active": "on",
+        })
+        made = ShiftTemplate.objects.get(name_ar="شيفت الويك إند")
+        self.assertEqual(made.name, "شيفت الويك إند")          # English name left blank
+
+        self.client.post(f"/hr/shifts/?edit={made.pk}", {
+            "name_ar": "شيفت الويك إند", "name": "Weekend", "start_time": "11:00",
+            "end_time": "19:00", "break_minutes": "30", "sort_order": "9", "is_active": "on",
+        })
+        made.refresh_from_db()
+        self.assertEqual((made.start_time, made.end_time), (time(11, 0), time(19, 0)))
+        self.assertEqual((made.name, made.break_minutes), ("Weekend", 30))
+
+        self.client.post(f"/hr/shifts/{made.pk}/delete/")
+        self.assertFalse(ShiftTemplate.objects.filter(pk=made.pk).exists())
+
+    def test_a_shift_with_no_english_name_and_no_arabic_name_is_named_by_its_hours(self):
+        from .models import ShiftTemplate
+
+        self.client.force_login(self.hr)
+        self.client.post("/hr/shifts/", {
+            "start_time": "17:00", "end_time": "01:00", "break_minutes": "0",
+            "sort_order": "9", "is_active": "on",
+        })
+        made = ShiftTemplate.objects.exclude(name__startswith="Shift").get()
+        self.assertEqual(made.name, "5:00 م - 1:00 ص")
+
+    def test_a_shift_people_are_on_cannot_be_deleted_but_can_be_closed(self):
+        from .models import ShiftTemplate
+
+        self.roster()                                   # mona on shift 1
+        self.client.force_login(self.hr)
+        self.client.post(f"/hr/shifts/{self.morning.pk}/delete/")
+        self.assertTrue(ShiftTemplate.objects.filter(pk=self.morning.pk).exists())
+
+        self.client.post(f"/hr/shifts/?edit={self.morning.pk}", {
+            "name": "Shift 1", "name_ar": "الشيفت 1", "start_time": "09:00",
+            "end_time": "17:00", "break_minutes": "0", "sort_order": "1",
+        })                                              # is_active left off = closed
+        self.morning.refresh_from_db()
+        self.assertFalse(self.morning.is_active)
+
+    def test_a_shift_a_vacancy_offers_cannot_be_deleted(self):
+        from .models import ShiftTemplate, Vacancy, VacancyStatus
+
+        vacancy = Vacancy.objects.create(title="Translator", status=VacancyStatus.OPEN)
+        vacancy.shifts.add(self.noon)
+        self.client.force_login(self.hr)
+        self.client.post(f"/hr/shifts/{self.noon.pk}/delete/")
+        self.assertTrue(ShiftTemplate.objects.filter(pk=self.noon.pk).exists())
+        self.assertEqual(list(vacancy.shifts.all()), [self.noon])
+
+    def test_a_shift_with_equal_start_and_end_is_refused(self):
+        from .models import ShiftTemplate
+
+        self.client.force_login(self.hr)
+        before = ShiftTemplate.objects.count()
+        self.client.post("/hr/shifts/", {
+            "name_ar": "غلط", "start_time": "09:00", "end_time": "09:00",
+            "break_minutes": "0", "sort_order": "9", "is_active": "on",
+        })
+        self.assertEqual(ShiftTemplate.objects.count(), before)
+
+    def test_only_attendance_managers_reach_the_shifts_page(self):
+        self.client.force_login(self.person)
+        self.assertEqual(self.client.get("/hr/shifts/").status_code, 403)
+        self.assertEqual(
+            self.client.post(f"/hr/shifts/{self.noon.pk}/delete/").status_code, 403
+        )
+
     def test_the_three_company_shifts_are_the_contracts_hours(self):
         from datetime import time
 
@@ -8531,7 +8620,16 @@ class ExtensionRequestTests(TestCase):
     def test_the_translator_page_offers_the_request(self):
         self.client.force_login(self.tr)
         html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
-        self.assertIn("محتاج وقت إضافي؟", html)
+        # The button next to the deadline (28/09) and the form it opens.
+        self.assertIn("data-open-more-time", html)
+        self.assertIn("اطلب وقت أطول", html)
+        self.assertIn(f"/api/tasks/{self.task.code}/extension/", html)
+
+    def test_the_leader_is_not_offered_the_translators_request_form(self):
+        self.client.force_login(self.lead)
+        html = self.client.get(f"/tasks/{self.task.code}/").content.decode()
+        self.assertNotIn("data-open-more-time", html)
+        self.assertNotIn('id="extensionForm"', html)
 
 
 class SalesLineTests(TestCase):

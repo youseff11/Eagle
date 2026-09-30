@@ -6,6 +6,7 @@ from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
+from . import clock
 from .models import (
     IDENTITY_GRANTABLE_ROLES,
     MAIL_ALIAS_ROLES,
@@ -688,6 +689,23 @@ class ShiftTemplateForm(forms.ModelForm):
             "break_minutes": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
             "sort_order": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "min": 0}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["name"].required = False
+
+    def clean(self):
+        data = super().clean()
+        start, end = data.get("start_time"), data.get("end_time")
+        if start and end and start == end:
+            raise forms.ValidationError("بداية الشيفت ونهايته نفس الوقت.")
+        if start and end and not (data.get("name") or "").strip():
+            # Nobody has to name a shift: the Arabic name, or failing that the
+            # hours themselves, say which one it is.
+            data["name"] = (
+                (data.get("name_ar") or "").strip() or clock.window12(start, end)
+            )[:60]
+        return data
 
 
 class NewShiftForm(forms.Form):

@@ -85,6 +85,12 @@ urlpatterns = [
         name="hr_override_delete",
     ),
     path("hr/schedules/template/", views.hr_template_add, name="hr_template_add"),
+    path("hr/shifts/", views.hr_shifts, name="hr_shifts"),
+    path(
+        "hr/shifts/<int:pk>/delete/",
+        views.hr_shift_template_delete,
+        name="hr_shift_template_delete",
+    ),
     path("hr/offices/", views.hr_offices, name="hr_offices"),
     path("hr/offices/<int:pk>/delete/", views.hr_office_delete, name="hr_office_delete"),
     path("hr/devices/", views.hr_devices, name="hr_devices"),

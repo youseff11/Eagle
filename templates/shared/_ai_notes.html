@@ -79,9 +79,12 @@ a one-line summary at the bottom of a card only some people could see
                 </div>
               </div>
             {% endif %}
+            {% comment %}A check saved in the old format has no issue_en. As a filter argument a missing key raises; read through a with block it is simply empty.{% endcomment %}
+            {% with issue_ar=issue.issue_ar issue_en=issue.issue_en %}
             <div class="ai-issue__text"
-                 data-ar="{{ issue.issue_ar|default:issue.issue_en }}"
-                 data-en="{{ issue.issue_en|default:issue.issue_ar }}">{{ issue.issue_ar|default:issue.issue_en }}</div>
+                 data-ar="{{ issue_ar|default:issue_en }}"
+                 data-en="{{ issue_en|default:issue_ar }}">{{ issue_ar|default:issue_en }}</div>
+            {% endwith %}
             {% if issue.correct_meaning_ar %}
               <div class="ai-issue__meaning"><strong data-ar="المعنى في الأصل:" data-en="The source means:">المعنى في الأصل:</strong>
                 <span dir="auto">{{ issue.correct_meaning_ar }}</span></div>

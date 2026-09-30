@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from . import attendance, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
+from . import attendance, clock, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
 from .forms import (
     AICheckForm,
     AttendanceEditForm,
@@ -2144,6 +2144,68 @@ def hr_override_delete(request, pk):
     row.delete()
     services.log(request.user, "schedule.override.delete", str(pk))
     return redirect(f"{reverse('dashboard:hr_schedules')}?user={person_id}")
+
+
+def _shift_usage(templates):
+    """Attach who leans on each company shift, so the page can say why one
+    cannot be deleted instead of letting the database refuse it.
+    """
+    people = dict(
+        Shift.objects.filter(template__isnull=False).order_by()
+        .values_list("template").annotate(n=Count("user", distinct=True))
+    )
+    overrides = dict(
+        ScheduleOverride.objects.filter(template__isnull=False).order_by()
+        .values_list("template").annotate(n=Count("id"))
+    )
+    vacancies = dict(
+        Vacancy.shifts.through.objects.values_list("shifttemplate_id")
+        .annotate(n=Count("vacancy_id"))
+    )
+    rows = list(templates)
+    for row in rows:
+        row.people_n = people.get(row.pk, 0)
+        row.overrides_n = overrides.get(row.pk, 0)
+        row.vacancies_n = vacancies.get(row.pk, 0)
+        row.in_use = bool(row.people_n or row.overrides_n or row.vacancies_n)
+        row.hours_txt = f"{row.minutes / 60:g}"
+    return rows
+
+
+@hr_required
+def hr_shifts(request):
+    """The company's shifts: add one, change its hours, close it, delete it."""
+    raw = request.GET.get("edit") or ""
+    editing = ShiftTemplate.objects.filter(pk=raw).first() if raw.isdigit() else None
+    form = ShiftTemplateForm(request.POST or None, instance=editing)
+    if request.method == "POST" and form.is_valid():
+        row = form.save()
+        services.log(
+            request.user, "schedule.template.save", row.name,
+            clock.window12(row.start_time, row.end_time),
+        )
+        flash.success(request, "اتحفظ")
+        return redirect("dashboard:hr_shifts")
+
+    return render(request, "hr/shifts.html", {
+        "form": form,
+        "editing": editing,
+        "rows": _shift_usage(ShiftTemplate.objects.all()),
+    })
+
+
+@hr_required
+@require_POST
+def hr_shift_template_delete(request, pk):
+    row = get_object_or_404(ShiftTemplate, pk=pk)
+    if _shift_usage([row])[0].in_use:
+        flash.error(request, "الشيفت ده عليه موظفين أو جداول أو وظايف — اقفله من التعديل بدل ما تمسحه.")
+    else:
+        name = row.name
+        row.delete()
+        services.log(request.user, "schedule.template.delete", name)
+        flash.success(request, "اتمسح")
+    return redirect("dashboard:hr_shifts")
 
 
 @hr_required

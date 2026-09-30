@@ -132,6 +132,8 @@ def groups_for(user):
     out.append(_group("people", "الموظفين", "People", [
         Item("hr_employees", "ملفات الموظفين", "Employee files", "users",
              also=("hr_employee",)) if user.can_recruit else None,
+        Item("hr_shifts", "الشيفتات", "Shifts", "clock",
+             also=("hr_shift_template_delete",)) if user.can_manage_attendance else None,
         Item("hr_probation", "فترة الاختبار", "Probation",
              "eye") if user.can_recruit else None,
         Item("hr_performance", "الأداء", "Performance",
@@ -269,6 +271,7 @@ KEYWORDS = {
     "hr_approvals": "موافقات التعيين موافقة approvals",
     "hr_recruitment_settings": "اعدادات التوظيف البوت رقم التوظيف recruitment settings",
     "hr_employees": "موظفين ملفات الموظفين employees staff files",
+    "hr_shifts": "شيفتات شيفت مواعيد الشغل اضافة تعديل حذف shifts hours",
     "hr_probation": "فترة الاختبار تثبيت probation",
     "hr_performance": "اداء تقييم الاداء performance review",
     "hr_complaints": "شكاوى شكوى عملاء complaints",
