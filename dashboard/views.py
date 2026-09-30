@@ -1476,7 +1476,64 @@ def admin_shift_delete(request, pk, shift_id):
 
 @admin_only
 def admin_clients(request):
-    return render(request, "adminx/clients.html", {"clients": Client.objects.all()[:300]})
+    """Every client with the real details, and the tools to clear the junk out.
+
+    ``?show=robots`` lists only the clients that are a ``no-reply`` address
+    (see ``mailbox.is_automated_sender``); ``?q=`` searches. Ticking clients
+    and pressing delete goes through ``admin_clients_delete``.
+    """
+    query = (request.GET.get("q") or "").strip()
+    show = "robots" if request.GET.get("show") == "robots" else ""
+    rows = services.automated_clients() if show else Client.objects.all()
+    if query:
+        rows = rows.filter(identity.client_search(request.user, query))
+    return render(request, "adminx/clients.html", {
+        "clients": rows[:300],
+        "shown": rows.count(),
+        "query": query,
+        "show": show,
+        "all_count": Client.objects.count(),
+        "robots_count": services.automated_clients().count(),
+    })
+
+
+@admin_only
+@require_POST
+def admin_clients_delete(request):
+    """Delete the ticked clients, in two steps: what would go, then the yes.
+
+    The first POST draws every client's letters, files and replies that would
+    go with them, and the ones that cannot go at all because a task stands on
+    them. Only the second POST, carrying the tick, deletes anything.
+    """
+    target = request.POST.get("next") or ""
+    if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        target = reverse("dashboard:admin_clients")
+
+    ids = [i for i in request.POST.getlist("clients") if i.isdigit()]
+    chosen = Client.objects.filter(pk__in=ids)
+    if not chosen.exists():
+        flash.error(request, "اختار عميل واحد على الأقل.")
+        return redirect(target)
+
+    if request.POST.get("confirm") != "1":
+        plan = services.client_delete_plan(chosen)
+        return render(request, "adminx/clients_delete.html", {
+            "plan": plan,
+            "deletable": [row for row in plan if not row["blocked"]],
+            "blocked": [row for row in plan if row["blocked"]],
+            "next": target,
+        })
+
+    ok, error, deleted, blocked, removed = services.delete_clients(request.user, ids)
+    if not ok:
+        flash.error(request, error)
+    else:
+        message = f"اتمسح {len(deleted)} عميل و{removed} ملف متخزّن."
+        if blocked:
+            message += f" ومااتمسحش {len(blocked)} لأن عليهم تاسكات."
+        flash.success(request, message)
+    return redirect(target)
 
 
 @admin_only

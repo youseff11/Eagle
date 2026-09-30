@@ -1731,6 +1731,35 @@ window.Eagle = (function () {
     });
   }
 
+  /* The clients list: a tick per row, one tick for the lot, and a delete
+     button that stays shut until something is ticked. Nothing is deleted
+     here - the button only opens the confirm page. */
+  function initBulkSelect() {
+    var form = $("#clientBulk");
+    if (!form) { return; }
+    var all = $("[data-select-all]", form);
+    var rows = $$("[data-select-row]", form);
+    var count = $("[data-selected-count]", form);
+    var button = $("[data-bulk-delete]", form);
+    function paint() {
+      var ticked = rows.filter(function (row) { return row.checked; }).length;
+      if (count) { count.textContent = String(ticked); }
+      if (button) { button.disabled = ticked === 0; }
+      if (all) {
+        all.checked = rows.length > 0 && ticked === rows.length;
+        all.indeterminate = ticked > 0 && ticked < rows.length;
+      }
+    }
+    if (all) {
+      all.addEventListener("change", function () {
+        rows.forEach(function (row) { row.checked = all.checked; });
+        paint();
+      });
+    }
+    rows.forEach(function (row) { row.addEventListener("change", paint); });
+    paint();
+  }
+
   function initNavGroups() {
     var groups = $$("[data-nav-group]");
     if (!groups.length) { return; }
@@ -2249,6 +2278,7 @@ window.Eagle = (function () {
     initNavSearch();
     initResetTasks();
     initOfficeLocation();
+    initBulkSelect();
     initLangPicks();
     initAssignPreview();
     initDeadlineBoxes();

@@ -108,7 +108,8 @@ def groups_for(user):
         Item("client_list", "أكواد العملاء", "Client codes", "tag",
              also=("client_detail",)) if user.can_open_client_codes else None,
         Item("admin_clients", "بيانات العملاء", "Client records", "contact",
-             also=("admin_client_new", "admin_client_edit")) if admin else None,
+             also=("admin_client_new", "admin_client_edit",
+                   "admin_clients_delete")) if admin else None,
     ]
     if work:
         out.append(_group("work", "الشغل", "Work", work + clients))

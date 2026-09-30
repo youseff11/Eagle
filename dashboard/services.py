@@ -3683,6 +3683,117 @@ def reset_all_mail(admin, password):
 
 
 # ---------------------------------------------------------------------------
+# Deleting clients (admin only)
+# ---------------------------------------------------------------------------
+
+def automated_clients():
+    """Clients that are only a robot's address: ``no-reply@`` and the like.
+
+    Every one of them was made by ``resolve_client`` from a notice nobody can
+    answer. A client with a phone number is somebody's WhatsApp and never
+    counts, nor one with another address on file.
+    """
+    from .mailbox import AUTOMATED_SENDER_PATTERN
+
+    return Client.objects.filter(
+        email__iregex=AUTOMATED_SENDER_PATTERN, phone="", extra_phones="", extra_emails="",
+    )
+
+
+def client_delete_plan(clients):
+    """For each client: what deleting them takes with them, or why it cannot.
+
+    A client stays while a task stands on them - the task itself (``PROTECT``),
+    or one of their files being a task's source - because deleting it would
+    take the job's original documents out from under work in progress. What
+    goes otherwise is the client, their letters and files, what was sent to
+    them, and their old chat rooms; HR complaints and staff chats stay.
+    """
+    from django.db.models import Count
+
+    from .models import ChatRoom, MessageAttachment, OutboundMessage
+
+    clients = list(clients)
+    ids = [c.pk for c in clients]
+
+    def counts(queryset, key):
+        return dict(queryset.order_by().values_list(key).annotate(n=Count("id")))
+
+    has_tasks = set(Task.objects.filter(client_id__in=ids).values_list("client_id", flat=True))
+    task_files = set(
+        MessageAttachment.objects.filter(message__client_id__in=ids, tasks__isnull=False)
+        .values_list("message__client_id", flat=True)
+    )
+    letters = counts(InboundMessage.objects.filter(client_id__in=ids), "client_id")
+    files = counts(MessageAttachment.objects.filter(message__client_id__in=ids), "message__client_id")
+    replies = counts(OutboundMessage.objects.filter(client_id__in=ids), "client_id")
+    rooms = counts(ChatRoom.objects.filter(client_id__in=ids), "client_id")
+
+    rows = []
+    for client in clients:
+        blocked = ""
+        if client.pk in has_tasks:
+            blocked = "عليه تاسكات."
+        elif client.pk in task_files:
+            blocked = "ملف من ملفاته مستخدم في تاسك."
+        rows.append({
+            "client": client, "blocked": blocked,
+            "letters": letters.get(client.pk, 0), "files": files.get(client.pk, 0),
+            "replies": replies.get(client.pk, 0), "rooms": rooms.get(client.pk, 0),
+        })
+    return rows
+
+
+def delete_clients(admin, client_ids):
+    """Delete the chosen clients that nothing depends on.
+
+    Returns ``(ok, error_ar, deleted_codes, blocked_codes, files_removed)``.
+
+    Admin only, one transaction. The clients' letters go with them - left
+    behind they would sit in the inbox as "UNKNOWN", which is exactly the
+    clutter this is for - and so do the stored files nothing else uses. The
+    blockers are worked out again here, not trusted from the confirm page: a
+    task can have been made from one of them since it was drawn.
+    """
+    from django.db.models import ProtectedError
+
+    from .models import ChatAttachment, MessageAttachment, OutboundAttachment
+
+    if admin is None or not admin.is_admin_role:
+        return False, "الخطوة دي للأدمن بس.", [], [], 0
+
+    ids = [int(x) for x in client_ids if str(x).isdigit()]
+    try:
+        with transaction.atomic():
+            plan = client_delete_plan(Client.objects.filter(pk__in=ids))
+            doomed = [row["client"] for row in plan if not row["blocked"]]
+            blocked = [row["client"].code for row in plan if row["blocked"]]
+            if not doomed:
+                return False, "مفيش عميل من اللي اخترتهم ينفع يتمسح.", [], blocked, 0
+
+            doomed_ids = [c.pk for c in doomed]
+            letters = InboundMessage.objects.filter(client_id__in=doomed_ids)
+            stored = [
+                (a.file.storage, a.file.name)
+                for a in (
+                    *MessageAttachment.objects.filter(message__in=letters),
+                    *OutboundAttachment.objects.filter(message__client_id__in=doomed_ids),
+                    *ChatAttachment.objects.filter(message__room__client_id__in=doomed_ids),
+                )
+            ]
+            codes = [c.code for c in doomed]
+            letters.delete()
+            Client.objects.filter(pk__in=doomed_ids).delete()
+    except ProtectedError:
+        return False, "فيه تاسك لسه ماسك واحد من العملاء دول. محدش اتمسح.", [], [], 0
+
+    removed = _remove_unreferenced_files(stored)
+    # Codes, not names: the log is read by people who may not see a client's identity.
+    log(admin, "client.delete", f"{len(codes)} client(s)", ", ".join(codes))
+    return True, "", codes, blocked, removed
+
+
+# ---------------------------------------------------------------------------
 # Finding a task from the nav search
 # ---------------------------------------------------------------------------
 

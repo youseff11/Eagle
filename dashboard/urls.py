@@ -189,6 +189,7 @@ urlpatterns = [
     ),
     path("panel/clients/", views.admin_clients, name="admin_clients"),
     path("panel/clients/new/", views.client_form, name="admin_client_new"),
+    path("panel/clients/delete/", views.admin_clients_delete, name="admin_clients_delete"),
     path("panel/clients/<str:code>/edit/", views.client_form, name="admin_client_edit"),
     path("panel/simulate/", views.admin_simulate, name="admin_simulate"),
     path("panel/audit/", views.admin_audit, name="admin_audit"),

@@ -17,6 +17,10 @@ Two rules worth keeping:
   (a Gmail alias, a group address, a bounce) would otherwise feed our own
   replies back in as client messages, and every one of those becomes a
   notification somebody has to read.
+* **A robot is not a client.** Mail from a ``noreply`` address - Google's
+  security alerts, Facebook's notices, a bounce - is skipped, not stored.
+  Every one of them used to become a coded "client" nobody could ever answer,
+  and the client list filled with them (``is_automated_sender``).
 """
 
 import email
@@ -33,6 +37,19 @@ from django.utils import timezone
 
 from . import lines
 from .models import AppSettings, User
+
+#: The local part of an address that is a machine writing, not a person:
+#: ``no-reply@``, ``noreply-accounts@``, ``googlecommunityteam-noreply@``,
+#: ``donotreply@``, ``mailer-daemon@``. Written as one pattern so the client
+#: list can ask the database the same question the fetch asks here.
+AUTOMATED_SENDER_PATTERN = r"^([^@]*[-_.+])?(no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer-daemon|postmaster)"
+_AUTOMATED_SENDER = re.compile(AUTOMATED_SENDER_PATTERN, re.IGNORECASE)
+
+
+def is_automated_sender(address):
+    """True for an address nobody can write back to - a robot, not a client."""
+    return bool(_AUTOMATED_SENDER.search((address or "").strip()))
+
 
 #: Nothing bigger than this is stored. A 40MB mailshot must not be able to
 #: fill the media volume, and no translation job arrives that way.
@@ -206,6 +223,8 @@ def fetch(limit=25, keep_unread=False, conf=None):
             parsed = parse_message(email.message_from_bytes(payload[0][1]))
             if parsed["sender_identity"].strip().lower() in ours:
                 continue          # our own mail, coming back around
+            if is_automated_sender(parsed["sender_identity"]):
+                continue          # a robot's notice: no client, nothing to answer
             services.ingest_message(**parsed)
             created += 1
     except MailboxError:

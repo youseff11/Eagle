@@ -7864,6 +7864,239 @@ class WorkModeTests(TestCase):
         self.assertEqual(self.office.radius_meters, 150)
 
 
+class ClientCleanupTests(TestCase):
+    """Robot addresses are not clients, and the admin can delete the ones that got in."""
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+
+        from .models import Channel, InboundMessage, MessageAttachment
+
+        self.admin = User.objects.create_user("admin_cc", password="x", role=Role.ADMIN)
+        self.ops = User.objects.create_user("ops_cc", password="x", role=Role.OPERATION)
+
+        def letter(client, subject, name=None):
+            message = InboundMessage.objects.create(
+                client=client, channel=Channel.EMAIL, subject=subject, body=subject,
+                sender_identity=client.email or "x@example.com",
+            )
+            if name:
+                MessageAttachment.objects.create(
+                    message=message, file=ContentFile(b"data", name=name),
+                    original_name=name, size=4, mime="application/pdf",
+                )
+            return message
+
+        self.robot1 = Client.objects.create(email="no-reply@accounts.google.com")
+        self.robot2 = Client.objects.create(email="noreply-accounts@google.com")
+        self.robot3 = Client.objects.create(email="googlecommunityteam-noreply@google.com")
+        self.robot_busy = Client.objects.create(email="no-reply@business.facebook.com")
+        self.person = Client.objects.create(name="Yousef", email="yo5739240@gmail.com")
+        self.whatsapp = Client.objects.create(name="Kerolos", phone="+201020033773")
+        # A robot-looking address, but a real person's WhatsApp is on file too.
+        self.mixed = Client.objects.create(
+            name="Mixed", email="noreply@partner.com", phone="+201000000042"
+        )
+
+        self.robot1_letter = letter(self.robot1, "security alert", name="alert.pdf")
+        letter(self.robot2, "notice")
+        letter(self.person, "a real request", name="real.pdf")
+        self.task = services.create_task(
+            client=self.robot_busy, title="Oddly a job", created_by=self.ops,
+        )
+
+    def _delete(self, clients, confirm=False, **extra):
+        data = {"clients": [c.pk for c in clients], **extra}
+        if confirm:
+            data["confirm"] = "1"
+        return self.client.post("/panel/clients/delete/", data)
+
+    # -- the filter ---------------------------------------------------------
+    def test_what_counts_as_a_robot_address(self):
+        from .mailbox import is_automated_sender
+
+        for address in (
+            "no-reply@accounts.google.com", "noreply-accounts@google.com",
+            "googlecommunityteam-noreply@google.com", "NoReply@x.com",
+            "donotreply@x.com", "do-not-reply@x.com", "mailer-daemon@x.com",
+        ):
+            self.assertTrue(is_automated_sender(address), address)
+        for address in (
+            "yo5739240@gmail.com", "security@facebookmail.com", "anoreplyfan@x.com",
+            "a@noreply.example.com", "", None,
+        ):
+            self.assertFalse(is_automated_sender(address), address)
+
+    def test_the_mail_fetch_skips_a_robot_and_keeps_a_real_sender(self):
+        from email.message import EmailMessage
+        from unittest import mock
+
+        from . import mailbox
+        from .models import AppSettings, InboundMessage
+
+        def raw(sender, subject):
+            message = EmailMessage()
+            message["From"], message["To"] = sender, "inbox@eagle.test"
+            message["Subject"], message["Message-ID"] = subject, f"<{subject}@test>"
+            message.set_content("hello")
+            return message.as_bytes()
+
+        mails = [raw("no-reply@security.test", "alert"), raw("Dana <dana@client.test>", "job")]
+
+        class Box:
+            def login(self, *args):
+                pass
+
+            def select(self, *args):
+                return "OK", [b"2"]
+
+            def search(self, *args):
+                return "OK", [b"1 2"]
+
+            def fetch(self, num, kind):
+                return "OK", [(b"x", mails[int(num) - 1]), b")"]
+
+            def close(self):
+                pass
+
+            def logout(self):
+                pass
+
+        conf = AppSettings.load()
+        conf.imap_host, conf.imap_user, conf.imap_password = "imap.test", "inbox@eagle.test", "pw"
+        conf.save()
+        clients_before = Client.objects.count()
+        with mock.patch.object(mailbox.imaplib, "IMAP4_SSL", return_value=Box()):
+            created = mailbox.fetch(conf=conf)
+
+        self.assertEqual(created, 1)
+        self.assertEqual(Client.objects.count(), clients_before + 1)
+        self.assertFalse(
+            InboundMessage.objects.filter(sender_identity="no-reply@security.test").exists()
+        )
+        self.assertTrue(InboundMessage.objects.filter(sender_identity="dana@client.test").exists())
+
+    # -- the list -------------------------------------------------------------
+    def test_the_robots_filter_lists_only_robot_clients(self):
+        self.client.force_login(self.admin)
+        html = self.client.get("/panel/clients/?show=robots").content.decode()
+        for robot in (self.robot1, self.robot2, self.robot3, self.robot_busy):
+            self.assertIn(f"<strong>{robot.code}</strong>", html)
+        for other in (self.person, self.whatsapp, self.mixed):
+            self.assertNotIn(f"<strong>{other.code}</strong>", html)
+
+    def test_the_list_can_be_searched_and_shows_a_tick_per_row(self):
+        self.client.force_login(self.admin)
+        html = self.client.get("/panel/clients/?q=gmail").content.decode()
+        self.assertIn(f"<strong>{self.person.code}</strong>", html)
+        self.assertNotIn(f"<strong>{self.robot1.code}</strong>", html)
+        self.assertIn('name="clients"', html)
+        self.assertIn("data-select-all", html)
+
+    def test_only_the_admin_reaches_the_list_and_the_delete(self):
+        self.client.force_login(self.ops)
+        self.assertEqual(self.client.get("/panel/clients/").status_code, 403)
+        self.assertEqual(self._delete([self.robot1], confirm=True).status_code, 403)
+        self.assertTrue(Client.objects.filter(pk=self.robot1.pk).exists())
+
+    # -- deleting -------------------------------------------------------------
+    def test_the_first_step_only_shows_what_would_go(self):
+        self.client.force_login(self.admin)
+        response = self._delete([self.robot1, self.robot_busy])
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn(self.robot1.code, html)
+        self.assertIn("عليه تاسكات", html)                    # the one that cannot go
+        self.assertIn('name="confirm" value="1"', html)
+        self.assertTrue(Client.objects.filter(pk=self.robot1.pk).exists())
+
+    def test_confirming_deletes_the_clients_their_letters_and_their_files(self):
+        from django.core.files.storage import default_storage
+
+        from .models import InboundMessage, MessageAttachment
+
+        stored = MessageAttachment.objects.get(message=self.robot1_letter).file.name
+        self.assertTrue(default_storage.exists(stored))
+        self.client.force_login(self.admin)
+        response = self._delete(
+            [self.robot1, self.robot2, self.robot3], confirm=True,
+            next="/panel/clients/?show=robots",
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/panel/clients/?show=robots")
+        for robot in (self.robot1, self.robot2, self.robot3):
+            self.assertFalse(Client.objects.filter(pk=robot.pk).exists())
+        # Their letters went with them - none left behind as "UNKNOWN".
+        self.assertFalse(InboundMessage.objects.filter(client__isnull=True).exists())
+        self.assertFalse(
+            InboundMessage.objects.filter(subject__in=["security alert", "notice"]).exists()
+        )
+        self.assertFalse(default_storage.exists(stored))
+        # Everybody else is untouched.
+        self.assertTrue(Client.objects.filter(pk=self.person.pk).exists())
+        self.assertTrue(InboundMessage.objects.filter(subject="a real request").exists())
+
+    def test_a_client_with_a_task_is_never_deleted(self):
+        from .models import AuditLog
+
+        self.client.force_login(self.admin)
+        self._delete([self.robot1, self.robot_busy], confirm=True)
+        self.assertFalse(Client.objects.filter(pk=self.robot1.pk).exists())
+        self.assertTrue(Client.objects.filter(pk=self.robot_busy.pk).exists())
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.client_id, self.robot_busy.pk)
+        entry = AuditLog.objects.get(action="client.delete")
+        self.assertIn(self.robot1.code, entry.detail)
+        self.assertNotIn(self.robot_busy.code, entry.detail)
+
+    def test_a_client_whose_file_is_the_source_of_a_task_is_kept(self):
+        from .models import MessageAttachment
+
+        source = MessageAttachment.objects.get(message__client=self.person)
+        other_task = services.create_task(
+            client=self.whatsapp, title="Uses their file", created_by=self.ops,
+        )
+        other_task.source_files.add(source)
+        self.client.force_login(self.admin)
+        self._delete([self.person], confirm=True)
+        self.assertTrue(Client.objects.filter(pk=self.person.pk).exists())
+        self.assertTrue(MessageAttachment.objects.filter(pk=source.pk).exists())
+
+    def test_a_shared_stored_file_is_not_deleted_from_under_somebody_else(self):
+        from django.core.files.storage import default_storage
+
+        from .models import MessageAttachment, OutboundAttachment, OutboundMessage
+
+        stored = MessageAttachment.objects.get(message=self.robot1_letter).file.name
+        reply = OutboundMessage.objects.create(
+            client=self.person, kind=OutboundMessage.Kind.CHAT, body="fwd",
+        )
+        OutboundAttachment.objects.create(
+            message=reply, file=stored, original_name="alert.pdf", size=4,
+            mime="application/pdf",
+        )
+        self.client.force_login(self.admin)
+        self._delete([self.robot1], confirm=True)
+        self.assertTrue(default_storage.exists(stored))
+
+    def test_nothing_ticked_changes_nothing(self):
+        self.client.force_login(self.admin)
+        before = Client.objects.count()
+        response = self.client.post("/panel/clients/delete/", {"confirm": "1"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Client.objects.count(), before)
+
+    def test_the_way_back_cannot_be_an_outside_address(self):
+        self.client.force_login(self.admin)
+        response = self._delete([self.robot2], confirm=True, next="https://evil.example/steal")
+        self.assertEqual(response["Location"], "/panel/clients/")
+
+    def test_the_service_refuses_anybody_but_the_admin(self):
+        ok, *_rest = services.delete_clients(self.ops, [self.robot1.pk])
+        self.assertFalse(ok)
+        self.assertTrue(Client.objects.filter(pk=self.robot1.pk).exists())
+
+
 class ImagesInChatTests(TestCase):
     """A photo in the chat is shown as a photo, not as a file name."""
 
