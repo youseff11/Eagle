@@ -1,6 +1,6 @@
 """Long-running background worker.
 
-Does two jobs on a loop:
+Does three jobs on a loop:
 
 1. **Housekeeping** — expires assignments nobody confirmed (applying the rating
    penalty) and pushes deadline warnings. The browser heartbeat already does
@@ -10,6 +10,13 @@ Does two jobs on a loop:
    connection open (``mailbox.watch``), so a letter is fetched within seconds
    of landing in the mailbox instead of at the next poll. The old poll every
    ``--mail-every`` cycles stays on as a safety net behind it.
+3. **The time-based sweep** — attendance alerts (nobody checked in, a shift
+   over with no check-out, extra time running a while) and probation reviews
+   coming due. Nothing in a request ever notices these: a missing check-in is
+   only visible when nobody is there. It is the same work as
+   ``manage.py sweep``, run every ``--sweep-every`` cycles and once at start-up.
+   PythonAnywhere allows a single always-on task and schedules only hourly, so
+   this is the one place it can run at all.
 
 Built for a PythonAnywhere *always-on task* (paid accounts), but it works under
 any supervisor, or in a spare terminal:
@@ -28,7 +35,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from django.utils import timezone
 
-from dashboard import mailbox, services
+from dashboard import attendance, employees, mailbox, services
 from dashboard.models import AppSettings
 
 
@@ -43,6 +50,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--mail-every", type=int, default=3,
             help="Fetch e-mail once every N cycles (default: 3).",
+        )
+        parser.add_argument(
+            "--sweep-every", type=int, default=5,
+            help="Run the attendance / probation sweep once every N cycles (default: 5).",
+        )
+        parser.add_argument(
+            "--no-sweep", action="store_true",
+            help="Leave the attendance / probation sweep to a scheduled job.",
         )
         parser.add_argument("--no-mail", action="store_true", help="Housekeeping only.")
         parser.add_argument(
@@ -75,6 +90,18 @@ class Command(BaseCommand):
             self._say(f"mail: {created} new")
         return created
 
+    def _sweep(self, stamp):
+        """The attendance and probation sweep, never allowed to stop the loop."""
+        try:
+            alerts = attendance.sweep_alerts()
+            lifecycle = employees.sweep()
+            if alerts or lifecycle["probation"]:
+                self.stdout.write(
+                    f"[{stamp}] attendance_alerts={alerts} probation_due={lifecycle['probation']}"
+                )
+        except Exception:  # noqa: BLE001 - the loop must survive anything
+            self.stderr.write(f"[{stamp}] sweep failed:\n{traceback.format_exc()}")
+
     def _start_push(self):
         """The IDLE thread. A daemon: it dies with the worker, never holds it up."""
         stop = threading.Event()
@@ -90,12 +117,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         interval = max(10, options["interval"])
         mail_every = max(1, options["mail_every"])
+        sweep_every = max(1, options["sweep_every"])
         cycle = 0
         self._mail_lock = threading.Lock()
         push = not options["no_mail"] and not options["no_idle"] and not options["once"]
 
         self.stdout.write(self.style.SUCCESS(
             f"Eagle worker started — every {interval}s"
+            f"{'' if options['no_sweep'] else f', sweep every {interval * sweep_every}s'}"
             f"{'' if options['no_mail'] else f', mail every {interval * mail_every}s'}"
             f"{' + instant mail (IMAP IDLE)' if push else ''}"
         ))
@@ -114,6 +143,12 @@ class Command(BaseCommand):
                     self.stdout.write(f"[{stamp}] expired={expired} deadline_warnings={warned}")
             except Exception:  # noqa: BLE001 - the loop must survive anything
                 self.stderr.write(f"[{stamp}] housekeeping failed:\n{traceback.format_exc()}")
+
+            # Once on the way in (so a restart does not leave a gap), then every
+            # ``sweep_every`` cycles: alerts are measured in minutes, and each
+            # sweep walks every employee, which is not work to do every minute.
+            if not options["no_sweep"] and (cycle == 1 or cycle % sweep_every == 0):
+                self._sweep(stamp)
 
             if not options["no_mail"] and cycle % mail_every == 0:
                 try:

@@ -208,8 +208,10 @@ curl -X POST http://127.0.0.1:8000/webhooks/whatsapp/ \
 ```bash
 python manage.py run_worker
 ```
-بيشتغل للأبد: بيصفّي التأكيدات اللي فات وقتها، بيبعت تحذيرات الديدلاين، وبيسحب الإيميل.
-على PythonAnywhere حطه في **Always-on task** (حسابات مدفوعة).
+بيشتغل للأبد: بيصفّي التأكيدات اللي فات وقتها، بيبعت تحذيرات الديدلاين، وبيسحب الإيميل،
+وبيشغّل **sweep الحضور وفترات الاختبار** مرة عند البداية وبعدها كل 5 دورات (`--sweep-every`)،
+يعني تنبيهات «مسجلش حضور» وتذكير الانصراف والاكسترا تايم بتوصل حتى لو محدش فاتح الموقع.
+على PythonAnywhere حطه في **Always-on task** (حسابات مدفوعة) — ومش محتاج Scheduled task لـ `sweep`.
 
 **أو أوامر منفصلة** لو بتستخدم cron / Task Scheduler:
 ```bash
@@ -284,9 +286,12 @@ python manage.py collectstatic
 | URL | Directory |
 |---|---|
 | `/static/` | `/home/<user>/<project>/staticfiles` |
-| `/media/` | `/home/<user>/<project>/media` |
 
-من غير الخطوة دي الموقع هيبقى من غير تنسيق والملفات مش هتتفتح.
+من غير الخطوة دي الموقع هيبقى من غير تنسيق.
+
+> **متضيفش صف `/media/`.** الملفات بتتفتح من `/files/` بس، بعد ما `views.serve_file`
+> يتأكد إن الشخص من حقه يفتحها. ربط `/media/` كـ static بيقدّم أي ملف في `media/`
+> لأي حد معاه الرابط من غير أي فحص (والفولدر ده فيه ملفات العملاء الحساسة).
 
 **3. Always-on task:** `python /home/<user>/<project>/manage.py run_worker`
 

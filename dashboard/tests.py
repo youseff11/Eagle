@@ -8097,6 +8097,128 @@ class ClientCleanupTests(TestCase):
         self.assertTrue(Client.objects.filter(pk=self.robot1.pk).exists())
 
 
+class RunWorkerSweepTests(TestCase):
+    """The always-on worker runs the time-based sweep.
+
+    PythonAnywhere gives one always-on task and schedules only hourly, so the
+    attendance alerts and the probation reviews had nowhere to run at all: the
+    worker did assignments, deadlines and mail, and ``manage.py sweep`` was
+    scheduled nowhere.
+    """
+
+    WORKER = "dashboard.management.commands.run_worker"
+
+    class Stop(Exception):
+        """Raised from a fake sleep to end the endless loop after a few cycles."""
+
+    def _run(self, *args, cycles=None):
+        """Run the worker; with ``cycles`` it stops after that many sleeps."""
+        import io
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        out, err = io.StringIO(), io.StringIO()
+        if cycles is None:
+            call_command("run_worker", "--once", "--no-mail", *args, stdout=out, stderr=err)
+        else:
+            counter = {"n": 0}
+
+            def sleep(_seconds):
+                counter["n"] += 1
+                if counter["n"] >= cycles:
+                    raise self.Stop()
+
+            with mock.patch(f"{self.WORKER}.time.sleep", side_effect=sleep):
+                with self.assertRaises(self.Stop):
+                    call_command(
+                        "run_worker", "--no-mail", "--interval", "10", *args,
+                        stdout=out, stderr=err,
+                    )
+        return out.getvalue(), err.getvalue()
+
+    def _patched(self, **extra):
+        from unittest import mock
+
+        return (
+            mock.patch("dashboard.attendance.sweep_alerts", return_value=0, **extra),
+            mock.patch("dashboard.employees.sweep", return_value={"probation": 0}),
+        )
+
+    def test_the_first_cycle_runs_the_sweep(self):
+        alerts, lifecycle = self._patched()
+        with alerts as sweep_alerts, lifecycle as employees_sweep:
+            self._run()
+        sweep_alerts.assert_called_once()
+        employees_sweep.assert_called_once()
+
+    def test_it_then_runs_every_nth_cycle_only(self):
+        alerts, lifecycle = self._patched()
+        with alerts as sweep_alerts, lifecycle:
+            self._run("--sweep-every", "5", cycles=10)
+        # Cycle 1 (start-up), then 5 and 10 - not all ten.
+        self.assertEqual(sweep_alerts.call_count, 3)
+
+    def test_no_sweep_leaves_it_to_a_scheduled_job(self):
+        alerts, lifecycle = self._patched()
+        with alerts as sweep_alerts, lifecycle as employees_sweep:
+            self._run("--no-sweep")
+        sweep_alerts.assert_not_called()
+        employees_sweep.assert_not_called()
+
+    def test_a_sweep_that_fails_does_not_stop_the_worker(self):
+        from unittest import mock
+
+        with mock.patch("dashboard.attendance.sweep_alerts", side_effect=RuntimeError("boom")):
+            _out, err = self._run("--sweep-every", "1", cycles=3)   # three cycles all ran
+        self.assertEqual(err.count("sweep failed"), 3)
+        self.assertIn("boom", err)
+
+    def test_the_worker_really_raises_a_missing_check_in_alert(self):
+        """End to end, no mocks on the sweep: a shift started and nobody came."""
+        from datetime import datetime
+        from unittest import mock
+
+        from .models import Notification, PayrollSettings, Shift, ShiftTemplate
+
+        PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        person = User.objects.create_user("late_one", password="x", role=Role.TRANSLATOR)
+        Shift.objects.create(
+            user=person, weekday=0, template=ShiftTemplate.objects.get(name="Shift 1")
+        )                                                                  # Mondays 09:00-17:00
+        monday_ten = timezone.make_aware(datetime(2026, 9, 21, 10, 0))
+
+        with mock.patch("django.utils.timezone.now", return_value=monday_ten):
+            self._run()
+
+        self.assertTrue(
+            Notification.objects.filter(user=person, url__contains="attendance.no_checkin").exists()
+        )
+
+    def test_without_the_sweep_that_alert_never_comes(self):
+        """The same set-up with the sweep off: proves the test above is the sweep's doing."""
+        from datetime import datetime
+        from unittest import mock
+
+        from .models import Notification, PayrollSettings, Shift, ShiftTemplate
+
+        PayrollSettings.load()
+        ShiftTemplate.seed_defaults()
+        person = User.objects.create_user("late_two", password="x", role=Role.TRANSLATOR)
+        Shift.objects.create(
+            user=person, weekday=0, template=ShiftTemplate.objects.get(name="Shift 1")
+        )
+        monday_ten = timezone.make_aware(datetime(2026, 9, 21, 10, 0))
+
+        with mock.patch("django.utils.timezone.now", return_value=monday_ten):
+            self._run("--no-sweep")
+
+        self.assertFalse(
+            Notification.objects.filter(user=person, url__contains="attendance.no_checkin").exists()
+        )
+
+
 class ImagesInChatTests(TestCase):
     """A photo in the chat is shown as a photo, not as a file name."""
 
