@@ -418,9 +418,16 @@ def _wrote_something(request):
 #: file (it says so when it refuses one); these are the ones this server will store and send. They are checked once
 #: the request has been read, so they keep a big upload from being kept and sent, not from being received: that
 #: is for the host and the proxy in front of it.
+#:
+#: The size is the most that anything on the way will take: WhatsApp takes a document of up to 100 MB, and the proxy
+#: in front of the site (Cloudflare, on the plans most sites are on) takes a request of up to 100 MB. A message's files
+#: are one request, so the total is the same number as one file's, a little under 100 MB to leave room for the form's
+#: own words. A file held by WhatsApp's own limits (a photo over 5 MB, a video over 16 MB) is refused by WhatsApp with
+#: its reason, and shows as failed. Storage is Bunny's and costs nothing to speak of; memory is the host's: sending a
+#: file to a client holds it in memory about twice (read back from storage, and the upload's own body).
 MAX_FILES = 10
-MAX_FILE_BYTES = 25 * 1024 * 1024
-MAX_FILES_TOTAL_BYTES = 40 * 1024 * 1024
+MAX_FILE_BYTES = 95 * 1024 * 1024
+MAX_FILES_TOTAL_BYTES = 95 * 1024 * 1024
 
 
 def _files_problem(request):

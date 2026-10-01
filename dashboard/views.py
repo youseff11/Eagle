@@ -266,11 +266,10 @@ def serve_file(request, name):
     kind = files.content_type(name)
     response = HttpResponse(data, content_type=kind)
     shown = files.download_name(request.user, name, owner)
-    # A client's SVG or HTML opened inline would run as our own site, with
-    # the viewer's session. Those are always a download.
-    risky = kind in ("image/svg+xml", "text/html", "application/xhtml+xml", "text/xml",
-                     "application/xml", "application/javascript", "text/javascript")
-    disposition = "attachment" if (risky or request.GET.get("dl") == "1") else "inline"
+    # A file opened inline runs as our own site, with the viewer's session, if the browser takes it for a
+    # document (an SVG, HTML, any XML type, script). Only the types known to be inert open in the page;
+    # everything else is a download - see ``files.opens_inline``.
+    disposition = "inline" if (files.opens_inline(kind) and request.GET.get("dl") != "1") else "attachment"
     response["Content-Disposition"] = f"{disposition}; filename*=UTF-8''{quote(shown)}"
     # Private: a shared proxy or Cloudflare must never keep a client's file.
     response["Cache-Control"] = "private, max-age=3600"

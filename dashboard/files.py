@@ -260,6 +260,24 @@ def content_type(name):
     return guessed or "application/octet-stream"
 
 
+#: What may open inside the page, by the type the extension says. Everything else is a download.
+#:
+#: The extension is the uploader's choice, and a browser decides what a type means: an XML type of any kind
+#: (``application/xslt+xml``, ``application/mathml+xml``, ``image/svg+xml`` ...) is parsed as a document that can carry
+#: script, and script that runs on our own site runs with the viewer's session. A list of the types known to be
+#: dangerous is never complete; a list of the ones known to be inert is.
+INLINE_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain",
+})
+INLINE_FAMILIES = ("audio/", "video/")
+
+
+def opens_inline(kind):
+    """May a file of this content type be shown inside the page rather than downloaded?"""
+    kind = (kind or "").split(";")[0].strip().lower()
+    return kind in INLINE_TYPES or kind.startswith(INLINE_FAMILIES)
+
+
 # ---------------------------------------------------------------------------
 # 4. Previews - a document shown by its look, not only by its name
 # ---------------------------------------------------------------------------

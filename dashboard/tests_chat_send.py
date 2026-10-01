@@ -1031,6 +1031,34 @@ class FilesTests(_Send):
         self.assertEqual(OutboundMessage.objects.count(), 2)
         self.assertEqual(ChatRoom.objects.count(), rooms)
 
+    def test_the_limits_stay_under_what_whatsapp_and_the_proxy_in_front_of_the_site_take(self):
+        # WhatsApp takes a document of up to 100 MB and so does Cloudflare's request body on the usual plans: a limit
+        # at or over that is a send that is refused after it has been uploaded, with nothing said to the person.
+        self.assertLess(api_v1.MAX_FILES_TOTAL_BYTES, 100 * 10 ** 6)
+        self.assertLessEqual(api_v1.MAX_FILE_BYTES, api_v1.MAX_FILES_TOTAL_BYTES)
+        self.assertGreaterEqual(api_v1.MAX_FILE_BYTES, 90 * 1024 * 1024)
+
+    def test_a_file_just_under_the_new_limit_is_taken_and_one_over_it_is_not(self):
+        # Sizes are checked from the form's own count of bytes: nothing of that size is stored here.
+        class Sized:
+            def __init__(self, size):
+                self.size = size
+
+        class Form:
+            def __init__(self, sizes):
+                self.FILES = self
+                self._sizes = sizes
+
+            def getlist(self, name):
+                return [Sized(size) for size in self._sizes] if name == "files" else []
+
+            def get(self, name):
+                return None
+
+        self.assertEqual(api_v1._files_problem(Form([api_v1.MAX_FILE_BYTES])), "")
+        self.assertEqual(api_v1._files_problem(Form([api_v1.MAX_FILE_BYTES + 1])), "file_too_big")
+        self.assertEqual(api_v1._files_problem(Form([api_v1.MAX_FILES_TOTAL_BYTES // 2 + 1] * 2)), "files_too_big")
+
     def test_me_says_how_many_and_how_big(self):
         files = _json(self.browser(self.ops).get(reverse("dashboard:v1_me")))["limits"]["files"]
         self.assertEqual(files, {
