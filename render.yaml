@@ -1,8 +1,10 @@
 # Render Blueprint for Eagle.
 #
-# Two services, one codebase:
-#   eagle-web     Django behind gunicorn
+# Three resources, one codebase:
+#   eagle-web     Django under daphne (ASGI: pages and the /ws/events/ WebSocket)
 #   eagle-worker  `manage.py run_worker` (housekeeping, IMAP IDLE, attendance sweep)
+#   eagle-redis   Key Value, the channel layer the two processes above share.
+#                 Internal only (empty ipAllowList): no address on the internet.
 #
 # Secrets are `sync: false`: Render asks for each one in its own dashboard when
 # the Blueprint is created. They never live in this file or in git.
@@ -19,7 +21,7 @@ services:
     region: frankfurt
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     preDeployCommand: python manage.py migrate --noinput
-    startCommand: gunicorn Core.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    startCommand: daphne -b 0.0.0.0 -p $PORT Core.asgi:application
     healthCheckPath: /healthz
     autoDeployTrigger: "off"
     envVars:
@@ -27,6 +29,15 @@ services:
         value: "false"
       - key: EAGLE_LOG_LEVEL
         value: INFO
+      # Under ASGI every request runs in a thread of its own, so a connection
+      # kept open for reuse would never be reused: close it with the request.
+      - key: EAGLE_CONN_MAX_AGE
+        value: "0"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: eagle-redis
+          property: connectionString
       # settings.py falls back to a key that is written in the repo. Render makes
       # a random one instead. Changing the key signs everybody out once.
       - key: EAGLE_SECRET_KEY
@@ -57,6 +68,11 @@ services:
         value: INFO
       - key: EAGLE_RUN_WORKER
         value: "false"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: eagle-redis
+          property: connectionString
       - key: DATABASE_URL
         sync: false
       - key: BUNNY_STORAGE_ZONE_NAME
@@ -67,3 +83,9 @@ services:
         sync: false
       - key: BUNNY_CDN_URL
         sync: false
+
+  - type: keyvalue
+    name: eagle-redis
+    plan: free
+    region: frankfurt
+    ipAllowList: []

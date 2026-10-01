@@ -1716,6 +1716,19 @@ class ChatRoom(models.Model):
             return True
         return self.members.filter(pk=user.pk).exists()
 
+    def can_open(self, user):
+        """Every test the chat API puts to someone before it shows them this room.
+
+        Membership alone is not enough: a person taken off a task keeps their
+        row in the members table, and a task can be closed to them while the
+        row stays. ``api._room_or_404`` asks the same two questions in the same
+        order; this is the one place a push asks them too, so a live ping goes
+        to exactly the people who could open the room by hand.
+        """
+        if not user.is_active or not self.can_access(user):
+            return False
+        return not self.task_id or self.task.can_view(user)
+
 
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")

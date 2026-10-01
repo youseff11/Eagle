@@ -10,8 +10,8 @@
 #   .docx text extract  -> zipfile         (dashboard/ai.py)
 #   Webhook signatures  -> hmac, hashlib   (dashboard/whatsapp.py)
 #
-# The packages below Django exist only to run it on a host (gunicorn, whitenoise)
-# or to reach the database (psycopg). Do not add one without a reason this
+# The packages below Django exist only to run it on a host (gunicorn, whitenoise,
+# daphne), to reach the database (psycopg) or to push live events (channels). Do not add one without a reason this
 # file can state in a line.
 #
 # Install:  pip install -r requirements.txt
@@ -30,6 +30,13 @@ psycopg[binary]==3.2.3
 # only when DEBUG is off, so local work never imports it).
 gunicorn==23.0.0
 whitenoise==6.8.2
+
+# Live pushes over WebSocket (dashboard/realtime.py). channels is the Django side,
+# daphne the ASGI server that runs it on Render, channels-redis the layer that lets
+# the web process and the worker talk to each other.
+channels==4.3.2
+daphne==4.2.3
+channels-redis==4.3.0
 
 
 # -----------------------------------------------------------------------------

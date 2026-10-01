@@ -14,7 +14,8 @@ file takes all four out:
 What it does NOT cover, and what the run before a deploy is for:
 
 * the migrations are not replayed here, so a migration that does not match
-  ``models.py`` still passes. ``makemigrations --check`` is what catches that.
+  ``models.py`` still passes. ``makemigrations --check`` is what catches that,
+  and ``EAGLE_REPLAY_MIGRATIONS=1`` (what verify.py sets) replays them too.
 * Postgres is not exercised. SQLite is more forgiving about some queries.
 
 So: this one while you work, the real one before you push.
@@ -22,6 +23,8 @@ So: this one while you work, the real one before you push.
     python manage.py test dashboard
     python manage.py makemigrations --check --dry-run
 """
+
+import os
 
 from .settings import *  # noqa: F401,F403
 from .settings import BASE_DIR
@@ -52,6 +55,13 @@ class _SkipMigrations:
 
 
 MIGRATION_MODULES = _SkipMigrations()
+
+# ``verify.py`` sets this. It replays the real migrations (about nine seconds)
+# so one that fails to apply is caught, while the cheap hasher below keeps the
+# whole run near half a minute. The production hasher alone costs ~600 ms per
+# user, which turned 772 tests into a 24-minute run.
+if os.environ.get("EAGLE_REPLAY_MIGRATIONS") == "1":
+    MIGRATION_MODULES = {}
 
 
 # Every ``create_user`` in the suite hashes a password. The production hasher

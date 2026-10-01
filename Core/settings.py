@@ -156,6 +156,20 @@ TEMPLATES = [
 WSGI_APPLICATION = "Core.wsgi.application"
 ASGI_APPLICATION = "Core.asgi.application"
 
+# Live pushes (dashboard/realtime.py). Redis when REDIS_URL is set - the web
+# process and the worker are different processes and must share one layer - and
+# in memory otherwise, which is right for a laptop and for the tests.
+REDIS_URL = env("REDIS_URL", "EAGLE_REDIS_URL")
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
 
 # ---------------------------------------------------------------------------
 # Database — DATABASE_URL (Neon/Postgres) when present, otherwise SQLite
