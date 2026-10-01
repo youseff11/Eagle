@@ -1437,8 +1437,12 @@ class Task(models.Model):
             return self.translator_due
         return self.deadline
 
-    def deadline_state(self, user=None):
-        """``none``/``ok``/``soon``/``late``/``done`` for this person's date."""
+    def deadline_state(self, user=None, warning_minutes=None):
+        """``none``/``ok``/``soon``/``late``/``done`` for this person's date.
+
+        ``warning_minutes`` is the settings value, for a list that asks about
+        many tasks and should read the setting once, not once per row.
+        """
         due = self.deadline_for(user) if user is not None else self.deadline
         if not due:
             return "none"
@@ -1447,7 +1451,9 @@ class Task(models.Model):
         remaining = (due - timezone.now()).total_seconds()
         if remaining < 0:
             return "late"
-        if remaining <= AppSettings.load().deadline_warning_minutes * 60:
+        if warning_minutes is None:
+            warning_minutes = AppSettings.load().deadline_warning_minutes
+        if remaining <= warning_minutes * 60:
             return "soon"
         return "ok"
 
@@ -2075,6 +2081,15 @@ class AppSettings(models.Model):
 
     simulation_enabled = models.BooleanField(default=True)
     poll_ms = models.PositiveIntegerField(default=3000)
+
+    #: Who sees the React version of a screen that has been ported
+    #: (``dashboard/newui.py``): ``{"translator_home": {"roles": ["admin"],
+    #: "users": [12]}}``. A screen with no entry is the admin's alone, so a new
+    #: one never reaches anybody until the admin switches it on.
+    new_ui = models.JSONField(
+        default=dict, blank=True,
+        help_text="Which roles and people see the new version of each ported screen.",
+    )
 
     updated_at = models.DateTimeField(auto_now=True)
 

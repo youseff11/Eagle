@@ -2,7 +2,7 @@
 
 It must be behind the login, carry no data about anyone, say plainly when the app
 has not been built, and never let someone use the new app to skip the check-in
-screen.
+screen, nor the check-out and extra-time reminders.
 """
 
 import json
@@ -181,12 +181,16 @@ class CheckInTests(_Built):
             for path in ("/app/", "/app/notifications"):
                 answer = self.open(path)
                 self.assertEqual(answer.status_code, 302, path)
-                self.assertEqual(answer["Location"], "/")
+                self.assertEqual(answer["Location"], "/?classic=1")
 
-    def test_the_reminders_that_can_be_put_off_do_not_send_anyone_away(self):
+    def test_the_reminders_that_can_be_put_off_are_the_classic_interfaces_too(self):
+        # The new app does not show them, and a forgotten check-out costs the whole day:
+        # whoever owes one works where it is shown.
         for kind in ("check_out", "extra"):
             with mock.patch("dashboard.spa.attendance.gate_for", return_value={"kind": kind}):
-                self.assertEqual(self.open().status_code, 200, kind)
+                answer = self.open()
+                self.assertEqual(answer.status_code, 302, kind)
+                self.assertEqual(answer["Location"], "/?classic=1", kind)
 
     def test_when_nothing_is_due_the_app_opens(self):
         with mock.patch("dashboard.spa.attendance.gate_for", return_value=None):

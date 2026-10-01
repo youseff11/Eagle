@@ -60,6 +60,36 @@
     </div>
   </div>
 
+  <div class="card" id="s-newui">
+    <div class="card__head">
+      {% icon "layers" %}
+      <h3 data-ar="الواجهة الجديدة" data-en="The new interface">الواجهة الجديدة</h3>
+    </div>
+    <p class="muted" style="font-size:.84rem"
+       data-ar="كل شاشة بتتنقل للواجهة الجديدة لوحدها. اللي معلّم عليهم بيتحوّلوا للنسخة الجديدة، والباقي يفضلوا على القديمة. شيل العلامة وهيرجعوا للقديمة فورًا من غير ما حد يعمل حاجة."
+       data-en="Each screen moves to the new interface on its own. The people ticked are sent to the new version and everybody else stays on the classic one. Untick and they are back on the classic page at once.">
+      كل شاشة بتتنقل للواجهة الجديدة لوحدها. شيل العلامة وهيرجعوا للقديمة فورًا.
+    </p>
+    <input type="hidden" name="{{ form.NEW_UI_MARKER }}" value="1">
+    {% for row in form.new_ui_rows %}
+      <div class="field">
+        <label data-ar="{{ row.screen.ar }}" data-en="{{ row.screen.en }}">{{ row.screen.ar }}</label>
+        {{ row.roles }}
+        {{ row.roles.errors }}
+        <label class="muted" style="font-size:.84rem"
+               data-ar="أو ناس بالاسم (تجربة على واحد قبل الدور كله)"
+               data-en="Or people one by one (try it on one before the whole role)">أو ناس بالاسم (تجربة على واحد قبل الدور كله)</label>
+        {{ row.users }}
+        {{ row.users.errors }}
+        <span class="helptext"
+              data-ar="الصفحة القديمة بتفتح دايمًا لو ضفت ?classic=1 آخر العنوان."
+              data-en="The classic page always opens if you add ?classic=1 to its address.">
+          الصفحة القديمة بتفتح دايمًا لو ضفت ?classic=1 آخر العنوان.
+        </span>
+      </div>
+    {% endfor %}
+  </div>
+
   <div class="card" id="s-whatsapp">
     <div class="card__head">
       {% icon "phone" %}<h3 data-ar="واتساب" data-en="WhatsApp">واتساب</h3>

@@ -1,5 +1,7 @@
 """Page views for the Eagle dashboard."""
 
+import copy
+import json
 from datetime import datetime, timedelta
 
 from django.contrib import messages as flash
@@ -15,7 +17,10 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST, require_safe
 
-from . import attendance, clock, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
+from . import (
+    attendance, clock, employees, galiases, identity, newui, payroll, performance, recruitment, services,
+    wordcount,
+)
 from .forms import (
     AICheckForm,
     AttendanceEditForm,
@@ -179,22 +184,35 @@ def healthz(request):
 
 @login_required
 def home(request):
+    """Each role's own landing page.
+
+    ``/?classic=1`` is the way into the classic interface that never bounces: it is
+    passed on to the landing page, which a ported screen would otherwise hand on to
+    the new app. The new app uses it when something that only the classic pages can
+    show is waiting (the check-in screen, an assignment with a clock on it, a ringing
+    call); without it that hand-off and this one would send a person back and forth.
+    """
     user = request.user
+
+    def landing(name):
+        url = reverse(f"dashboard:{name}")
+        return redirect(f"{url}?{newui.CLASSIC_PARAM}=1" if newui.wants_classic(request) else url)
+
     if user.is_admin_role:
-        return redirect("dashboard:admin_overview")
+        return landing("admin_overview")
     if user.is_operation:
-        return redirect("dashboard:ops_inbox")
+        return landing("ops_inbox")
     if user.is_hr:
-        return redirect("dashboard:hr_recruitment")
+        return landing("hr_recruitment")
     if user.is_reviewer:
-        return redirect("dashboard:reviewer_tests")
+        return landing("reviewer_tests")
     if user.is_accounting:
-        return redirect("dashboard:accounts_overview")
+        return landing("accounts_overview")
     if user.is_sales:
-        return redirect("dashboard:client_list")
+        return landing("client_list")
     if user.is_team_lead:
-        return redirect("dashboard:lead_home")
-    return redirect("dashboard:translator_home")
+        return landing("lead_home")
+    return landing("translator_home")
 
 
 @login_required
@@ -905,13 +923,11 @@ def lead_translators(request):
 
 @role_required(Role.TRANSLATOR)
 def translator_home(request):
-    user = request.user
-    tasks = Task.objects.filter(translator=user).select_related("client", "team_lead")
-    return render(request, "translator/home.html", {
-        "open_tasks": tasks.filter(status__in=ACTIVE_TASK_STATUSES),
-        "done_tasks": tasks.filter(status__in=[TaskStatus.DELIVERED, TaskStatus.CANCELLED])[:20],
-        "rating_events": user.rating_events.all()[:10],
-    })
+    # Switched over to the new interface for this person: hand them on, unless something
+    # stands in the way (dashboard/newui.py, hand_on).
+    if newui.hand_on(request, "translator_home"):
+        return redirect(newui.app_url("translator_home"))
+    return render(request, "translator/home.html", services.translator_desk(request.user))
 
 
 # ---------------------------------------------------------------------------
@@ -1322,6 +1338,7 @@ def _pending_assignments():
 @admin_only
 def admin_settings(request):
     conf = AppSettings.load()
+    switch_before = copy.deepcopy(conf.new_ui)
     form = SettingsForm(request.POST or None, instance=conf)
 
     if request.method == "POST":
@@ -1329,6 +1346,13 @@ def admin_settings(request):
         if form.is_valid():
             form.save()
             services.log(request.user, "settings.update")
+            if conf.new_ui != switch_before:
+                # Who sent whom to which interface: the one setting whose change moves
+                # people from one page to another, so it is written down in full.
+                services.log(
+                    request.user, "settings.new_ui", "-",
+                    json.dumps(conf.new_ui, sort_keys=True)[:400],
+                )
             if "mail_aliases_hidden" in form.changed_data:
                 # A hidden address leaves the list now, not at the next sync.
                 galiases.sync(force=True)
@@ -1342,6 +1366,9 @@ def admin_settings(request):
                 {"ok": False, "errors": {k: [str(e) for e in v] for k, v in form.errors.items()}},
                 status=400,
             )
+        # The page is drawn again with the errors beside their fields; without this line
+        # nothing says that nothing was saved, and the rest of the post is lost with it.
+        flash.error(request, "اتحفظش حاجة: راجع الحقول اللي جنبها خطأ.")
 
     host = request.get_host()
     return render(request, "adminx/settings.html", {

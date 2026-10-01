@@ -6,7 +6,7 @@ from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
-from . import clock
+from . import clock, newui
 from .models import (
     IDENTITY_GRANTABLE_ROLES,
     MAIL_ALIAS_ROLES,
@@ -934,6 +934,57 @@ class SettingsForm(forms.ModelForm):
         if instance is not None and instance.google_refresh_token \
                 and instance.google_client_id and instance.google_client_secret:
             self.fields["mail_aliases"].disabled = True
+        self._add_new_ui_fields(instance)
+
+    #: A hidden input the settings page carries beside the new-interface section.
+    #: Without it in the post - a script, a page from before the section existed -
+    #: the section was not on the page that was sent, so nothing in it is read as
+    #: "everybody unticked". (A page left open in an old tab does carry it, like every
+    #: other field on the page: saving from it saves what it shows.)
+    NEW_UI_MARKER = "newui_present"
+
+    def _add_new_ui_fields(self, instance):
+        """One pair of fields per ported screen: which roles, and which people one by one."""
+        from .templatetags.eagle_tags import ROLE_MAP
+
+        for key, screen in newui.SCREENS.items():
+            setting = newui.config(instance, key) if instance is not None else newui.DEFAULT
+            choices = [
+                (role, " · ".join(ROLE_MAP.get(role, (role, role))))
+                for role in screen.eligible_roles
+            ]
+            self.fields[f"newui_{key}_roles"] = forms.MultipleChoiceField(
+                choices=choices, required=False, widget=forms.CheckboxSelectMultiple,
+            )
+            self.fields[f"newui_{key}_users"] = forms.ModelMultipleChoiceField(
+                queryset=newui.pilot_candidates(key), required=False,
+                widget=forms.SelectMultiple(attrs={"class": "input", "size": 5}),
+            )
+            if not self.is_bound:
+                self.initial[f"newui_{key}_roles"] = setting["roles"]
+                self.initial[f"newui_{key}_users"] = setting["users"]
+
+    @property
+    def new_ui_rows(self):
+        return [
+            {"screen": screen, "roles": self[f"newui_{key}_roles"], "users": self[f"newui_{key}_users"]}
+            for key, screen in newui.SCREENS.items()
+        ]
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if self.data.get(self.NEW_UI_MARKER) == "1":
+            instance.new_ui = {
+                key: {
+                    "roles": list(self.cleaned_data.get(f"newui_{key}_roles") or []),
+                    "users": sorted(u.pk for u in self.cleaned_data.get(f"newui_{key}_users") or []),
+                }
+                for key in newui.SCREENS
+            }
+        if commit:
+            instance.save()
+            self._save_m2m()
+        return instance
 
 
 class SimulateMessageForm(forms.Form):

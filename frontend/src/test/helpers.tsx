@@ -2,14 +2,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
-import type { Lang, MeResponse, NotificationItem, Theme } from "../api/types";
+import type { Lang, MeResponse, NotificationItem, ScreenKey, Theme } from "../api/types";
 import { PreferencesProvider } from "../i18n/Preferences";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-export function me(overrides: Partial<MeResponse["user"]> = {}, unread = 0): MeResponse {
+export function me(
+  overrides: Partial<MeResponse["user"]> = {},
+  unread = 0,
+  screens: ScreenKey[] = [],
+): MeResponse {
   return {
     ok: true,
     version: 1,
@@ -26,6 +30,7 @@ export function me(overrides: Partial<MeResponse["user"]> = {}, unread = 0): MeR
       ...overrides,
     },
     chats: { types: ["clients", "groups", "staff"] },
+    screens,
     unread_notifications: unread,
     realtime: { path: "/ws/events/", ping_seconds: 25 },
     server_time: "8:00 AM",

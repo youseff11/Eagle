@@ -10,10 +10,10 @@ The built files come from Vite (``frontend/``, built into ``static/app/``) and a
 found through its manifest, so their hashed names never have to be written here.
 Until the app has been built the page says so instead of failing.
 
-The check-in screen is not part of the new app and may not be skipped: when it is
-due, the person is sent to the classic interface, where it opens by itself. The
-check-out and extra-time reminders can be put off there, so they do not send anyone
-away; they are not shown here yet.
+The attendance screens are not part of the new app: when the check-in screen, or a
+check-out or extra-time reminder, is due, the person is sent to the classic interface,
+where it opens by itself. The reminders can be put off there, and ``newui.hand_on``
+keeps the classic page from handing the person back while one is still due.
 
 The page carries a Content-Security-Policy. The app has no inline script or style, so
 the policy is strict: scripts and styles from this site (and the font stylesheet from
@@ -32,6 +32,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
+from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_safe
@@ -114,9 +115,10 @@ def content_security_policy(request):
 @ensure_csrf_cookie
 @require_safe
 def shell(request, path=""):
-    gate = attendance.gate_for(request.user)
-    if gate and gate.get("kind") == "check_in":
-        return redirect("dashboard:home")
+    # The check-in screen may not be skipped, and the check-out and extra-time reminders are
+    # shown only by the classic interface: whoever owes one of them works there.
+    if attendance.gate_for(request.user):
+        return redirect(reverse("dashboard:home") + "?classic=1")
     assets = built_assets()
     if assets is None:
         return HttpResponse(

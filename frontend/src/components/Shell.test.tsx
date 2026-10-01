@@ -124,6 +124,66 @@ describe("Shell", () => {
     await screen.findByText("Nour");
     const link = within(container.querySelector(".sidebar") as HTMLElement).getByRole("link", { name: "الواجهة الحالية" });
     // A plain link, not a router link: it leaves the app for the classic pages.
-    expect(link).toHaveAttribute("href", "/");
+    expect(link).toHaveAttribute("href", "/?classic=1");
+  });
+
+  it("lists a ported screen in the menu only when the server switched it on for this person", async () => {
+    const off = renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, [])) });
+    await screen.findByText("Nour");
+    expect(off.container.querySelector('.sidebar a[href="/translator"]')).toBeNull();
+    off.unmount();
+
+    const on = renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, ["translator_home"])) });
+    const link = await waitFor(() => {
+      const found = on.container.querySelector('.sidebar a[href="/translator"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(link).toHaveTextContent("شغلي");
+  });
+
+  it("keeps the menu, and everything above the page, when a page fails to render", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const mocked = mockFetch({ "/api/prefs/": () => jsonResponse({ ok: true }), "/api/v1/me/": () => jsonResponse(me()) });
+    vi.stubGlobal("fetch", mocked.fn);
+    function Broken(): never {
+      throw new Error("boom");
+    }
+    const view = renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route index element={<Broken />} />
+          <Route path="notifications" element={<div>notifications page</div>} />
+        </Route>
+      </Routes>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في عرض الصفحة دي.");
+    // The menu is still there, and it still works.
+    await screen.findByText("Nour");
+    await userEvent.click(view.container.querySelector('.sidebar a[href="/notifications"]')!);
+    expect(await screen.findByText("notifications page")).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it("titles the page from its address, even before the server has said who the person is", async () => {
+    const mocked = mockFetch({ "/api/prefs/": () => jsonResponse({ ok: true }), "/api/v1/me/": () => new Promise<Response>(() => undefined) });
+    vi.stubGlobal("fetch", mocked.fn);
+    const view = renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="translator" element={<div>desk</div>} />
+        </Route>
+      </Routes>,
+      { route: "/translator" },
+    );
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي");
+  });
+
+  it("never draws a screen it does not know, whatever the server lists", async () => {
+    const view = renderShell({
+      "/api/v1/me/": () => jsonResponse({ ...me({ role: "translator" }), screens: ["no_such_screen", "constructor", "translator_home"] }),
+    });
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toBeNull());
+    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(4); // home, my work, notifications, classic
   });
 });

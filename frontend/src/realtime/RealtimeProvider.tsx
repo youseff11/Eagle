@@ -16,6 +16,10 @@ export function handleEvent(client: ReturnType<typeof useQueryClient>, event: Re
   if (event.t === "notify") {
     void client.invalidateQueries({ queryKey: qk.notifications });
     void client.invalidateQueries({ queryKey: qk.me });
+    // Every workflow step notifies somebody (`services.live_stamp` relies on the same fact), so a
+    // doorbell is also the quickest word that a task moved: the lists refresh without waiting
+    // for the next heartbeat.
+    void client.invalidateQueries({ queryKey: qk.boards });
   } else {
     void client.invalidateQueries({ queryKey: qk.chats });
     void client.invalidateQueries({ queryKey: qk.room(event.id) });

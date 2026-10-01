@@ -3224,8 +3224,8 @@ def listed_room_ids(user):
         mine |= Q(kind=RoomKind.CLIENT)
     rooms = ChatRoom.objects.filter(mine).exclude(is_archived=True)
     # Counting unread messages in a room they may not open would still tell
-    # them the client is writing. The translator test comes after the admin
-    # one, as in ``ChatRoom.can_access``: a superuser whose role is still the
+    # them the client is writing. The translator rule overrides the admin one,
+    # as in ``ChatRoom.can_access``: a superuser whose role is still the
     # default "translator" is refused client rooms there, so they are not
     # counted here either.
     if user.is_translator:
@@ -3858,6 +3858,26 @@ def visible_tasks(user):
     return qs.none()
 
 
+#: How many closed tasks and rating events the translator's desk lists.
+DESK_DONE = 20
+DESK_RATING_EVENTS = 10
+
+
+def translator_desk(user):
+    """What the translator's own page lists: open tasks, recently closed ones, rating history.
+
+    Only tasks where this person is the translator. The classic page and
+    ``/api/v1/translator/home/`` both read it from here, so the two cannot come
+    to show different people different work.
+    """
+    tasks = Task.objects.filter(translator=user).select_related("client", "team_lead")
+    return {
+        "open_tasks": tasks.filter(status__in=ACTIVE_TASK_STATUSES),
+        "done_tasks": tasks.filter(status__in=[TaskStatus.DELIVERED, TaskStatus.CANCELLED])[:DESK_DONE],
+        "rating_events": user.rating_events.all()[:DESK_RATING_EVENTS],
+    }
+
+
 def search_tasks(user, query, limit=8):
     """Tasks by code, title or client code - the nav search's "tasks" half.
 
@@ -4118,6 +4138,11 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
     url = f"/ops/chats/g/{room.id}/" if room.kind != RoomKind.STAFF else ""
     for member in members:
         if member.pk == user.pk:
+            continue
+        # The notice carries the room's title and a link into it, so it goes only to
+        # people who could open the room by hand: not a translator seated in a client
+        # room, not somebody whose seat outlived the task.
+        if not room.can_open(member):
             continue
         notify(
             member, level="info",

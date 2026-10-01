@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
 import { useMe } from "../api/queries";
-import type { Role } from "../api/types";
+import type { Role, ScreenKey } from "../api/types";
 import { usePreferences } from "../i18n/Preferences";
+import { CLASSIC_HOME } from "../lib/navigation";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 
 /** The same labels the classic pages show beside a name (`ROLE_MAP` in eagle_tags). */
@@ -17,6 +19,11 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
   reviewer: ["مراجع", "Reviewer"],
   accounting: ["حسابات", "Accounting"],
   sales: ["مبيعات", "Sales"],
+};
+
+/** The screens that have been ported: where they live in this app, and what the menu calls them. */
+export const SCREENS: Record<ScreenKey, { path: string; icon: string; label: [string, string] }> = {
+  translator_home: { path: "/translator", icon: "pen", label: ["شغلي", "My work"] },
 };
 
 /** Signing out is a POST the classic way too: a form with the token, then the redirect. */
@@ -53,9 +60,14 @@ export function Shell() {
 
   const user = me.data?.user;
   const unread = me.data?.unread_notifications ?? 0;
+  const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
+  // The title follows the address, not the list: it is right before `me` has arrived too.
+  const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) => location.pathname.startsWith(SCREENS[key].path));
   const title = location.pathname.startsWith("/notifications")
     ? t("التنبيهات", "Notifications")
-    : t("الرئيسية", "Home");
+    : here
+      ? t(...SCREENS[here].label)
+      : t("الرئيسية", "Home");
   const realtimeLabel = {
     open: t("متصل لحظيًا", "Live"),
     connecting: t("بيتصل...", "Connecting..."),
@@ -84,12 +96,22 @@ export function Shell() {
               <Icon name="layers" />
               <span>{t("الرئيسية", "Home")}</span>
             </NavLink>
+            {screens.map((key) => (
+              <NavLink
+                key={key}
+                to={SCREENS[key].path}
+                className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}
+              >
+                <Icon name={SCREENS[key].icon} />
+                <span>{t(...SCREENS[key].label)}</span>
+              </NavLink>
+            ))}
             <NavLink to="/notifications" className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
               <Icon name="bell" />
               <span>{t("التنبيهات", "Notifications")}</span>
               {unread > 0 && <span className="nav__count is-hot">{unread}</span>}
             </NavLink>
-            <a href="/" className="nav__item">
+            <a href={CLASSIC_HOME} className="nav__item">
               <Icon name="arrow-right" />
               <span>{t("الواجهة الحالية", "Classic interface")}</span>
             </a>
@@ -150,7 +172,9 @@ export function Shell() {
         </header>
 
         <div className="content">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </div>
     </div>

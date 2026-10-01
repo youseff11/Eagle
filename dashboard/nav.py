@@ -342,6 +342,9 @@ SPOTS = (
     Spot("admin_settings", "s-group-creators", "adminx/settings.html",
          "مين يقدر يعمل جروب مع عميل", "Who can open a client group",
          "جروب عميل صلاحية انشاء group permission"),
+    Spot("admin_settings", "s-newui", "adminx/settings.html",
+         "الواجهة الجديدة", "The new interface",
+         "واجهة جديدة react ريأكت تحويل شاشة نسخة جديدة قديمة تجربة new interface screen switch classic"),
     Spot("admin_settings", "s-whatsapp", "adminx/settings.html",
          "إعدادات واتساب", "WhatsApp settings",
          "واتساب توكن رقم ويب هوك webhook token phone number id verify app secret"

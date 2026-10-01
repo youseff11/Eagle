@@ -8,7 +8,7 @@ const warned = new Set<string>();
  * is reported once. The sprite's names are the `i-…` ids in that file; there is
  * no `chat` (use `message`) and no `ic--xs` size.
  */
-export function Icon({ name, size }: { name: string; size?: "sm" | "lg" | "xl" }) {
+export function Icon({ name, size, filled }: { name: string; size?: "sm" | "lg" | "xl"; filled?: boolean }) {
   if (import.meta.env.DEV && typeof document !== "undefined") {
     const spriteIsPresent = document.getElementById("i-eagle") !== null;
     if (spriteIsPresent && !document.getElementById(`i-${name}`) && !warned.has(name)) {
@@ -17,7 +17,7 @@ export function Icon({ name, size }: { name: string; size?: "sm" | "lg" | "xl" }
     }
   }
   return (
-    <svg className={`ic${size ? ` ic--${size}` : ""}`} aria-hidden="true" focusable="false">
+    <svg className={`ic${size ? ` ic--${size}` : ""}${filled ? " ic--fill" : ""}`} aria-hidden="true" focusable="false">
       <use href={`#i-${name}`} />
     </svg>
   );

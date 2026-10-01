@@ -1,12 +1,18 @@
-import { NavLink } from "react-router";
+import { Navigate, NavLink } from "react-router";
 import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
+import { CLASSIC_HOME } from "../lib/navigation";
 
 export function HomePage() {
   const { t } = usePreferences();
   const me = useMe();
   const unread = me.data?.unread_notifications ?? 0;
+
+  // A translator whose desk has been switched over starts there, as the classic `/` does for them.
+  if (me.data?.user.role === "translator" && (me.data.screens ?? []).includes("translator_home")) {
+    return <Navigate to="/translator" replace />;
+  }
 
   return (
     <>
@@ -49,7 +55,7 @@ export function HomePage() {
               </div>
             </div>
           </div>
-          <a className="btn btn--sm" href="/">
+          <a className="btn btn--sm" href={CLASSIC_HOME}>
             {t("افتح الواجهة الحالية", "Open the classic interface")}
           </a>
         </div>

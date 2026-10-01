@@ -2,7 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { api } from "./client";
 import { qk } from "./keys";
-import type { MeResponse, NotificationsResponse, ReadResponse } from "./types";
+import type { MeResponse, NotificationsResponse, ReadResponse, TranslatorHomeResponse } from "./types";
 
 /** How often to ask when the socket is not there to say something changed. */
 export const FALLBACK_POLL_MS = 15000;
@@ -45,5 +45,18 @@ export function useMarkRead() {
       void client.invalidateQueries({ queryKey: qk.notifications });
       void client.invalidateQueries({ queryKey: qk.me });
     },
+  });
+}
+
+/** The translator's own desk. Refreshed when the boards move (see `useHeartbeat`, `handleEvent`). */
+export function useTranslatorHome(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.translatorHome,
+    queryFn: () => api<TranslatorHomeResponse>("/api/v1/translator/home/"),
+    refetchInterval,
+    // Everybody else is refused, and every refusal is written to the audit log: a page left
+    // open would write a row at every refresh.
+    enabled,
   });
 }

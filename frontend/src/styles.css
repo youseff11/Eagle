@@ -21,3 +21,6 @@
   justify-content: center;
   margin-top: 14px;
 }
+
+/* The buttons under a task on the translator's desk. */
+.desk-actions { margin-top: 11px; }

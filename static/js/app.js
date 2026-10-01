@@ -40,6 +40,10 @@ window.Eagle = (function () {
       body = new FormData();
       Object.keys(data || {}).forEach(function (k) { body.append(k, data[k]); });
     }
+    // A form with nothing in it is sent as a request with no body at all. The empty
+    // multipart body a browser makes of it is refused with a bare 400 by daphne, in
+    // front of Django, before the view runs - which made "accept" answer "too late".
+    if (body.keys().next().done) { body = undefined; }
     return fetch(url, {
       method: "POST",
       headers: { "X-CSRFToken": csrf(), "X-Requested-With": "XMLHttpRequest" },

@@ -35,9 +35,10 @@ from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, clock, identity, services
-from .models import Notification, Role
+from . import api, clock, identity, newui, services
+from .models import AppSettings, Notification, Role, TaskStatus
 from .permissions import api_role_required
+from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
 
 log = logging.getLogger("dashboard")
 
@@ -188,6 +189,9 @@ def me(request):
             "theme": user.ui_theme,
         },
         "chats": {"types": types},
+        # The ported screens that are switched on for this person (newui.py):
+        # the menu lists exactly these, and the home page hands them on.
+        "screens": newui.enabled_keys(user),
         "unread_notifications": _unread(user),
         "realtime": {"path": "/ws/events/", "ping_seconds": PING_SECONDS},
         "server_time": clock.fmt12(timezone.now(), "en"),
@@ -298,3 +302,75 @@ def client_read(request, client_code):
     """
     client = api._client_or_404(request, client_code)
     return JsonResponse({"ok": True, "moved": services.mark_client_read(request.user, client)})
+
+
+# ---------------------------------------------------------------------------
+# The translator's desk (phase 5, first screen)
+# ---------------------------------------------------------------------------
+
+def _two(table, value):
+    """``{"ar", "en"}`` for a value in one of eagle_tags' ``(ar, en)`` tables."""
+    ar, en = table.get(value, (value, value))
+    return {"value": value, "ar": ar, "en": en}
+
+
+def _status_json(status):
+    tone, ar, en = STATUS_MAP.get(status, ("new", status, status))
+    return {"value": status, "tone": tone, "ar": ar, "en": en}
+
+
+def _desk_task_json(task, user, warning_minutes):
+    """One open task as the translator's own page shows it.
+
+    The date is ``deadline_for(user)``: a translator's own, which their leader
+    set and which is often earlier than the client's, never the client's. The
+    client is ``label_for(user)``: a code, never a name. The server writes the
+    time too (Cairo, twelve hours, in both languages), so the page does no
+    time arithmetic of its own.
+    """
+    due = task.deadline_for(user)
+    origin = ORIGIN_MAP.get(task.origin)
+    return {
+        "code": task.code,
+        "title": task.title,
+        "status": _status_json(task.status),
+        "priority": _two(PRIORITY_MAP, task.priority),
+        "origin": {"value": task.origin, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None,
+        "client": task.client.label_for(user) if task.client_id else "—",
+        "source_lang": task.source_lang,
+        "target_lang": task.target_lang,
+        "due": {
+            "ar": clock.fmt12(due, "ar", "%Y-%m-%d"),
+            "en": clock.fmt12(due, "en", "%Y-%m-%d"),
+        } if due else None,
+        "due_state": task.deadline_state(user, warning_minutes),
+        "can_ask_more_time": task.status == TaskStatus.IN_PROGRESS,
+        "url": f"/tasks/{task.code}/",
+    }
+
+
+@endpoint("GET")
+@api_role_required(Role.TRANSLATOR)
+def translator_home(request):
+    """The translator's own desk: their open tasks, what they closed lately, their rating history.
+
+    Built from ``services.translator_desk``, the function the classic page
+    reads, so the two cannot disagree about whose work this is. The admin may
+    ask too (the classic page lets them), and sees their own desk.
+    """
+    user = request.user
+    desk = services.translator_desk(user)
+    warning = AppSettings.load().deadline_warning_minutes
+    return JsonResponse({
+        "ok": True,
+        "rating": float(user.rating),
+        "open": [_desk_task_json(task, user, warning) for task in desk["open_tasks"]],
+        "done": [
+            {"code": task.code, "status": _status_json(task.status), "url": f"/tasks/{task.code}/"}
+            for task in desk["done_tasks"]
+        ],
+        "rating_events": [
+            {"delta": str(event.delta), "reason_ar": event.reason_ar, "reason_en": event.reason_en}
+            for event in desk["rating_events"]
+        ],
+    })

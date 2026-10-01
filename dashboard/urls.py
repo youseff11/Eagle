@@ -214,6 +214,7 @@ urlpatterns = [
     path("api/v1/clients/<str:client_code>/messages/", api_v1.client_messages, name="v1_client_messages"),
     path("api/v1/groups/<int:room_id>/read/", api_v1.group_read, name="v1_group_read"),
     path("api/v1/clients/<str:client_code>/read/", api_v1.client_read, name="v1_client_read"),
+    path("api/v1/translator/home/", api_v1.translator_home, name="v1_translator_home"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
     path("app/", spa.shell, name="app"),
