@@ -161,14 +161,29 @@ ASGI_APPLICATION = "Core.asgi.application"
 # process and the worker are different processes and must share one layer - and
 # in memory otherwise, which is right for a laptop and for the tests.
 REDIS_URL = env("REDIS_URL", "EAGLE_REDIS_URL")
+#: Seconds one read from Redis may take. Must stay above the layer's own blocking wait (5 s).
+REDIS_READ_TIMEOUT = 20
 if REDIS_URL:
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             # A Redis that is unreachable should fail in two seconds, not hang.
-            # No read timeout on purpose: the layer's own receive loop waits
-            # up to five seconds for a message, and a shorter one would break it.
-            "CONFIG": {"hosts": [{"address": REDIS_URL, "socket_connect_timeout": 2}]},
+            #
+            # The read timeout is set on purpose, and well above five seconds. The layer's
+            # receive loop asks Redis for a message with a blocking pop that waits five
+            # seconds (``RedisChannelLayer.brpop_timeout``), and Redis answers "nothing" at
+            # the end of them. redis-py 8 gives every read a five second limit of its own,
+            # so the limit and the wait ran out together: an idle connection died with
+            # "Timeout reading from ..." about every five seconds, took its consumer down
+            # with it, and the page's live dot went green, red, green. (Render installed
+            # redis 8; older versions had no limit, which is what this comment used to rely
+            # on.) 20 seconds is long enough to be a real answer and short enough that a
+            # connection that has really died is noticed.
+            "CONFIG": {"hosts": [{
+                "address": REDIS_URL,
+                "socket_connect_timeout": 2,
+                "socket_timeout": REDIS_READ_TIMEOUT,
+            }]},
         }
     }
 else:
