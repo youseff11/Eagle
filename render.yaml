@@ -19,7 +19,11 @@ services:
     runtime: python
     plan: starter
     region: frankfurt
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    # The React app first (frontend/ -> static/app), then Python, then collectstatic, which
+    # hashes the built files. --include=dev because the build tools are dev dependencies;
+    # --ignore-scripts because the build sees every environment variable of this service
+    # (database URL, storage key) and no package here needs an install script.
+    buildCommand: cd frontend && npm ci --ignore-scripts --include=dev && npm run build && cd .. && pip install -r requirements.txt && python manage.py collectstatic --noinput
     preDeployCommand: python manage.py migrate --noinput
     # Limits, because daphne has none by default: a frame is a ping, so 2 KB is
     # plenty; a request that hangs is cut at 60 s; a socket lives 15 minutes and

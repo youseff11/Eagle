@@ -202,6 +202,10 @@ class NotificationTests(_Site):
         self.assertEqual(body["next_before"], self.mine[3].id)
         self.assertEqual(body["unread"], 5)
         self.assertTrue(all(item["read"] is False for item in body["items"]))
+        # A history needs the day as well as the hour: both come formatted from the server.
+        for item in body["items"]:
+            self.assertRegex(item["date"], r"^\d{4}-\d{2}-\d{2}$")
+            self.assertTrue(item["created"])
 
     def test_the_cursor_walks_back_to_the_end(self):
         seen, before = [], None
@@ -698,3 +702,42 @@ class GroupRowUsesTheViewersOwnLineTests(_Site):
         self.assertFalse(row["window_open"])
         self.assertEqual(row["minutes_left"], 0)
         self.assertTrue(self.client_obj.reply_window_open)
+
+
+class NotificationLinksAreOnlyPathsOnThisSiteTests(_Site):
+    """Found by the security review: the link is drawn as a button and followed by scripts."""
+
+    def stored(self, url):
+        return services.notify(self.ops, title_ar="x", title_en="x", url=url).url
+
+    def test_an_honest_path_is_kept_exactly(self):
+        for url in ("/tasks/TSK-00001/", "/tasks/TSK-00001/?room=3", "/ops/chats/g/12/#end", "/a/b/c", "/"):
+            self.assertEqual(self.stored(url), url)
+
+    def test_stray_spaces_around_an_honest_path_are_trimmed(self):
+        self.assertEqual(self.stored("  /tasks/TSK-00001/ "), "/tasks/TSK-00001/")
+
+    def test_everything_else_is_dropped(self):
+        for url in (
+            "https://evil.example/x", "http://evil.example", "//evil.example", "///evil.example",
+            "javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,x", "tasks/relative",
+            "/\\evil.example", "/ok\nHost: evil", "/tab\there", "",
+            "/.//evil.example", "/..//evil.example", "/a/..//evil.example", "/%2e//evil.example",
+            "/%2E%2e//evil.example", "/a/../tasks/", "/./tasks/", "//", "/a//b",
+        ):
+            self.assertEqual(self.stored(url), "", repr(url))
+
+    def test_the_notifications_api_never_carries_an_unsafe_link(self):
+        self.stored("javascript:alert(document.cookie)")
+        self.stored("/.//evil.example")
+        self.stored("/tasks/TSK-00001/")
+        browser = DjangoClient()
+        browser.force_login(self.ops)
+        body = _json(browser.get(reverse("dashboard:v1_notifications"), {"limit": 50}))
+        urls = {item["url"] for item in body["items"]}
+        self.assertIn("/tasks/TSK-00001/", urls)
+        for url in urls:
+            # The workflow's own notifications are in the page too: every link is a clean path.
+            self.assertTrue(url == "" or (url.startswith("/") and not url.startswith("//")), url)
+            self.assertNotIn("javascript:", url)
+            self.assertNotIn("evil", url)

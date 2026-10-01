@@ -211,7 +211,13 @@ def notifications(request):
     page = page[:limit]
     return JsonResponse({
         "ok": True,
-        "items": [dict(api._notification_json(n), read=n.is_read) for n in page],
+        "items": [
+            dict(
+                api._notification_json(n), read=n.is_read,
+                date=timezone.localtime(n.created_at).strftime("%Y-%m-%d"),
+            )
+            for n in page
+        ],
         "next_before": page[-1].id if more else None,
         "unread": _unread(request.user),
     })

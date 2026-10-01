@@ -2,7 +2,7 @@
 
 from django.urls import path, re_path
 
-from . import api, api_v1, views, webhooks
+from . import api, api_v1, spa, views, webhooks
 
 app_name = "dashboard"
 
@@ -214,6 +214,10 @@ urlpatterns = [
     path("api/v1/clients/<str:client_code>/messages/", api_v1.client_messages, name="v1_client_messages"),
     path("api/v1/groups/<int:room_id>/read/", api_v1.group_read, name="v1_group_read"),
     path("api/v1/clients/<str:client_code>/read/", api_v1.client_read, name="v1_client_read"),
+
+    # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
+    path("app/", spa.shell, name="app"),
+    re_path(r"^app/(?P<path>.+)$", spa.shell, name="app_path"),
     path("assignments/<int:pk>/", views.assignment_preview, name="assignment_preview"),
     path("api/assignments/<int:pk>/accept/", api.accept_assignment, name="api_accept"),
     path("api/assignments/<int:pk>/decline/", api.decline_assignment, name="api_decline"),

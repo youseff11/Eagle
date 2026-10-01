@@ -1,0 +1,23 @@
+/* What the new app adds to the design system in static/css/app.css, which the page
+   loads first. Only tokens are used here (--ok, --warn, --danger, --brand ...). */
+
+.realtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--faint);
+  flex: none;
+}
+.realtime-dot[data-state="open"] { background: var(--ok); }
+.realtime-dot[data-state="connecting"] { background: var(--warn); }
+.realtime-dot[data-state="closed"],
+.realtime-dot[data-state="stopped"] { background: var(--danger); }
+
+.note.is-unread { border-inline-start: 3px solid var(--brand); }
+
+.list-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}

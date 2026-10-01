@@ -24,6 +24,9 @@ secrets.json
 
 # --- Generated ---------------------------------------------------------------
 /staticfiles/
+# The React app: built by `npm run build` (frontend/) into static/app, never committed.
+/static/app/
+frontend/node_modules/
 *.log
 
 # --- Python ------------------------------------------------------------------

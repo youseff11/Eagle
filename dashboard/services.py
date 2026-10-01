@@ -43,6 +43,32 @@ logger = logging.getLogger(__name__)
 # Notifications
 # ---------------------------------------------------------------------------
 
+def safe_notification_path(url):
+    """``url`` if it is a plain path on this site, else ``""``.
+
+    The link is drawn as a button on the notifications page and followed by
+    scripts, so it must never be another site, a ``javascript:`` address, a
+    protocol-relative ``//host``, or a path whose dot-segments collapse into one
+    (``/.//host`` is ``//host`` once a browser has parsed it). Every caller passes
+    a path built from codes and ids; this is what keeps it so when one of them
+    one day passes something a person typed.
+    """
+    import re
+
+    url = (url or "").strip()
+    if not url.startswith("/") or url.startswith("//") or "\\" in url:
+        return ""
+    if any(ord(char) < 32 for char in url):
+        return ""
+    path = re.split(r"[?#]", url, maxsplit=1)[0]
+    segments = path.split("/")[1:]
+    if "//" in path or any(
+        segment.lower() in (".", "..", "%2e", ".%2e", "%2e.", "%2e%2e") for segment in segments
+    ):
+        return ""
+    return url
+
+
 def notify(user, *, title_ar, title_en, body_ar="", body_en="", level="info",
            url="", sound=False, task=None):
     if user is None:
@@ -50,7 +76,7 @@ def notify(user, *, title_ar, title_en, body_ar="", body_en="", level="info",
     return Notification.objects.create(
         user=user, title_ar=title_ar, title_en=title_en,
         body_ar=body_ar, body_en=body_en, level=level,
-        url=url, sound=sound, task=task,
+        url=safe_notification_path(url), sound=sound, task=task,
     )
 
 

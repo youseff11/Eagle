@@ -1,0 +1,129 @@
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Route, Routes } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "../test/helpers";
+import { Shell } from "./Shell";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  document.documentElement.removeAttribute("dir");
+  document.documentElement.removeAttribute("data-theme");
+});
+
+function renderShell(routes: FetchRoutes, options: Parameters<typeof renderWithProviders>[1] = {}) {
+  const mocked = mockFetch({
+    "/api/prefs/": () => jsonResponse({ ok: true }),
+    ...routes,
+  });
+  vi.stubGlobal("fetch", mocked.fn);
+  const view = renderWithProviders(
+    <Routes>
+      <Route element={<Shell />}>
+        <Route index element={<div>home page</div>} />
+        <Route path="notifications" element={<div>notifications page</div>} />
+      </Route>
+    </Routes>,
+    options,
+  );
+  return { ...view, calls: mocked.calls };
+}
+
+describe("Shell", () => {
+  it("shows who is signed in, with the role in the page's language", async () => {
+    renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "team_lead", short_name: "Mona", initials: "MS" })) });
+    expect(await screen.findByText("Mona")).toBeInTheDocument();
+    expect(screen.getByText("MS")).toBeInTheDocument();
+    expect(screen.getByText("تيم ليدر")).toBeInTheDocument();
+  });
+
+  it("labels every role the server can send", async () => {
+    const roles = ["admin", "operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales"] as const;
+    for (const role of roles) {
+      const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({ role })) }, { lang: "en" });
+      const chip = await waitFor(() => {
+        const found = view.container.querySelector(".chip");
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      expect(chip.textContent, role).not.toBe(role);
+      view.unmount();
+    }
+  });
+
+  it("shows the unread count on the bell and in the menu, and hides it at zero", async () => {
+    const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 3)) });
+    await waitFor(() => expect(view.container.querySelector(".icon-btn__dot")).toHaveTextContent("3"));
+    expect(view.container.querySelector(".nav__count")).toHaveTextContent("3");
+    view.unmount();
+
+    const none = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 0)) });
+    await screen.findByText("Nour");
+    expect(none.container.querySelector(".icon-btn__dot")).toBeNull();
+    expect(none.container.querySelector(".nav__count")).toBeNull();
+  });
+
+  it("switches language: the words, the direction, and it saves the choice", async () => {
+    const { container, calls } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    expect(within(container).getAllByText("الرئيسية").length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: "EN" }));
+    expect(within(container).getAllByText("Home").length).toBeGreaterThan(0);
+    expect(document.documentElement.dir).toBe("ltr");
+    expect(document.documentElement.lang).toBe("en");
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/prefs/")).toBe(true));
+    expect(String(calls.find((c) => c.url === "/api/prefs/")!.init?.body)).toBe("lang=en");
+    await userEvent.click(screen.getByRole("button", { name: "عربي" }));
+    expect(document.documentElement.dir).toBe("rtl");
+  });
+
+  it("toggles the theme and saves it", async () => {
+    const { calls } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) }, { theme: "dark" });
+    await screen.findByText("Nour");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    await userEvent.click(screen.getByTitle("تبديل الوضع الليلي"));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/prefs/")).toBe(true));
+    expect(String(calls.find((c) => c.url === "/api/prefs/")!.init?.body)).toBe("theme=light");
+  });
+
+  it("opens and closes the phone menu", async () => {
+    const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    const sidebar = container.querySelector(".sidebar")!;
+    expect(sidebar).not.toHaveClass("is-open");
+    await userEvent.click(container.querySelector(".menu-toggle")!);
+    expect(sidebar).toHaveClass("is-open");
+    expect(container.querySelector(".drawer-scrim")).toHaveClass("is-open");
+    await userEvent.keyboard("{Escape}");
+    expect(sidebar).not.toHaveClass("is-open");
+    await userEvent.click(container.querySelector(".menu-toggle")!);
+    await userEvent.click(container.querySelector(".drawer-scrim")!);
+    expect(sidebar).not.toHaveClass("is-open");
+  });
+
+  it("closes the menu when you go somewhere", async () => {
+    const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    await userEvent.click(container.querySelector(".menu-toggle")!);
+    await userEvent.click(container.querySelector('.sidebar a[href="/notifications"]')!);
+    expect(await screen.findByText("notifications page")).toBeInTheDocument();
+    expect(container.querySelector(".sidebar")).not.toHaveClass("is-open");
+    expect(container.querySelector(".nav__item.is-active")).toHaveTextContent("التنبيهات");
+  });
+
+  it("shows whether the live connection is up", async () => {
+    const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    // No provider above it in this test: the default is "closed", drawn as offline.
+    expect(container.querySelector(".realtime-dot")).toHaveAttribute("data-state", "closed");
+  });
+
+  it("offers the way back to the classic interface", async () => {
+    const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    const link = within(container.querySelector(".sidebar") as HTMLElement).getByRole("link", { name: "الواجهة الحالية" });
+    // A plain link, not a router link: it leaves the app for the classic pages.
+    expect(link).toHaveAttribute("href", "/");
+  });
+});

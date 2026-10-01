@@ -1,0 +1,29 @@
+{% load static %}<!DOCTYPE html>
+<html lang="{{ app_config.lang }}" dir="{% if app_config.lang == 'ar' %}rtl{% else %}ltr{% endif %}" data-theme="{{ app_config.theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eagle</title>
+  <link rel="icon" href="{% static 'img/logo-removebg-preview.png' %}" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% for href in assets.css %}<link rel="stylesheet" href="{{ href }}">
+  {% endfor %}
+</head>
+<body>
+{% comment %}
+The shell of the React app (frontend/). Everything inside #root is drawn by it.
+The classic pages' scripts are not loaded here on purpose: they expect a
+server-rendered page. The sprite is here because the app's icons point at it.
+{% endcomment %}
+{% include "partials/icons.html" %}
+
+<div id="root"></div>
+
+{{ app_config|json_script:"app-config" }}
+<script type="module" src="{{ assets.js }}"></script>
+</body>
+</html>
