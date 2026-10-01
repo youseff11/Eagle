@@ -1242,8 +1242,16 @@ def groups_for(user, query=""):
     theirs = _Q(kind=RoomKind.CLIENT)
     if not user.is_admin_role:
         theirs &= _Q(members=user)
+    # A translator is never shown a client room, seat or no seat: the list
+    # would carry its title and the last thing the client wrote, even though
+    # ``ChatRoom.can_access`` refuses to open it.
+    qs = ChatRoom.objects.filter(mine if user.is_translator else (mine | theirs))
+    # A task's room is listed only to someone who may open the task: a seat
+    # that outlived the assignment would otherwise show the title, the unread
+    # count and the last thing the client wrote, for a room that answers 404.
+    qs = qs.filter(Q(task__isnull=True) | Q(task__in=visible_tasks(user)))
     # Archived rooms stay readable by their URL and stay out of the list.
-    qs = ChatRoom.objects.filter(mine | theirs).exclude(is_archived=True)
+    qs = qs.exclude(is_archived=True)
     query = (query or "").strip()
     if query:
         qs = qs.filter(
@@ -1316,12 +1324,13 @@ def _mirror_into(room, inbound):
 
     # Operation and admin already got the generic "new client message" ping
     # from the inbox; only the people who would otherwise miss it are told.
-    # For a task room, can_view is re-checked per member so a stale membership
-    # row cannot leak a preview of the client's words to someone off the task.
-    # A standalone group has no task, so membership is the whole rule there.
+    # The notification quotes the client's words, so each member is put to the
+    # same test as opening the room (``can_open``): a stale membership row, a
+    # person taken off the task, or a translator seated here by hand gets
+    # nothing - not a preview, not a sound.
     recipients = [
         m for m in room.members.exclude(role__in=[Role.OPERATION, Role.ADMIN])
-        if task is None or task.can_view(m)
+        if room.can_open(m)
     ]
     for member in recipients:
         notify(
@@ -1337,6 +1346,9 @@ def _mirror_into(room, inbound):
 
 def rooms_for(task, user):
     qs = task.rooms.all()
+    # Translator first, as in ``ChatRoom.can_access``.
+    if user.is_translator:
+        qs = qs.exclude(kind=RoomKind.CLIENT)
     if user.is_admin_role:
         return qs
     return qs.filter(members=user).distinct()
@@ -3184,10 +3196,16 @@ def listed_room_ids(user):
     mine = Q(members=user, kind__in=CHAT_ROOM_KINDS)
     if user.is_admin_role:
         mine |= Q(kind=RoomKind.CLIENT)
-    return list(
-        ChatRoom.objects.filter(mine).exclude(is_archived=True)
-        .values_list("id", flat=True).distinct()
-    )
+    rooms = ChatRoom.objects.filter(mine).exclude(is_archived=True)
+    # Counting unread messages in a room they may not open would still tell
+    # them the client is writing. The translator test comes after the admin
+    # one, as in ``ChatRoom.can_access``: a superuser whose role is still the
+    # default "translator" is refused client rooms there, so they are not
+    # counted here either.
+    if user.is_translator:
+        rooms = rooms.exclude(kind=RoomKind.CLIENT)
+    rooms = rooms.filter(Q(task__isnull=True) | Q(task__in=visible_tasks(user)))
+    return list(rooms.values_list("id", flat=True).distinct())
 
 
 def unread_chat_total(user):

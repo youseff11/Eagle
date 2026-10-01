@@ -1004,9 +1004,11 @@ def chat_send(request, room_id):
     where = task.code if task else (room.title or room.display_title)
     url = f"/tasks/{task.code}/?room={room.id}" if task else f"/ops/chats/g/{room.id}/"
     # A membership row can outlive the assignment; the notification body quotes
-    # the message, so re-check access rather than trusting the row.
+    # the message, so put each member to the test of opening the room rather
+    # than trusting the row. In a client room that is also what keeps a
+    # translator seated there by hand from being sent the operation's reply.
     for member in room.members.exclude(pk=request.user.pk):
-        if task is not None and not task.can_view(member):
+        if not room.can_open(member):
             continue
         services.notify(
             member,
@@ -1101,6 +1103,10 @@ def _group_json(room, viewer, unread=0):
     """A group in the same shape as a 1:1 conversation, so one list renders both."""
     preview = services.group_preview(room, viewer)
     client = room.relay_client
+    # The 24-hour window of the line this person answers from, as in
+    # ``_conversation_json`` - not whichever line the client wrote to last,
+    # which would tell the operation when the client spoke to a Sales number.
+    window_open, minutes_left = client.reply_window_for(viewer) if client else (False, 0)
     if room.kind == RoomKind.STAFF:
         person = room.other_member(viewer)
         return {
@@ -1139,8 +1145,8 @@ def _group_json(room, viewer, unread=0):
         "time": clock.fmt12(preview["at"], "en"),
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         "channel": services.client_channel(client) if client else "",
-        "window_open": client.reply_window_open if client else False,
-        "minutes_left": client.reply_window_minutes_left if client else 0,
+        "window_open": window_open,
+        "minutes_left": minutes_left,
         "unread": unread,
     }
 

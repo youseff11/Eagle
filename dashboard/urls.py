@@ -1,8 +1,8 @@
 """URL map for the Eagle dashboard app."""
 
-from django.urls import path
+from django.urls import path, re_path
 
-from . import api, views, webhooks
+from . import api, api_v1, views, webhooks
 
 app_name = "dashboard"
 
@@ -203,6 +203,17 @@ urlpatterns = [
     path("api/attendance/punch/", api.attendance_punch, name="api_attendance_punch"),
     path("api/notifications/read/", api.mark_notifications_read, name="api_notifications_read"),
     path("api/prefs/", api.set_prefs, name="api_prefs"),
+
+    # -- /api/v1/: the JSON layer the React front end uses (dashboard/api_v1.py) --
+    path("api/v1/me/", api_v1.me, name="v1_me"),
+    path("api/v1/notifications/", api_v1.notifications, name="v1_notifications"),
+    path("api/v1/notifications/read/", api_v1.notifications_read, name="v1_notifications_read"),
+    path("api/v1/chats/", api_v1.chats, name="v1_chats"),
+    path("api/v1/rooms/<int:room_id>/messages/", api_v1.room_messages, name="v1_room_messages"),
+    path("api/v1/groups/<int:room_id>/messages/", api_v1.group_messages, name="v1_group_messages"),
+    path("api/v1/clients/<str:client_code>/messages/", api_v1.client_messages, name="v1_client_messages"),
+    path("api/v1/groups/<int:room_id>/read/", api_v1.group_read, name="v1_group_read"),
+    path("api/v1/clients/<str:client_code>/read/", api_v1.client_read, name="v1_client_read"),
     path("assignments/<int:pk>/", views.assignment_preview, name="assignment_preview"),
     path("api/assignments/<int:pk>/accept/", api.accept_assignment, name="api_accept"),
     path("api/assignments/<int:pk>/decline/", api.decline_assignment, name="api_decline"),
@@ -269,4 +280,8 @@ urlpatterns = [
     # -- webhooks -----------------------------------------------------------
     path("webhooks/whatsapp/", webhooks.whatsapp_hook, name="wh_whatsapp"),
     path("webhooks/email/", webhooks.email_hook, name="wh_email"),
+
+    # Last on purpose: anything else under /api/v1/ is a JSON 404. A v1 route
+    # added after this line would be shadowed by it.
+    re_path(r"^api/v1/", api_v1.not_found, name="v1_not_found"),
 ]

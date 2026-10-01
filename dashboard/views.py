@@ -260,6 +260,20 @@ def serve_file(request, name):
     return response
 
 
+def csrf_failure(request, reason=""):
+    """``CSRF_FAILURE_VIEW``: JSON for ``/api/v1/``, Django's own page for the rest.
+
+    A front end that POSTs without the token gets an answer it can read; a
+    person whose form expired, and the pages' own scripts, get what they always
+    did.
+    """
+    if request.path.startswith("/api/v1/"):
+        return JsonResponse({"ok": False, "error": "csrf"}, status=403)
+    from django.views.csrf import csrf_failure as django_csrf_failure
+
+    return django_csrf_failure(request, reason=reason)
+
+
 def permission_denied(request, exception=None):
     """The project's 403 page (``handler403``) - and the refusal's audit row.
 

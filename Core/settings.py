@@ -90,6 +90,7 @@ if _render_host and _render_host not in ALLOWED_HOSTS:
 
 # Django needs the scheme-qualified origin for POSTs over HTTPS. Derive it from
 # ALLOWED_HOSTS so a deploy does not silently break every form.
+CSRF_FAILURE_VIEW = "dashboard.views.csrf_failure"
 CSRF_TRUSTED_ORIGINS = env_list("EAGLE_CSRF_ORIGINS", "CSRF_TRUSTED_ORIGINS")
 if not CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS = [
