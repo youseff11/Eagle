@@ -786,3 +786,39 @@ class AdminStartsAConversationTests(_Send):
         self.assertEqual(AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.admin).count(), before)
         # What the admin wrote on the company line is a conversation of that line: the operation may now answer it.
         self.assertEqual(self.to_client(self.ops, code=fresh.code, body="and welcome from us").status_code, 200)
+
+
+class ClassicDoorLineTests(_Send):
+    """The rule is the send's, not the new door's: the classic endpoint (the old chat page) asks it too."""
+
+    def classic(self, user, client, **data):
+        return self.browser(user).post(reverse("dashboard:api_client_chat_send", args=[client.code]), data)
+
+    def test_a_client_who_wrote_to_another_line_is_not_there_for_the_old_chat_page_either(self):
+        for user in (self.ops, self.sales2):
+            answer = self.classic(user, self.sales_client, body="intruding")
+            self.assertEqual(answer.status_code, 404, user.username)
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.nothing_left_the_building()
+        self.assertTrue(AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).exists())
+        # The line's own person and the admin may; and the company's line is the operation's and the admin's.
+        for user in (self.sales, self.admin):
+            self.assertEqual(self.classic(user, self.sales_client, body="mine").status_code, 200, user.username)
+        self.assertEqual(self.classic(self.ops, self.client_obj, body="ours").status_code, 200)
+        self.assertEqual(self.classic(self.sales, self.client_obj, body="not theirs").status_code, 404)
+        self.assertEqual(OutboundMessage.objects.filter(body="not theirs").count(), 0)
+
+    def test_the_old_page_reads_a_failed_row_the_same_way_it_is_written(self):
+        # Nothing was sent for a refusal, so there is nothing to mark read or to quote either.
+        before = ChatRead.objects.count()
+        self.classic(self.ops, self.sales_client, body="intruding", reply_uid=f"in-{self.sales_heard.pk}")
+        self.assertEqual(ChatRead.objects.count(), before)
+
+    def test_a_code_off_the_line_answers_like_an_unknown_one_whatever_was_sent(self):
+        # The new door looks at who the client is before it looks at the form: an empty or an over-long one to a code
+        # that is not theirs must not say "empty" or "too long" (which would tell the code exists).
+        for data in ({}, {"body": "x" * (api_v1.MAX_CLIENT_TEXT + 1)}, {"body": "hello"}):
+            hidden = self.to_client(self.ops, code=self.sales_client.code, **data)
+            unknown = self.to_client(self.ops, code="CL-9999", **data)
+            self.assertEqual((hidden.status_code, hidden.content), (unknown.status_code, unknown.content), data and list(data))
+            self.assertEqual(hidden.status_code, 404)

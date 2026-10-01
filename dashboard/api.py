@@ -1614,13 +1614,37 @@ def _resolve_reply(client, reply_uid, viewer):
     return "", ""
 
 
+def may_answer(client, user):
+    """Can this person see a conversation with this client - one on a line they work?
+
+    Answering clients is a role, but which clients is a line: an operation person who typed a code
+    could otherwise write from the company number to a client who had only ever written to a Sales
+    number, and any Sales person could write to any client from their own. What a person may not
+    read they may not write to either: a message already seen on their line (the client's, or one
+    of ours) is what makes the conversation theirs.
+
+    The admin works every line and may open a conversation: nothing is asked of them, and no refusal
+    is written down against them.
+    """
+    from . import lines
+
+    if user.is_admin_role:
+        return True
+    if services._visible_inbound(client, user).exists():
+        return True
+    return client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user)).exists()
+
+
 def send_to_client(request, client):
     """The send itself: ``(ok, outbound, error_ar)``, and nothing else.
 
-    Whether the conversation counts as read afterwards is the caller's: the
-    classic page says "answering is reading" for the whole thread, the new app
-    says it only for what it showed (``/api/v1/``, ``mark_client_read(upto=)``).
+    A conversation the person has no line in is a 404, written down (``may_answer``), the same answer
+    as for a code that does not exist. Whether the conversation counts as read afterwards is the
+    caller's: the classic page says "answering is reading" for the whole thread, the new app says it
+    only for what it showed (``/api/v1/``, ``mark_client_read(upto=)``).
     """
+    if not may_answer(client, request.user):
+        identity.hidden(request, "client")
     reply_wamid, reply_preview = _resolve_reply(client, request.POST.get("reply_uid", ""), request.user)
     return services.send_client_message(
         client,

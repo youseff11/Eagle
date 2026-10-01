@@ -35,8 +35,8 @@ from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, clock, identity, lines, newui, services
-from .models import AppSettings, Channel, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
+from . import api, clock, identity, newui, services
+from .models import AppSettings, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
 
@@ -470,30 +470,15 @@ def staff_send(request, user_id):
     return _sent_to_room(request, services.staff_room(request.user, other))
 
 
-def _may_answer(client, user):
-    """Can this person see a conversation with this client - one on a line they work?
-
-    The classic door only asks that they answer clients at all, so an operation person who typed a code
-    could write from the company number to a client who had only ever written to a Sales number, and any
-    Sales person could write to any client from their own. What a person may not read they may not write
-    to either: a message already seen on their line (the client's, or one of ours) is what makes it theirs.
-    The admin works every line and may open a conversation: nothing is asked of them, and no refusal is written
-    down against them.
-    """
-    if user.is_admin_role:
-        return True
-    if services._visible_inbound(client, user).exists():
-        return True
-    return client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user)).exists()
-
-
 @endpoint("POST")
 @api_role_required(Role.OPERATION, Role.SALES)
 def client_send(request, client_code):
     """Answer a client, on WhatsApp, from the line this person answers from."""
     client = api._client_or_404(request, client_code)
-    if not _may_answer(client, request.user):
-        # A 404, written down: the same answer as for a code that does not exist.
+    # Asked here, before the form is looked at, so that a code off this person's line answers like an unknown
+    # one whatever they sent (an empty form would otherwise say "empty" only for the codes that are theirs).
+    # ``send_to_client`` asks it again: it is the rule of the send, whoever calls it.
+    if not api.may_answer(client, request.user):
         identity.hidden(request, "client")
     if not _wrote_something(request):
         return _error(400, "empty")
