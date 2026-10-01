@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_POST, require_safe
 
 from . import attendance, clock, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
 from .forms import (
@@ -167,7 +167,7 @@ def logout_view(request):
     return redirect("dashboard:login")
 
 
-@require_GET
+@require_safe
 def healthz(request):
     """Liveness probe for the host. No login, no database, no data.
 

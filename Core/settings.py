@@ -164,7 +164,10 @@ if REDIS_URL:
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {"hosts": [REDIS_URL]},
+            # A Redis that is unreachable should fail in two seconds, not hang.
+            # No read timeout on purpose: the layer's own receive loop waits
+            # up to five seconds for a message, and a shorter one would break it.
+            "CONFIG": {"hosts": [{"address": REDIS_URL, "socket_connect_timeout": 2}]},
         }
     }
 else:

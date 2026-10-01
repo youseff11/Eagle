@@ -77,6 +77,10 @@ STORAGES = {
 }
 MEDIA_ROOT = BASE_DIR / ".test-media"
 
+# Live pushes stay inside the test process, whatever REDIS_URL a .env holds: a
+# test must never write to a real Redis, where "user.<pk>" collides with real people.
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
 # No SMTP connection: django.core.mail collects the letters in memory, which is
 # also what the mail tests read.
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"

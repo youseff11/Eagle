@@ -17,7 +17,7 @@
 # Install:  pip install -r requirements.txt
 # =============================================================================
 
-Django==5.2.5
+Django==5.2.17
 
 # PostgreSQL driver — needed only when DATABASE_URL is set (Neon on the server).
 # Harmless locally: with no DATABASE_URL the project falls back to SQLite and
@@ -25,9 +25,11 @@ Django==5.2.5
 psycopg[binary]==3.2.3
 
 
-# Production serving on Render. gunicorn is the WSGI server; whitenoise hands out
-# /static/ because a PaaS has no web server in front (settings.py turns it on
-# only when DEBUG is off, so local work never imports it).
+# Production serving on Render. daphne (below) is what runs there now; gunicorn is
+# the WSGI fallback if daphne ever has to be backed out (set the start command to
+# `gunicorn Core.wsgi:application`). whitenoise hands out /static/ because a PaaS
+# has no web server in front (settings.py turns it on only when DEBUG is off, so
+# local work never imports it).
 gunicorn==23.0.0
 whitenoise==6.8.2
 

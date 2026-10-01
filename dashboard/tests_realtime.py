@@ -11,13 +11,15 @@ They are ``TransactionTestCase`` on purpose: the consumer reads the database
 from another thread, and an open test transaction would hide every row from it.
 """
 
+import asyncio
 import json
 import logging
+import time
 from datetime import timedelta
 from unittest import mock
 
 from asgiref.sync import sync_to_async
-from channels.auth import AuthMiddlewareStack
+from channels.layers import get_channel_layer
 from channels.routing import URLRouter
 from channels.security.websocket import AllowedHostsOriginValidator, OriginValidator
 from channels.testing import WebsocketCommunicator
@@ -26,12 +28,14 @@ from django.contrib.sessions.models import Session
 from django.http import Http404
 from django.core.exceptions import PermissionDenied
 from django.test import Client as DjangoClient
+from django.core.files.base import ContentFile
 from django.test import RequestFactory, TestCase, TransactionTestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
-from . import api, realtime, services
-from .consumers import CLOSE_UNAUTHENTICATED
-from .models import ChatMessage, ChatRoom, Client, Notification, Role, RoomKind, User
+from . import api, consumers, realtime, services
+from .consumers import CLOSE_BAD_FRAME, CLOSE_TOO_MANY, CLOSE_UNAUTHENTICATED, CLOSE_UNAVAILABLE
+from .models import ChatAttachment, ChatMessage, ChatRoom, Client, Notification, Role, RoomKind, User
 from .routing import websocket_urlpatterns
 
 from Core.asgi import application
@@ -51,8 +55,8 @@ def _login(user, origin=None):
 class _Socket:
     """``async with _Socket(user) as s`` - connected, and always disconnected."""
 
-    def __init__(self, user=None, origin=None, app=application):
-        self.user, self.origin, self.app = user, origin, app
+    def __init__(self, user=None, origin=None, app=application, path="/ws/events/"):
+        self.user, self.origin, self.app, self.path = user, origin, app, path
         self.session_key = None
 
     async def __aenter__(self):
@@ -61,7 +65,7 @@ class _Socket:
             headers, self.session_key = await sync_to_async(_login)(self.user, self.origin)
         elif self.origin:
             headers = [(b"origin", self.origin.encode())]
-        self.comm = WebsocketCommunicator(self.app, "/ws/events/", headers=headers)
+        self.comm = WebsocketCommunicator(self.app, self.path, headers=headers)
         self.connected, self.code = await self.comm.connect()
         return self
 
@@ -76,10 +80,19 @@ class _Socket:
         return await self.comm.receive_nothing(timeout=0.4)
 
 
+def _reset_process_state():
+    """The pause after a failed push and the per-user socket counts are module
+    state; a test that trips them must not leave them tripped."""
+    realtime._muted_until = 0.0
+    consumers._open.clear()
+
+
 class _World(TransactionTestCase):
     """An operator, a leader, a translator on one task, an admin and a stranger."""
 
     def setUp(self):
+        _reset_process_state()
+        self.addCleanup(_reset_process_state)
         self.admin = User.objects.create_user("adm", password="x", role=Role.ADMIN)
         self.ops = User.objects.create_user("ops", password="x", role=Role.OPERATION)
         self.lead = User.objects.create_user("lead", password="x", role=Role.TEAM_LEAD)
@@ -158,7 +171,7 @@ class SocketAccessTests(_World):
 
     async def test_only_an_allowed_origin_connects(self):
         with override_settings(ALLOWED_HOSTS=["eagle.example"]):
-            app = AllowedHostsOriginValidator(AuthMiddlewareStack(URLRouter(websocket_urlpatterns)))
+            app = AllowedHostsOriginValidator(URLRouter(websocket_urlpatterns))
         async with _Socket(self.ops, origin="https://eagle.example", app=app) as good:
             self.assertTrue(good.connected)
         async with _Socket(self.ops, origin="https://evil.example", app=app) as foreign:
@@ -233,6 +246,8 @@ class RoomPingTests(_World):
 
 class DeliveryNeverBreaksTheCallerTests(TestCase):
     def setUp(self):
+        _reset_process_state()
+        self.addCleanup(_reset_process_state)
         # The fast settings switch every logger off; assertLogs needs it on.
         previous = logging.root.manager.disable
         logging.disable(logging.NOTSET)
@@ -256,7 +271,7 @@ class DeliveryNeverBreaksTheCallerTests(TestCase):
         )
         room = services.ensure_room(task, RoomKind.GROUP)
         with mock.patch("channels.layers.get_channel_layer", side_effect=RuntimeError("redis down")):
-            with self.captureOnCommitCallbacks(execute=True):
+            with self.assertLogs("dashboard", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
                 message = ChatMessage.objects.create(room=room, sender=ops, body="kept")
         self.assertTrue(ChatMessage.objects.filter(pk=message.pk).exists())
 
@@ -309,3 +324,211 @@ class AudienceMatchesTheChatApiTests(TestCase):
                 )
                 compared += 1
         self.assertEqual(compared, 28)
+
+
+class TranslatorNeverEntersAClientRoomTests(_World):
+    """Found by the privacy review: a leader could add a translator to a client room.
+
+    The cleanup that keeps translators out lives in ``ensure_room``, which no
+    production code calls, and the add-members endpoint only asked whether the
+    person was on the task. The gate every reader shares is ``can_access``.
+    """
+
+    def _seat_translator(self):
+        # The way the endpoint used to, or a row left over from before the rule.
+        self.client_room.members.add(self.tr)
+
+    def test_a_translator_with_a_seat_cannot_open_the_room_by_hand(self):
+        self._seat_translator()
+        self.assertFalse(self.client_room.can_access(self.tr))
+        self.assertFalse(self.client_room.can_open(self.tr))
+        request = RequestFactory().get("/")
+        request.user = self.tr
+        with self.assertRaises((Http404, PermissionDenied)):
+            api._room_or_404(request, self.client_room.pk)
+
+    def test_the_messages_endpoint_gives_that_translator_nothing(self):
+        self._seat_translator()
+        ChatMessage.objects.create(room=self.client_room, sender=self.ops, body="the clients own words")
+        browser = DjangoClient()
+        browser.force_login(self.tr)
+        answer = browser.get(reverse("dashboard:api_chat_fetch", args=[self.client_room.pk]))
+        self.assertEqual(answer.status_code, 404)
+        self.assertNotIn(b"own words", answer.content)
+
+    async def test_that_translator_is_not_pinged_either(self):
+        await sync_to_async(self._seat_translator)()
+        async with _Socket(self.tr) as tr, _Socket(self.ops) as ops:
+            await self.say(self.client_room, self.ops)
+            self.assertEqual(await ops.event(), {"t": "room", "id": self.client_room.pk})
+            self.assertTrue(await tr.silent())
+
+    def test_the_add_members_endpoint_refuses_a_translator(self):
+        browser = DjangoClient()
+        browser.force_login(self.ops)
+        answer = browser.post(
+            reverse("dashboard:api_group_add_members", args=[self.client_room.pk]),
+            {"members": [self.tr.pk]},
+        )
+        self.assertFalse(self.client_room.members.filter(pk=self.tr.pk).exists())
+        body = answer.json()
+        self.assertFalse(body["ok"])
+        self.assertTrue(body["error"])
+
+    def test_other_rooms_still_admit_a_translator_on_the_task(self):
+        self.assertTrue(self.group.can_access(self.tr))
+        self.assertTrue(self.group.can_open(self.tr))
+
+
+class AudienceSkipsInactiveAccountsTests(_World):
+    def test_inactive_members_and_admins_are_not_in_the_audience(self):
+        User.objects.filter(pk__in=[self.tr.pk, self.admin.pk]).update(is_active=False)
+        names = {u.username for u in realtime.room_audience(self.group)}
+        self.assertEqual(names, {"ops", "lead"})
+
+
+class RoomPingFollowsTheMessageToCompletionTests(_World):
+    """The first moment of a message is not its last: files, tags and the relay result follow."""
+
+    async def test_a_later_save_of_the_message_pings_again(self):
+        async with _Socket(self.ops) as sock:
+            message = await self.say(self.group, self.lead)
+            want = {"t": "room", "id": self.group.pk}
+            self.assertEqual(await sock.event(), want)
+            message.relay_status = "failed"
+            await sync_to_async(message.save)(update_fields=["relay_status"])
+            self.assertEqual(await sock.event(), want)
+
+    async def test_an_attachment_arriving_pings(self):
+        message = await self.say(self.group, self.lead)
+        async with _Socket(self.ops) as sock:
+            await sync_to_async(ChatAttachment.objects.create)(
+                message=message, file=ContentFile(b"data", name="a.txt"), original_name="a.txt",
+            )
+            self.assertEqual(await sock.event(), {"t": "room", "id": self.group.pk})
+
+
+class WhatEventsMayCarryTests(_World):
+    def test_clean_event_keeps_a_kind_and_an_integer_id_only(self):
+        self.assertEqual(
+            realtime.clean_event({"t": "room", "id": 7, "title": "ACME", "body": "x"}),
+            {"t": "room", "id": 7},
+        )
+        self.assertEqual(realtime.clean_event({"t": "notify", "title": "x"}), {"t": "notify"})
+        self.assertEqual(realtime.clean_event({"t": "room", "id": "7"}), {"t": "room"})
+        self.assertEqual(realtime.clean_event({"t": "room", "id": True}), {"t": "room"})
+        for junk in (None, "room", [], {"id": 1}, {"t": "reboot"}):
+            self.assertIsNone(realtime.clean_event(junk))
+
+    async def test_what_reaches_the_browser_is_cleaned_even_if_the_layer_was_fed_more(self):
+        async with _Socket(self.ops) as sock:
+            await get_channel_layer().group_send(
+                realtime.user_group(self.ops.pk),
+                {"type": "push", "event": {"t": "room", "id": 3, "title": "ACME Secret Ltd"}},
+            )
+            self.assertEqual(await sock.event(), {"t": "room", "id": 3})
+            await get_channel_layer().group_send(
+                realtime.user_group(self.ops.pk),
+                {"type": "push", "event": {"t": "something-else"}},
+            )
+            self.assertTrue(await sock.silent())
+
+
+class SlowOrBrokenRedisTests(TestCase):
+    """A push must never make a request wait, and a failing layer is left alone for a while."""
+
+    def setUp(self):
+        _reset_process_state()
+        self.addCleanup(_reset_process_state)
+        previous = logging.root.manager.disable
+        logging.disable(logging.NOTSET)
+        self.addCleanup(logging.disable, previous)
+
+    def test_a_hanging_layer_is_cut_off_at_the_time_limit(self):
+        class Hangs:
+            async def group_send(self, *args, **kwargs):
+                await asyncio.sleep(30)
+
+        started = time.monotonic()
+        with mock.patch.object(realtime, "PUSH_TIMEOUT", 0.2), \
+                mock.patch("channels.layers.get_channel_layer", return_value=Hangs()):
+            with self.assertLogs("dashboard", level="ERROR"):
+                realtime._deliver([1], {"t": realtime.NOTIFY})
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_after_a_failure_the_layer_is_not_tried_again_until_the_pause_ends(self):
+        calls = []
+
+        def broken():
+            calls.append(1)
+            raise RuntimeError("redis down")
+
+        with mock.patch("channels.layers.get_channel_layer", side_effect=broken):
+            with self.assertLogs("dashboard", level="ERROR"):
+                realtime._deliver([1], {"t": realtime.NOTIFY})
+            realtime._deliver([1], {"t": realtime.NOTIFY})
+            realtime._deliver([2], {"t": realtime.NOTIFY})
+            self.assertEqual(len(calls), 1)
+            # Once the pause is over it tries again.
+            realtime._muted_until = 0.0
+            with self.assertLogs("dashboard", level="ERROR"):
+                realtime._deliver([1], {"t": realtime.NOTIFY})
+            self.assertEqual(len(calls), 2)
+
+    def test_a_cancelled_delivery_does_not_escape_into_the_caller(self):
+        with mock.patch("channels.layers.get_channel_layer", side_effect=asyncio.CancelledError()):
+            with self.assertLogs("dashboard", level="ERROR"):
+                realtime._deliver([1], {"t": realtime.NOTIFY})
+
+
+class SocketLimitsTests(_World):
+    async def test_two_quick_pings_cost_one_database_check(self):
+        async with _Socket(self.ops) as sock:
+            await sock.comm.send_json_to({"t": "ping"})
+            await sock.comm.send_json_to({"t": "ping"})
+            self.assertEqual(await sock.event(), {"t": "pong"})
+            self.assertTrue(await sock.silent())
+
+    async def test_a_person_may_hold_only_so_many_sockets(self):
+        sockets = []
+        try:
+            for _ in range(consumers.MAX_SOCKETS_PER_USER):
+                sock = await _Socket(self.ops).__aenter__()
+                self.assertTrue(sock.connected)
+                sockets.append(sock)
+            extra = await _Socket(self.ops).__aenter__()
+            self.assertFalse(extra.connected)
+            self.assertEqual(extra.code, CLOSE_TOO_MANY)
+            # Closing one makes room again.
+            await sockets.pop().__aexit__()
+            again = await _Socket(self.ops).__aenter__()
+            self.assertTrue(again.connected)
+            sockets.append(again)
+        finally:
+            for sock in sockets:
+                await sock.__aexit__()
+
+    async def test_a_binary_frame_closes_the_socket_without_a_traceback(self):
+        async with _Socket(self.ops) as sock:
+            await sock.comm.send_to(bytes_data=b"\x00\x01")
+            out = await sock.comm.receive_output(timeout=2)
+            self.assertEqual(out["type"], "websocket.close")
+            self.assertEqual(out["code"], CLOSE_BAD_FRAME)
+
+    async def test_broken_json_closes_the_socket_without_a_traceback(self):
+        async with _Socket(self.ops) as sock:
+            await sock.comm.send_to(text_data="{not json")
+            out = await sock.comm.receive_output(timeout=2)
+            self.assertEqual(out["code"], CLOSE_BAD_FRAME)
+
+    async def test_an_unknown_socket_path_is_refused(self):
+        async with _Socket(self.ops, path="/ws/other/") as sock:
+            self.assertFalse(sock.connected)
+
+    async def test_a_layer_that_is_down_refuses_the_connection_politely(self):
+        with mock.patch.object(
+            get_channel_layer().__class__, "group_add", side_effect=RuntimeError("redis down")
+        ):
+            async with _Socket(self.ops) as sock:
+                self.assertFalse(sock.connected)
+                self.assertEqual(sock.code, CLOSE_UNAVAILABLE)

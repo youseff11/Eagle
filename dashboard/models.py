@@ -1712,6 +1712,14 @@ class ChatRoom(models.Model):
         # asks for one. Change this only on purpose.
         if self.kind == RoomKind.STAFF:
             return self.members.filter(pk=user.pk).exists()
+        # A client room is the client's own conversation: the words, the
+        # number, the files. A translator works from a code and never meets
+        # that, so no membership row opens it to them - not the one a leader
+        # adds by hand, not a stale one from before the rule. This is the one
+        # gate every page, endpoint, file and live push asks, so closing it
+        # here closes all of them.
+        if self.kind == RoomKind.CLIENT and user.is_translator:
+            return False
         if user.is_admin_role:
             return True
         return self.members.filter(pk=user.pk).exists()

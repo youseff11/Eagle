@@ -10941,7 +10941,11 @@ class HealthCheckTests(TestCase):
         # A redirect would read as "up" to some hosts and as "down" to others.
         self.assertNotIn("Location", self.client.get("/healthz"))
 
-    def test_takes_only_get(self):
+    def test_answers_a_head_request_too(self):
+        # Uptime monitors usually probe with HEAD.
+        self.assertEqual(self.client.head("/healthz").status_code, 200)
+
+    def test_takes_nothing_that_writes(self):
         self.assertEqual(self.client.post("/healthz").status_code, 405)
 
 

@@ -21,7 +21,10 @@ services:
     region: frankfurt
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     preDeployCommand: python manage.py migrate --noinput
-    startCommand: daphne -b 0.0.0.0 -p $PORT Core.asgi:application
+    # Limits, because daphne has none by default: a frame is a ping, so 2 KB is
+    # plenty; a request that hangs is cut at 60 s; a socket lives 15 minutes and
+    # reconnects, which re-checks the login even for a client that never pings.
+    startCommand: daphne -b 0.0.0.0 -p $PORT --http-timeout 60 --websocket_timeout 900 --websocket-max-message-size 2048 --websocket-max-frame-size 2048 Core.asgi:application
     healthCheckPath: /healthz
     autoDeployTrigger: "off"
     envVars:

@@ -1414,12 +1414,17 @@ def group_add_members(request, room_id):
         return JsonResponse({"ok": False, "error": "اختار حد الأول."}, status=400)
 
     task = room.task
-    added, refused = [], []
+    added, refused, translators = [], [], []
     for person in people:
         # A task-bound group must not hand the task's client conversation to
         # someone who is not on that task.
         if task is not None and not task.can_view(person):
             refused.append(person.short_name)
+            continue
+        # Nor may a translator be given a seat in a room that reaches the
+        # client: they would be listed as a member and see nothing.
+        if room.kind == RoomKind.CLIENT and person.is_translator:
+            translators.append(person.short_name)
             continue
         if room.members.filter(pk=person.pk).exists():
             continue
@@ -1450,6 +1455,10 @@ def group_add_members(request, room_id):
     error = ""
     if refused:
         error = "مش ينفع تضيف " + "، ".join(refused) + " — التاسك دي مش من حقهم."
+    if translators:
+        error = (error + " " if error else "") + (
+            "مش ينفع تضيف " + "، ".join(translators) + " — المترجم مابيدخلش جروب فيه العميل."
+        )
     return JsonResponse({
         "ok": bool(added),
         "added": [p.short_name for p in added],
