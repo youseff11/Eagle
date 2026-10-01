@@ -769,7 +769,7 @@ class LimitWithThePrefixTests(_Send):
     def test_me_says_the_limits_for_this_person(self):
         for user in (self.ops, self.lead, self.admin):
             limits = _json(self.browser(user).get(reverse("dashboard:v1_me")))["limits"]
-            self.assertEqual(limits, {
+            self.assertEqual({k: v for k, v in limits.items() if k != "files"}, {
                 "to_client": api_v1.MAX_CLIENT_TEXT,
                 "to_client_group": api_v1.MAX_CLIENT_TEXT - len(services.client_prefix(user)),
                 "inside": api_v1.MAX_INTERNAL_TEXT,
@@ -822,3 +822,261 @@ class ClassicDoorLineTests(_Send):
             unknown = self.to_client(self.ops, code="CL-9999", **data)
             self.assertEqual((hidden.status_code, hidden.content), (unknown.status_code, unknown.content), data and list(data))
             self.assertEqual(hidden.status_code, 404)
+
+
+def _file(name="brief.txt", content=b"words", kind="text/plain"):
+    return SimpleUploadedFile(name, content, content_type=kind)
+
+
+class FilesTests(_Send):
+    """Step 3c, files and images: the doors take them, ask which task they are for, and bound them."""
+
+    def make_task(self, title="A job", lead=None):
+        from .models import Task, TaskStatus
+
+        task = services.create_task(
+            client=self.client_obj, title=title, created_by=self.ops, deadline=timezone.now() + timedelta(hours=4),
+        )
+        Task.objects.filter(pk=task.pk).update(team_lead=lead or self.lead, status=TaskStatus.IN_PROGRESS)
+        return Task.objects.get(pk=task.pk)
+
+    # -- to a client ------------------------------------------------------------------------------------
+    def test_a_file_and_its_words_go_to_the_client_and_come_back_in_the_thread(self):
+        answer = self.to_client(self.ops, body="the brief", files=_file("brief.pdf", b"%PDF", "application/pdf"))
+        body = _json(answer)
+        self.assertEqual(answer.status_code, 200)
+        self.assertTrue(body["delivered"])
+        self.text.assert_called_once()
+        # The words go first, then the file (with no caption of its own: the words are the caption).
+        self.file.assert_called_once()
+        self.assertEqual(self.file.call_args.args[2], "brief.pdf")
+        sent = OutboundMessage.objects.get()
+        self.assertEqual([u.original_name for u in sent.uploads.all()], ["brief.pdf"])
+        ours = [m for m in body["messages"] if m["kind"] == "out"]
+        self.assertEqual([f["name"] for f in ours[0]["files"]], ["brief.pdf"])
+
+    def test_files_alone_are_a_message_and_several_go_one_after_the_other(self):
+        answer = self.to_client(self.ops, files=[_file("a.txt"), _file("b.png", b"x", "image/png")])
+        self.assertEqual(answer.status_code, 200)
+        self.assertTrue(_json(answer)["delivered"])
+        self.assertEqual(self.file.call_count, 2)
+        self.assertEqual(sorted(u.original_name for u in OutboundMessage.objects.get().uploads.all()), ["a.txt", "b.png"])
+
+    def test_a_file_that_whatsapp_refuses_is_in_the_thread_failed_with_its_reason(self):
+        self.file.side_effect = whatsapp.WhatsAppError("الملف كبير", "File too big")
+        body = _json(self.to_client(self.ops, files=_file("huge.pdf")))
+        self.assertFalse(body["delivered"])
+        self.assertEqual(body["error"], "الملف كبير")
+        self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
+
+    def test_the_roles_that_may_not_write_to_a_client_may_not_send_them_files_either(self):
+        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
+            answer = self.to_client(user, files=_file())
+            self.assertEqual(answer.status_code, 403, user.username)
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.nothing_left_the_building()
+
+    def test_a_file_to_a_client_off_the_line_is_not_found_before_it_is_looked_at(self):
+        # Even with the limits set so that any file is too many: the answer for a client that is not theirs must not
+        # be "too many files", which only the codes that are theirs would say.
+        with mock.patch.object(api_v1, "MAX_FILES", 0):
+            answer = self.to_client(self.ops, code=self.sales_client.code, files=_file())
+            unknown = self.to_client(self.ops, code="CL-9999", files=_file())
+            own = self.to_client(self.ops, files=_file())
+        self.assertEqual((own.status_code, _json(own)["error"]), (400, "too_many_files"))
+        self.assertEqual((answer.status_code, answer.content), (unknown.status_code, unknown.content))
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.nothing_left_the_building()
+
+    # -- inside: which task the files are for ---------------------------------------------------------------
+    def test_files_to_a_colleague_ask_which_task_when_there_are_several(self):
+        first, second = self.make_task("First"), self.make_task("Second")
+        asked = self.to_staff(self.ops, self.lead, body="here", files=_file("t.docx"))
+        body = _json(asked)
+        self.assertEqual((asked.status_code, body["error"]), (400, "pick_task"))
+        self.assertEqual({c["code"] for c in body["choices"]}, {first.code, second.code})
+        self.assertFalse(ChatMessage.objects.filter(body="here").exists())
+
+        wrong = self.to_staff(self.ops, self.lead, body="here", files=_file("t.docx"), task="TSK-99999")
+        self.assertEqual((wrong.status_code, _json(wrong)["error"]), (400, "bad_task"))
+
+        done = self.to_staff(self.ops, self.lead, body="here", files=_file("t.docx"), task=second.code)
+        self.assertEqual(done.status_code, 200)
+        message = ChatMessage.objects.get(body="here")
+        self.assertEqual(message.task_id, second.pk)
+        self.assertEqual([a.original_name for a in message.attachments.all()], ["t.docx"])
+
+    def test_files_can_be_said_not_to_be_for_a_task(self):
+        self.make_task("First")
+        self.make_task("Second")
+        done = self.to_staff(self.ops, self.lead, files=_file("notes.txt"), task="none")
+        self.assertEqual(done.status_code, 200)
+        self.assertIsNone(ChatMessage.objects.get(room=self.private, attachments__original_name="notes.txt").task_id)
+
+    def test_with_one_shared_task_the_files_are_for_it_without_being_asked(self):
+        only = self.make_task("Only one")
+        self.assertEqual(self.to_staff(self.ops, self.lead, files=_file("one.txt")).status_code, 200)
+        self.assertEqual(ChatMessage.objects.get(room=self.private, attachments__original_name="one.txt").task_id, only.pk)
+
+    def test_a_refused_pick_opens_no_room_for_a_colleague_nobody_has_written_to(self):
+        # A first message with files to somebody you share two tasks with: the question is asked before a room is
+        # made for it, and a task that is not shared is refused the same way.
+        self.make_task("First", lead=self.sales)
+        self.make_task("Second", lead=self.sales)
+        rooms = ChatRoom.objects.count()
+        asked = self.to_staff(self.ops, self.sales, files=_file("x.txt"))
+        self.assertEqual((asked.status_code, _json(asked)["error"]), (400, "pick_task"))
+        self.assertEqual(len(_json(asked)["choices"]), 2)
+        self.assertEqual((_json(asked)["message"], _json(asked)["message_en"]), (services.PICK_TASK_AR, services.PICK_TASK_EN))
+        wrong = self.to_staff(self.ops, self.sales, files=_file("x.txt"), task="TSK-99999")
+        self.assertEqual((wrong.status_code, _json(wrong)["error"]), (400, "bad_task"))
+        self.assertEqual((_json(wrong)["message"], _json(wrong)["message_en"]), (services.BAD_TASK_AR, services.BAD_TASK_EN))
+        nothing_shared = self.to_staff(self.hr, self.reviewer, files=_file("y.txt"), task="TSK-00001")
+        self.assertEqual((nothing_shared.status_code, _json(nothing_shared)["error"]), (400, "bad_task"))
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+        self.assertFalse(ChatMessage.objects.filter(attachments__original_name__in=("x.txt", "y.txt")).exists())
+        # Answered, it goes, and the room is made.
+        done = self.to_staff(self.ops, self.sales, files=_file("x.txt"), task="none")
+        self.assertEqual(done.status_code, 200)
+        self.assertEqual(ChatRoom.objects.count(), rooms + 1)
+
+    def test_the_question_a_first_message_is_asked_is_the_one_the_room_would_ask(self):
+        self.make_task("First", lead=self.sales)
+        second = self.make_task("Second", lead=self.sales)
+        room = services.staff_room(self.ops, self.sales)
+        for raw in ("", "none", second.code, "TSK-99999"):
+            there = services.pick_file_task(self.ops, room, raw)
+            before = services.pick_file_task_with(self.ops, self.sales, raw)
+            self.assertEqual((there[0], there[1], list(there[2])), (before[0], before[1], list(before[2])), raw)
+
+    def test_files_in_a_client_group_are_relayed_and_do_not_ask_for_a_task(self):
+        self.make_task()
+        with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")) as relay:
+            answer = self.to_group(self.ops, files=_file("for-client.pdf"))
+        self.assertEqual(answer.status_code, 200)
+        relay.assert_called_once()
+        self.assertEqual(ChatMessage.objects.get(room=self.group).attachments.count(), 1)
+
+    # -- the picker's tasks ---------------------------------------------------------------------------------
+    def tasks_of(self, user, name, args):
+        answer = self.browser(user).get(reverse(f"dashboard:{name}", args=args))
+        return answer, _json(answer)
+
+    def test_the_picker_lists_the_tasks_shared_with_somebody_in_the_room(self):
+        shared = self.make_task("With the leader")
+        elsewhere = self.make_task("With the sales person", lead=self.sales)
+        answer, body = self.tasks_of(self.ops, "v1_group_file_tasks", [self.team.pk])
+        self.assertEqual(answer.status_code, 200)
+        # The work group is the operation's, the leader's and the translator's: a task the operation shares with
+        # somebody who is not in the room is not one of its files' tasks.
+        self.assertEqual([t["code"] for t in body["tasks"]], [shared.code])
+        self.assertNotIn(elsewhere.code, [t["code"] for t in body["tasks"]])
+        self.assertEqual(set(body["tasks"][0]), {"code", "title"})
+        self.assertEqual(answer["Cache-Control"], "private, no-store")
+
+    def test_for_a_colleague_it_answers_before_any_room_exists_and_opens_nothing(self):
+        task = self.make_task("With Hana", lead=self.sales)
+        rooms = ChatRoom.objects.count()
+        answer, body = self.tasks_of(self.ops, "v1_staff_file_tasks", [self.sales.pk])
+        self.assertEqual([t["code"] for t in body["tasks"]], [task.code])
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+        self.assertEqual(_json(self.browser(self.ops).get(reverse("dashboard:v1_staff_file_tasks", args=[self.hr.pk])))["tasks"], [])
+        # The admin does not count as somebody the work is shared with, even on a task of theirs.
+        self.make_task("The admin's own", lead=self.admin)
+        self.assertEqual(_json(self.browser(self.ops).get(reverse("dashboard:v1_staff_file_tasks", args=[self.admin.pk])))["tasks"], [])
+
+    def test_the_picker_is_the_one_the_send_asks_about(self):
+        a, b = self.make_task("A"), self.make_task("B")
+        _answer, body = self.tasks_of(self.ops, "v1_staff_file_tasks", [self.lead.pk])
+        asked = _json(self.to_staff(self.ops, self.lead, files=_file()))
+        self.assertEqual({t["code"] for t in body["tasks"]}, {c["code"] for c in asked["choices"]})
+        self.assertEqual({t["code"] for t in body["tasks"]}, {a.code, b.code})
+
+    def test_nobody_outside_a_room_is_told_what_tasks_it_shares(self):
+        self.make_task()
+        for user in (self.hr, self.sales, self.reviewer):
+            answer = self.browser(user).get(reverse("dashboard:v1_group_file_tasks", args=[self.team.pk]))
+            self.assertEqual(answer.status_code, 404, user.username)
+            self.assertNotIn(b"A job", answer.content)
+        # A client group has no picker, and a colleague's own line is not somebody else's.
+        self.assertEqual(self.tasks_of(self.ops, "v1_group_file_tasks", [self.group.pk])[1]["tasks"], [])
+        self.assertEqual(self.browser(self.hr).get(reverse("dashboard:v1_group_file_tasks", args=[self.private.pk])).status_code, 404)
+
+    def test_a_colleague_must_be_somebody_else_who_is_there(self):
+        self.assertEqual(self.browser(self.ops).get(reverse("dashboard:v1_staff_file_tasks", args=[self.ops.pk])).status_code, 404)
+        self.assertEqual(self.browser(self.ops).get(reverse("dashboard:v1_staff_file_tasks", args=[999999])).status_code, 404)
+        self.assertEqual(self.browser(None).get(reverse("dashboard:v1_staff_file_tasks", args=[self.lead.pk])).status_code, 401)
+        self.assertEqual(self.browser(self.ops).post(reverse("dashboard:v1_staff_file_tasks", args=[self.lead.pk])).status_code, 405)
+
+    # -- limits ---------------------------------------------------------------------------------------------
+    def test_too_many_files_or_one_too_big_is_refused_and_nothing_is_written_or_opened(self):
+        rooms = ChatRoom.objects.count()
+        with mock.patch.object(api_v1, "MAX_FILES", 2), mock.patch.object(api_v1, "MAX_FILE_BYTES", 5), \
+                mock.patch.object(api_v1, "MAX_FILES_TOTAL_BYTES", 8):
+            many = self.to_client(self.ops, files=[_file("a"), _file("b"), _file("c")])
+            big = self.to_client(self.ops, files=_file("big", b"123456"))
+            together = self.to_client(self.ops, files=[_file("a", b"12345"), _file("b", b"1234")])
+            voice = self.to_staff(self.hr, self.sales, voice=_file("v.webm", b"123456", "audio/webm"))
+            fine = self.to_client(self.ops, files=[_file("a", b"1234"), _file("b", b"1234")])
+            exact = self.to_client(self.ops, files=_file("exact", b"12345"))
+            in_group = self.to_group(self.lead, self.team, files=[_file("a"), _file("b"), _file("c")])
+            in_client_group = self.to_group(self.ops, files=[_file("a"), _file("b"), _file("c")])
+        self.assertEqual([(x.status_code, _json(x)["error"]) for x in (in_group, in_client_group)], [(400, "too_many_files")] * 2)
+        self.assertFalse(ChatMessage.objects.filter(room__in=(self.team, self.group), attachments__isnull=False).exists())
+        self.assertEqual(exact.status_code, 200)
+        self.assertEqual([( x.status_code, _json(x)["error"]) for x in (many, big, together, voice)], [
+            (400, "too_many_files"), (400, "file_too_big"), (400, "files_too_big"), (400, "file_too_big"),
+        ])
+        self.assertEqual(fine.status_code, 200)
+        self.assertEqual(OutboundMessage.objects.count(), 2)
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+
+    def test_me_says_how_many_and_how_big(self):
+        files = _json(self.browser(self.ops).get(reverse("dashboard:v1_me")))["limits"]["files"]
+        self.assertEqual(files, {
+            "count": api_v1.MAX_FILES, "bytes": api_v1.MAX_FILE_BYTES, "total_bytes": api_v1.MAX_FILES_TOTAL_BYTES,
+        })
+
+
+class FileNameTests(_Send):
+    """A name the column cannot hold, and a form with more parts than Django will read."""
+
+    def test_a_name_is_cut_to_fit_keeping_its_extension(self):
+        for name in ("a" * 300 + ".docx", "b" * 251, "c" * 250, "short.pdf", ""):
+            cut = services.short_name(name)
+            self.assertLessEqual(len(cut), 250, name[:20])
+            if len(name) <= 250:
+                self.assertEqual(cut, name)
+        self.assertTrue(services.short_name("a" * 300 + ".docx").endswith(".docx"))
+        self.assertEqual(len(services.short_name("a" * 300 + ".docx")), 250)
+        # An extension that is no extension (a long dotted tail) does not eat the name.
+        self.assertTrue(services.short_name("x" * 100 + "." + "y" * 200).startswith("x"))
+        self.assertLessEqual(len(services.short_name("x" * 100 + "." + "y" * 200)), 250)
+
+    def test_a_long_name_is_stored_in_a_room_and_for_a_client_without_losing_the_message(self):
+        long_name = "n" * 251 + ".pdf"
+        sent = self.to_group(self.lead, self.team, body="with a long name", files=_file(long_name))
+        self.assertEqual(sent.status_code, 200)
+        message = ChatMessage.objects.get(body="with a long name")
+        names = [a.original_name for a in message.attachments.all()]
+        self.assertEqual(len(names), 1)
+        self.assertLessEqual(len(names[0]), 250)
+        self.assertTrue(names[0].endswith(".pdf"))
+        client = self.to_client(self.ops, body="and for the client", files=_file(long_name))
+        self.assertTrue(_json(client)["delivered"])
+        stored = OutboundMessage.objects.get().uploads.get().original_name
+        self.assertLessEqual(len(stored), 250)
+
+    def test_more_parts_than_django_reads_is_a_refusal_and_writes_nothing(self):
+        rooms = ChatRoom.objects.count()
+        files = [_file(f"f{i}.txt", b"x") for i in range(101)]
+        for answer in (
+            self.to_client(self.ops, files=files),
+            self.to_group(self.lead, self.team, files=files),
+            self.to_staff(self.hr, self.sales, files=files),
+        ):
+            self.assertEqual((answer.status_code, _json(answer)), (400, {"ok": False, "error": "too_many_files"}))
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.assertFalse(ChatMessage.objects.filter(attachments__isnull=False).exists())
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+        self.nothing_left_the_building()

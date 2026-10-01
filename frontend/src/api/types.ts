@@ -31,7 +31,13 @@ export interface MeResponse {
   };
   chats: { types: string[] };
   /** The longest message this person may write: to one client, to a client group (its prefix counts), inside. */
-  limits: { to_client: number; to_client_group: number; inside: number };
+  limits: {
+    to_client: number;
+    to_client_group: number;
+    inside: number;
+    /** Files in one message: how many, how big each, how big all together (bytes). */
+    files: { count: number; bytes: number; total_bytes: number };
+  };
   /** The ported screens that are switched on for this person (`dashboard/newui.py`). */
   screens: ScreenKey[];
   unread_notifications: number;
@@ -221,6 +227,12 @@ export interface SendResponse {
   error: string;
   messages: ThreadEntry[];
   client: ChatRow;
+}
+
+/** GET .../file-tasks/: the tasks files sent here could be for (several: the sender must choose). */
+export interface FileTasksResponse {
+  ok: true;
+  tasks: { code: string; title: string }[];
 }
 
 /** POST .../read/ */

@@ -927,6 +927,19 @@ def _store_voice(message, upload):
     return error
 
 
+def pick_refusal(error, choices):
+    """The 400 that says files have to name their task (``pick_task``), or named one that is not theirs (``bad_task``)."""
+    text = {
+        "pick_task": (services.PICK_TASK_AR, services.PICK_TASK_EN),
+        "bad_task": (services.BAD_TASK_AR, services.BAD_TASK_EN),
+    }[error]
+    return JsonResponse({
+        "ok": False, "error": error,
+        "message": text[0], "message_en": text[1],
+        "choices": [{"code": t.code, "title": t.title} for t in choices],
+    }, status=400)
+
+
 @login_required
 @require_POST
 def chat_send(request, room_id):
@@ -953,15 +966,7 @@ def chat_send(request, room_id):
             request.user, room, raw_task
         )
         if pick_error:
-            text = {
-                "pick_task": (services.PICK_TASK_AR, services.PICK_TASK_EN),
-                "bad_task": (services.BAD_TASK_AR, services.BAD_TASK_EN),
-            }[pick_error]
-            return JsonResponse({
-                "ok": False, "error": pick_error,
-                "message": text[0], "message_en": text[1],
-                "choices": [{"code": t.code, "title": t.title} for t in choices],
-            }, status=400)
+            return pick_refusal(pick_error, choices)
         picking = bool(choices) or raw_task.strip() == services.NO_TASK
 
     message = ChatMessage.objects.create(
@@ -969,7 +974,7 @@ def chat_send(request, room_id):
     )
     for item in uploads:
         ChatAttachment.objects.create(
-            message=message, file=item, original_name=item.name, size=item.size
+            message=message, file=item, original_name=services.short_name(item.name), size=item.size
         )
     voice_error = ""
     if voice is not None:

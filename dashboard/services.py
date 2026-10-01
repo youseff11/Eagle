@@ -5,6 +5,7 @@ same logic can be reused by the webhooks, the management commands and the API.
 """
 
 import logging
+import os
 from datetime import timedelta
 
 from django.db import transaction
@@ -1643,6 +1644,22 @@ def file_task_choices(user, room):
         room.members.exclude(pk=user.pk).exclude(role=Role.ADMIN)
         .exclude(is_superuser=True).values_list("pk", flat=True)
     )
+    return _shared_tasks(user, others)
+
+
+def file_task_choices_with(user, other):
+    """What ``file_task_choices`` would say for the one-to-one chat with ``other`` - before that room exists.
+
+    A first message to a colleague opens the room; the files in it are asked about the same tasks as in any
+    other message of the chat, so the page needs the answer before it has anything to open.
+    """
+    if user is None or other is None or other.pk == user.pk or other.is_admin_role:
+        return []
+    return _shared_tasks(user, {other.pk})
+
+
+def _shared_tasks(user, others):
+    """The live tasks ``user`` works on together with somebody in ``others`` (ids)."""
     if not others:
         return []
     mine = (
@@ -1657,6 +1674,20 @@ def file_task_choices(user, room):
         .filter(mine).filter(theirs)
         .select_related("client").distinct().order_by("id")
     )
+
+
+def short_name(name, limit=250):
+    """``name`` cut to fit a file-name column, keeping its extension.
+
+    Django accepts an upload name up to 255 characters and the columns hold 250: on Postgres the longer
+    one is an error after the message around it has been written, which left a half-written message behind.
+    """
+    name = str(name or "")
+    if len(name) <= limit:
+        return name
+    stem, extension = os.path.splitext(name)
+    extension = extension[:12]
+    return stem[: limit - len(extension)] + extension
 
 
 PICK_TASK_AR = "حدد الملفات دي تبع أنهي تاسك قبل ما تبعت."
@@ -1680,7 +1711,15 @@ def pick_file_task(user, room, raw):
     - no choices at all -> ``None``, and the caller falls back to
       ``tag_task_message``.
     """
-    choices = file_task_choices(user, room)
+    return _pick_from(file_task_choices(user, room), raw)
+
+
+def pick_file_task_with(user, other, raw):
+    """``pick_file_task`` for the one-to-one chat with ``other`` before that room exists (a first message)."""
+    return _pick_from(file_task_choices_with(user, other), raw)
+
+
+def _pick_from(choices, raw):
     raw = (raw or "").strip()
     if raw == NO_TASK:
         return None, "", choices
@@ -4620,7 +4659,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     try:
         stored = [
             OutboundAttachment.objects.create(
-                message=outbound, file=item, original_name=item.name, size=item.size
+                message=outbound, file=item, original_name=short_name(item.name), size=item.size
             )
             for item in uploads
         ]

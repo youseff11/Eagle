@@ -461,7 +461,7 @@ describe("how long", () => {
   });
 
   it("takes the limit from the server, and a client group's is shorter by the role that goes in front of the words", async () => {
-    const limits = { to_client: 4000, to_client_group: 3987, inside: 10000 };
+    const limits = { ...me().limits, to_client_group: 3987 };
     render(
       "/chats/g1",
       { thread: { client: row("g1", { group: true, reaches_client: true }), messages: [entry(1)] } },

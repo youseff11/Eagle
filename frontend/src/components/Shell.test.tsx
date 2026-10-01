@@ -32,7 +32,16 @@ function renderShell(routes: FetchRoutes, options: Parameters<typeof renderWithP
 
 describe("Shell", () => {
   it("says in the menu, from any page, that a message did not go - and only then", async () => {
-    const item = (state: "sending" | "refused" | "unsure") => ({ key: 1, body: "x", reply: null, before: [], state, error: "" });
+    const item = (state: "sending" | "refused" | "unsure") => ({
+      key: 1,
+      body: "x",
+      reply: null,
+      files: [],
+      task: "",
+      before: [],
+      state,
+      error: "",
+    });
     const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 0, ["chats"])) });
     await screen.findByText("الشات");
     const chats = () => screen.getByText("الشات").closest("a") as HTMLElement;

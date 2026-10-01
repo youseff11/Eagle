@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { postMessage, SEND_TIMEOUT_MS } from "../api/queries";
+import { postMessage, SEND_TIMEOUT_FILES_MS, SEND_TIMEOUT_MS } from "../api/queries";
 import type { ThreadEntry } from "../api/types";
 import { entry } from "../test/chat";
 import { unmatched, type Outgoing } from "./outbox";
@@ -8,6 +8,8 @@ const item = (key: number, body: string, overrides: Partial<Outgoing> = {}): Out
   key,
   body,
   reply: null,
+  files: [],
+  task: "",
   before: [],
   state: "sending",
   error: "",
@@ -61,6 +63,119 @@ describe("what has already arrived", () => {
   });
 });
 
+describe("what has already arrived, for a message with files", () => {
+  // A file of `size` bytes, named by the person; and an entry carrying files of those sizes, named by the server.
+  const file = (name: string, size: number) => new File(["x".repeat(size)], name);
+  const withFiles = (id: number, body: string, sizes: number[]) =>
+    ours(id, body, {
+      files: sizes.map((size, index) => ({
+        id: index + 1, url: `/files/f${index}`, name: `stored-${index}`, size, mime: "", voice: false, audio: false, length: "", image: false,
+      })),
+    });
+
+  it("is the message that carries as many files of the same sizes, in any order", () => {
+    const queued = item(1, "see", { files: [file("a.pdf", 5), file("b.png", 9)] });
+    expect(unmatched([queued], [withFiles(5, "see", [9, 5])], 7)).toEqual([]);
+  });
+
+  it("does not need the name to be the one that was sent: the server rewrites a name", () => {
+    const queued = item(1, "see", { files: [file("R&reg;.pdf", 5)] });
+    expect(unmatched([queued], [withFiles(5, "see", [5])], 7)).toEqual([]);
+  });
+
+  it("is not a message with other sizes, fewer files, more files, or none", () => {
+    const queued = item(1, "see", { files: [file("a.pdf", 5), file("b.png", 9)] });
+    for (const sizes of [[5, 8], [5], [5, 9, 3], []]) {
+      expect(unmatched([queued], [withFiles(5, "see", sizes)], 7), sizes.join()).toHaveLength(1);
+    }
+  });
+
+  it("is not a message with the same files and other words", () => {
+    expect(unmatched([item(1, "see", { files: [file("a.pdf", 5)] })], [withFiles(5, "look", [5])], 7)).toHaveLength(1);
+  });
+
+  it("is, for words alone, only a message with no files", () => {
+    expect(unmatched([item(1, "hi")], [withFiles(5, "hi", [5])], 7)).toHaveLength(1);
+  });
+
+  it("is files alone: empty words and the same sizes", () => {
+    expect(unmatched([item(1, "", { files: [file("a.pdf", 5)] })], [withFiles(5, "", [5])], 7)).toEqual([]);
+  });
+});
+
+describe("the request a message with files makes", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function capture() {
+    const calls: { path: string; init?: RequestInit }[] = [];
+    vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
+      calls.push({ path, init });
+      return new Response(JSON.stringify({ ok: true, delivered: true, error: "", messages: [], client: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    return calls;
+  }
+
+  it("is a form of urlencoded words when there is nothing to upload", async () => {
+    const calls = capture();
+    await postMessage("g3", { body: "hello", replyUid: "g3-4" });
+    expect(calls[0]!.path).toBe("/api/v1/groups/3/send/");
+    expect(String(calls[0]!.init?.body)).toBe("body=hello&reply_uid=g3-4");
+  });
+
+  it("is multipart with the words, the quote, the task and each file by its name", async () => {
+    const calls = capture();
+    await postMessage("u5", {
+      body: "see",
+      replyUid: "g9-2",
+      task: "TSK-00001",
+      files: [new File(["1"], "a.pdf"), new File(["2"], "b.png")],
+    });
+    const form = calls[0]!.init?.body as FormData;
+    expect(calls[0]!.path).toBe("/api/v1/staff/5/send/");
+    expect([form.get("body"), form.get("reply_uid"), form.get("task")]).toEqual(["see", "g9-2", "TSK-00001"]);
+    expect((form.getAll("files") as File[]).map((f) => f.name)).toEqual(["a.pdf", "b.png"]);
+  });
+
+  it("leaves out the quote and the task when there are none", async () => {
+    const calls = capture();
+    await postMessage("CL-0001", { body: "", files: [new File(["1"], "a.pdf")] });
+    const form = calls[0]!.init?.body as FormData;
+    expect(form.has("reply_uid")).toBe(false);
+    expect(form.has("task")).toBe(false);
+    expect(form.get("body")).toBe("");
+  });
+
+  it("waits longer for an upload than for words before it gives up", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      (_path: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
+    const words = postMessage("CL-0001", { body: "hi" }).then(() => "answered", (e: unknown) => (e as Error).name);
+    const upload = postMessage("CL-0001", { body: "", files: [new File(["1"], "a.pdf")] }).then(
+      () => "answered",
+      (e: unknown) => (e as Error).name,
+    );
+    await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_MS + 1);
+    await expect(words).resolves.toBe("AbortError");
+    let uploadSettled = false;
+    void upload.then(() => (uploadSettled = true));
+    await Promise.resolve();
+    expect(uploadSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_FILES_MS - SEND_TIMEOUT_MS);
+    await expect(upload).resolves.toBe("AbortError");
+  });
+});
+
 describe("a send that is neither answered nor refused", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -76,7 +191,7 @@ describe("a send that is neither answered nor refused", () => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }),
     );
-    const outcome = postMessage("CL-0001", "hello").then(
+    const outcome = postMessage("CL-0001", { body: "hello" }).then(
       () => "answered",
       (error: unknown) => (error instanceof DOMException ? error.name : "other"),
     );

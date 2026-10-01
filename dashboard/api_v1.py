@@ -30,7 +30,7 @@ import json
 import logging
 from functools import wraps
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, SuspiciousOperation, TooManyFilesSent
 from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -93,6 +93,13 @@ def endpoint(*methods):
                 except PermissionDenied as refusal:
                     identity.record_denied(request, str(refusal)[:200] or "permission denied")
                     response = _error(403, "forbidden")
+                except TooManyFilesSent:
+                    # Django counts the parts of a form as it reads it, and stops at 100: a refusal like the others.
+                    response = _error(400, "too_many_files")
+                except SuspiciousOperation as refusal:
+                    # A body Django refuses to read (too many fields, too big): nothing was written.
+                    log.warning("api v1: %s refused a form: %s", view.__name__, refusal)
+                    response = _error(400, "bad_request")
                 except Exception:  # noqa: BLE001 - see the docstring
                     log.exception("api v1: %s failed", view.__name__)
                     response = _error(500, "server")
@@ -214,6 +221,7 @@ def me(request):
             "to_client": limit_for(user, "client"),
             "to_client_group": limit_for(user, "client_group"),
             "inside": limit_for(user, "inside"),
+            "files": {"count": MAX_FILES, "bytes": MAX_FILE_BYTES, "total_bytes": MAX_FILES_TOTAL_BYTES},
         },
         # The ported screens that are switched on for this person (newui.py):
         # the menu lists exactly these, and the home page hands them on.
@@ -406,6 +414,29 @@ def _wrote_something(request):
     return bool((request.POST.get("body") or "").strip() or request.FILES.getlist("files") or request.FILES.get("voice"))
 
 
+#: Files in one message: how many, how big each, how big all together. WhatsApp has limits of its own per kind of
+#: file (it says so when it refuses one); these are the ones this server will store and send. They are checked once
+#: the request has been read, so they keep a big upload from being kept and sent, not from being received: that
+#: is for the host and the proxy in front of it.
+MAX_FILES = 10
+MAX_FILE_BYTES = 25 * 1024 * 1024
+MAX_FILES_TOTAL_BYTES = 40 * 1024 * 1024
+
+
+def _files_problem(request):
+    """The short code for what is wrong with the files of this form, or ``""``."""
+    files = request.FILES.getlist("files")
+    voice = request.FILES.get("voice")
+    if len(files) > MAX_FILES:
+        return "too_many_files"
+    sizes = [item.size for item in files] + ([voice.size] if voice is not None else [])
+    if any(size > MAX_FILE_BYTES for size in sizes):
+        return "file_too_big"
+    if sum(sizes) > MAX_FILES_TOTAL_BYTES:
+        return "files_too_big"
+    return ""
+
+
 def limit_for(user, kind):
     """The longest text ``user`` may write: ``client`` (to one client), ``client_group`` or ``inside``.
 
@@ -447,12 +478,38 @@ def _sent_to_room(request, room):
     })
 
 
+def _file_tasks_answer(tasks):
+    """The tasks files could be for, as the picker above the box lists them. One is preselected, several must be chosen."""
+    return JsonResponse({
+        "ok": True,
+        "tasks": [{"code": task.code, "title": task.title} for task in tasks],
+    })
+
+
+@endpoint("GET")
+def group_file_tasks(request, room_id):
+    """Which task the files sent in this work group or colleague's room could be for (``services.file_task_choices``)."""
+    room = api._group_or_404(request, room_id)
+    return _file_tasks_answer(services.file_task_choices(request.user, room))
+
+
+@endpoint("GET")
+def staff_file_tasks(request, user_id):
+    """The same for a colleague, before anybody has written to them: nothing is opened by asking."""
+    other = User.objects.filter(pk=user_id, is_active=True).exclude(pk=request.user.pk).first()
+    if other is None:
+        raise Http404
+    return _file_tasks_answer(services.file_task_choices_with(request.user, other))
+
+
 @endpoint("POST")
 def group_send(request, room_id):
     """Write in a client group, a work group or a colleague's room you are already in."""
     room = api._group_or_404(request, room_id)
     if _too_long(request, "client_group" if room.kind == RoomKind.CLIENT else "inside"):
         return _error(400, "too_long")
+    if problem := _files_problem(request):
+        return _error(400, problem)
     return _sent_to_room(request, room)
 
 
@@ -467,6 +524,16 @@ def staff_send(request, user_id):
         return _error(400, "empty")
     if _too_long(request, "inside"):
         return _error(400, "too_long")
+    if problem := _files_problem(request):
+        return _error(400, problem)
+    # The first message opens the room, and so does its question: files asked which task they are for must be
+    # answered before a room is made for them, or a refusal leaves an empty room behind.
+    if request.FILES.getlist("files") and not ChatRoom.objects.filter(
+        kind=RoomKind.STAFF, pair_key=services.staff_pair_key(request.user.pk, other.pk)
+    ).exists():
+        _task, pick_error, choices = services.pick_file_task_with(request.user, other, request.POST.get("task", ""))
+        if pick_error:
+            return api.pick_refusal(pick_error, choices)
     return _sent_to_room(request, services.staff_room(request.user, other))
 
 
@@ -484,6 +551,8 @@ def client_send(request, client_code):
         return _error(400, "empty")
     if _too_long(request, "client"):
         return _error(400, "too_long")
+    if problem := _files_problem(request):
+        return _error(400, problem)
     ok, outbound, error = api.send_to_client(request, client)
     if outbound is None:
         return _error(400, "empty")

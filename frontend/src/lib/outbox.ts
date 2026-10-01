@@ -1,5 +1,5 @@
 /**
- * What a person has written and not yet seen arrive (chat slice 3b).
+ * What a person has written and not yet seen arrive (chat slices 3b and 3c: words, replies, files).
  *
  * The message shows at once as a bubble of its own ("sending"), and the page sends it. The server's answer is
  * the whole thread as it now is, so on success the bubble is simply replaced by the real one. Two things can
@@ -30,10 +30,17 @@ export interface ReplyTarget {
   text: string;
 }
 
-export interface Outgoing {
-  key: number;
+/** What a person writes: the words, the message it answers, files, and which task the files are for. */
+export interface Composed {
   body: string;
   reply: ReplyTarget | null;
+  files: File[];
+  /** A task code, `none` (not for a task), or nothing: the server decides. */
+  task: string;
+}
+
+export interface Outgoing extends Composed {
+  key: number;
   /** The uids that were in the thread when it was first sent: whatever is new after them may be this message. */
   before: string[];
   state: "sending" | "refused" | "unsure";
@@ -43,10 +50,21 @@ export interface Outgoing {
 
 let counter = 0;
 
-/** Does this entry look like the message `item` stands for: ours, new since it was sent, with the same words? */
+/**
+ * Does the entry carry exactly the files that were sent: as many, with the same sizes, in any order? By size and
+ * not by name: the server rewrites a name (it unescapes entities and drops what is not printable), and a message
+ * that did arrive but is not recognised is one the person sends twice to a client.
+ */
+function sameFiles(entry: ThreadEntry, item: Outgoing): boolean {
+  const wanted = item.files.map((file) => file.size).sort((a, b) => a - b);
+  const got = entry.files.map((file) => file.size).sort((a, b) => a - b);
+  return wanted.length === got.length && wanted.every((size, index) => size === got[index]);
+}
+
+/** Does this entry look like the message `item` stands for: ours, new since it was sent, with the same words and files? */
 function matches(entry: ThreadEntry, item: Outgoing, meId: number): boolean {
   if (entry.kind !== "out" || new Set(item.before).has(entry.uid)) return false;
-  if (entry.body.trim() !== item.body.trim()) return false;
+  if (entry.body.trim() !== item.body.trim() || !sameFiles(entry, item)) return false;
   // A group says `mine`; a client's thread does not, and names whoever sent it by id (a name is not unique).
   return entry.mine || (meId > 0 && entry.sender_id === meId);
 }
@@ -101,7 +119,12 @@ export async function deliver(client: QueryClient, code: string, key: number, me
   if (!item) return;
   patch(client, code, key, { state: "sending", error: "" });
   try {
-    const answer = await postMessage(code, item.body, item.reply?.uid);
+    const answer = await postMessage(code, {
+      body: item.body,
+      replyUid: item.reply?.uid,
+      files: item.files,
+      task: item.task,
+    });
     client.setQueryData(qk.thread(code), { ok: true, client: answer.client, messages: answer.messages });
     drop(client, code, [key]);
     // The row in the list now says what was just written.
@@ -147,7 +170,7 @@ export async function retry(client: QueryClient, code: string, key: number, meId
 export function submit(
   client: QueryClient,
   code: string,
-  draft: { body: string; reply: ReplyTarget | null; known: string[] },
+  draft: Composed & { known: string[] },
   meId: number,
 ): number {
   counter += 1;
@@ -155,6 +178,8 @@ export function submit(
     key: counter,
     body: draft.body,
     reply: draft.reply,
+    files: draft.files,
+    task: draft.task,
     before: draft.known,
     state: "sending",
     error: "",
@@ -205,7 +230,7 @@ export function useOutboxActions(code: string, meId: number) {
   const client = useQueryClient();
   return {
     send: useCallback(
-      (draft: { body: string; reply: ReplyTarget | null; known: string[] }) => submit(client, code, draft, meId),
+      (draft: Composed & { known: string[] }) => submit(client, code, draft, meId),
       [client, code, meId],
     ),
     retry: useCallback((key: number) => void retry(client, code, key, meId), [client, code, meId]),

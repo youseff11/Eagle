@@ -8,6 +8,8 @@ export const qk = {
   /** Every list, whatever the tab or the search: what a send refreshes. */
   chatLists: ["chats", "list"] as const,
   thread: (code: string) => ["chats", "thread", code] as const,
+  /** The tasks files sent in a conversation could be for. */
+  fileTasks: (code: string) => ["chats", "file-tasks", code] as const,
   /** What this person wrote in a conversation and has not seen arrive: kept outside `chats`, so a doorbell never drops it. */
   outbox: (code: string) => ["outbox", code] as const,
   /** Everything a list page shows: one prefix, so a change on the boards refreshes them all. */

@@ -5,6 +5,7 @@ import { qk } from "./keys";
 import type {
   ChatKind,
   ChatListResponse,
+  FileTasksResponse,
   MeResponse,
   MovedResponse,
   NotificationsResponse,
@@ -110,24 +111,64 @@ export function fetchThread(code: string): Promise<ThreadResponse> {
   return path ? api<ThreadResponse>(path) : Promise.reject(new Error("not a conversation"));
 }
 
+/** What one message carries: its words, the message it answers, files, and which task they are for. */
+export interface Draft {
+  body: string;
+  replyUid?: string;
+  files?: File[];
+  /** A task code, `none` (the files are not for a task), or nothing (the server decides). */
+  task?: string;
+}
+
 /**
- * Write one message (words and, optionally, the message it answers) and return what the server says. The
- * answer carries the whole thread as this person sees it now, which replaces the cached one: a delivery that
- * failed is on screen at once, as the server recorded it. Cut off after `SEND_TIMEOUT_MS`: a send that is
- * neither answered nor refused is "not sure", never "waiting for ever" (see `lib/outbox`).
+ * Write one message and return what the server says. The answer carries the whole thread as this person sees
+ * it now, which replaces the cached one: a delivery that failed is on screen at once, as the server recorded
+ * it. Cut off after a time limit - longer when there are files to upload: a send that is neither answered nor
+ * refused is "not sure", never "waiting for ever" (see `lib/outbox`).
  */
 export const SEND_TIMEOUT_MS = 40000;
+export const SEND_TIMEOUT_FILES_MS = 120000;
 
-export async function postMessage(code: string, body: string, replyUid?: string): Promise<SendResponse> {
+export async function postMessage(code: string, draft: Draft): Promise<SendResponse> {
   const path = sendPath(code);
   if (!path) throw new Error("not a conversation");
+  const files = draft.files ?? [];
   const abort = new AbortController();
-  const timer = window.setTimeout(() => abort.abort(), SEND_TIMEOUT_MS);
+  const timer = window.setTimeout(() => abort.abort(), files.length > 0 ? SEND_TIMEOUT_FILES_MS : SEND_TIMEOUT_MS);
   try {
-    return await api<SendResponse>(path, { form: { body, ...(replyUid ? { reply_uid: replyUid } : {}) }, signal: abort.signal });
+    if (files.length === 0) {
+      return await api<SendResponse>(path, {
+        form: { body: draft.body, ...(draft.replyUid ? { reply_uid: draft.replyUid } : {}) },
+        signal: abort.signal,
+      });
+    }
+    const multipart = new FormData();
+    multipart.append("body", draft.body);
+    if (draft.replyUid) multipart.append("reply_uid", draft.replyUid);
+    if (draft.task) multipart.append("task", draft.task);
+    for (const file of files) multipart.append("files", file, file.name);
+    return await api<SendResponse>(path, { multipart, signal: abort.signal });
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+/** Where to ask which tasks files sent in a conversation could be for: a work group or a colleague, nothing else. */
+export function fileTasksPath(code: string): string | null {
+  if (/^g\d+$/.test(code)) return `/api/v1/groups/${code.slice(1)}/file-tasks/`;
+  if (/^u\d+$/.test(code)) return `/api/v1/staff/${code.slice(1)}/file-tasks/`;
+  return null;
+}
+
+/** The tasks the files about to be sent could be for. Asked only once there are files, and afresh each time. */
+export function useFileTasks(code: string, enabled: boolean) {
+  const path = fileTasksPath(code);
+  return useQuery({
+    queryKey: qk.fileTasks(code),
+    queryFn: () => api<FileTasksResponse>(path!),
+    enabled: enabled && path !== null,
+    staleTime: 0,
+  });
 }
 
 /**

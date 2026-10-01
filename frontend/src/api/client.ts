@@ -38,6 +38,8 @@ export interface RequestOptions {
   json?: unknown;
   /** A form body, for the older endpoints that read `request.POST`. */
   form?: Record<string, string>;
+  /** A multipart body, for what carries files. The browser writes its Content-Type (with the boundary): never set it here. */
+  multipart?: FormData;
   signal?: AbortSignal;
 }
 
@@ -50,7 +52,7 @@ function errorCode(payload: unknown, status: number): string {
 }
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const writes = options.json !== undefined || options.form !== undefined;
+  const writes = options.json !== undefined || options.form !== undefined || options.multipart !== undefined;
   const method = options.method ?? (writes ? "POST" : "GET");
   const headers: Record<string, string> = { Accept: "application/json" };
   let body: BodyInit | undefined;
@@ -60,6 +62,8 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     body = JSON.stringify(options.json);
   } else if (options.form !== undefined) {
     body = new URLSearchParams(options.form);
+  } else if (options.multipart !== undefined) {
+    body = options.multipart;
   }
   if (method !== "GET") headers["X-CSRFToken"] = csrfToken();
 

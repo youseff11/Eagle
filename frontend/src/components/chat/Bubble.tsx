@@ -2,6 +2,7 @@ import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
 import type { Outgoing } from "../../lib/outbox";
+import { prettySize } from "../../lib/size";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
@@ -135,6 +136,15 @@ function refusal(code: string, t: (ar: string, en: string) => string): string {
   if (code === "forbidden" || code === "not_found") {
     return t("مش مسموحلك ترد في المحادثة دي.", "You cannot write in this conversation.");
   }
+  if (code === "too_many_files") return t("عدد الملفات أكتر من المسموح.", "There are more files than allowed.");
+  if (code === "file_too_big") return t("فيه ملف أكبر من المسموح.", "A file is bigger than allowed.");
+  if (code === "files_too_big") return t("الملفات مع بعض أكبر من المسموح.", "The files together are bigger than allowed.");
+  if (code === "pick_task" || code === "bad_task") {
+    return t(
+      "حدد الملفات تبع أنهي تاسك. الشلّه وابعتها تاني بعد ما تختار.",
+      "Say which task the files are for: discard it and send again after choosing.",
+    );
+  }
   if (code === "csrf") return t("الجلسة محتاجة تتحدّث. حدّث الصفحة وجرّب تاني.", "The session needs a refresh. Reload the page and try again.");
   if (code === "auth") return t("الجلسة خلصت. سجّل دخول تاني.", "The session ended. Sign in again.");
   return t("الرسالة ماتبعتتش.", "The message was not sent.");
@@ -168,7 +178,14 @@ export function OutgoingBubble({
             <span>{item.reply.text}</span>
           </div>
         )}
-        <div className="bub__text">{item.body}</div>
+        {item.body && <div className="bub__text">{item.body}</div>}
+        {item.files.map((file, index) => (
+          <div className="bub__file" key={`${file.name}-${index}`}>
+            <Icon name="paperclip" size="sm" />
+            <span>{file.name}</span>
+            <span className="muted mono">{prettySize(file.size)}</span>
+          </div>
+        ))}
         <div className="bub__foot">
           {sending && (
             <span className="muted bub__sending">

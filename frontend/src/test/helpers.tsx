@@ -30,7 +30,12 @@ export function me(
       ...overrides,
     },
     chats: { types: ["clients", "groups", "staff"] },
-    limits: { to_client: 4000, to_client_group: 3987, inside: 10000 },
+    limits: {
+      to_client: 4000,
+      to_client_group: 3987,
+      inside: 10000,
+      files: { count: 10, bytes: 25 * 1024 * 1024, total_bytes: 40 * 1024 * 1024 },
+    },
     screens,
     unread_notifications: unread,
     unread_chats: 0,

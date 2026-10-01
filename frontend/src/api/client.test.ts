@@ -29,6 +29,20 @@ describe("api", () => {
     expect(() => csrfToken()).not.toThrow();
   });
 
+  it("sends a multipart body as it is, with the token, and leaves the Content-Type to the browser", async () => {
+    const fetchMock = stub(jsonResponse({ ok: true }));
+    const multipart = new FormData();
+    multipart.append("body", "words");
+    multipart.append("files", new File(["abc"], "a.txt"), "a.txt");
+    await api("/api/v1/clients/CL-0001/send/", { multipart });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(multipart);
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["X-CSRFToken"]).toBe("tok123");
+    expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain("content-type");
+  });
+
   it("sends a GET without a csrf header and with the session cookie", async () => {
     const fetchMock = stub(jsonResponse({ ok: true }));
     await api("/api/v1/me/");

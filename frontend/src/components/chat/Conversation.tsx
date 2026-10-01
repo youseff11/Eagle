@@ -8,7 +8,7 @@ import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
 import { Bubble, OutgoingBubble } from "./Bubble";
-import { Composer, DEFAULT_LIMITS } from "./Composer";
+import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
 
 function Header({ row, code }: { row: ChatRow; code: string }) {
   const { t } = usePreferences();
@@ -199,7 +199,7 @@ export function replyTargetOf(entry: ThreadEntry, t: (ar: string, en: string) =>
  * Writing is not reading: a send marks nothing read, and the answer to it (the thread as it now is) goes
  * through the same rule.
  *
- * Words and replies can be written here; files, voice, reactions and forwarding come in the next steps, and
+ * Words, replies and files can be written here; voice, reactions and forwarding come in the next steps, and
  * until then the way to the classic page stays on screen.
  */
 export function Conversation({ code, kind, allowed }: { code: string; kind: ChatKind; allowed: boolean }) {
@@ -250,8 +250,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     if (arrivedKeys) outbox.prune(arrivedKeys.split(",").map(Number));
   }, [arrivedKeys, outbox.prune]);
 
-  const write = (body: string) => {
-    outbox.send({ body, reply: replyTo, known: messages.map((entry) => entry.uid) });
+  const write = ({ body, files, task }: Written) => {
+    outbox.send({ body, files, task, reply: replyTo, known: messages.map((entry) => entry.uid) });
     setReplyTo(null);
     setSent((count) => count + 1);
   };
@@ -297,6 +297,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
           <Composer
             code={code}
             toClient={!row.staff && (row.reaches_client === true || !row.group)}
+            pickTasks={row.staff === true || row.team === true}
+            fileLimits={limits.files}
             limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}
             reply={replyTo}
             onClearReply={() => setReplyTo(null)}
@@ -305,11 +307,11 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             onSend={write}
           />
           <div className="cchat__hint muted">
-            <Icon name="paperclip" size="sm" />
+            <Icon name="mic" size="sm" />
             <span>
               {t(
-                "الملفات والصوت لسه من الواجهة الحالية.",
-                "Files and voice notes are still sent from the classic interface.",
+                "الرسايل الصوتية لسه من الواجهة الحالية.",
+                "Voice notes are still sent from the classic interface.",
               )}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>
