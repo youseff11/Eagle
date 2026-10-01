@@ -102,9 +102,10 @@ def content_security_policy(request):
         "style-src-attr 'unsafe-inline'",
         "font-src https://fonts.gstatic.com",
         "img-src 'self' data:",
-        # Voice notes: <audio> from /files/. (default-src would cover it; said here so that a later change
-        # to default-src does not silence them without anybody noticing.)
-        "media-src 'self'",
+        # Voice notes: <audio> from /files/ (default-src would cover it; said here so that a later change
+        # to default-src does not silence them without anybody noticing), and the recording the page has just
+        # made, played back from a blob: address before it is sent. blob: is allowed for media and for nothing else.
+        "media-src 'self' blob:",
         f"connect-src 'self' {socket}",
         "frame-ancestors 'none'",
         "base-uri 'none'",

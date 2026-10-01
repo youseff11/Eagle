@@ -107,6 +107,9 @@ def to_opus(content):
         result = subprocess.run(
             [
                 binary, "-hide_banner", "-loglevel", "error", "-y",
+                # What arrives is whatever the browser sent: a playlist or a concat file inside it could make
+                # ffmpeg fetch a URL. It is given the file it is told to read, and nothing else to open.
+                "-protocol_whitelist", "file,pipe",
                 "-i", source,
                 "-vn", "-ac", "1", "-ar", "48000",
                 "-c:a", "libopus", "-b:a", "32k",

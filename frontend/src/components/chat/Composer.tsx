@@ -1,10 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useFileTasks } from "../../api/queries";
 import type { MeResponse } from "../../api/types";
+import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import { usePreferences } from "../../i18n/Preferences";
 import type { ReplyTarget } from "../../lib/outbox";
+import type { Recorded } from "../../lib/recorder";
 import { prettySize } from "../../lib/size";
 import { Icon } from "../Icon";
+import { VoiceBar } from "./VoiceBar";
 
 /** What was typed and attached in each conversation and not sent: kept while the person looks at another one, never longer than the page. */
 interface Unsent {
@@ -29,6 +32,7 @@ export const DEFAULT_LIMITS: MeResponse["limits"] = {
   to_client_group: 3987,
   inside: 10000,
   files: { count: 10, bytes: 95 * 1024 * 1024, total_bytes: 95 * 1024 * 1024 },
+  voice: { seconds: 300, bytes: 15 * 1024 * 1024 },
 };
 
 /** What is wrong with these files, if anything: too many, one too big, or all together too big. */
@@ -39,11 +43,15 @@ export function filesProblem(files: File[], limits: MeResponse["limits"]["files"
   return "";
 }
 
-/** What is sent from the box: the words, the files, and the task the files are for (`none`, a code, or nothing). */
+/**
+ * What is sent from the box: the words, the files, the task the files are for (`none`, a code, or nothing), and a voice
+ * note. A voice note goes by itself (with the words typed beside it): the files that are attached wait for their own send.
+ */
 export interface Written {
   body: string;
   files: File[];
   task: string;
+  voice: Recorded | null;
 }
 
 /**
@@ -64,6 +72,7 @@ export function Composer({
   pickTasks,
   limit,
   fileLimits,
+  voiceLimits,
   reply,
   onClearReply,
   closed,
@@ -78,6 +87,7 @@ export function Composer({
   /** The most characters one message may have here (what the server allows this person in this conversation). */
   limit: number;
   fileLimits: MeResponse["limits"]["files"];
+  voiceLimits: MeResponse["limits"]["voice"];
   reply: ReplyTarget | null;
   onClearReply: () => void;
   closed: boolean;
@@ -89,6 +99,7 @@ export function Composer({
   const [files, setFiles] = useState<File[]>(() => drafts.get(code)?.files ?? []);
   const [task, setTask] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
+  const voice = useVoiceRecorder(voiceLimits.seconds);
 
   // The box grows with what is typed, up to a limit, then scrolls. An empty box takes the height the style gives
   // it: measuring the placeholder (which wraps in a narrow column) froze a tall box while the layout settled.
@@ -154,11 +165,20 @@ export function Composer({
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     if (!ready) return;
-    onSend({ body, files, task: wantsTask && choices.length > 0 ? chosen : "" });
+    onSend({ body, files, task: wantsTask && choices.length > 0 ? chosen : "", voice: null });
     setText("");
     setFiles([]);
     setTask("");
     remember("", []);
+  };
+
+  // The take is sent with the words typed beside it, and the files that are attached stay for their own send.
+  const sendVoice = () => {
+    if (!voice.recorded || busy || closed || over) return;
+    onSend({ body, files: [], task: "", voice: voice.recorded });
+    setText("");
+    remember("", files);
+    voice.discard();
   };
 
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -254,6 +274,17 @@ export function Composer({
             onChange={pick}
           />
         </label>
+        <button
+          type="button"
+          id="micBtn"
+          className={`icon-btn${voice.phase === "recording" ? " is-live" : ""}`}
+          disabled={closed || voice.phase !== "idle"}
+          onClick={voice.start}
+          title={t("سجّل رسالة صوتية", "Record a voice note")}
+          aria-label={t("سجّل رسالة صوتية", "Record a voice note")}
+        >
+          <Icon name="mic" />
+        </button>
         <textarea
           ref={box}
           className="input grow cchat__input"
@@ -270,6 +301,7 @@ export function Composer({
           <span>{t("إرسال", "Send")}</span>
         </button>
       </form>
+      <VoiceBar voice={voice} busy={busy} maxBytes={voiceLimits.bytes} onSend={sendVoice} />
       {files.length > 0 && (
         <div className="cchat__files">
           {files.map((file, index) => (

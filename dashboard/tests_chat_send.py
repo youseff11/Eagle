@@ -17,10 +17,11 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client as DjangoClient
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from . import api_v1, identity, mailer, services, whatsapp
+from . import api_v1, audio, identity, mailer, services, whatsapp
 from .models import (
     AuditLog, Channel, ChatMessage, ChatRead, ChatRoom, Client, InboundMessage, Notification, OutboundMessage, Role,
     RoomKind, User,
@@ -769,7 +770,7 @@ class LimitWithThePrefixTests(_Send):
     def test_me_says_the_limits_for_this_person(self):
         for user in (self.ops, self.lead, self.admin):
             limits = _json(self.browser(user).get(reverse("dashboard:v1_me")))["limits"]
-            self.assertEqual({k: v for k, v in limits.items() if k != "files"}, {
+            self.assertEqual({k: v for k, v in limits.items() if k not in ("files", "voice")}, {
                 "to_client": api_v1.MAX_CLIENT_TEXT,
                 "to_client_group": api_v1.MAX_CLIENT_TEXT - len(services.client_prefix(user)),
                 "inside": api_v1.MAX_INTERNAL_TEXT,
@@ -1108,3 +1109,146 @@ class FileNameTests(_Send):
         self.assertFalse(ChatMessage.objects.filter(attachments__isnull=False).exists())
         self.assertEqual(ChatRoom.objects.count(), rooms)
         self.nothing_left_the_building()
+
+
+def _voice(name="voice.ogg", content=b"OggS-a-recording", kind="audio/ogg"):
+    return SimpleUploadedFile(name, content, content_type=kind)
+
+
+class VoiceTests(_Send):
+    """Step 3c-2, voice notes: a recording the page made goes through the same doors."""
+
+    def test_a_recording_goes_to_the_client_as_a_voice_note_with_its_length(self):
+        answer = self.to_client(self.ops, voice=_voice(), seconds="7")
+        body = _json(answer)
+        self.assertEqual(answer.status_code, 200)
+        self.assertTrue(body["delivered"])
+        self.text.assert_not_called()
+        self.file.assert_called_once()
+        self.assertEqual(self.file.call_args.args[2:4], ("voice.ogg", "audio/ogg"))
+        sent = OutboundMessage.objects.get()
+        stored = sent.uploads.get()
+        self.assertTrue(stored.is_voice)
+        self.assertEqual(stored.duration, 7)
+        ours = [m for m in body["messages"] if m["kind"] == "out"]
+        voice_file = ours[0]["files"][0]
+        self.assertTrue(voice_file["voice"])
+        self.assertTrue(voice_file["audio"])
+        self.assertEqual(voice_file["length"], "0:07")
+
+    def test_the_length_is_bounded_and_nonsense_is_nothing(self):
+        for given, kept in (("9999", audio.MAX_SECONDS), ("-5", 0), ("abc", 0), ("", 0), ("300", 300)):
+            OutboundMessage.objects.all().delete()
+            self.to_client(self.ops, voice=_voice(), seconds=given)
+            self.assertEqual(OutboundMessage.objects.get().uploads.get().duration, kept, given)
+
+    def test_words_with_a_recording_go_first_and_a_reply_quotes_the_message(self):
+        self.to_client(self.ops, body="listen to this", voice=_voice(), seconds="3", reply_uid=f"in-{self.heard.pk}")
+        self.text.assert_called_once()
+        self.assertEqual(self.text.call_args.args[:2], (PHONE, "listen to this"))
+        self.assertEqual(self.text.call_args.kwargs["context_id"], "wamid.in.1")
+        self.file.assert_called_once()
+        # The quote is on the first message that goes, and not on the one after it.
+        self.assertEqual(self.file.call_args.kwargs["context_id"], "")
+        self.to_client(self.ops, voice=_voice(), seconds="3", reply_uid=f"in-{self.heard.pk}")
+        self.assertEqual(self.file.call_args.kwargs["context_id"], "wamid.in.1")
+
+    def test_a_recording_the_browser_made_in_a_format_whatsapp_refuses_is_converted_first(self):
+        with mock.patch("dashboard.audio.to_opus", return_value=b"converted-opus") as convert:
+            answer = self.to_client(self.ops, voice=_voice("voice.webm", b"webm-bytes", "audio/webm;codecs=opus"), seconds="4")
+        self.assertTrue(_json(answer)["delivered"])
+        convert.assert_called_once_with(b"webm-bytes")
+        self.assertEqual(self.file.call_args.args[1:4], (b"converted-opus", "voice.ogg", "audio/ogg"))
+
+    def test_a_recording_that_cannot_be_converted_is_in_the_thread_failed_with_its_reason(self):
+        with mock.patch("dashboard.audio.to_opus", side_effect=audio.AudioError("مفيش ffmpeg", "no ffmpeg")):
+            body = _json(self.to_client(self.ops, voice=_voice("voice.webm", b"x", "audio/webm"), seconds="2"))
+        self.assertFalse(body["delivered"])
+        self.assertEqual(body["error"], "مفيش ffmpeg")
+        self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
+        self.nothing_left_the_building()
+
+    def test_in_a_work_group_a_recording_is_stored_never_relayed_and_asks_for_no_task(self):
+        # Two tasks in common would make files ask which one; a recording is not asked.
+        for title in ("First", "Second"):
+            FilesTests.make_task(self, title)
+        with mock.patch("dashboard.services.relay_chat_message") as relay:
+            answer = self.to_staff(self.ops, self.lead, voice=_voice())
+            team = self.to_group(self.lead, self.team, voice=_voice())
+        self.assertEqual((answer.status_code, team.status_code), (200, 200))
+        relay.assert_not_called()
+        self.nothing_left_the_building()
+        stored = ChatMessage.objects.filter(attachments__isnull=False)
+        self.assertEqual(stored.count(), 2)
+        entry = [m for m in _json(team)["messages"] if m["files"]][0]
+        self.assertTrue(entry["files"][0]["audio"])
+
+    def test_in_a_client_group_a_recording_is_relayed(self):
+        with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")) as relay:
+            answer = self.to_group(self.ops, voice=_voice())
+        self.assertEqual(answer.status_code, 200)
+        relay.assert_called_once()
+        self.assertEqual(ChatMessage.objects.get(room=self.group).attachments.count(), 1)
+
+    def test_a_recording_alone_is_a_message_and_nothing_at_all_is_not(self):
+        self.assertEqual(self.to_client(self.ops, voice=_voice(), seconds="1").status_code, 200)
+        OutboundMessage.objects.all().delete()
+        empty = self.to_client(self.ops, seconds="5")
+        self.assertEqual((empty.status_code, _json(empty)["error"]), (400, "empty"))
+
+    def test_a_recording_bigger_than_a_recording_can_be_is_refused_before_anything_is_written(self):
+        rooms = ChatRoom.objects.count()
+        with mock.patch.object(api_v1, "MAX_VOICE_BYTES", 5):
+            big = _voice(content=b"123456")
+            answers = [
+                self.to_client(self.ops, voice=big),
+                self.to_group(self.lead, self.team, voice=_voice(content=b"123456")),
+                self.to_staff(self.hr, self.sales, voice=_voice(content=b"123456")),
+            ]
+            fine = self.to_client(self.ops, voice=_voice(content=b"12345"))
+        self.assertEqual([(a.status_code, _json(a)["error"]) for a in answers], [(400, "file_too_big")] * 3)
+        self.assertEqual(fine.status_code, 200)
+        self.assertEqual(OutboundMessage.objects.count(), 1)
+        self.assertFalse(ChatMessage.objects.filter(attachments__isnull=False).exists())
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+
+    def test_a_recording_to_a_client_off_the_line_is_not_found_like_an_unknown_one(self):
+        with mock.patch.object(api_v1, "MAX_VOICE_BYTES", 0):
+            answer = self.to_client(self.ops, code=self.sales_client.code, voice=_voice())
+            unknown = self.to_client(self.ops, code="CL-9999", voice=_voice())
+        self.assertEqual((answer.status_code, answer.content), (unknown.status_code, unknown.content))
+        self.nothing_left_the_building()
+
+    def test_the_roles_that_may_not_write_to_a_client_may_not_send_them_a_recording(self):
+        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
+            self.assertEqual(self.to_client(user, voice=_voice()).status_code, 403, user.username)
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.nothing_left_the_building()
+
+    def test_a_recording_has_a_ceiling_of_its_own_far_under_what_a_file_may_be(self):
+        # It is handed to ffmpeg to be re-encoded: a "recording" of the size of a file is not one.
+        self.assertLessEqual(api_v1.MAX_VOICE_BYTES, 20 * 1024 * 1024)
+        self.assertLess(api_v1.MAX_VOICE_BYTES, api_v1.MAX_FILE_BYTES)
+
+    def test_me_says_how_long_and_how_big_a_recording_may_be(self):
+        voice = _json(self.browser(self.ops).get(reverse("dashboard:v1_me")))["limits"]["voice"]
+        self.assertEqual(voice, {"seconds": audio.MAX_SECONDS, "bytes": api_v1.MAX_VOICE_BYTES})
+
+
+class ConversionIsConfinedTests(TestCase):
+    def test_ffmpeg_may_open_files_and_pipes_and_nothing_else(self):
+        argv = []
+
+        def fake(command, **kwargs):
+            argv.extend(command)
+            return mock.Mock(returncode=1, stderr=b"")
+
+        with mock.patch("dashboard.audio.ffmpeg_path", return_value="/usr/bin/ffmpeg"), \
+                mock.patch("dashboard.audio.subprocess.run", side_effect=fake):
+            with self.assertRaises(audio.AudioError):
+                audio.to_opus(b"whatever the browser sent")
+        self.assertIn("-protocol_whitelist", argv)
+        position = argv.index("-protocol_whitelist")
+        self.assertEqual(argv[position + 1], "file,pipe")
+        # It applies to the input that follows it.
+        self.assertLess(position, argv.index("-i"))

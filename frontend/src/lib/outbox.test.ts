@@ -10,6 +10,7 @@ const item = (key: number, body: string, overrides: Partial<Outgoing> = {}): Out
   reply: null,
   files: [],
   task: "",
+  voice: null,
   before: [],
   state: "sending",
   error: "",

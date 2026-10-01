@@ -2,6 +2,7 @@ import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
 import type { Outgoing } from "../../lib/outbox";
+import { formatSeconds } from "../../lib/recorder";
 import { prettySize } from "../../lib/size";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
@@ -186,6 +187,15 @@ export function OutgoingBubble({
             <span className="muted mono">{prettySize(file.size)}</span>
           </div>
         ))}
+        {item.voice && (
+          <div className="bub__voice">
+            <div className="bub__voice-head">
+              <Icon name="mic" size="sm" />
+              <span>{t("رسالة صوتية", "Voice note")}</span>
+              <span className="mono">{formatSeconds(item.voice.seconds)}</span>
+            </div>
+          </div>
+        )}
         <div className="bub__foot">
           {sending && (
             <span className="muted bub__sending">

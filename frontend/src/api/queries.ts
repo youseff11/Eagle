@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { api } from "./client";
+import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
   ChatKind,
@@ -118,6 +119,8 @@ export interface Draft {
   files?: File[];
   /** A task code, `none` (the files are not for a task), or nothing (the server decides). */
   task?: string;
+  /** A voice note the page recorded. */
+  voice?: Recorded;
 }
 
 /**
@@ -133,10 +136,11 @@ export async function postMessage(code: string, draft: Draft): Promise<SendRespo
   const path = sendPath(code);
   if (!path) throw new Error("not a conversation");
   const files = draft.files ?? [];
+  const uploads = files.length > 0 || draft.voice !== undefined;
   const abort = new AbortController();
-  const timer = window.setTimeout(() => abort.abort(), files.length > 0 ? SEND_TIMEOUT_FILES_MS : SEND_TIMEOUT_MS);
+  const timer = window.setTimeout(() => abort.abort(), uploads ? SEND_TIMEOUT_FILES_MS : SEND_TIMEOUT_MS);
   try {
-    if (files.length === 0) {
+    if (!uploads) {
       return await api<SendResponse>(path, {
         form: { body: draft.body, ...(draft.replyUid ? { reply_uid: draft.replyUid } : {}) },
         signal: abort.signal,
@@ -147,6 +151,10 @@ export async function postMessage(code: string, draft: Draft): Promise<SendRespo
     if (draft.replyUid) multipart.append("reply_uid", draft.replyUid);
     if (draft.task) multipart.append("task", draft.task);
     for (const file of files) multipart.append("files", file, file.name);
+    if (draft.voice) {
+      multipart.append("voice", draft.voice.blob, `voice${draft.voice.extension}`);
+      multipart.append("seconds", String(draft.voice.seconds));
+    }
     return await api<SendResponse>(path, { multipart, signal: abort.signal });
   } finally {
     window.clearTimeout(timer);

@@ -35,7 +35,7 @@ from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, clock, identity, newui, services
+from . import api, audio, clock, identity, newui, services
 from .models import AppSettings, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
@@ -222,6 +222,7 @@ def me(request):
             "to_client_group": limit_for(user, "client_group"),
             "inside": limit_for(user, "inside"),
             "files": {"count": MAX_FILES, "bytes": MAX_FILE_BYTES, "total_bytes": MAX_FILES_TOTAL_BYTES},
+            "voice": {"seconds": audio.MAX_SECONDS, "bytes": MAX_VOICE_BYTES},
         },
         # The ported screens that are switched on for this person (newui.py):
         # the menu lists exactly these, and the home page hands them on.
@@ -428,6 +429,9 @@ def _wrote_something(request):
 MAX_FILES = 10
 MAX_FILE_BYTES = 95 * 1024 * 1024
 MAX_FILES_TOTAL_BYTES = 95 * 1024 * 1024
+#: A recording is at most ``audio.MAX_SECONDS`` of speech, a few megabytes in any format a browser records. One
+#: far bigger is not a recording, and it would be handed to ffmpeg to re-encode.
+MAX_VOICE_BYTES = 15 * 1024 * 1024
 
 
 def _files_problem(request):
@@ -436,6 +440,8 @@ def _files_problem(request):
     voice = request.FILES.get("voice")
     if len(files) > MAX_FILES:
         return "too_many_files"
+    if voice is not None and voice.size > MAX_VOICE_BYTES:
+        return "file_too_big"
     sizes = [item.size for item in files] + ([voice.size] if voice is not None else [])
     if any(size > MAX_FILE_BYTES for size in sizes):
         return "file_too_big"

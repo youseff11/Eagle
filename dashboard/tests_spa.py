@@ -245,7 +245,11 @@ class ContentSecurityPolicyTests(_Built):
         policy = self.policy()
         self.assertEqual(policy["img-src"], "'self' data:")
         # Said outright, not left to default-src: the chat plays voice notes with <audio>.
-        self.assertEqual(policy["media-src"], "'self'")
+        self.assertEqual(policy["media-src"], "'self' blob:")
+        # blob: is for playing a recording back, and for nothing that can run or load a page.
+        for directive, value in policy.items():
+            if directive != "media-src":
+                self.assertNotIn("blob:", value, directive)
 
     def test_the_page_cannot_be_framed_and_forms_post_home(self):
         policy = self.policy()

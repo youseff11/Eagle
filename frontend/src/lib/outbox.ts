@@ -22,6 +22,7 @@ import { ApiError } from "../api/client";
 import { qk } from "../api/keys";
 import { fetchThread, postMessage } from "../api/queries";
 import type { ThreadEntry, ThreadResponse } from "../api/types";
+import type { Recorded } from "./recorder";
 
 /** The message a reply answers, as the reply bar and the bubble show it. */
 export interface ReplyTarget {
@@ -37,6 +38,8 @@ export interface Composed {
   files: File[];
   /** A task code, `none` (not for a task), or nothing: the server decides. */
   task: string;
+  /** A voice note, sent by itself (with words, if there are any). */
+  voice: Recorded | null;
 }
 
 export interface Outgoing extends Composed {
@@ -61,10 +64,20 @@ function sameFiles(entry: ThreadEntry, item: Outgoing): boolean {
   return wanted.length === got.length && wanted.every((size, index) => size === got[index]);
 }
 
+/**
+ * Is the one file of the entry a voice note? The server converts a recording before it keeps it, so its size is
+ * not the size that was recorded: a voice note is known by being one (a client's thread says `voice`, a room's
+ * only that the file is audio), and by the person and the words around it.
+ */
+function isVoiceNote(entry: ThreadEntry): boolean {
+  return entry.files.length === 1 && (entry.files[0]!.voice || entry.files[0]!.audio);
+}
+
 /** Does this entry look like the message `item` stands for: ours, new since it was sent, with the same words and files? */
 function matches(entry: ThreadEntry, item: Outgoing, meId: number): boolean {
   if (entry.kind !== "out" || new Set(item.before).has(entry.uid)) return false;
-  if (entry.body.trim() !== item.body.trim() || !sameFiles(entry, item)) return false;
+  if (entry.body.trim() !== item.body.trim()) return false;
+  if (item.voice ? !isVoiceNote(entry) : !sameFiles(entry, item)) return false;
   // A group says `mine`; a client's thread does not, and names whoever sent it by id (a name is not unique).
   return entry.mine || (meId > 0 && entry.sender_id === meId);
 }
@@ -124,6 +137,7 @@ export async function deliver(client: QueryClient, code: string, key: number, me
       replyUid: item.reply?.uid,
       files: item.files,
       task: item.task,
+      voice: item.voice ?? undefined,
     });
     client.setQueryData(qk.thread(code), { ok: true, client: answer.client, messages: answer.messages });
     drop(client, code, [key]);
@@ -180,6 +194,7 @@ export function submit(
     reply: draft.reply,
     files: draft.files,
     task: draft.task,
+    voice: draft.voice,
     before: draft.known,
     state: "sending",
     error: "",

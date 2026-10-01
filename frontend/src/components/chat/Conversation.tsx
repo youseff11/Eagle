@@ -250,8 +250,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     if (arrivedKeys) outbox.prune(arrivedKeys.split(",").map(Number));
   }, [arrivedKeys, outbox.prune]);
 
-  const write = ({ body, files, task }: Written) => {
-    outbox.send({ body, files, task, reply: replyTo, known: messages.map((entry) => entry.uid) });
+  const write = ({ body, files, task, voice }: Written) => {
+    outbox.send({ body, files, task, voice, reply: replyTo, known: messages.map((entry) => entry.uid) });
     setReplyTo(null);
     setSent((count) => count + 1);
   };
@@ -299,6 +299,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             toClient={!row.staff && (row.reaches_client === true || !row.group)}
             pickTasks={row.staff === true || row.team === true}
             fileLimits={limits.files}
+            voiceLimits={limits.voice}
             limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}
             reply={replyTo}
             onClearReply={() => setReplyTo(null)}
@@ -307,11 +308,11 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             onSend={write}
           />
           <div className="cchat__hint muted">
-            <Icon name="mic" size="sm" />
+            <Icon name="info" size="sm" />
             <span>
               {t(
-                "الرسايل الصوتية لسه من الواجهة الحالية.",
-                "Voice notes are still sent from the classic interface.",
+                "التفاعلات والتحويل وتحويل الرسالة لتاسك لسه من الواجهة الحالية.",
+                "Reactions, forwarding and turning a message into a task are still done in the classic interface.",
               )}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>

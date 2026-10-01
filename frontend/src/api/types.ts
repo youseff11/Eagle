@@ -37,6 +37,8 @@ export interface MeResponse {
     inside: number;
     /** Files in one message: how many, how big each, how big all together (bytes). */
     files: { count: number; bytes: number; total_bytes: number };
+    /** A voice note: the longest it may run (seconds) and the biggest it may be (bytes). */
+    voice: { seconds: number; bytes: number };
   };
   /** The ported screens that are switched on for this person (`dashboard/newui.py`). */
   screens: ScreenKey[];

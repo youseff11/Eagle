@@ -38,6 +38,7 @@ describe("Shell", () => {
       reply: null,
       files: [],
       task: "",
+      voice: null,
       before: [],
       state,
       error: "",
