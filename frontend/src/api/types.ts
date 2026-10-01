@@ -30,6 +30,8 @@ export interface MeResponse {
     theme: Theme;
   };
   chats: { types: string[] };
+  /** The longest message this person may write: to one client, to a client group (its prefix counts), inside. */
+  limits: { to_client: number; to_client_group: number; inside: number };
   /** The ported screens that are switched on for this person (`dashboard/newui.py`). */
   screens: ScreenKey[];
   unread_notifications: number;
@@ -188,6 +190,8 @@ export interface ThreadEntry {
   status: string;
   error: string;
   sender: string;
+  /** Who wrote it, by id (0: the client, or nobody). A name is not unique. */
+  sender_id: number;
   task_code: string;
   is_delivery: boolean;
   quote: string;
@@ -207,6 +211,16 @@ export interface ThreadResponse {
   ok: true;
   client: ChatRow;
   messages: ThreadEntry[];
+}
+
+/** POST .../send/: the message is in the thread; `delivered` says whether it also got where it was going. */
+export interface SendResponse {
+  ok: true;
+  delivered: boolean;
+  /** Why not, in Arabic, when `delivered` is false. */
+  error: string;
+  messages: ThreadEntry[];
+  client: ChatRow;
 }
 
 /** POST .../read/ */

@@ -1,6 +1,7 @@
 import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
+import type { Outgoing } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
@@ -72,10 +73,10 @@ function Reactions({ reactions }: { reactions: Reaction[] }) {
  * One message, as the classic page draws it (`templates/ops/_client_bubble.html`, `bubbleHtml` in chat.js):
  * the forwarded tag, the quoted message, the text, the files, who and when, the marks and the reactions.
  *
- * Reading only: replying, reacting, forwarding and the buttons that turn a message into a task come
+ * Replying is here (`onReply`); reacting, forwarding and the buttons that turn a message into a task come
  * with their own steps. Every string is drawn as text; nothing the server sent is read as markup.
  */
-export function Bubble({ entry }: { entry: ThreadEntry }) {
+export function Bubble({ entry, onReply }: { entry: ThreadEntry; onReply?: (entry: ThreadEntry) => void }) {
   const { t, lang } = usePreferences();
   const out = entry.kind === "out";
   const classes = ["bub", out ? "bub--out" : "bub--in"];
@@ -84,6 +85,17 @@ export function Bubble({ entry }: { entry: ThreadEntry }) {
 
   return (
     <div className={classes.join(" ")} data-uid={entry.uid}>
+      {onReply && (
+        <button
+          className="bub__reply"
+          type="button"
+          title={t("رد", "Reply")}
+          aria-label={t("رد", "Reply")}
+          onClick={() => onReply(entry)}
+        >
+          <Icon name="reply" size="sm" />
+        </button>
+      )}
       <div className="bub__box">
         {entry.forwarded && (
           <div className="bub__fwdtag">
@@ -111,6 +123,78 @@ export function Bubble({ entry }: { entry: ThreadEntry }) {
         </div>
         {entry.error && <div className="bub__error">{entry.error}</div>}
         <Reactions reactions={entry.reactions} />
+      </div>
+    </div>
+  );
+}
+
+/** Why a message that was refused was not sent, in the person's words; anything else is the general sentence. */
+function refusal(code: string, t: (ar: string, en: string) => string): string {
+  if (code === "empty") return t("مفيش حاجة تتبعت.", "There is nothing to send.");
+  if (code === "too_long") return t("الرسالة أطول من الحد المسموح. قصّرها.", "The message is longer than allowed. Shorten it.");
+  if (code === "forbidden" || code === "not_found") {
+    return t("مش مسموحلك ترد في المحادثة دي.", "You cannot write in this conversation.");
+  }
+  if (code === "csrf") return t("الجلسة محتاجة تتحدّث. حدّث الصفحة وجرّب تاني.", "The session needs a refresh. Reload the page and try again.");
+  if (code === "auth") return t("الجلسة خلصت. سجّل دخول تاني.", "The session ended. Sign in again.");
+  return t("الرسالة ماتبعتتش.", "The message was not sent.");
+}
+
+/**
+ * A message this person has written and the server has not yet confirmed: it is on its way ("sending"), or it
+ * did not go and says so with the two things that can be done about it. `unsure` is the case where nothing
+ * came back: the message may be there already, so the person is told to look before sending it again.
+ */
+export function OutgoingBubble({
+  item,
+  onRetry,
+  onDiscard,
+}: {
+  item: Outgoing;
+  onRetry: (key: number) => void;
+  onDiscard: (key: number) => void;
+}) {
+  const { t } = usePreferences();
+  const sending = item.state === "sending";
+  const classes = ["bub", "bub--out", "bub--pending"];
+  if (!sending) classes.push("bub--failed");
+
+  return (
+    <div className={classes.join(" ")} data-pending={item.key} aria-busy={sending}>
+      <div className="bub__box">
+        {item.reply && (
+          <div className="bub__quote">
+            {item.reply.who && <b>{item.reply.who}</b>}
+            <span>{item.reply.text}</span>
+          </div>
+        )}
+        <div className="bub__text">{item.body}</div>
+        <div className="bub__foot">
+          {sending && (
+            <span className="muted bub__sending">
+              <Icon name="clock" size="sm" /> {t("بيتبعت...", "Sending...")}
+            </span>
+          )}
+        </div>
+        {item.state === "refused" && <div className="bub__error">{refusal(item.error, t)}</div>}
+        {item.state === "unsure" && (
+          <div className="bub__error">
+            {t(
+              "مش متأكدين إن الرسالة وصلت. بص على المحادثة قبل ما تبعتها تاني.",
+              "We are not sure the message arrived. Check the conversation before sending it again.",
+            )}
+          </div>
+        )}
+        {!sending && (
+          <div className="bub__retry">
+            <button type="button" className="btn btn--sm" onClick={() => onRetry(item.key)}>
+              {t("حاول تاني", "Try again")}
+            </button>
+            <button type="button" className="btn btn--sm" onClick={() => onDiscard(item.key)}>
+              {t("امسح", "Discard")}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -20,9 +20,38 @@ never only by hiding a field in a template:
    from where.
 """
 
+import re
+
 from django.db.models import Q
 
 from .models import AuditLog
+
+
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+#: A number with a plus, or a long run of digits: a phone number, not a date, a time or an error code.
+_PHONE = re.compile(r"\+\d[\d\s().-]{6,}\d|\b\d{9,}\b")
+MASKED = "[...]"
+
+
+def scrub_contacts(text):
+    """``text`` with every e-mail address and phone number taken out.
+
+    For the words of an error that were written by a library (SMTP and Meta quote the recipient back
+    in their refusals) before they are stored on a message every member of a room reads: a team leader
+    must not learn a client's address from "recipient refused".
+    """
+    return _PHONE.sub(MASKED, _EMAIL.sub(MASKED, text or ""))
+
+
+def for_viewer(text, viewer):
+    """``text`` as ``viewer`` may read it: the contacts stay in for whoever may know the client, out for the rest.
+
+    The words are scrubbed when they are written (see ``scrub_contacts``), and again when they are read:
+    a row written before that, or by a writer that was missed, must not hand an address to the operation.
+    """
+    if viewer is not None and getattr(viewer, "can_see_client_identity", False):
+        return text or ""
+    return scrub_contacts(text)
 
 
 # The audit actions this module writes. Named once so the audit page and the

@@ -35,8 +35,8 @@ from django.http import Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, clock, identity, newui, services
-from .models import AppSettings, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
+from . import api, clock, identity, lines, newui, services
+from .models import AppSettings, Channel, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
 
@@ -209,6 +209,12 @@ def me(request):
             "theme": user.ui_theme,
         },
         "chats": {"types": types},
+        # The longest message this person may write, for what goes to one client, to a client group and inside.
+        "limits": {
+            "to_client": limit_for(user, "client"),
+            "to_client_group": limit_for(user, "client_group"),
+            "inside": limit_for(user, "inside"),
+        },
         # The ported screens that are switched on for this person (newui.py):
         # the menu lists exactly these, and the home page hands them on.
         "screens": newui.enabled_keys(user),
@@ -365,6 +371,144 @@ def client_read(request, client_code):
         return _error(400, "bad_upto")
     client = api._client_or_404(request, client_code)
     return JsonResponse({"ok": True, "moved": services.mark_client_read(request.user, client, upto=upto)})
+
+
+# ---------------------------------------------------------------------------
+# Chats, writing (phase 5, chat slice 3b: text and replies)
+#
+# Three doors, one rule: what may be written where is decided by the functions
+# the classic pages already use (``api.send_to_client``, ``api.chat_send``,
+# ``_group_or_404``, ``ChatRoom.can_open``, ``lines``), never by a second copy.
+# A message that stays inside (a colleague, a work group) never reaches the
+# relay; one that goes to a client leaves only through ``send_client_message``.
+#
+# The answer is the same for all three. HTTP 200 means "it is in the thread":
+# ``delivered`` says whether it also got where it was going, ``error`` says why
+# not, and ``messages`` / ``client`` are the thread as this person sees it now,
+# so a failed delivery is on screen and nothing is fetched twice. A refusal
+# (nothing was written) is a 4xx with a short code.
+#
+# Sending does NOT mark anything read. The classic page says "answering is
+# reading" for the whole thread, which for a client is the blue ticks on their
+# phone for words nobody on this side has seen; here the page says what it
+# showed (``.../read/`` with ``upto``) and the send stays a send.
+# ---------------------------------------------------------------------------
+
+#: The longest message. WhatsApp cuts a text at 4000 characters without a word (``whatsapp.send_text``), so the
+#: thread would show the client words that never reached them: anything that goes to a client is refused above it.
+#: What stays inside has more room, but not unlimited: the thread sends every body to every member at every refresh.
+MAX_CLIENT_TEXT = 4000
+MAX_INTERNAL_TEXT = 10000
+
+
+def _wrote_something(request):
+    """Whether the form carries anything to send: words, a file or a recording."""
+    return bool((request.POST.get("body") or "").strip() or request.FILES.getlist("files") or request.FILES.get("voice"))
+
+
+def limit_for(user, kind):
+    """The longest text ``user`` may write: ``client`` (to one client), ``client_group`` or ``inside``.
+
+    A client group puts the sender's role in front of the words (``services.client_prefix``) and WhatsApp counts
+    the whole: the prefix comes off the limit, or the last characters of a message that passed would be cut.
+    """
+    if kind == "client":
+        return MAX_CLIENT_TEXT
+    if kind == "client_group":
+        return MAX_CLIENT_TEXT - len(services.client_prefix(user))
+    return MAX_INTERNAL_TEXT
+
+
+def _too_long(request, kind):
+    return len((request.POST.get("body") or "").strip()) > limit_for(request.user, kind)
+
+
+def _sent_to_room(request, room):
+    """Write into ``room`` through the one classic function that does it, and describe the result."""
+    response = api.chat_send(request, room.pk)
+    try:
+        detail = json.loads(response.content)
+    except ValueError:
+        detail = {}
+    if response.status_code != 200:
+        # Refused before anything was saved (nothing to send, or files that need a task).
+        answer = {"ok": False, "error": detail.get("error") or "empty"}
+        for key in ("message", "message_en", "choices"):
+            if key in detail:
+                answer[key] = detail[key]
+        return JsonResponse(answer, status=400)
+    relay_error = detail.get("relay_error") or ""
+    return JsonResponse({
+        "ok": True,
+        "delivered": not relay_error,
+        "error": relay_error,
+        "messages": [api._thread_entry_json(e, request.user) for e in services.group_thread(room, request.user)],
+        "client": api._group_json(room, request.user),
+    })
+
+
+@endpoint("POST")
+def group_send(request, room_id):
+    """Write in a client group, a work group or a colleague's room you are already in."""
+    room = api._group_or_404(request, room_id)
+    if _too_long(request, "client_group" if room.kind == RoomKind.CLIENT else "inside"):
+        return _error(400, "too_long")
+    return _sent_to_room(request, room)
+
+
+@endpoint("POST")
+def staff_send(request, user_id):
+    """Write to a colleague. The room is found from the pair - and opened here, by a write, if it is new."""
+    other = User.objects.filter(pk=user_id, is_active=True).exclude(pk=request.user.pk).first()
+    if other is None:
+        raise Http404
+    # Nothing to send is refused before a room is created for it.
+    if not _wrote_something(request):
+        return _error(400, "empty")
+    if _too_long(request, "inside"):
+        return _error(400, "too_long")
+    return _sent_to_room(request, services.staff_room(request.user, other))
+
+
+def _may_answer(client, user):
+    """Can this person see a conversation with this client - one on a line they work?
+
+    The classic door only asks that they answer clients at all, so an operation person who typed a code
+    could write from the company number to a client who had only ever written to a Sales number, and any
+    Sales person could write to any client from their own. What a person may not read they may not write
+    to either: a message already seen on their line (the client's, or one of ours) is what makes it theirs.
+    The admin works every line and may open a conversation: nothing is asked of them, and no refusal is written
+    down against them.
+    """
+    if user.is_admin_role:
+        return True
+    if services._visible_inbound(client, user).exists():
+        return True
+    return client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user)).exists()
+
+
+@endpoint("POST")
+@api_role_required(Role.OPERATION, Role.SALES)
+def client_send(request, client_code):
+    """Answer a client, on WhatsApp, from the line this person answers from."""
+    client = api._client_or_404(request, client_code)
+    if not _may_answer(client, request.user):
+        # A 404, written down: the same answer as for a code that does not exist.
+        identity.hidden(request, "client")
+    if not _wrote_something(request):
+        return _error(400, "empty")
+    if _too_long(request, "client"):
+        return _error(400, "too_long")
+    ok, outbound, error = api.send_to_client(request, client)
+    if outbound is None:
+        return _error(400, "empty")
+    return JsonResponse({
+        "ok": True,
+        "delivered": ok,
+        "error": error,
+        "messages": [api._thread_entry_json(e, request.user) for e in services.client_thread(client, request.user)],
+        "client": api._conversation_json(client, request.user),
+    })
 
 
 # ---------------------------------------------------------------------------

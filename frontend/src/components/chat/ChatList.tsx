@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
+import { useOutboxProblems } from "../../lib/outbox";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 
@@ -25,7 +26,7 @@ function Avatar({ row }: { row: ChatRow }) {
   return <span className="avatar avatar--brand">{row.code.slice(3)}</span>;
 }
 
-function Row({ row, kind, active }: { row: ChatRow; kind: ChatKind; active: boolean }) {
+function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; active: boolean; problem: boolean }) {
   const { t, lang } = usePreferences();
   const monospaced = !(row.staff || row.team);
   return (
@@ -39,6 +40,11 @@ function Row({ row, kind, active }: { row: ChatRow; kind: ChatKind; active: bool
         <span className="cthread__top">
           <b className={monospaced ? "mono" : undefined}>{row.label}</b>
           {row.reaches_client && <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>}
+          {problem && (
+            <span className="cthread__problem" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
+              <Icon name="alert" size="sm" />
+            </span>
+          )}
           {row.time && <span className="muted mono cthread__time">{clockText(row.time, lang)}</span>}
         </span>
         <span className="cthread__line">
@@ -78,6 +84,7 @@ export function ChatList({
   activeCode: string | undefined;
 }) {
   const { t } = usePreferences();
+  const problems = useOutboxProblems();
   return (
     <aside className="cchat__list">
       <div className="cchat__search">
@@ -135,7 +142,7 @@ export function ChatList({
           </div>
         )}
         {rows?.map((row) => (
-          <Row key={row.code} row={row} kind={kind} active={row.code === activeCode} />
+          <Row key={row.code} row={row} kind={kind} active={row.code === activeCode} problem={problems.includes(row.code)} />
         ))}
       </div>
     </aside>

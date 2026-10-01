@@ -872,7 +872,7 @@ def _message_json(message, viewer):
         # Relay bookkeeping — only ever set in a client room.
         "from_client": from_client,
         "relay_status": message.relay_status,
-        "relay_error": message.relay_error,
+        "relay_error": identity.for_viewer(message.relay_error, viewer),
         "attachments": [
             {
                 "url": a.file.url,
@@ -1001,8 +1001,14 @@ def chat_send(request, room_id):
             _ok, relay_error = services.relay_chat_message(message)
 
     task = room.task
+    staff = room.kind == RoomKind.STAFF
     where = task.code if task else (room.title or room.display_title)
-    url = f"/tasks/{task.code}/?room={room.id}" if task else f"/ops/chats/g/{room.id}/"
+    if task:
+        url = f"/tasks/{task.code}/?room={room.id}"
+    elif staff:
+        url = f"/ops/chats/u/{request.user.pk}/"
+    else:
+        url = f"/ops/chats/g/{room.id}/"
     # A membership row can outlive the assignment; the notification body quotes
     # the message, so put each member to the test of opening the room rather
     # than trusting the row. In a client room that is also what keeps a
@@ -1014,8 +1020,14 @@ def chat_send(request, room_id):
             member,
             title_ar="رسالة جديدة في الشات",
             title_en="New chat message",
-            body_ar=f"{request.user.short_name} في {where}: {(body or 'ملفات')[:60]}",
-            body_en=f"{request.user.short_name} in {where}: {(body or 'files')[:60]}",
+            body_ar=(
+                f"{request.user.short_name}: {(body or 'ملفات')[:60]}" if staff
+                else f"{request.user.short_name} في {where}: {(body or 'ملفات')[:60]}"
+            ),
+            body_en=(
+                f"{request.user.short_name}: {(body or 'files')[:60]}" if staff
+                else f"{request.user.short_name} in {where}: {(body or 'files')[:60]}"
+            ),
             level="info", url=url, task=task,
         )
     return JsonResponse({
@@ -1056,8 +1068,10 @@ def _thread_entry_json(entry, viewer):
         "subject": entry.get("subject", ""),
         "channel": entry.get("channel", ""),
         "status": entry.get("status", ""),
-        "error": entry.get("error", ""),
+        "error": identity.for_viewer(entry.get("error", ""), viewer),
         "sender": entry.get("sender", ""),
+        # By id as well: a name is not unique, and the page uses it to tell its own messages from a colleague's.
+        "sender_id": entry.get("sender_id", 0),
         "task_code": entry.get("task_code", ""),
         "is_delivery": entry.get("is_delivery", False),
         "quote": entry.get("quote", ""),
@@ -1593,19 +1607,22 @@ def _resolve_reply(client, reply_uid, viewer):
     if side == "out":
         from . import lines
 
-        row = OutboundMessage.objects.filter(pk=pk, client=client).filter(
+        row = OutboundMessage.objects.filter(pk=pk, client=client, channel=Channel.WHATSAPP).filter(
             lines.line_q(viewer)
         ).first()
         return (row.provider_id or "", (row.body or "")[:160]) if row else ("", "")
     return "", ""
 
 
-@api_role_required(Role.OPERATION, Role.SALES)
-@require_POST
-def client_chat_send(request, client_code):
-    client = _client_or_404(request, client_code)
+def send_to_client(request, client):
+    """The send itself: ``(ok, outbound, error_ar)``, and nothing else.
+
+    Whether the conversation counts as read afterwards is the caller's: the
+    classic page says "answering is reading" for the whole thread, the new app
+    says it only for what it showed (``/api/v1/``, ``mark_client_read(upto=)``).
+    """
     reply_wamid, reply_preview = _resolve_reply(client, request.POST.get("reply_uid", ""), request.user)
-    ok, outbound, error = services.send_client_message(
+    return services.send_client_message(
         client,
         request.user,
         body=request.POST.get("body", ""),
@@ -1619,6 +1636,13 @@ def client_chat_send(request, client_code):
         # happened to be one — which the page no longer even shows.
         force_channel=Channel.WHATSAPP,
     )
+
+
+@api_role_required(Role.OPERATION, Role.SALES)
+@require_POST
+def client_chat_send(request, client_code):
+    client = _client_or_404(request, client_code)
+    ok, outbound, error = send_to_client(request, client)
     payload = {"ok": ok, "error": error}
     # Answering a conversation is having read it.
     services.mark_client_read(request.user, client)

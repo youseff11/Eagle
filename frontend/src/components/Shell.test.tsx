@@ -1,7 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { qk } from "../api/keys";
 import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "../test/helpers";
 import { Shell } from "./Shell";
 
@@ -30,6 +31,24 @@ function renderShell(routes: FetchRoutes, options: Parameters<typeof renderWithP
 }
 
 describe("Shell", () => {
+  it("says in the menu, from any page, that a message did not go - and only then", async () => {
+    const item = (state: "sending" | "refused" | "unsure") => ({ key: 1, body: "x", reply: null, before: [], state, error: "" });
+    const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 0, ["chats"])) });
+    await screen.findByText("الشات");
+    const chats = () => screen.getByText("الشات").closest("a") as HTMLElement;
+    expect(chats().querySelector(".nav__count")).toBeNull();
+
+    act(() => view.client.setQueryData(qk.outbox("CL-0001"), [item("sending")]));
+    expect(chats().querySelector(".nav__count")).toBeNull();
+
+    act(() => view.client.setQueryData(qk.outbox("CL-0001"), [item("unsure")]));
+    expect(chats().querySelector(".nav__count")).not.toBeNull();
+    expect(chats().querySelector('[title="فيه رسالة ماتبعتتش"]')).not.toBeNull();
+
+    act(() => view.client.setQueryData(qk.outbox("CL-0001"), []));
+    expect(chats().querySelector(".nav__count")).toBeNull();
+  });
+
   it("shows who is signed in, with the role in the page's language", async () => {
     renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "team_lead", short_name: "Mona", initials: "MS" })) });
     expect(await screen.findByText("Mona")).toBeInTheDocument();

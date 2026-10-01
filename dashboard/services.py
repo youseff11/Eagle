@@ -943,6 +943,13 @@ def client_prefix(user):
     return f"[{label}]\n"
 
 
+#: What a room is told when sending to the client failed in a way nobody foresaw. The reason is in the log.
+RELAY_FAILED_AR = "الرسالة اتحفظت بس مروحتش للعميل. جرّب تاني، ولو استمرت المشكلة بلّغ الأدمن."
+
+#: And a 1:1 send that broke half way: Meta may or may not have the message, so the person is told to look first.
+SEND_UNSURE_AR = "حصلت مشكلة وإحنا بنبعت، ومش متأكدين إن الرسالة وصلت للعميل. اتأكد قبل ما تبعتها تاني."
+
+
 def relay_chat_message(message):
     """Carry one room message out to the client. Returns ``(ok, error_ar)``.
 
@@ -958,7 +965,10 @@ def relay_chat_message(message):
         room = message.room
         client = room.relay_client
         if client is None:
-            return False, "الغرفة دي مش مربوطة بعميل."
+            message.relay_status = "failed"
+            message.relay_error = "الغرفة دي مش مربوطة بعميل."
+            message.save(update_fields=["relay_status", "relay_error"])
+            return False, message.relay_error
         sender = message.sender
         prefix = client_prefix(sender)
         # A files-only message still needs a caption, otherwise WhatsApp shows
@@ -989,10 +999,13 @@ def relay_chat_message(message):
         # The room message is already saved. Anything that goes wrong on the
         # way out has to end up on the bubble, never as a silent non-delivery.
         logger.exception("Relay of chat message %s failed", message.pk)
-        ok, error = False, f"الرسالة اتحفظت بس مروحتش للعميل: {exc}"[:300]
+        ok, error = False, RELAY_FAILED_AR
+
+    from . import identity
 
     message.relay_status = "sent" if ok else "failed"
-    message.relay_error = "" if ok else (error or "")
+    # Stored where every member of the room reads it: SMTP and Meta quote the recipient back in a refusal.
+    message.relay_error = "" if ok else identity.scrub_contacts(error or "")
     message.save(update_fields=["relay_status", "relay_error", "relay_wamid"])
     return ok, message.relay_error
 
@@ -1045,6 +1058,7 @@ def group_thread(room, user, limit=200):
             "status": row.relay_status,
             "error": row.relay_error,
             "sender": row.sender.short_name if row.sender_id else "",
+            "sender_id": row.sender_id or 0,
             "is_delivery": False,
             # The task this message is work on (a file handed in from the
             # group), else the old room's own task.
@@ -2699,19 +2713,23 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
             for entry in delivery.files:
                 entry["status"] = "sent"
     except (wa.WhatsAppError, mailer.MailError) as exc:
+        from . import identity
+
+        # SMTP and Meta quote the recipient back in a refusal; the operation who sends this must not learn it.
+        # The audit log keeps the original.
         delivery.status = OutboundMessage.Status.FAILED
-        delivery.error_message = exc.message_ar
+        delivery.error_message = identity.scrub_contacts(exc.message_ar)
         delivery.save()
         log(user, "task.deliver_failed", task.code, exc.message_en[:200])
         notify(
             user,
             title_ar="التسليم فشل",
             title_en="Delivery failed",
-            body_ar=exc.message_ar[:380],
-            body_en=exc.message_en[:380],
+            body_ar=identity.scrub_contacts(exc.message_ar)[:380],
+            body_en=identity.scrub_contacts(exc.message_en)[:380],
             level="danger", url=f"/tasks/{task.code}/", task=task,
         )
-        return False, delivery, exc.message_ar
+        return False, delivery, delivery.error_message
 
     delivery.status = OutboundMessage.Status.SENT
     delivery.save()
@@ -2994,6 +3012,7 @@ def client_thread(client, user, limit=200):
             "is_delivery": row.kind == OutboundMessage.Kind.DELIVERY,
             "task_code": row.task.code if row.task_id else "",
             "sender": row.created_by.short_name if row.created_by_id else "",
+            "sender_id": row.created_by_id or 0,
             "wamid": row.provider_id or "",
             "reply_to": row.reply_to_wamid or "",
             "quote": row.reply_preview or "",
@@ -3332,7 +3351,10 @@ def record_whatsapp_status(wamid, status, error=""):
     if not wamid:
         return 0
     if status == "failed":
-        reason = (error or "WhatsApp reported the message as not delivered.")[:500]
+        from . import identity
+
+        # Meta's own words: they may quote the number or address back, and they are shown to the whole room.
+        reason = identity.scrub_contacts((error or "WhatsApp reported the message as not delivered.")[:500])
         touched = OutboundMessage.objects.filter(provider_id=wamid).exclude(
             wa_receipt="read"
         ).update(status=OutboundMessage.Status.FAILED, error_message=reason)
@@ -4595,58 +4617,58 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
         thread_key=(thread_key or "") if is_mail else "",
         owner=owner,
     )
-    stored = [
-        OutboundAttachment.objects.create(
-            message=outbound, file=item, original_name=item.name, size=item.size
-        )
-        for item in uploads
-    ]
-    stored.extend(
-        OutboundAttachment.objects.create(
-            message=outbound, file=item.file.name,
-            original_name=item.original_name or item.file.name.rsplit("/", 1)[-1],
-            size=item.size or 0, mime=getattr(item, "mime", "") or "",
-        )
-        for item in reuse_files
-    )
-    if recording:
-        stored.append(OutboundAttachment.objects.create(
-            message=outbound,
-            file=ContentFile(recording["content"], name=recording["name"]),
-            original_name=recording["name"],
-            size=len(recording["content"]),
-            mime=recording["mime"],
-            is_voice=True,
-            duration=recording["seconds"],
-        ))
-
-    if convert_error:
-        outbound.status = OutboundMessage.Status.FAILED
-        outbound.error_message = convert_error
-        outbound.save(update_fields=["status", "error_message"])
-        return False, outbound, convert_error
-
-    if line_missing:
-        outbound.status = OutboundMessage.Status.FAILED
-        outbound.error_message = line_missing
-        outbound.save(update_fields=["status", "error_message"])
-        return False, outbound, line_missing
-
-    if not channel or not target:
-        outbound.status = OutboundMessage.Status.FAILED
-        outbound.error_message = (
-            "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
-        )
-        outbound.save(update_fields=["status", "error_message"])
-        return False, outbound, outbound.error_message
-
-    # The recording is already in memory — no point fetching it back from the CDN.
-    payload = [_read_attachment(a) for a in stored[:len(uploads) + len(reuse_files)]]
-    payload.extend(extra_files)
-    if recording:
-        payload.append((recording["name"], recording["content"], recording["mime"]))
-
     try:
+        stored = [
+            OutboundAttachment.objects.create(
+                message=outbound, file=item, original_name=item.name, size=item.size
+            )
+            for item in uploads
+        ]
+        stored.extend(
+            OutboundAttachment.objects.create(
+                message=outbound, file=item.file.name,
+                original_name=item.original_name or item.file.name.rsplit("/", 1)[-1],
+                size=item.size or 0, mime=getattr(item, "mime", "") or "",
+            )
+            for item in reuse_files
+        )
+        if recording:
+            stored.append(OutboundAttachment.objects.create(
+                message=outbound,
+                file=ContentFile(recording["content"], name=recording["name"]),
+                original_name=recording["name"],
+                size=len(recording["content"]),
+                mime=recording["mime"],
+                is_voice=True,
+                duration=recording["seconds"],
+            ))
+
+        if convert_error:
+            outbound.status = OutboundMessage.Status.FAILED
+            outbound.error_message = convert_error
+            outbound.save(update_fields=["status", "error_message"])
+            return False, outbound, convert_error
+
+        if line_missing:
+            outbound.status = OutboundMessage.Status.FAILED
+            outbound.error_message = line_missing
+            outbound.save(update_fields=["status", "error_message"])
+            return False, outbound, line_missing
+
+        if not channel or not target:
+            outbound.status = OutboundMessage.Status.FAILED
+            outbound.error_message = (
+                "العميل ده مفيش عنده رقم واتساب ولا إيميل مسجل — ضيفهم من صفحة العميل."
+            )
+            outbound.save(update_fields=["status", "error_message"])
+            return False, outbound, outbound.error_message
+
+        # The recording is already in memory — no point fetching it back from the CDN.
+        payload = [_read_attachment(a) for a in stored[:len(uploads) + len(reuse_files)]]
+        payload.extend(extra_files)
+        if recording:
+            payload.append((recording["name"], recording["content"], recording["mime"]))
+
         if channel == Channel.WHATSAPP:
             quote = reply_to_wamid or ""
             if body:
@@ -4697,11 +4719,24 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
             for entry in outbound.files:
                 entry["status"] = "sent"
     except (wa.WhatsAppError, mailer.MailError) as exc:
+        from . import identity
+
+        # The library's words quote the recipient back ("550 <address> refused"); the row is read by people who
+        # may not know the address, so it is kept out of the text. The audit log keeps the original.
         outbound.status = OutboundMessage.Status.FAILED
-        outbound.error_message = exc.message_ar
-        outbound.save(update_fields=["status", "error_message", "files"])
+        outbound.error_message = identity.scrub_contacts(exc.message_ar)
+        outbound.save(update_fields=["status", "error_message", "files", "provider_id"])
         log(user, "client.reply_failed", client.code, exc.message_en[:200])
-        return False, outbound, exc.message_ar
+        return False, outbound, outbound.error_message
+    except Exception:  # noqa: BLE001 - a timeout while reading Meta's answer, a dropped connection ...
+        # The row was created before the call and starts as SENT: left like that, a send that broke half way
+        # would show a tick for a message nobody knows reached the client.
+        logger.exception("Sending to client %s failed unexpectedly", client.code)
+        outbound.status = OutboundMessage.Status.FAILED
+        outbound.error_message = SEND_UNSURE_AR
+        outbound.save(update_fields=["status", "error_message", "files", "provider_id"])
+        log(user, "client.reply_failed", client.code, "unexpected error")
+        return False, outbound, SEND_UNSURE_AR
 
     outbound.status = OutboundMessage.Status.SENT
     outbound.save(update_fields=["status", "provider_id", "files"])

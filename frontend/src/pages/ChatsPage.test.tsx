@@ -1,18 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { qk } from "../api/keys";
 import { readPath, threadPath } from "../api/queries";
-import type { ChatKind, ChatRow, ThreadEntry, ThreadFile } from "../api/types";
-import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "../test/helpers";
+import { jsonResponse } from "../test/helpers";
+import { entry, renderChats as render, row, visible, file } from "../test/chat";
 import { newestShown } from "../components/chat/Conversation";
-import { ChatsPage, kindOfCode } from "./ChatsPage";
-
-function visible(state: "visible" | "hidden") {
-  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
-}
+import { kindOfCode } from "./ChatsPage";
 
 beforeEach(() => visible("visible"));
 afterEach(() => {
@@ -20,113 +15,6 @@ afterEach(() => {
   vi.useRealTimers();
   visible("visible");
 });
-
-function row(code: string, overrides: Partial<ChatRow> = {}): ChatRow {
-  return {
-    code,
-    group: false,
-    url: `/ops/chats/${code}/`,
-    label: code,
-    text: `last words of ${code}`,
-    outgoing: false,
-    status: "",
-    receipt: "",
-    time: "8:05 PM",
-    date: "2026-10-01",
-    channel: "whatsapp",
-    window_open: true,
-    minutes_left: 600,
-    unread: 0,
-    ...overrides,
-  };
-}
-
-function entry(id: number, overrides: Partial<ThreadEntry> = {}): ThreadEntry {
-  return {
-    uid: `in-${id}`,
-    id,
-    kind: "in",
-    body: `message ${id}`,
-    subject: "",
-    channel: "whatsapp",
-    status: "",
-    error: "",
-    sender: "",
-    task_code: "",
-    is_delivery: false,
-    quote: "",
-    quote_who: "",
-    time: "8:00 AM",
-    date: "2026-10-01",
-    files: [],
-    mine: false,
-    receipt: "",
-    seen_by: [],
-    forwarded: false,
-    reactions: [],
-    ...overrides,
-  };
-}
-
-function file(overrides: Partial<ThreadFile> = {}): ThreadFile {
-  return {
-    id: 1,
-    url: "/files/in/doc.pdf",
-    name: "doc.pdf",
-    size: 10,
-    mime: "application/pdf",
-    voice: false,
-    audio: false,
-    length: "",
-    image: false,
-    ...overrides,
-  };
-}
-
-interface Setup {
-  lists?: Partial<Record<ChatKind, ChatRow[]>>;
-  thread?: { client: ChatRow; messages: ThreadEntry[] } | Response;
-  types?: ChatKind[];
-  role?: Parameters<typeof me>[0];
-}
-
-function render(
-  path: string,
-  setup: Setup = {},
-  extra: FetchRoutes = {},
-  options: { lang?: "ar" | "en"; client?: QueryClient } = {},
-) {
-  const types = setup.types ?? ["clients", "groups", "staff"];
-  const base = me(setup.role ?? { role: "operation" });
-  const defaults: FetchRoutes = {
-    "/api/v1/me/": () => jsonResponse({ ...base, chats: { types } }),
-    "/api/v1/chats/": (url) => {
-      const kind = (url.searchParams.get("type") ?? "clients") as ChatKind;
-      return jsonResponse({ ok: true, items: setup.lists?.[kind] ?? [] });
-    },
-    "/api/v1/clients/": () =>
-      setup.thread instanceof Response
-        ? setup.thread
-        : jsonResponse(setup.thread ? { ok: true, ...setup.thread } : { ok: false, error: "not_found" }, setup.thread ? 200 : 404),
-    "/api/v1/groups/": () =>
-      setup.thread instanceof Response ? setup.thread : jsonResponse({ ok: true, ...(setup.thread ?? { client: row("g1"), messages: [] }) }),
-    "/api/v1/staff/": () =>
-      setup.thread instanceof Response ? setup.thread : jsonResponse({ ok: true, ...(setup.thread ?? { client: row("u5"), messages: [] }) }),
-  };
-  // The first route that matches wins, so what a test adds goes in front of the defaults.
-  const routes: FetchRoutes = { ...extra };
-  for (const [prefix, answer] of Object.entries(defaults)) if (!(prefix in routes)) routes[prefix] = answer;
-  const mocked = mockFetch(routes);
-  vi.stubGlobal("fetch", mocked.fn);
-  const view = renderWithProviders(
-    <Routes>
-      <Route path="chats" element={<ChatsPage />} />
-      <Route path="chats/:code" element={<ChatsPage />} />
-    </Routes>,
-    { route: path, ...options },
-  );
-  return { ...view, calls: mocked.calls };
-}
 
 describe("codes", () => {
   it("tells which list a conversation belongs to", () => {
@@ -413,16 +301,16 @@ describe("a conversation", () => {
     expect(await screen.findByText("حصلت مشكلة في التحميل.")).toBeInTheDocument();
   });
 
-  it("says that it is read only for now and points at the classic page, by an address on this site only", async () => {
+  it("says files and voice notes are still sent from the classic page, and points at it by an address on this site only", async () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "/ops/chats/CL-0001/" }), messages: [] } });
     const link = await screen.findByRole("link", { name: "افتح المحادثة هناك" });
     expect(link).toHaveAttribute("href", "/ops/chats/CL-0001/");
-    expect(screen.getByText(/القراءة بس في الواجهة الجديدة/)).toBeInTheDocument();
+    expect(screen.getByText(/الملفات والصوت لسه من الواجهة الحالية/)).toBeInTheDocument();
   });
 
   it("never offers to open a classic page that is not on this site", async () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "https://evil.example/" }), messages: [] } });
-    await screen.findByText(/القراءة بس في الواجهة الجديدة/);
+    await screen.findByText(/الملفات والصوت لسه من الواجهة الحالية/);
     expect(screen.queryByRole("link", { name: "افتح المحادثة هناك" })).not.toBeInTheDocument();
   });
 });

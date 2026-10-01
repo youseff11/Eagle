@@ -9,6 +9,7 @@ import type {
   MovedResponse,
   NotificationsResponse,
   ReadResponse,
+  SendResponse,
   ThreadResponse,
   TranslatorHomeResponse,
 } from "./types";
@@ -96,6 +97,39 @@ export function readPath(code: string, room: number | undefined): string | null 
   return /^[A-Za-z0-9-]{1,40}$/.test(code) ? `/api/v1/clients/${code}/read/` : null;
 }
 
+/** Where to write in a conversation: a client, a group, or a colleague (the room is found, or opened, from the pair). */
+export function sendPath(code: string): string | null {
+  if (/^g\d+$/.test(code)) return `/api/v1/groups/${code.slice(1)}/send/`;
+  if (/^u\d+$/.test(code)) return `/api/v1/staff/${code.slice(1)}/send/`;
+  return /^[A-Za-z0-9-]{1,40}$/.test(code) ? `/api/v1/clients/${code}/send/` : null;
+}
+
+/** One look at a conversation, outside a hook: the thread query's own function. */
+export function fetchThread(code: string): Promise<ThreadResponse> {
+  const path = threadPath(code);
+  return path ? api<ThreadResponse>(path) : Promise.reject(new Error("not a conversation"));
+}
+
+/**
+ * Write one message (words and, optionally, the message it answers) and return what the server says. The
+ * answer carries the whole thread as this person sees it now, which replaces the cached one: a delivery that
+ * failed is on screen at once, as the server recorded it. Cut off after `SEND_TIMEOUT_MS`: a send that is
+ * neither answered nor refused is "not sure", never "waiting for ever" (see `lib/outbox`).
+ */
+export const SEND_TIMEOUT_MS = 40000;
+
+export async function postMessage(code: string, body: string, replyUid?: string): Promise<SendResponse> {
+  const path = sendPath(code);
+  if (!path) throw new Error("not a conversation");
+  const abort = new AbortController();
+  const timer = window.setTimeout(() => abort.abort(), SEND_TIMEOUT_MS);
+  try {
+    return await api<SendResponse>(path, { form: { body, ...(replyUid ? { reply_uid: replyUid } : {}) }, signal: abort.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /**
  * The messages of one conversation. Refetched when the chats' doorbell rings, or by polling without the
  * socket - and always when the conversation is opened: what the cache holds may be minutes old, and what is
@@ -106,7 +140,7 @@ export function useThread(code: string | undefined) {
   const path = code ? threadPath(code) : null;
   return useQuery({
     queryKey: qk.thread(code ?? ""),
-    queryFn: () => api<ThreadResponse>(path!),
+    queryFn: () => fetchThread(code!),
     enabled: path !== null,
     refetchInterval,
     refetchOnMount: "always",

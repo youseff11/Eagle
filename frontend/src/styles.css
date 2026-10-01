@@ -37,3 +37,34 @@ button.cchat__pill {
   line-height: inherit;
   cursor: pointer;
 }
+
+/* Writing (chat slice 3b). The box to write in is a textarea that grows with what is typed, up to a limit. */
+.cchat__composer { align-items: flex-end; }
+textarea.cchat__input {
+  resize: none;
+  min-height: 38px;
+  max-height: 140px;
+  line-height: 1.5;
+  padding-block: 8px;
+  overflow-y: auto;
+}
+textarea.cchat__input:disabled { cursor: not-allowed; opacity: .7; }
+
+/* A message that is on its way is a little dimmer; one that did not go looks like a failed one, at full strength. */
+.bub--pending .bub__box { opacity: .72; }
+.bub--pending.bub--failed .bub__box { opacity: 1; }
+.bub__sending { display: inline-flex; align-items: center; gap: 4px; }
+.bub__retry { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 8px; }
+
+/* Where files and voice notes are still sent from. */
+.cchat__hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 14px 10px; font-size: 12px; }
+
+/* A phone has no hover to show the reply button and no swipe in this app: the button stays, quietly. */
+@media (hover: none) {
+  .cchat .bub__reply { display: grid; visibility: visible; opacity: .55; }
+}
+
+/* How long the message is, once it is nearly too long; and a conversation in which a message did not go. */
+.cchat__count { flex: none; padding: 0 14px; font-size: 11px; text-align: end; color: var(--muted); }
+.cchat__count.is-over { color: var(--danger, #e5484d); }
+.cthread__problem { display: inline-flex; color: var(--danger, #e5484d); }

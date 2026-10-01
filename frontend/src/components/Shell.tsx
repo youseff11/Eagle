@@ -5,6 +5,7 @@ import { useMe } from "../api/queries";
 import type { Role, ScreenKey } from "../api/types";
 import { usePreferences } from "../i18n/Preferences";
 import { CLASSIC_HOME } from "../lib/navigation";
+import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
@@ -62,6 +63,7 @@ export function Shell() {
   const user = me.data?.user;
   const unread = me.data?.unread_notifications ?? 0;
   const unreadChats = me.data?.unread_chats ?? 0;
+  const unsent = useOutboxProblems().length;
   const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
   // The title follows the address, not the list: it is right before `me` has arrived too.
   const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) => location.pathname.startsWith(SCREENS[key].path));
@@ -106,6 +108,11 @@ export function Shell() {
               >
                 <Icon name={SCREENS[key].icon} />
                 <span>{t(...SCREENS[key].label)}</span>
+                {key === "chats" && unsent > 0 && (
+                  <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
+                    <Icon name="alert" size="sm" />
+                  </span>
+                )}
                 {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
               </NavLink>
             ))}
