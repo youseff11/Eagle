@@ -104,15 +104,33 @@ describe("what the browser can record", () => {
   });
 
   it("asks for the first format it says it can record, in the order WhatsApp likes them", async () => {
-    FakeRecorder.supported = new Set(["audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]);
+    // Everything on offer: Ogg/Opus, which WhatsApp takes as it is, comes first.
+    FakeRecorder.supported = new Set(["audio/webm", "audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"]);
     await startRecording();
     expect(FakeRecorder.created[0]!.mimeType).toBe("audio/ogg;codecs=opus");
-    FakeRecorder.supported = new Set(["audio/webm;codecs=opus", "audio/webm"]);
+    // Without Ogg, MP4 (also taken as it is) comes before WebM, which has to be converted.
+    FakeRecorder.supported = new Set(["audio/webm", "audio/webm;codecs=opus", "audio/mp4"]);
     await startRecording();
-    expect(FakeRecorder.created[1]!.mimeType).toBe("audio/webm;codecs=opus");
-    FakeRecorder.supported = new Set(["audio/mp4"]);
+    expect(FakeRecorder.created[1]!.mimeType).toBe("audio/mp4");
+    // With only WebM, the one that says its codec.
+    FakeRecorder.supported = new Set(["audio/webm", "audio/webm;codecs=opus"]);
     await startRecording();
-    expect(FakeRecorder.created[2]!.mimeType).toBe("audio/mp4");
+    expect(FakeRecorder.created[2]!.mimeType).toBe("audio/webm;codecs=opus");
+    FakeRecorder.supported = new Set(["audio/webm"]);
+    await startRecording();
+    expect(FakeRecorder.created[3]!.mimeType).toBe("audio/webm");
+  });
+
+  it("skips a format the browser throws about instead of answering", async () => {
+    FakeRecorder.supported = new Set(["audio/webm"]);
+    const original = FakeRecorder.isTypeSupported;
+    FakeRecorder.isTypeSupported = (mime: string) => {
+      if (mime === "audio/ogg;codecs=opus") throw new Error("old browser");
+      return original(mime);
+    };
+    await startRecording();
+    FakeRecorder.isTypeSupported = original;
+    expect(FakeRecorder.created[0]!.mimeType).toBe("audio/webm");
   });
 
   it("lets the browser choose when it will not say, and names the file by what it chose", async () => {
@@ -125,6 +143,15 @@ describe("what the browser can record", () => {
     const taken = await recording.stop();
     expect(taken.extension).toBe(".ogg");
     expect(taken.blob.type).toBe("audio/ogg;codecs=opus");
+  });
+
+  it("names an MP4 recording by what the recorder says it made, not by what was asked", async () => {
+    FakeRecorder.supported = new Set();
+    const recording = await startRecording();
+    const recorder = FakeRecorder.created[0]!;
+    recorder.mimeType = "audio/mp4;codecs=mp4a.40.2";
+    recorder.hear("sound");
+    expect((await recording.stop()).extension).toBe(".m4a");
   });
 });
 

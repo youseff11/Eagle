@@ -98,6 +98,20 @@ describe("recording", () => {
     expect(within(bar()).getByLabelText("المدة")).toHaveTextContent("0:05");
   });
 
+  it("stops by itself when the longest a recording may run, as the server says, is up", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const limits = { ...me().limits, voice: { seconds: 2, bytes: 15 * 1024 * 1024 } };
+    await open({ "/api/v1/me/": () => jsonResponse({ ...me({ role: "operation" }), limits }) });
+    const recording = take();
+    starting.mockResolvedValueOnce(recording);
+    await userEvent.click(mic());
+    await screen.findByText("بسجّل...");
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(recording.stop).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("اسمعها قبل ما تبعتها")).toBeInTheDocument();
+    expect(within(bar()).getByLabelText("المدة")).toHaveTextContent("0:02");
+  });
+
   it("stops into a take to listen to, with the player and the two things that can be done with it", async () => {
     await open();
     await recordTake();

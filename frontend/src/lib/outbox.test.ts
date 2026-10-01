@@ -104,6 +104,39 @@ describe("what has already arrived, for a message with files", () => {
   });
 });
 
+describe("what has already arrived, for a voice note", () => {
+  const recorded = { blob: new Blob(["sound"]), seconds: 4, extension: ".webm" };
+  const queued = () => item(1, "", { voice: recorded });
+  const audioFile = (voice: boolean, name = "voice.ogg") => ({
+    id: 1, url: `/files/${name}`, name, size: 999, mime: "audio/ogg", voice, audio: true, length: "0:04", image: false,
+  });
+  const document = { id: 2, url: "/files/x.pdf", name: "x.pdf", size: 5, mime: "application/pdf", voice: false, audio: false, length: "", image: false };
+
+  it("is a message of ours with one voice note in it, whatever size the server made of it", () => {
+    expect(unmatched([queued()], [ours(5, "", { files: [audioFile(true)] })], 7)).toEqual([]);
+    // A room's file has no `voice` column: it is a voice note by being audio.
+    expect(unmatched([queued()], [ours(5, "", { files: [audioFile(false)] })], 7)).toEqual([]);
+  });
+
+  it("is not a message with a voice note and something else, with nothing, or with a file that is not sound", () => {
+    expect(unmatched([queued()], [ours(5, "", { files: [audioFile(true), document] })], 7)).toHaveLength(1);
+    expect(unmatched([queued()], [ours(5, "", { files: [audioFile(true), audioFile(true, "two.ogg")] })], 7)).toHaveLength(1);
+    expect(unmatched([queued()], [ours(5, "", { files: [] })], 7)).toHaveLength(1);
+    expect(unmatched([queued()], [ours(5, "", { files: [document] })], 7)).toHaveLength(1);
+  });
+
+  it("is not a voice note somebody else sent, or one with other words", () => {
+    expect(unmatched([queued()], [ours(5, "", { files: [audioFile(true)], sender_id: 99 })], 7)).toHaveLength(1);
+    expect(unmatched([queued()], [ours(5, "other words", { files: [audioFile(true)] })], 7)).toHaveLength(1);
+    expect(unmatched([item(1, "listen", { voice: recorded })], [ours(5, "listen", { files: [audioFile(true)] })], 7)).toEqual([]);
+  });
+
+  it("is not a plain message of ours with an audio file attached, which is files and not a note", () => {
+    const attached = item(1, "", { files: [new File(["x".repeat(999)], "song.mp3")] });
+    expect(unmatched([attached], [ours(5, "", { files: [audioFile(false, "song.mp3")] })], 7)).toEqual([]);
+  });
+});
+
 describe("the request a message with files makes", () => {
   afterEach(() => {
     vi.useRealTimers();

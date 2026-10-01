@@ -102,6 +102,7 @@ export function useVoiceRecorder(maxSeconds: number): Voice {
         timer.current = window.setInterval(() => {
           ticks.current += 1;
           setSeconds(ticks.current);
+          if (ticks.current >= maxSeconds) stop();
         }, 1000);
       },
       (error: unknown) => {
