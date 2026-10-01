@@ -394,13 +394,15 @@ class SettingsSectionTests(_Desk):
         browser.force_login(self.admin)
         page = browser.get(reverse("dashboard:admin_settings")).content.decode("utf-8")
         self.assertIn('id="s-newui"', page)
-        self.assertIn('name="newui_present"', page)
+        self.assertIn('name="newui_present_translator_home"', page)
+        self.assertIn('name="newui_present_chats"', page)
+        self.assertIn('name="newui_chats_roles"', page)
         self.assertIn('name="newui_translator_home_roles"', page)
         self.assertIn('name="newui_translator_home_users"', page)
 
     def test_the_admin_switches_a_screen_on_for_a_role_and_one_person(self):
         answer = self.post(
-            self.admin, newui_present="1",
+            self.admin, newui_present_translator_home="1",
             newui_translator_home_roles=["admin", "translator"],
             newui_translator_home_users=[str(self.tr.pk)],
         )
@@ -413,7 +415,7 @@ class SettingsSectionTests(_Desk):
 
     def test_unticking_everything_sends_everybody_back_to_the_classic_page(self):
         self.turn_on(roles=["translator"])
-        self.post(self.admin, newui_present="1", newui_translator_home_roles=[], newui_translator_home_users=[])
+        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=[], newui_translator_home_users=[])
         self.assertEqual(self.classic(self.tr).status_code, 200)
         self.assertEqual(self.classic(self.admin).status_code, 200)
 
@@ -431,25 +433,25 @@ class SettingsSectionTests(_Desk):
                     {"newui_translator_home_roles": ["translator", "sales"]},
                     {"newui_translator_home_users": [str(self.hr.pk)]},
                     {"newui_translator_home_users": [str(self.admin.pk)]}):
-            answer = self.post(self.admin, newui_present="1", **bad)
+            answer = self.post(self.admin, newui_present_translator_home="1", **bad)
             self.assertEqual(answer.status_code, 200, bad)
             self.assertEqual(AppSettings.load().new_ui, {}, bad)
 
     def test_only_the_admin_can_change_it(self):
         for user in (self.ops, self.lead, self.tr, self.hr, self.sales):
-            answer = self.post(user, newui_present="1", newui_translator_home_roles=["translator"])
+            answer = self.post(user, newui_present_translator_home="1", newui_translator_home_roles=["translator"])
             self.assertEqual(answer.status_code, 403, user.username)
         self.assertEqual(AppSettings.load().new_ui, {})
 
     def test_a_deactivated_person_cannot_be_picked(self):
         User.objects.filter(pk=self.tr.pk).update(is_active=False)
-        answer = self.post(self.admin, newui_present="1", newui_translator_home_users=[str(self.tr.pk)])
+        answer = self.post(self.admin, newui_present_translator_home="1", newui_translator_home_users=[str(self.tr.pk)])
         self.assertEqual(answer.status_code, 200)
         self.assertEqual(AppSettings.load().new_ui, {})
 
     def test_a_refused_post_says_so_and_shows_the_error_beside_the_field(self):
         User.objects.filter(pk=self.tr.pk).update(is_active=False)
-        answer = self.post(self.admin, newui_present="1", poll_ms="4000",
+        answer = self.post(self.admin, newui_present_translator_home="1", poll_ms="4000",
                            newui_translator_home_users=[str(self.tr.pk)])
         self.assertEqual(answer.status_code, 200)
         page = answer.content.decode("utf-8")
@@ -460,7 +462,7 @@ class SettingsSectionTests(_Desk):
     def test_a_change_of_the_switch_is_written_to_the_audit_log_in_full(self):
         from .models import AuditLog
 
-        self.post(self.admin, newui_present="1", newui_translator_home_roles=["admin", "translator"],
+        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["admin", "translator"],
                   newui_translator_home_users=[])
         row = AuditLog.objects.filter(action="settings.new_ui", actor=self.admin).get()
         self.assertEqual(json.loads(row.detail), {"translator_home": {"roles": ["admin", "translator"], "users": []}})
@@ -470,4 +472,27 @@ class SettingsSectionTests(_Desk):
 
         self.post(self.admin, poll_ms="4000", skip_section=True)
         self.assertFalse(AuditLog.objects.filter(action="settings.new_ui").exists())
+
+    def test_a_screen_whose_row_was_not_posted_is_left_alone(self):
+        conf = AppSettings.load()
+        conf.new_ui = {"chats": {"roles": ["operation"], "users": []}}
+        conf.save()
+        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["admin"],
+                  newui_translator_home_users=[])
+        saved = AppSettings.load().new_ui
+        self.assertEqual(saved["chats"], {"roles": ["operation"], "users": []})
+        self.assertEqual(saved["translator_home"], {"roles": ["admin"], "users": []})
+
+    def test_each_screen_is_saved_on_its_own_marker(self):
+        self.turn_on(roles=["translator"])
+        self.post(self.admin, newui_present_chats="1", newui_chats_roles=["operation", "hr"], newui_chats_users=[])
+        saved = AppSettings.load().new_ui
+        self.assertEqual(saved["chats"], {"roles": ["operation", "hr"], "users": []})
+        self.assertEqual(saved["translator_home"], {"roles": ["translator"], "users": []})
+
+    def test_a_role_the_other_screen_is_not_for_is_refused_for_this_one(self):
+        # "translator" is for the translator desk and for the chats; "accounting" is for chats and not for the desk.
+        answer = self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["accounting"])
+        self.assertEqual(answer.status_code, 200)
+        self.assertNotIn("translator_home", AppSettings.load().new_ui)
 

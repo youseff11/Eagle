@@ -1073,23 +1073,31 @@ def _quote_text(message):
     return text[:160]
 
 
-def _room_last_preview(room, user, last):
+def _room_last_preview(room, user, last, files=None, receipt=None):
     """The list snippet for a room's newest message, with the same ticks the
     bubble inside shows.
 
     Only your own message gets ticks - the list used to put a check in front
     of anybody's, and a single grey one at that, while the conversation
     itself already showed two blue ones. Same rule on both sides now.
+
+    ``files`` and ``receipt`` are for a list that has already fetched them for
+    every room at once (``chatlists``); left out, each is asked of the database
+    here, for this one room.
     """
-    text = last.body or _attachment_snippet(last.relay_files)
+    text = last.body or _attachment_snippet(last.relay_files if files is None else files)
     mine = user is not None and last.sender_id == user.pk
-    receipt = ""
+    ticks = ""
     if mine:
-        receipt = room_receipts(room, user, [last]).get(last.id, ("", []))[0]
+        ticks = room_receipts(room, user, [last]).get(last.id, ("", []))[0] if receipt is None else receipt
     return {
         "text": text[:70], "at": last.created_at, "outgoing": mine,
-        "status": last.relay_status or "", "receipt": receipt, "mine": mine,
+        "status": last.relay_status or "", "receipt": ticks, "mine": mine,
     }
+
+
+def _empty_group_preview(room):
+    return {"text": "", "at": room.created_at, "outgoing": False}
 
 
 def group_preview(room, user):
@@ -1098,7 +1106,7 @@ def group_preview(room, user):
     if last is None:
         last = room.messages.order_by("-id").first()
     if last is None:
-        return {"text": "", "at": room.created_at, "outgoing": False}
+        return _empty_group_preview(room)
     return _room_last_preview(room, user, last)
 
 
@@ -1225,19 +1233,19 @@ def staff_conversations(viewer, query=""):
         )
     people = list(people.order_by("role", "username")[:200])
 
+    from . import chatlists
+
     rooms = {
         room.pair_key: room
         for room in ChatRoom.objects.filter(kind=RoomKind.STAFF, members=viewer)
     }
+    # One fetch for every room, not one per person (``chatlists``).
+    facts = chatlists.group_facts(viewer, list(rooms.values()), staff=True)
 
     rows = []
     for person in people:
         room = rooms.get(staff_pair_key(viewer.pk, person.pk))
-        preview = {"text": "", "at": None, "outgoing": False}
-        if room is not None:
-            last = room.messages.order_by("-id").first()
-            if last is not None:
-                preview = _room_last_preview(room, viewer, last)
+        preview = facts[room.pk]["preview"] if room is not None else {"text": "", "at": None, "outgoing": False}
         rows.append({"person": person, "room": room, "preview": preview})
 
     # Two passes rather than one sort with a stand-in date: a person never
@@ -1286,7 +1294,7 @@ def groups_for(user, query=""):
             | Q(task__code__icontains=query)
         )
     return (
-        qs.select_related("client", "task")
+        qs.select_related("client", "task", "task__client")
         .annotate(last_at=Max("messages__created_at"))
         .distinct()
         .order_by("-last_at", "-id")
@@ -2588,16 +2596,21 @@ def score_review(task, user, score, note=""):
     return True
 
 
-def client_channel(client):
-    """How we last heard from this client — that's how we answer back."""
-    last = client.messages.order_by("-received_at").first()
-    if last and last.channel in (Channel.WHATSAPP, Channel.EMAIL):
-        return last.channel
+def channel_from(client, last_channel):
+    """The channel to answer on, given the channel of the client's newest message (or ``None``)."""
+    if last_channel in (Channel.WHATSAPP, Channel.EMAIL):
+        return last_channel
     if client.all_phones:
         return Channel.WHATSAPP
     if client.all_emails:
         return Channel.EMAIL
     return ""
+
+
+def client_channel(client):
+    """How we last heard from this client — that's how we answer back."""
+    last = client.messages.order_by("-received_at").first()
+    return channel_from(client, last.channel if last else None)
 
 
 def _read_attachment(attachment):
@@ -2885,6 +2898,15 @@ def conversation_preview(client, user):
         client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
         .prefetch_related("uploads").order_by("-created_at").first()
     )
+    return preview_from(last, out)
+
+
+def preview_from(last, out):
+    """The list snippet, from the newest message the client sent (``last``) and the newest we sent (``out``).
+
+    Which of the two the person may see is decided where they are fetched; this
+    is only what the row says about them, once for one row and once for a list.
+    """
     # An outbound with nothing from the client before it is still the last
     # thing said - it used to fall through and leave the row blank.
     if out and (last is None or out.created_at > last.received_at):
@@ -3071,13 +3093,20 @@ def _advance(row, upto):
     return bool(moved)
 
 
-def mark_room_read(user, room):
-    """``user`` has read this room up to its newest message."""
+def mark_room_read(user, room, upto=None):
+    """``user`` has read this room up to its newest message - or, with ``upto``, up to that message.
+
+    ``upto`` is for a page that fetched the messages and says "read" a moment later: what arrived in
+    between has not been on anybody's screen, and is not read.
+    """
     from django.db.models import Max
 
     if user is None or room is None:
         return False
-    top = room.messages.aggregate(top=Max("id"))["top"] or 0
+    messages = room.messages.all()
+    if upto is not None:
+        messages = messages.filter(id__lte=upto)
+    top = messages.aggregate(top=Max("id"))["top"] or 0
     return _advance(_read_cursor(user, room=room), top)
 
 
@@ -3093,19 +3122,26 @@ def _wa_inbound(client, user):
     return qs
 
 
-def mark_client_read(user, client, receipt=True):
+def mark_client_read(user, client, receipt=True, upto=None):
     """``user`` opened the conversation with this client. True when it moved.
 
     When it moved, the client is told too: WhatsApp's read receipt on the
     newest message turns every tick before it blue on their phone. That was
     a decision (23/09/2026), not a default - pass ``receipt=False`` to read
     without telling.
+
+    ``upto`` (an inbound message id) is for a page that fetched the thread and says "read" a
+    moment later: the receipt goes for the newest message *it showed*, and anything the client
+    wrote in between stays unread - their phone is not told it was seen when nobody saw it.
     """
     if user is None or client is None:
         return False
     if not user.handles_clients:
         return False
-    newest = _wa_inbound(client, user).order_by("-id").values_list(
+    visible = _wa_inbound(client, user)
+    if upto is not None:
+        visible = visible.filter(id__lte=upto)
+    newest = visible.order_by("-id").values_list(
         "id", "external_id", "owner__wa_phone_number_id"
     ).first()
     if not newest:
@@ -3241,6 +3277,21 @@ def unread_chat_total(user):
     return total
 
 
+def receipt_of(room, row, other_ids, cursors):
+    """``(receipt, [ids of the people who read it])`` for one of the viewer's own messages.
+
+    The one rule, for a single room and for a list of them: in a staff chat or a
+    work group a message has been seen once everybody else in the room has read
+    past it (``cursors`` is {person id: last message read}); a room that relays
+    to a client is read on the client's phone, so WhatsApp's own receipt wins.
+    """
+    if room.reaches_client:
+        return row.relay_receipt, []
+    readers = [pk for pk in other_ids if cursors.get(pk, 0) >= row.id]
+    seen = bool(other_ids) and len(readers) == len(other_ids)
+    return ("read" if seen else ""), readers
+
+
 def room_receipts(room, viewer, rows):
     """{message id: (receipt, [names who read it])} for the viewer's own messages.
 
@@ -3260,11 +3311,11 @@ def room_receipts(room, viewer, rows):
         ChatRead.objects.filter(room=room, user__in=others)
         .values_list("user_id", "last_read_id")
     )
+    by_id = {m.pk: m for m in others}
     out = {}
     for row in mine:
-        readers = [m for m in others if cursors.get(m.pk, 0) >= row.id]
-        seen = bool(others) and len(readers) == len(others)
-        out[row.id] = ("read" if seen else "", [m.short_name for m in readers])
+        receipt, readers = receipt_of(room, row, list(by_id), cursors)
+        out[row.id] = (receipt, [by_id[pk].short_name for pk in readers])
     return out
 
 

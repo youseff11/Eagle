@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, clock, identity, services
+from . import ai, attendance, chatlists, clock, identity, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -1075,11 +1075,19 @@ def _thread_entry_json(entry, viewer):
     }
 
 
-def _conversation_json(client, viewer, unread=0):
-    preview = services.conversation_preview(client, viewer)
+def _conversation_json(client, viewer, unread=0, facts=None):
+    """One client's row. ``facts`` is what ``chatlists.client_facts`` fetched for a whole list;
+    without it the row asks for itself, which is what a single conversation does."""
+    if facts is None:
+        facts = {
+            "preview": services.conversation_preview(client, viewer),
+            "window": client.reply_window_for(viewer),
+            "channel": services.client_channel(client),
+        }
+    preview = facts["preview"]
     # Each line has its own 24 hours - the window of the number this person
     # would answer from, not whichever number the client wrote to last.
-    window_open, minutes_left = client.reply_window_for(viewer)
+    window_open, minutes_left = facts["window"]
     return {
         "code": client.code,
         "group": False,
@@ -1092,21 +1100,29 @@ def _conversation_json(client, viewer, unread=0):
         "time": clock.fmt12(preview["at"], "en"),
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
         # The 24-hour rule is a WhatsApp rule — e-mail has no such window.
-        "channel": services.client_channel(client),
+        "channel": facts["channel"],
         "window_open": window_open,
         "minutes_left": minutes_left,
         "unread": unread,
     }
 
 
-def _group_json(room, viewer, unread=0):
-    """A group in the same shape as a 1:1 conversation, so one list renders both."""
-    preview = services.group_preview(room, viewer)
+def _group_json(room, viewer, unread=0, facts=None):
+    """A group in the same shape as a 1:1 conversation, so one list renders both.
+
+    ``facts`` is what ``chatlists.group_facts`` fetched for a whole list; without it the row asks
+    for itself."""
     client = room.relay_client
+    if facts is None:
+        facts = {"preview": services.group_preview(room, viewer)}
+        if client:
+            facts["window"] = client.reply_window_for(viewer)
+            facts["channel"] = services.client_channel(client)
+    preview = facts["preview"]
     # The 24-hour window of the line this person answers from, as in
     # ``_conversation_json`` - not whichever line the client wrote to last,
     # which would tell the operation when the client spoke to a Sales number.
-    window_open, minutes_left = client.reply_window_for(viewer) if client else (False, 0)
+    window_open, minutes_left = facts.get("window", (False, 0))
     if room.kind == RoomKind.STAFF:
         person = room.other_member(viewer)
         return {
@@ -1144,7 +1160,7 @@ def _group_json(room, viewer, unread=0):
         "receipt": preview.get("receipt", ""),
         "time": clock.fmt12(preview["at"], "en"),
         "date": timezone.localtime(preview["at"]).strftime("%Y-%m-%d") if preview["at"] else "",
-        "channel": services.client_channel(client) if client else "",
+        "channel": facts.get("channel", ""),
         "window_open": window_open,
         "minutes_left": minutes_left,
         "unread": unread,
@@ -1200,20 +1216,29 @@ def client_chat_list(request):
     if kind == "clients" and sees_all_clients:
         clients = list(services.client_conversations(request.user, query)[:100])
         unread = services.unread_by_client(request.user, [c.pk for c in clients])
+        facts = chatlists.client_facts(request.user, clients)
         items += [
-            _conversation_json(row, request.user, unread.get(row.pk, 0))
+            (
+                facts[row.pk]["preview"]["at"],
+                _conversation_json(row, request.user, unread.get(row.pk, 0), facts[row.pk]),
+            )
             for row in clients
         ]
     if kind == "groups":
         rooms = list(services.groups_for(request.user, query)[:100])
         unread = services.unread_by_room(request.user, [room.id for room in rooms])
+        facts = chatlists.group_facts(request.user, rooms)
         items += [
-            _group_json(room, request.user, unread.get(room.id, 0))
+            (
+                facts[room.pk]["preview"]["at"],
+                _group_json(room, request.user, unread.get(room.id, 0), facts[room.pk]),
+            )
             for room in rooms
         ]
-    # Newest activity first.
-    items.sort(key=lambda row: (row.get("date", ""), row.get("time", "")), reverse=True)
-    return JsonResponse({"ok": True, "items": items})
+    # Newest activity first, by the moment itself. The rows carry the time as text ("9:30 AM"), and as
+    # text it sorts after "10:30 AM" and "11:00 PM" before "9:00 AM": the list was out of order within a day.
+    items.sort(key=lambda pair: (pair[0] is not None, pair[0].timestamp() if pair[0] else 0), reverse=True)
+    return JsonResponse({"ok": True, "items": [item for _when, item in items]})
 
 
 # ---------------------------------------------------------------------------

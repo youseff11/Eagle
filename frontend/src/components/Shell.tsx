@@ -24,6 +24,7 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
 /** The screens that have been ported: where they live in this app, and what the menu calls them. */
 export const SCREENS: Record<ScreenKey, { path: string; icon: string; label: [string, string] }> = {
   translator_home: { path: "/translator", icon: "pen", label: ["شغلي", "My work"] },
+  chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
 
 /** Signing out is a POST the classic way too: a form with the token, then the redirect. */
@@ -60,6 +61,7 @@ export function Shell() {
 
   const user = me.data?.user;
   const unread = me.data?.unread_notifications ?? 0;
+  const unreadChats = me.data?.unread_chats ?? 0;
   const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
   // The title follows the address, not the list: it is right before `me` has arrived too.
   const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) => location.pathname.startsWith(SCREENS[key].path));
@@ -104,6 +106,7 @@ export function Shell() {
               >
                 <Icon name={SCREENS[key].icon} />
                 <span>{t(...SCREENS[key].label)}</span>
+                {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
               </NavLink>
             ))}
             <NavLink to="/notifications" className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>

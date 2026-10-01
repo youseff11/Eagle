@@ -18,8 +18,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST, require_safe
 
 from . import (
-    attendance, clock, employees, galiases, identity, newui, payroll, performance, recruitment, services,
-    wordcount,
+    attendance, chatlists, clock, employees, galiases, identity, newui, payroll, performance, recruitment,
+    services, wordcount,
 )
 from .forms import (
     AICheckForm,
@@ -473,8 +473,10 @@ def _chat_sidebar(user, query, kind):
     if kind == "clients" and sees_all_clients:
         clients = list(services.client_conversations(user, query)[:100])
         unread = services.unread_by_client(user, [c.pk for c in clients])
+        # What every row says is fetched once for the whole list (``chatlists``).
+        facts = chatlists.client_facts(user, clients)
         for client in clients:
-            preview = services.conversation_preview(client, user)
+            preview = facts[client.pk]["preview"]
             rows.append({
                 "is_group": False,
                 "client": client,
@@ -487,6 +489,7 @@ def _chat_sidebar(user, query, kind):
     if kind == "groups":
         rooms = list(services.groups_for(user, query)[:100])
         unread = services.unread_by_room(user, [room.id for room in rooms])
+        facts = chatlists.group_facts(user, rooms)
         for room in rooms:
             client = room.relay_client
             rows.append({
@@ -500,7 +503,7 @@ def _chat_sidebar(user, query, kind):
                 "code": f"g{room.id}",
                 "label": room.display_title,
                 "url": f"/ops/chats/g/{room.id}/",
-                "preview": services.group_preview(room, user),
+                "preview": facts[room.pk]["preview"],
                 "unread": unread.get(room.id, 0),
             })
     rows.sort(key=lambda r: r["preview"]["at"] or timezone.now(), reverse=True)
@@ -1349,10 +1352,7 @@ def admin_settings(request):
             if conf.new_ui != switch_before:
                 # Who sent whom to which interface: the one setting whose change moves
                 # people from one page to another, so it is written down in full.
-                services.log(
-                    request.user, "settings.new_ui", "-",
-                    json.dumps(conf.new_ui, sort_keys=True)[:400],
-                )
+                services.log(request.user, "settings.new_ui", "-", json.dumps(conf.new_ui, sort_keys=True))
             if "mail_aliases_hidden" in form.changed_data:
                 # A hidden address leaves the list now, not at the next sync.
                 galiases.sync(force=True)

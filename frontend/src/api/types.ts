@@ -1,7 +1,7 @@
 export type Lang = "ar" | "en";
 
 /** A screen that has been ported to this app. The menu and the home page follow what the server lists. */
-export type ScreenKey = "translator_home";
+export type ScreenKey = "translator_home" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -33,6 +33,8 @@ export interface MeResponse {
   /** The ported screens that are switched on for this person (`dashboard/newui.py`). */
   screens: ScreenKey[];
   unread_notifications: number;
+  /** Messages waiting in any chat tab (`services.unread_chat_total`). */
+  unread_chats: number;
   realtime: { path: string; ping_seconds: number };
   server_time: string;
 }
@@ -115,4 +117,101 @@ export interface TranslatorHomeResponse {
   open: DeskTask[];
   done: { code: string; status: Labelled & { tone: string }; url: string }[];
   rating_events: { delta: string; reason_ar: string; reason_en: string }[];
+}
+
+/** The three lists of the chats page. A role gets only the ones `me.chats.types` names. */
+export type ChatKind = "clients" | "groups" | "staff";
+
+/** One row of `/api/v1/chats/`: a client, a group or a colleague (`api._conversation_json`, `_group_json`). */
+export interface ChatRow {
+  /** `CL-0001` for a client, `g12` for a group, `u5` for a colleague. */
+  code: string;
+  group: boolean;
+  /** An internal work group: nothing in it reaches a client. */
+  team?: boolean;
+  staff?: boolean;
+  /** What is typed here ends up on a client's phone. */
+  reaches_client?: boolean;
+  /** The room behind it (0: a colleague nobody has written to yet). */
+  room?: number;
+  /** The classic page of this conversation. */
+  url: string;
+  /** A client code, never a name, unless the person may know the name. */
+  label: string;
+  initials?: string;
+  client_code?: string;
+  text: string;
+  outgoing: boolean;
+  status: string;
+  receipt: string;
+  /** The time of day and the date, written by the server (Cairo, 12 hours). */
+  time: string;
+  date: string;
+  channel: string;
+  window_open: boolean;
+  minutes_left: number;
+  unread: number;
+}
+
+export interface ChatListResponse {
+  ok: true;
+  items: ChatRow[];
+}
+
+export interface ThreadFile {
+  id: number;
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
+  voice: boolean;
+  audio: boolean;
+  length: string;
+  image: boolean;
+}
+
+export interface Reaction {
+  kind: string;
+  count: number;
+  mine: boolean;
+  who: string[];
+}
+
+/** One bubble (`api._thread_entry_json`). `kind` is `in` (the client's) or `out` (ours). */
+export interface ThreadEntry {
+  uid: string;
+  id: number;
+  kind: "in" | "out";
+  body: string;
+  subject: string;
+  channel: string;
+  status: string;
+  error: string;
+  sender: string;
+  task_code: string;
+  is_delivery: boolean;
+  quote: string;
+  quote_who: string;
+  time: string;
+  date: string;
+  files: ThreadFile[];
+  mine: boolean;
+  receipt: string;
+  seen_by: string[];
+  forwarded: boolean;
+  reactions: Reaction[];
+}
+
+/** GET /api/v1/{clients,groups,staff}/.../messages/ */
+export interface ThreadResponse {
+  ok: true;
+  client: ChatRow;
+  messages: ThreadEntry[];
+}
+
+/** POST .../read/ */
+export interface MovedResponse {
+  ok: true;
+  /** Whether the read mark moved (it did not, if it was there already). */
+  moved: boolean;
 }

@@ -5,6 +5,7 @@ import { Shell } from "./components/Shell";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { HomePage } from "./pages/HomePage";
 import { NotFound } from "./pages/NotFound";
+import { ChatsPage } from "./pages/ChatsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { TranslatorHomePage } from "./pages/TranslatorHomePage";
 
@@ -18,6 +19,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route index element={<HomePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="translator" element={<TranslatorHomePage />} />
+        <Route path="chats" element={<ChatsPage />} />
+        <Route path="chats/:code" element={<ChatsPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

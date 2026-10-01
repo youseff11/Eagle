@@ -19,7 +19,8 @@ from django.utils import timezone
 
 from . import api_v1, identity, services
 from .models import (
-    AuditLog, ChatMessage, ChatRead, ChatRoom, Client, Notification, Role, RoomKind, Task, User,
+    AuditLog, Channel, ChatMessage, ChatRead, ChatRoom, Client, InboundMessage, Notification, Role, RoomKind,
+    Task, User,
 )
 
 CHAT_KINDS = ("clients", "groups", "staff")
@@ -694,14 +695,21 @@ class ClientRoomTranslatorsCommandTests(_Site):
 
 class GroupRowUsesTheViewersOwnLineTests(_Site):
     def test_the_reply_window_is_the_one_on_the_line_this_person_answers_from(self):
-        # The client wrote just now, so the whole-client window is open. What the
-        # operation is shown must come from its own line's method, not from that.
-        with mock.patch.object(Client, "reply_window_for", return_value=(False, 0)):
-            body = _json(self.get(self.ops, "v1_chats", type="groups"))
+        # Real rows: the client wrote to the company number a day and a half ago, and to a Sales
+        # person's own number just now. Some line has an open window, but not the one the
+        # operation answers from - which is the only one the operation may be shown.
+        InboundMessage.objects.filter(client=self.client_obj).update(
+            received_at=timezone.now() - timedelta(hours=36)
+        )
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.WHATSAPP, body="to the sales number",
+            owner=self.sales, received_at=timezone.now(),
+        )
+        self.assertTrue(self.client_obj.reply_window_open)
+        body = _json(self.get(self.ops, "v1_chats", type="groups"))
         row = next(item for item in body["items"] if item["room"] == self.client_group.pk)
         self.assertFalse(row["window_open"])
         self.assertEqual(row["minutes_left"], 0)
-        self.assertTrue(self.client_obj.reply_window_open)
 
 
 class NotificationLinksAreOnlyPathsOnThisSiteTests(_Site):

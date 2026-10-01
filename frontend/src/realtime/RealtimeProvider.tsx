@@ -20,6 +20,9 @@ export function handleEvent(client: ReturnType<typeof useQueryClient>, event: Re
     // doorbell is also the quickest word that a task moved: the lists refresh without waiting
     // for the next heartbeat.
     void client.invalidateQueries({ queryKey: qk.boards });
+    // A client's message is not in any room, so it rings as a notification: the chat lists and the
+    // open conversation ask again too.
+    void client.invalidateQueries({ queryKey: qk.chats });
   } else {
     void client.invalidateQueries({ queryKey: qk.chats });
     void client.invalidateQueries({ queryKey: qk.room(event.id) });

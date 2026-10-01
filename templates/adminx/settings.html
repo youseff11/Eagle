@@ -70,9 +70,9 @@
        data-en="Each screen moves to the new interface on its own. The people ticked are sent to the new version and everybody else stays on the classic one. Untick and they are back on the classic page at once.">
       كل شاشة بتتنقل للواجهة الجديدة لوحدها. شيل العلامة وهيرجعوا للقديمة فورًا.
     </p>
-    <input type="hidden" name="{{ form.NEW_UI_MARKER }}" value="1">
     {% for row in form.new_ui_rows %}
       <div class="field">
+        <input type="hidden" name="{{ form.NEW_UI_MARKER }}_{{ row.screen.key }}" value="1">
         <label data-ar="{{ row.screen.ar }}" data-en="{{ row.screen.en }}">{{ row.screen.ar }}</label>
         {{ row.roles }}
         {{ row.roles.errors }}

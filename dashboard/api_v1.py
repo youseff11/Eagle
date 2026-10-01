@@ -36,7 +36,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from . import api, clock, identity, newui, services
-from .models import AppSettings, Notification, Role, TaskStatus
+from .models import AppSettings, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
 
@@ -158,6 +158,26 @@ def _unread(user):
     return Notification.objects.filter(user=user, is_read=False).count()
 
 
+def _upto(request):
+    """The newest message the page says it showed (``upto`` in a JSON or form body), or ``None``.
+
+    Absent means "everything there is" as before; a value that is not a message id is ``BadIds``.
+    """
+    if (request.content_type or "").startswith("application/json"):
+        try:
+            body = json.loads(request.body or b"{}")
+        except (ValueError, RecursionError, UnicodeDecodeError):
+            raise BadIds from None
+        if not isinstance(body, dict):
+            raise BadIds
+        raw = body.get("upto")
+    else:
+        raw = request.POST.get("upto")
+    if raw is None or raw == "":
+        return None
+    return _clean_id(raw)
+
+
 # ---------------------------------------------------------------------------
 # Who am I
 # ---------------------------------------------------------------------------
@@ -193,6 +213,8 @@ def me(request):
         # the menu lists exactly these, and the home page hands them on.
         "screens": newui.enabled_keys(user),
         "unread_notifications": _unread(user),
+        # The chats entry's badge: messages waiting in any of the three lists.
+        "unread_chats": services.unread_chat_total(user),
         "realtime": {"path": "/ws/events/", "ping_seconds": PING_SECONDS},
         "server_time": clock.fmt12(timezone.now(), "en"),
     })
@@ -284,11 +306,48 @@ def client_messages(request, client_code):
     return api.client_chat_fetch(_without_read(request), client_code)
 
 
+@endpoint("GET")
+def staff_messages(request, user_id):
+    """This person's one-to-one chat with a colleague - always their own side of it.
+
+    The room is found from the *pair* (the signed-in person and the colleague), never from an id the
+    browser chose, so there is no way to name somebody else's chat; and it is read through the same
+    function the group pages use, which refuses anyone who is not in it (not even the admin: a private
+    line a third person reads is not a private line). Nobody has written yet: an empty conversation,
+    and the room is NOT opened - a GET changes nothing.
+    """
+    other = User.objects.filter(pk=user_id, is_active=True).exclude(pk=request.user.pk).first()
+    if other is None:
+        raise Http404
+    room = ChatRoom.objects.filter(
+        kind=RoomKind.STAFF, pair_key=services.staff_pair_key(request.user.pk, other.pk)
+    ).first()
+    # A room that exists but has lost this person's seat (the room and its members are written in two
+    # steps) is, to them, a chat nobody has written in: not a refusal on every refresh. Opening the chat
+    # on the classic page, or sending the first line, puts the seat back; a GET writes nothing.
+    if room is not None and room.members.filter(pk=request.user.pk).exists():
+        return api.group_chat_fetch(_without_read(request), room.pk)
+    return JsonResponse({
+        "ok": True,
+        "client": {
+            "code": f"u{other.pk}", "group": False, "staff": True, "room": 0,
+            "url": f"/ops/chats/u/{other.pk}/", "label": other.short_name, "initials": other.initials,
+            "client_code": "", "text": "", "outgoing": False, "status": "", "receipt": "",
+            "time": "", "date": "", "channel": "", "window_open": False, "minutes_left": 0, "unread": 0,
+        },
+        "messages": [],
+    })
+
+
 @endpoint("POST")
 def group_read(request, room_id):
     """This person has the group on screen and has read it up to the newest message."""
+    try:
+        upto = _upto(request)
+    except BadIds:
+        return _error(400, "bad_upto")
     room = api._group_or_404(request, room_id)
-    return JsonResponse({"ok": True, "moved": services.mark_room_read(request.user, room)})
+    return JsonResponse({"ok": True, "moved": services.mark_room_read(request.user, room, upto=upto)})
 
 
 @endpoint("POST")
@@ -300,8 +359,12 @@ def client_read(request, client_code):
     of 23/09/2026) - which is why this is a POST: only a person actually looking
     at the conversation may send it.
     """
+    try:
+        upto = _upto(request)
+    except BadIds:
+        return _error(400, "bad_upto")
     client = api._client_or_404(request, client_code)
-    return JsonResponse({"ok": True, "moved": services.mark_client_read(request.user, client)})
+    return JsonResponse({"ok": True, "moved": services.mark_client_read(request.user, client, upto=upto)})
 
 
 # ---------------------------------------------------------------------------

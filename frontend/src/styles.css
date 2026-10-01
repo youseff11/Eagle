@@ -24,3 +24,16 @@
 
 /* The buttons under a task on the translator's desk. */
 .desk-actions { margin-top: 11px; }
+
+/* The date between two days of messages. */
+.chat-day { text-align: center; font-size: 11px; margin: 6px 0; }
+.chat-entry { display: flex; flex-direction: column; gap: 8px; }
+
+/* The chat tabs are buttons in this app (links in the classic page): drawn the same, not as browser buttons. */
+button.cchat__pill {
+  appearance: none;
+  background: transparent;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}

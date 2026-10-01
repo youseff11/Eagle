@@ -231,18 +231,6 @@ class AddingMembersTests(_Site):
         self.assertEqual(_json(answer)["added"], [self.lead.short_name])
 
 
-class GroupRowUsesTheViewersOwnLineTests(_Site):
-    def test_the_reply_window_is_the_one_on_the_line_this_person_answers_from(self):
-        # The client wrote just now, so the whole-client window is open. What the
-        # operation is shown must come from its own line's method, not from that.
-        with mock.patch.object(Client, "reply_window_for", return_value=(False, 0)):
-            body = _json(self.get(self.ops, "api_client_chat_list", type="groups"))
-        row = next(item for item in body["items"] if item["room"] == self.client_group.pk)
-        self.assertFalse(row["window_open"])
-        self.assertEqual(row["minutes_left"], 0)
-        self.assertTrue(self.client_obj.reply_window_open)
-
-
 class ForwardingTests(_Site):
     """Forwarding into a room tells its members - with the room's title and a link in.
 

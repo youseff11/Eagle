@@ -936,11 +936,11 @@ class SettingsForm(forms.ModelForm):
             self.fields["mail_aliases"].disabled = True
         self._add_new_ui_fields(instance)
 
-    #: A hidden input the settings page carries beside the new-interface section.
-    #: Without it in the post - a script, a page from before the section existed -
-    #: the section was not on the page that was sent, so nothing in it is read as
-    #: "everybody unticked". (A page left open in an old tab does carry it, like every
-    #: other field on the page: saving from it saves what it shows.)
+    #: A hidden input the settings page carries in each screen's row (``newui_present_<screen>``).
+    #: Without it in the post - a script, a page from before the screen existed - the row was not on
+    #: the page that was sent, so nothing in it is read as "everybody unticked": an unticked box is
+    #: not sent at all, which is why the marker is needed. (A page left open in an old tab does carry
+    #: it, like every other field on the page: saving from it saves what it shows.)
     NEW_UI_MARKER = "newui_present"
 
     def _add_new_ui_fields(self, instance):
@@ -973,14 +973,14 @@ class SettingsForm(forms.ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        if self.data.get(self.NEW_UI_MARKER) == "1":
-            instance.new_ui = {
-                key: {
+        current = dict(instance.new_ui) if isinstance(instance.new_ui, dict) else {}
+        for key in newui.SCREENS:
+            if self.data.get(f"{self.NEW_UI_MARKER}_{key}") == "1":
+                current[key] = {
                     "roles": list(self.cleaned_data.get(f"newui_{key}_roles") or []),
                     "users": sorted(u.pk for u in self.cleaned_data.get(f"newui_{key}_users") or []),
                 }
-                for key in newui.SCREENS
-            }
+        instance.new_ui = current
         if commit:
             instance.save()
             self._save_m2m()

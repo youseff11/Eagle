@@ -35,6 +35,9 @@ class Screen:
     path: str
     #: The roles this screen is for. The admin may always be switched on as well.
     roles: tuple
+    #: Whether the classic page hands a switched-on person to the new one. A screen that cannot do
+    #: everything the classic page does yet is shown in the new app's menu only: nobody is sent to it.
+    redirects: bool = True
 
     def allows(self, user):
         """May this person open the screen at all, whatever the switch says."""
@@ -55,6 +58,15 @@ SCREENS = {
         Screen(
             "translator_home", "شغل المترجم", "The translator's desk",
             classic="translator_home", path="/translator", roles=(Role.TRANSLATOR,),
+        ),
+        Screen(
+            "chats", "الشات", "Chats",
+            classic="ops_chats", path="/chats",
+            roles=(
+                Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
+                Role.ACCOUNTING, Role.SALES,
+            ),
+            redirects=False,
         ),
     )
 }
@@ -120,6 +132,7 @@ def hand_on(request, key):
 
     Only when the screen is switched on for this person *and* nothing stands in the way:
 
+    * the screen does not hand anybody on yet (``Screen.redirects``);
     * they asked for the classic page by name (``?classic=1``);
     * the new app has not been built: a switched-on person would be sent to a bare
       503 with no way back, away from the classic pages that still work;
@@ -130,7 +143,7 @@ def hand_on(request, key):
       and every page load on the way to the screen that shows it comes out of it.
     """
     user = request.user
-    if wants_classic(request) or not enabled(user, key):
+    if not SCREENS[key].redirects or wants_classic(request) or not enabled(user, key):
         return False
     if spa.built_assets() is None:
         return False

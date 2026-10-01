@@ -102,6 +102,9 @@ def content_security_policy(request):
         "style-src-attr 'unsafe-inline'",
         "font-src https://fonts.gstatic.com",
         "img-src 'self' data:",
+        # Voice notes: <audio> from /files/. (default-src would cover it; said here so that a later change
+        # to default-src does not silence them without anybody noticing.)
+        "media-src 'self'",
         f"connect-src 'self' {socket}",
         "frame-ancestors 'none'",
         "base-uri 'none'",

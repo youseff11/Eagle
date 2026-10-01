@@ -241,6 +241,12 @@ class ContentSecurityPolicyTests(_Built):
         # The one inline thing is the icon sprite's style attribute, and only as an attribute.
         self.assertEqual(self.policy()["style-src-attr"], "'unsafe-inline'")
 
+    def test_pictures_and_voice_notes_come_from_this_site_only(self):
+        policy = self.policy()
+        self.assertEqual(policy["img-src"], "'self' data:")
+        # Said outright, not left to default-src: the chat plays voice notes with <audio>.
+        self.assertEqual(policy["media-src"], "'self'")
+
     def test_the_page_cannot_be_framed_and_forms_post_home(self):
         policy = self.policy()
         self.assertEqual(policy["frame-ancestors"], "'none'")

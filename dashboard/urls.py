@@ -211,6 +211,7 @@ urlpatterns = [
     path("api/v1/chats/", api_v1.chats, name="v1_chats"),
     path("api/v1/rooms/<int:room_id>/messages/", api_v1.room_messages, name="v1_room_messages"),
     path("api/v1/groups/<int:room_id>/messages/", api_v1.group_messages, name="v1_group_messages"),
+    path("api/v1/staff/<int:user_id>/messages/", api_v1.staff_messages, name="v1_staff_messages"),
     path("api/v1/clients/<str:client_code>/messages/", api_v1.client_messages, name="v1_client_messages"),
     path("api/v1/groups/<int:room_id>/read/", api_v1.group_read, name="v1_group_read"),
     path("api/v1/clients/<str:client_code>/read/", api_v1.client_read, name="v1_client_read"),

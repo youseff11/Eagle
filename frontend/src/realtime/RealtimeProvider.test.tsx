@@ -9,15 +9,17 @@ function spy() {
 }
 
 describe("handleEvent", () => {
-  it("a notification doorbell refreshes the notifications, the unread count and the boards", () => {
+  it("a notification doorbell refreshes the notifications, the unread count, the boards and the chats", () => {
     const { client, invalidateQueries } = spy();
     handleEvent(client, { t: "notify" });
     // The boards too: every workflow step notifies somebody, so this is the quickest word that a
-    // task moved, ahead of the next heartbeat.
+    // task moved, ahead of the next heartbeat. And the chats: a client's message sits in no room,
+    // so it is announced as a notification.
     expect(invalidateQueries.mock.calls.map((call) => call[0])).toEqual([
       { queryKey: qk.notifications },
       { queryKey: qk.me },
       { queryKey: qk.boards },
+      { queryKey: qk.chats },
     ]);
   });
 

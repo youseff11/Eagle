@@ -32,6 +32,7 @@ export function me(
     chats: { types: ["clients", "groups", "staff"] },
     screens,
     unread_notifications: unread,
+    unread_chats: 0,
     realtime: { path: "/ws/events/", ping_seconds: 25 },
     server_time: "8:00 AM",
   };
@@ -71,9 +72,9 @@ export function mockFetch(routes: Routes) {
 
 export function renderWithProviders(
   ui: ReactElement,
-  options: { route?: string; lang?: Lang; theme?: Theme } = {},
+  options: { route?: string; lang?: Lang; theme?: Theme; client?: QueryClient } = {},
 ) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+  const client = options.client ?? new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
   const result = render(
     <QueryClientProvider client={client}>
       <PreferencesProvider initialLang={options.lang ?? "ar"} initialTheme={options.theme ?? "dark"}>

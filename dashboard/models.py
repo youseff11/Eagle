@@ -1036,15 +1036,19 @@ class Client(models.Model):
         )
         return last.received_at if last else None
 
-    def reply_window_for(self, user):
-        """``(open, minutes_left)`` on the line this person answers from."""
-        from . import lines
-
-        started = self.last_inbound_on(lines.reply_line(self, user, Channel.WHATSAPP))
+    @staticmethod
+    def window_from(started):
+        """``(open, minutes_left)`` for a 24-hour window that began at ``started`` (or never did)."""
         if not started:
             return False, 0
         left = int((started + timedelta(hours=24) - timezone.now()).total_seconds() // 60)
         return left > 0, max(0, left)
+
+    def reply_window_for(self, user):
+        """``(open, minutes_left)`` on the line this person answers from."""
+        from . import lines
+
+        return self.window_from(self.last_inbound_on(lines.reply_line(self, user, Channel.WHATSAPP)))
 
     @property
     def reply_window_ends(self):
