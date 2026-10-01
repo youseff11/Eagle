@@ -1,0 +1,69 @@
+# Render Blueprint for Eagle.
+#
+# Two services, one codebase:
+#   eagle-web     Django behind gunicorn
+#   eagle-worker  `manage.py run_worker` (housekeeping, IMAP IDLE, attendance sweep)
+#
+# Secrets are `sync: false`: Render asks for each one in its own dashboard when
+# the Blueprint is created. They never live in this file or in git.
+#
+# The worker starts switched OFF (EAGLE_RUN_WORKER=false). Two workers on one
+# database send every attendance alert and every WhatsApp message twice, so it
+# is turned on only after the old host's worker has been stopped.
+
+services:
+  - type: web
+    name: eagle-web
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    preDeployCommand: python manage.py migrate --noinput
+    startCommand: gunicorn Core.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: EAGLE_DEBUG
+        value: "false"
+      - key: EAGLE_LOG_LEVEL
+        value: INFO
+      # settings.py falls back to a key that is written in the repo. Render makes
+      # a random one instead. Changing the key signs everybody out once.
+      - key: EAGLE_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: BUNNY_STORAGE_ZONE_NAME
+        sync: false
+      - key: BUNNY_API_KEY
+        sync: false
+      - key: BUNNY_REGION
+        sync: false
+      - key: BUNNY_CDN_URL
+        sync: false
+
+  - type: worker
+    name: eagle-worker
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: sh -c 'if [ "$EAGLE_RUN_WORKER" = "true" ]; then exec python manage.py run_worker; else echo "worker is switched off (EAGLE_RUN_WORKER is not true)"; exec sleep infinity; fi'
+    autoDeployTrigger: "off"
+    envVars:
+      - key: EAGLE_DEBUG
+        value: "false"
+      - key: EAGLE_LOG_LEVEL
+        value: INFO
+      - key: EAGLE_RUN_WORKER
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: BUNNY_STORAGE_ZONE_NAME
+        sync: false
+      - key: BUNNY_API_KEY
+        sync: false
+      - key: BUNNY_REGION
+        sync: false
+      - key: BUNNY_CDN_URL
+        sync: false

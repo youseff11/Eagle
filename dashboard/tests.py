@@ -10929,6 +10929,22 @@ class GoogleAliasSyncTests(TestCase):
         self.assertEqual(AppSettings.load().google_refresh_token, "refresh")
 
 
+class HealthCheckTests(TestCase):
+    """``/healthz`` is what the host pings to decide the process is alive."""
+
+    def test_answers_ok_without_a_login(self):
+        page = self.client.get("/healthz")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.content, b"ok")
+
+    def test_never_redirects_to_login(self):
+        # A redirect would read as "up" to some hosts and as "down" to others.
+        self.assertNotIn("Location", self.client.get("/healthz"))
+
+    def test_takes_only_get(self):
+        self.assertEqual(self.client.post("/healthz").status_code, 405)
+
+
 def _rev(name, args=None):
     from django.urls import reverse
 

@@ -11,6 +11,7 @@ urlpatterns = [
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("", views.home, name="home"),
+    path("healthz", views.healthz, name="healthz"),
 
     # -- public legal pages (no login) --------------------------------------
     path("privacy/", views.privacy, name="privacy"),

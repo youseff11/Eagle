@@ -1,14 +1,18 @@
 # =============================================================================
 # Eagle Dashboard — dependencies
 #
-# Django is the ONLY third-party package. Everything else runs on the Python
-# standard library on purpose:
+# Django is the only package the APPLICATION code imports. Everything else runs
+# on the Python standard library on purpose:
 #   WhatsApp Cloud API  -> urllib          (dashboard/whatsapp.py)
 #   Claude API          -> urllib          (dashboard/ai.py)
 #   Incoming e-mail     -> imaplib, email  (management/commands/fetch_emails.py)
 #   Outgoing e-mail     -> django.core.mail over SMTP (dashboard/mailer.py)
 #   .docx text extract  -> zipfile         (dashboard/ai.py)
 #   Webhook signatures  -> hmac, hashlib   (dashboard/whatsapp.py)
+#
+# The packages below Django exist only to run it on a host (gunicorn, whitenoise)
+# or to reach the database (psycopg). Do not add one without a reason this
+# file can state in a line.
 #
 # Install:  pip install -r requirements.txt
 # =============================================================================
@@ -21,13 +25,16 @@ Django==5.2.5
 psycopg[binary]==3.2.3
 
 
+# Production serving on Render. gunicorn is the WSGI server; whitenoise hands out
+# /static/ because a PaaS has no web server in front (settings.py turns it on
+# only when DEBUG is off, so local work never imports it).
+gunicorn==23.0.0
+whitenoise==6.8.2
+
+
 # -----------------------------------------------------------------------------
 # Optional — uncomment only when you need them
 # -----------------------------------------------------------------------------
-
-# Production serving (WSGI server + static file handling)
-# gunicorn==23.0.0
-# whitenoise==6.8.2
 
 # Windows production serving
 # waitress==3.0.2

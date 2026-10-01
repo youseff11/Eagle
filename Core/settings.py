@@ -81,6 +81,13 @@ ALLOWED_HOSTS = env_list("EAGLE_HOSTS", "ALLOWED_HOSTS")
 if DEBUG and not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
 
+# Render sets this to the service's own *.onrender.com name. Without it the
+# host's health check, and the staging URL, would be refused as DisallowedHost
+# whenever only the real domain is listed in EAGLE_HOSTS.
+_render_host = env("RENDER_EXTERNAL_HOSTNAME")
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, _render_host]
+
 # Django needs the scheme-qualified origin for POSTs over HTTPS. Derive it from
 # ALLOWED_HOSTS so a deploy does not silently break every form.
 CSRF_TRUSTED_ORIGINS = env_list("EAGLE_CSRF_ORIGINS", "CSRF_TRUSTED_ORIGINS")
@@ -121,6 +128,12 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if not DEBUG:
+    # A PaaS has no web server in front to hand out /static/, so the app does.
+    # Not under DEBUG: runserver serves static itself, and the local tree then
+    # needs neither the package nor a collectstatic run.
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "Core.urls"
 

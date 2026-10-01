@@ -8,12 +8,12 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from . import attendance, clock, employees, galiases, identity, payroll, performance, recruitment, services, wordcount
 from .forms import (
@@ -165,6 +165,16 @@ def login_view(request):
 def logout_view(request):
     auth_logout(request)
     return redirect("dashboard:login")
+
+
+@require_GET
+def healthz(request):
+    """Liveness probe for the host. No login, no database, no data.
+
+    It answers "the process is up" and nothing more, so a Neon hiccup does not
+    make the host restart a healthy server.
+    """
+    return HttpResponse("ok", content_type="text/plain")
 
 
 @login_required
