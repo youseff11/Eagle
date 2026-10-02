@@ -139,7 +139,8 @@ class ReactTests(_Doors):
             "client, ours": {self.admin, self.ops, self.boss_sales},
             "sales client heard": {self.admin, self.boss_sales},
             # A room: its members (and the admin, who may open any room but a private line).
-            "client group": {self.admin, self.ops, self.lead, self.boss_sales},
+            # A client group is for the people who talk to clients: the team leader seated in it by hand is refused.
+            "client group": {self.admin, self.ops, self.boss_sales},
             "work group": {self.admin, self.ops, self.lead, self.tr, self.boss_sales},
             # A private line is read through the pair: each of the two reaches it by naming the other, and nobody
             # else does, not even the admin.

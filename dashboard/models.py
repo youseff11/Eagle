@@ -1723,12 +1723,16 @@ class ChatRoom(models.Model):
         if self.kind == RoomKind.STAFF:
             return self.members.filter(pk=user.pk).exists()
         # A client room is the client's own conversation: the words, the
-        # number, the files. A translator works from a code and never meets
-        # that, so no membership row opens it to them - not the one a leader
-        # adds by hand, not a stale one from before the rule. This is the one
-        # gate every page, endpoint, file and live push asks, so closing it
-        # here closes all of them.
-        if self.kind == RoomKind.CLIENT and user.is_translator:
+        # number, the files. The people who talk to clients are the operation,
+        # Sales and the admin, and nobody else is ever in a room with one
+        # (owner's rule, 2026-10-02): a translator works from a code and never
+        # meets that, and neither does a team leader, HR, accounting or a
+        # reviewer. So no membership row opens it to them - not one added by
+        # hand, not a stale one from before the rule. This is the one gate
+        # every page, endpoint, file and live push asks, so closing it here
+        # closes all of them.
+        # (A superuser whose role is still "translator" is a translator here too: the role is checked on its own.)
+        if self.kind == RoomKind.CLIENT and (user.is_translator or not user.handles_clients):
             return False
         if user.is_admin_role:
             return True

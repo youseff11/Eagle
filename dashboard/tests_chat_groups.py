@@ -209,19 +209,23 @@ class MembersTests(_Groups):
         self.assertEqual(len(body["members"]), 3)
         self.assertEqual((body["can_add"], body["addable"]), (False, []))
 
-    def test_a_translator_is_not_offered_for_a_room_that_reaches_a_client(self):
+    def test_only_those_who_talk_to_clients_are_offered_for_a_room_that_reaches_a_client(self):
         AppSettings.objects.filter(pk=AppSettings.load().pk).update(group_creator_roles="operation")
         body = _json(self.members(self.ops, self.group))
         self.assertTrue(body["can_add"])
         roles = {p["role"] for p in body["addable"]}
-        self.assertNotIn("translator", roles)
-        self.assertIn("hr", roles)
+        # The owner's rule: a client is never in a group with a team leader, a translator, HR, accounting or a reviewer.
+        self.assertEqual(roles - {"operation", "sales", "admin"}, set())
+        self.assertIn("sales", roles)
+        offered = {p["id"] for p in body["addable"]}
+        self.assertFalse(offered & {self.lead.pk, self.tr.pk, self.hr.pk, self.reviewer.pk, self.accounting.pk})
 
     def test_adding_to_a_client_room_is_behind_the_client_group_setting(self):
         AppSettings.objects.filter(pk=AppSettings.load().pk).update(group_creator_roles="")
-        for user in (self.ops, self.lead):
-            self.assertFalse(_json(self.members(user, self.group))["can_add"], user.username)
+        self.assertFalse(_json(self.members(self.ops, self.group))["can_add"])
         self.assertTrue(_json(self.members(self.admin, self.group))["can_add"])
+        # The team leader seated in it by hand is not in a room with the client at all: nothing to ask.
+        self.assertEqual(self.members(self.lead, self.group).status_code, 404)
 
     def test_a_private_line_has_two_people_and_nobody_to_add(self):
         for user in (self.ops, self.lead):
@@ -244,7 +248,9 @@ class MembersTests(_Groups):
                 if page.status_code != 200:
                     continue
                 can = _json(page)["can_add"]
-                candidate = User.objects.create_user(f"newcomer_{room.pk}_{user.pk}", password="pw", role=Role.HR)
+                # Somebody the room may take: for a room that reaches a client, somebody who talks to clients.
+                role = Role.SALES if room.kind == RoomKind.CLIENT else Role.HR
+                candidate = User.objects.create_user(f"newcomer_{room.pk}_{user.pk}", password="pw", role=role)
                 answer = self.browser(user).post(
                     reverse("dashboard:api_group_add_members", args=[room.pk]), {"members": [candidate.pk]},
                 )
@@ -300,14 +306,23 @@ class AddTests(_Groups):
 
     def test_no_translator_is_seated_in_a_room_that_reaches_a_client(self):
         AppSettings.objects.filter(pk=AppSettings.load().pk).update(group_creator_roles="operation")
-        answer = self.add(self.ops, self.group, [self.tr2, self.hr])
+        answer = self.add(self.ops, self.group, [self.tr2, self.sales2])
         body = _json(answer)
         # The one who may be added is; the translator is left out and the answer says so.
         self.assertEqual((answer.status_code, body["ok"]), (200, True))
         self.assertIn("المترجم", body["message"])
         self.assertFalse(self.group.members.filter(pk=self.tr2.pk).exists())
-        self.assertTrue(self.group.members.filter(pk=self.hr.pk).exists())
+        self.assertTrue(self.group.members.filter(pk=self.sales2.pk).exists())
         self.assertEqual(self.add(self.ops, self.group, [self.tr2]).status_code, 400)
+
+    def test_nobody_else_who_does_not_talk_to_clients_is_seated_there_either(self):
+        # A client is never in a group with a team leader, HR, accounting or a reviewer, any more than with a translator.
+        AppSettings.objects.filter(pk=AppSettings.load().pk).update(group_creator_roles="operation")
+        for person in (self.lead2, self.hr, self.reviewer, self.accounting):
+            answer = self.add(self.ops, self.group, [person])
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "refused"), person.username)
+            self.assertIn("Sales", _json(answer)["message"], person.username)
+            self.assertFalse(self.group.members.filter(pk=person.pk).exists(), person.username)
 
     def test_somebody_who_may_not_see_the_task_is_not_seated_in_its_room(self):
         task = Task.objects.create(client=self.client_obj, title="A job", created_by=self.ops, team_lead=self.lead, translator=self.tr)

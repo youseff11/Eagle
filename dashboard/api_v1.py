@@ -31,6 +31,7 @@ import logging
 from functools import wraps
 
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, TooManyFilesSent
+from django.db.models import Q
 from django.http import Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -815,8 +816,9 @@ def group_members(request, room_id):
     if may_add:
         rows = User.objects.filter(is_active=True).exclude(pk__in=[member.pk for member in members])
         if room.kind == RoomKind.CLIENT:
-            # A translator is never seated in a room that reaches a client: not offered, so not refused.
-            rows = rows.exclude(role=Role.TRANSLATOR)
+            # Only the people who talk to clients are ever in a room with one: the operation, Sales and the admin.
+            # Nobody else is offered, so nobody else is refused.
+            rows = rows.filter(Q(role__in=[Role.OPERATION, Role.SALES, Role.ADMIN]) | Q(is_superuser=True))
         addable = [_person_json(person) for person in rows.order_by("role", "username")[:PEOPLE_LISTED]]
     return JsonResponse({
         "ok": True,

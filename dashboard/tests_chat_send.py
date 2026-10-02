@@ -438,15 +438,16 @@ class GroupSendTests(_Send):
             "Sending the e-mail failed: {'zeb@example.test': (550, b'5.1.1 no such user')}",
         )
         with mock.patch("dashboard.mailer.send_delivery", side_effect=refusal):
-            answer = self.to_group(self.lead, body="from the leader")
+            answer = self.to_group(self.ops, body="from the operation")
         body = _json(answer)
         self.assertFalse(body["delivered"])
         self.assertNotIn(b"zeb@example.test", answer.content)
-        message = ChatMessage.objects.get(body="from the leader")
+        message = ChatMessage.objects.get(body="from the operation")
         self.assertEqual(message.relay_status, "failed")
         self.assertNotIn("zeb@example.test", message.relay_error)
-        # Nor in what the room reads afterwards.
-        for viewer in (self.lead, self.ops, self.admin):
+        # Nor in what the room reads afterwards (by those who may open it: the operation reads it unmasked only if it
+        # may know the client, which it may not).
+        for viewer in (self.ops, self.admin):
             later = self.browser(viewer).get(reverse("dashboard:v1_group_messages", args=[self.group.pk]))
             self.assertNotIn(b"zeb@example.test", later.content, viewer.username)
 
@@ -485,7 +486,8 @@ class GroupSendTests(_Send):
         self.assertIn("Work", notice.body_en)
 
     def test_who_may_write_in_a_client_group_and_in_a_work_group_for_every_role(self):
-        for room, members_ok, relayed in ((self.group, {self.ops, self.lead, self.admin, self.boss_sales}, True), (self.team, {self.ops, self.lead, self.tr, self.admin, self.boss_sales}, False)):
+        # The client group: the people who talk to clients. The team leader is seated in it by hand and is still refused.
+        for room, members_ok, relayed in ((self.group, {self.ops, self.admin, self.boss_sales}, True), (self.team, {self.ops, self.lead, self.tr, self.admin, self.boss_sales}, False)):
             for user in self.everyone:
                 ChatMessage.objects.filter(room=room).delete()
                 self.text.reset_mock()
@@ -515,6 +517,17 @@ class GroupSendTests(_Send):
         answer = self.to_group(self.tr, body="can I?")
         self.assertEqual(answer.status_code, 404)
         self.assertFalse(ChatMessage.objects.filter(room=self.group).exists())
+
+    def test_nobody_who_does_not_talk_to_clients_writes_in_a_client_group_seat_or_no_seat(self):
+        # A client is never in a group with a team leader, a translator, HR, accounting or a reviewer.
+        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
+            self.group.members.add(user)
+            with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")) as relay:
+                answer = self.to_group(user, body="can I?")
+            self.assertEqual(answer.status_code, 404, user.username)
+            relay.assert_not_called()
+        self.assertFalse(ChatMessage.objects.filter(room=self.group, body="can I?").exists())
+        self.nothing_left_the_building()
 
     def test_a_refusal_is_written_to_the_audit_log(self):
         before = AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.hr).count()
@@ -554,8 +567,9 @@ class GroupSendTests(_Send):
         self.assertFalse(ChatRead.objects.filter(user=self.lead, room=self.team).exists())
 
     def test_the_answer_names_no_client_to_somebody_in_a_client_group_who_may_not_know_them(self):
+        # The operation answers the client by code and may not know their name or number.
         with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")):
-            answer = self.to_group(self.lead, body="from the leader")
+            answer = self.to_group(self.ops, body="from the operation")
         self.assertEqual(answer.status_code, 200)
         self.assertNotIn(NAME.encode(), answer.content)
         self.assertNotIn(PHONE.encode(), answer.content)
@@ -755,7 +769,7 @@ class BreakBeforeTheSendTests(_Send):
 
 class LimitWithThePrefixTests(_Send):
     def test_a_client_group_counts_the_role_that_goes_in_front_of_the_words(self):
-        for user in (self.lead, self.ops):
+        for user in (self.admin, self.ops):
             ChatMessage.objects.filter(room=self.group).delete()
             self.text.reset_mock()
             room_limit = api_v1.MAX_CLIENT_TEXT - len(services.client_prefix(user))

@@ -313,10 +313,14 @@ class ChatReadTests(_Site):
             self.assertEqual(_json(answer), {"ok": False, "error": "not_found"})
 
     def test_members_and_the_admin_read_a_room(self):
-        for user in (self.ops, self.lead, self.admin):
+        for user in (self.ops, self.admin):
             answer = self.get(user, "v1_room_messages", [self.task_client_room.pk])
             self.assertEqual(answer.status_code, 200, user.username)
             self.assertTrue(_json(answer)["messages"])
+        # The team leader of the task is not in a room with the client: not seated, and not let in if they were.
+        self.assertFalse(self.task_client_room.members.filter(pk=self.lead.pk).exists())
+        self.task_client_room.members.add(self.lead)
+        self.assertEqual(self.get(self.lead, "v1_room_messages", [self.task_client_room.pk]).status_code, 404)
 
     def test_a_private_staff_chat_is_closed_to_the_admin(self):
         self.assertEqual(self.get(self.admin, "v1_group_messages", [self.staff.pk]).status_code, 404)
@@ -398,9 +402,11 @@ class SeatedPeopleAreNotToldWhatTheClientSaidTests(_Site):
         ]
 
     def test_a_member_who_may_open_the_room_is_told(self):
-        # The control: without it the tests below could pass because nobody is told anything.
+        # The control: without it the tests below could pass because nobody is told anything. (The operation and the
+        # admin already had the ping from the inbox; a Sales person seated in the room would otherwise miss it.)
+        self.client_group.members.add(self.sales)
         self.client_writes()
-        self.assertTrue(self.quoting(self.lead))
+        self.assertTrue(self.quoting(self.sales))
 
     def test_a_translator_seated_in_a_client_room_or_group_is_told_nothing(self):
         self.task_client_room.members.add(self.tr)
@@ -429,8 +435,9 @@ class SeatedPeopleAreNotToldWhatTheClientSaidTests(_Site):
         self.assertFalse(
             Notification.objects.filter(user=self.tr, body_en__contains="OPS REPLY").exists()
         )
-        # And the leader, who may open the room, is told.
-        self.assertTrue(
+        # Nor the team leader, who is not in a room with the client either.
+        self.task_client_room.members.add(self.lead)
+        self.assertFalse(
             Notification.objects.filter(user=self.lead, body_en__contains="OPS REPLY").exists()
         )
 
@@ -469,7 +476,7 @@ class ListsFollowTheRoomGateTests(_Site):
             self.assertNotIn(self.task_client_room.pk, services.listed_room_ids(user), user.username)
 
     def test_the_people_who_may_open_the_task_room_still_see_it(self):
-        for user in (self.admin, self.ops, self.lead):
+        for user in (self.admin, self.ops):
             ids = {room.pk for room in services.groups_for(user)}
             self.assertIn(self.task_client_room.pk, ids, user.username)
 

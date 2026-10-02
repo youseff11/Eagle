@@ -1,4 +1,7 @@
-"""A translator never meets a client's conversation, and nobody is quoted the client's words unless they may open the room.
+"""Only the people who talk to clients are ever in a room with one (the operation, Sales, the admin); nobody else is quoted the client's words.
+
+The owner's rule (2026-10-02): a client is never in a group with a team leader or a translator, and HR,
+accounting and reviewers have no part in it either. Before that only the translator was refused.
 
 Found while reviewing the new ``/api/v1/`` layer, and true of the classic pages too:
 
@@ -72,6 +75,10 @@ class _Site(TestCase):
             created_by=self.ops,
         )
         self.client_group.members.add(self.ops)
+        # A second person of the operation: somebody who may open every client room, and is told what the client wrote.
+        self.ops2 = make("person_operation_b", Role.OPERATION)
+        self.task_client_room.members.add(self.ops2)
+        self.client_group.members.add(self.ops2)
         for room, who in ((self.task_client_room, self.ops), (self.work_group, self.lead),
                           (self.client_group, self.ops)):
             ChatMessage.objects.create(room=room, sender=who, body="Please look at this")
@@ -99,9 +106,49 @@ class TheGateTests(_Site):
 
     def test_the_people_who_belong_there_still_get_in(self):
         # The control: without it the refusals above could be a room nobody can open.
-        for user in (self.admin, self.ops):
+        for user in (self.admin, self.ops, self.ops2):
             self.assertTrue(self.client_group.can_access(user), user.username)
-        self.assertTrue(self.task_client_room.can_open(self.lead))
+        self.assertTrue(self.task_client_room.can_open(self.ops))
+        # A Sales person talks to clients too: seated, they get in.
+        self.client_group.members.add(self.sales)
+        self.assertTrue(self.client_group.can_access(self.sales))
+
+    def test_nobody_who_does_not_talk_to_clients_is_ever_in_a_room_with_one_seat_or_no_seat(self):
+        accounting = User.objects.create_user("person_accounting", password="pw", role=Role.ACCOUNTING)
+        reviewer = User.objects.create_user("person_reviewer", password="pw", role=Role.REVIEWER)
+        for room in (self.task_client_room, self.client_group):
+            for user in (self.lead, self.tr, self.hr, accounting, reviewer):
+                self.assertFalse(room.can_access(user), (room.pk, user.username, "no seat"))
+                room.members.add(user)
+                self.assertFalse(room.can_access(user), (room.pk, user.username, "seated"))
+                self.assertFalse(room.can_open(user), (room.pk, user.username, "seated"))
+
+    def test_the_task_page_lists_no_client_room_for_somebody_who_does_not_talk_to_clients(self):
+        for user in (self.lead, self.hr):
+            self.task_client_room.members.add(user)
+            self.assertNotIn(self.task_client_room, services.rooms_for(self.task, user), user.username)
+        # The control: the operation, seated, has it.
+        self.assertIn(self.task_client_room, services.rooms_for(self.task, self.ops))
+
+    def test_the_client_group_setting_does_not_open_a_client_room_to_somebody_who_may_not_be_in_one(self):
+        from .models import AppSettings
+
+        AppSettings.objects.filter(pk=AppSettings.load().pk).update(group_creator_roles="team_lead,hr,operation")
+        self.assertFalse(services.may_add_members(self.lead, self.client_group))
+        self.assertFalse(services.may_add_members(self.hr, self.client_group))
+        self.assertTrue(services.may_add_members(self.ops, self.client_group))
+
+    def test_the_task_room_never_seats_the_team_leader(self):
+        self.assertTrue(self.task_client_room.members.filter(pk=self.ops.pk).exists())
+        self.assertFalse(self.task_client_room.members.filter(pk=self.lead.pk).exists())
+        self.assertFalse(self.task_client_room.members.filter(pk=self.tr.pk).exists())
+
+    def test_whoever_was_left_in_it_from_before_the_rule_is_taken_out(self):
+        self.task_client_room.members.add(self.lead, self.hr, self.tr)
+        services.ensure_room(self.task, RoomKind.CLIENT)
+        self.assertEqual(
+            {m.pk for m in self.task_client_room.members.all()}, {self.ops.pk, self.ops2.pk},
+        )
 
     def test_a_translator_keeps_the_work_group_with_the_leader(self):
         self.assertTrue(self.work_group.can_access(self.tr))
@@ -118,7 +165,8 @@ class TheGateTests(_Site):
         self.assertNotIn(self.client_group, services.groups_for(boss))
 
     def test_a_person_taken_off_the_task_cannot_open_its_room(self):
-        stale = User.objects.create_user("person_stale_leader", password="pw", role=Role.TEAM_LEAD)
+        # A Sales person talks to clients, so the seat opens the room - until the task is closed to them.
+        stale = User.objects.create_user("person_stale_sales", password="pw", role=Role.SALES)
         self.task_client_room.members.add(stale)
         self.assertTrue(self.task_client_room.can_access(stale))
         self.assertFalse(self.task_client_room.can_open(stale))
@@ -166,7 +214,7 @@ class WhatTheTranslatorIsShownTests(_Site):
         self.assertGreater(listed_somewhere, 3)
 
     def test_the_people_who_may_open_the_task_room_still_see_it(self):
-        for user in (self.admin, self.ops, self.lead):
+        for user in (self.admin, self.ops):
             self.assertIn(self.task_client_room.pk, {r.pk for r in services.groups_for(user)}, user.username)
 
 
@@ -182,9 +230,18 @@ class NobodyIsQuotedTheClientUnlessTheyMayOpenTheRoomTests(_Site):
             services.ingest_message(channel="whatsapp", body=WORDS, sender_identity=CLIENT_PHONE)
 
     def test_a_member_who_may_open_the_room_is_told(self):
-        # The control: without it the tests below pass because nobody is told anything.
+        # The control: without it the tests below pass because nobody is told anything. (The operation and the admin
+        # already had the ping from the inbox; a Sales person seated in the room is the one who would otherwise miss it.)
+        self.client_group.members.add(self.sales)
         self.client_writes()
-        self.assertTrue(self.quoting(self.lead))
+        self.assertTrue(self.quoting(self.sales))
+
+    def test_a_team_leader_who_is_seated_in_a_client_room_is_told_nothing(self):
+        for room in (self.task_client_room, self.client_group):
+            room.members.add(self.lead, self.hr)
+        self.client_writes()
+        self.assertEqual(self.quoting(self.lead), [])
+        self.assertEqual(self.quoting(self.hr), [])
 
     def test_a_translator_seated_in_a_client_room_or_group_is_told_nothing(self):
         self.seat_translator()
@@ -207,8 +264,8 @@ class NobodyIsQuotedTheClientUnlessTheyMayOpenTheRoomTests(_Site):
             )
         self.assertEqual(answer.status_code, 200)
         self.assertFalse(Notification.objects.filter(user=self.tr, body_en__contains="OPS REPLY").exists())
-        # And the leader, who may open the room, is told.
-        self.assertTrue(Notification.objects.filter(user=self.lead, body_en__contains="OPS REPLY").exists())
+        # And the colleague of the operation, who may open the room, is told.
+        self.assertTrue(Notification.objects.filter(user=self.ops2, body_en__contains="OPS REPLY").exists())
 
 
 class AddingMembersTests(_Site):
@@ -225,10 +282,23 @@ class AddingMembersTests(_Site):
         self.assertTrue(_json(answer)["error"])
 
     def test_the_others_are_still_added_in_the_same_call(self):
-        answer = self.add(self.tr, self.lead)
-        self.assertTrue(self.client_group.members.filter(pk=self.lead.pk).exists())
+        answer = self.add(self.tr, self.sales)
+        self.assertTrue(self.client_group.members.filter(pk=self.sales.pk).exists())
         self.assertFalse(self.client_group.members.filter(pk=self.tr.pk).exists())
-        self.assertEqual(_json(answer)["added"], [self.lead.short_name])
+        self.assertEqual(_json(answer)["added"], [self.sales.short_name])
+
+    def test_only_those_who_talk_to_clients_can_be_given_a_seat_and_the_answer_says_so(self):
+        accounting = User.objects.create_user("person_accounting", password="pw", role=Role.ACCOUNTING)
+        reviewer = User.objects.create_user("person_reviewer", password="pw", role=Role.REVIEWER)
+        for person in (self.lead, self.hr, accounting, reviewer):
+            answer = self.add(person)
+            body = _json(answer)
+            self.assertFalse(body["ok"], person.username)
+            self.assertIn("أوبريشن", body["error"], person.username)
+            self.assertIn("Sales", body["error"], person.username)
+            self.assertFalse(self.client_group.members.filter(pk=person.pk).exists(), person.username)
+        # The ones who do talk to clients are added.
+        self.assertTrue(_json(self.add(self.sales))["ok"])
 
 
 class ForwardingTests(_Site):
@@ -253,15 +323,17 @@ class ForwardingTests(_Site):
         stale = User.objects.create_user("person_stale_leader", password="pw", role=Role.TEAM_LEAD)
         self.task_client_room.members.add(self.tr, stale)
         self.forward_into(self.task_client_room)
-        self.assertTrue(self.told(self.lead))  # the control: somebody is told
+        self.assertTrue(self.told(self.ops2))  # the control: somebody is told
         self.assertFalse(self.told(self.tr))
         self.assertFalse(self.told(stale))
 
     def test_a_client_group_notice_never_reaches_a_seated_translator(self):
-        self.client_group.members.add(self.tr, self.lead)
+        self.client_group.members.add(self.tr, self.lead, self.sales)
         self.forward_into(self.client_group)
-        self.assertTrue(self.told(self.lead))
+        self.assertTrue(self.told(self.sales))
+        self.assertTrue(self.told(self.ops2))
         self.assertFalse(self.told(self.tr))
+        self.assertFalse(self.told(self.lead))
 
 
 class SeatedTranslatorCannotWriteTests(_Site):
