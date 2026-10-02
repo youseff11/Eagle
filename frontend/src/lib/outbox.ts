@@ -22,7 +22,7 @@ import { ApiError } from "../api/client";
 import { qk } from "../api/keys";
 import { fetchThread, postMessage } from "../api/queries";
 import type { ThreadEntry, ThreadResponse } from "../api/types";
-import type { Recorded } from "./recorder";
+import { formatSeconds, type Recorded } from "./recorder";
 
 /** The message a reply answers, as the reply bar and the bubble show it. */
 export interface ReplyTarget {
@@ -65,19 +65,22 @@ function sameFiles(entry: ThreadEntry, item: Outgoing): boolean {
 }
 
 /**
- * Is the one file of the entry a voice note? The server converts a recording before it keeps it, so its size is
- * not the size that was recorded: a voice note is known by being one (a client's thread says `voice`, a room's
- * only that the file is audio), and by the person and the words around it.
+ * Is the one file of the entry the voice note that was recorded? The server converts a recording before it keeps
+ * it, so its size is not the size that was recorded: a voice note is known by being one (a client's thread says
+ * `voice`, a room's only that the file is audio), by how long it is where the thread says (a client's does; a
+ * room's file has no length), and by the person and the words around it.
  */
-function isVoiceNote(entry: ThreadEntry): boolean {
-  return entry.files.length === 1 && (entry.files[0]!.voice || entry.files[0]!.audio);
+function isVoiceNote(entry: ThreadEntry, voice: Recorded): boolean {
+  if (entry.files.length !== 1) return false;
+  const file = entry.files[0]!;
+  return (file.voice || file.audio) && (file.length === "" || file.length === formatSeconds(voice.seconds));
 }
 
 /** Does this entry look like the message `item` stands for: ours, new since it was sent, with the same words and files? */
 function matches(entry: ThreadEntry, item: Outgoing, meId: number): boolean {
   if (entry.kind !== "out" || new Set(item.before).has(entry.uid)) return false;
   if (entry.body.trim() !== item.body.trim()) return false;
-  if (item.voice ? !isVoiceNote(entry) : !sameFiles(entry, item)) return false;
+  if (item.voice ? !isVoiceNote(entry, item.voice) : !sameFiles(entry, item)) return false;
   // A group says `mine`; a client's thread does not, and names whoever sent it by id (a name is not unique).
   return entry.mine || (meId > 0 && entry.sender_id === meId);
 }

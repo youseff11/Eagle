@@ -1,9 +1,9 @@
 """Voice notes — what WhatsApp accepts, and how a browser recording gets there.
 
 Browsers do not agree on a recording format. Firefox hands us ``audio/ogg``
-(Opus), Safari hands us ``audio/mp4`` (AAC) — WhatsApp takes both as they are.
-Chrome only records ``audio/webm``, which WhatsApp rejects, so that one is
-re-wrapped as Ogg/Opus with ffmpeg before it goes out.
+(Opus), Safari and recent Chrome hand us ``audio/mp4`` (AAC) — WhatsApp takes
+both as they are. An older Chrome only records ``audio/webm``, which WhatsApp
+rejects, so that one is re-wrapped as Ogg/Opus with ffmpeg before it goes out.
 
 Everything here is stdlib only; ffmpeg is looked up on PATH and its absence is
 reported in plain language instead of blowing up a send.
@@ -29,10 +29,18 @@ AUDIO_EXTENSIONS = frozenset({
     ".aac", ".amr", ".m4a", ".mp3", ".oga", ".ogg", ".opus", ".wav", ".weba",
 })
 
-FFMPEG_TIMEOUT = 90
+#: A real recording converts in a few seconds; longer than this is not a recording.
+FFMPEG_TIMEOUT = 30
 
 #: Longer than this and the ops person is recording a meeting, not a reply.
 MAX_SECONDS = 300
+
+#: The most bytes of a recording that is taken at all, by any door. Five minutes of speech is a few megabytes in any
+#: format a browser records; one far bigger is not a recording, and it would be handed to ffmpeg to re-encode.
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+#: The most ffmpeg may write: five minutes at 32 kbit/s is about 1.2 MB.
+MAX_OUTPUT_BYTES = 4_000_000
 
 
 class AudioError(Exception):
@@ -84,7 +92,12 @@ def pretty_duration(seconds):
 # ---------------------------------------------------------------------------
 
 def to_opus(content):
-    """Re-encode any recording to mono Ogg/Opus — the WhatsApp voice format."""
+    """Re-encode a browser recording to mono Ogg/Opus — the WhatsApp voice format."""
+    if not looks_like_recording(content):
+        raise AudioError(
+            "الملف ده مش تسجيل صوت من المتصفح.",
+            "That is not a recording a browser made.",
+        )
     binary = ffmpeg_path()
     if not binary:
         raise AudioError(
@@ -106,16 +119,20 @@ def to_opus(content):
 
         result = subprocess.run(
             [
-                binary, "-hide_banner", "-loglevel", "error", "-y",
-                # What arrives is whatever the browser sent: a playlist or a concat file inside it could make
-                # ffmpeg fetch a URL. It is given the file it is told to read, and nothing else to open.
-                "-protocol_whitelist", "file,pipe",
+                binary, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                # What arrives is bytes a person chose: a playlist inside it could make ffmpeg fetch a URL. It may
+                # open the file it is told to read (a plain file: nothing else) and no network scheme at all.
+                "-protocol_whitelist", "file",
                 "-i", source,
-                "-vn", "-ac", "1", "-ar", "48000",
+                # Sound only, with no tags, subtitles or data tracks; and bounded in what it may write.
+                "-vn", "-sn", "-dn", "-map_metadata", "-1",
+                "-t", str(MAX_SECONDS + 10), "-fs", str(MAX_OUTPUT_BYTES),
+                "-threads", "1",
+                "-ac", "1", "-ar", "48000",
                 "-c:a", "libopus", "-b:a", "32k",
                 destination,
             ],
-            capture_output=True, timeout=FFMPEG_TIMEOUT,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=FFMPEG_TIMEOUT,
         )
         if result.returncode != 0:
             detail = (result.stderr or b"").decode("utf-8", errors="ignore")[:300]
@@ -148,8 +165,25 @@ def to_opus(content):
     return converted
 
 
+def looks_like_recording(content):
+    """Does this start like what a browser records: WebM/Matroska, Ogg, or MP4?
+
+    ffmpeg chooses how to read a file by what is in it, not by its name, and it can read hundreds of formats,
+    among them playlists and lists of files that name other files. A recording is one of three, and each starts
+    with something that says so: ``1A 45 DF A3`` (EBML), ``OggS``, or ``ftyp`` four bytes in. Anything else is
+    refused before ffmpeg sees it.
+    """
+    head = bytes(content[:12])
+    return head.startswith(b"\x1a\x45\xdf\xa3") or head.startswith(b"OggS") or head[4:8] == b"ftyp"
+
+
 def prepare(content, filename="", mime=""):
     """Return ``(content, filename, mime)`` ready to hand to WhatsApp."""
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise AudioError(
+            "التسجيل كبير قوي. سجّل رسالة أقصر.",
+            f"The recording is bigger than {MAX_UPLOAD_BYTES} bytes.",
+        )
     mime = base_mime(mime)
     if is_whatsapp_ready(mime):
         return content, filename or "voice", mime

@@ -86,7 +86,7 @@ async function recordTake(recording = take()) {
 
 describe("recording", () => {
   it("shows the red dot and the clock while it records, and the microphone button is off meanwhile", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     await open();
     starting.mockResolvedValueOnce(take());
     await userEvent.click(mic());
@@ -99,7 +99,7 @@ describe("recording", () => {
   });
 
   it("stops by itself when the longest a recording may run, as the server says, is up", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const limits = { ...me().limits, voice: { seconds: 2, bytes: 15 * 1024 * 1024 } };
     await open({ "/api/v1/me/": () => jsonResponse({ ...me({ role: "operation" }), limits }) });
     const recording = take();
@@ -238,6 +238,16 @@ describe("sending the note", () => {
     await screen.findByText("بيتبعت...");
     await recordTake();
     expect(within(bar()).getByRole("button", { name: "ابعت" })).toBeDisabled();
+  });
+
+  it("will not send while the words beside the note are too long for the box to send", async () => {
+    await open();
+    await recordTake();
+    await userEvent.click(box());
+    await userEvent.paste("x".repeat(4001));
+    expect(within(bar()).getByRole("button", { name: "ابعت" })).toBeDisabled();
+    await userEvent.clear(box());
+    expect(within(bar()).getByRole("button", { name: "ابعت" })).toBeEnabled();
   });
 
   it("will not send a take bigger than the server takes, and says so", async () => {

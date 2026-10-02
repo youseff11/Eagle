@@ -1235,20 +1235,154 @@ class VoiceTests(_Send):
         self.assertEqual(voice, {"seconds": audio.MAX_SECONDS, "bytes": api_v1.MAX_VOICE_BYTES})
 
 
+# What a browser records begins with something that says so: EBML (WebM), "OggS", or "ftyp" four bytes in.
+EBML = b"\x1a\x45\xdf\xa3" + b"\x9f\x42\x86\x81\x01"
+OGG = b"OggS" + b"\x00\x02" + b"\x00" * 8
+MP4 = b"\x00\x00\x00\x20" + b"ftypisom" + b"\x00" * 8
+
+
 class ConversionIsConfinedTests(TestCase):
-    def test_ffmpeg_may_open_files_and_pipes_and_nothing_else(self):
-        argv = []
+    """What ffmpeg is given, and what it may do with it."""
+
+    def argv_of(self, content=EBML):
+        seen = {}
 
         def fake(command, **kwargs):
-            argv.extend(command)
+            seen["argv"], seen["kwargs"] = list(command), kwargs
             return mock.Mock(returncode=1, stderr=b"")
 
         with mock.patch("dashboard.audio.ffmpeg_path", return_value="/usr/bin/ffmpeg"), \
                 mock.patch("dashboard.audio.subprocess.run", side_effect=fake):
             with self.assertRaises(audio.AudioError):
-                audio.to_opus(b"whatever the browser sent")
-        self.assertIn("-protocol_whitelist", argv)
+                audio.to_opus(content)
+        return seen["argv"], seen["kwargs"]
+
+    def test_ffmpeg_may_open_a_plain_file_and_no_network_scheme_and_not_even_a_pipe(self):
+        argv, _ = self.argv_of()
         position = argv.index("-protocol_whitelist")
-        self.assertEqual(argv[position + 1], "file,pipe")
+        self.assertEqual(argv[position + 1], "file")
         # It applies to the input that follows it.
         self.assertLess(position, argv.index("-i"))
+
+    def test_ffmpeg_reads_no_keyboard_and_keeps_no_tags_subtitles_or_data(self):
+        argv, kwargs = self.argv_of()
+        self.assertIn("-nostdin", argv)
+        self.assertIs(kwargs["stdin"], subprocess_devnull())
+        for flag in ("-vn", "-sn", "-dn"):
+            self.assertLess(argv.index("-i"), argv.index(flag), flag)
+        self.assertEqual(argv[argv.index("-map_metadata") + 1], "-1")
+
+    def test_ffmpeg_is_bounded_in_what_it_runs_for_and_what_it_writes(self):
+        argv, kwargs = self.argv_of()
+        self.assertEqual(int(argv[argv.index("-t") + 1]), audio.MAX_SECONDS + 10)
+        self.assertEqual(int(argv[argv.index("-fs") + 1]), audio.MAX_OUTPUT_BYTES)
+        self.assertEqual(argv[argv.index("-threads") + 1], "1")
+        self.assertLessEqual(kwargs["timeout"], 30)
+        # The bound on the output is on the output: after the input it applies to.
+        self.assertLess(argv.index("-i"), argv.index("-t"))
+        self.assertLess(argv.index("-i"), argv.index("-fs"))
+
+    def test_only_what_looks_like_a_recording_is_handed_to_ffmpeg(self):
+        for content in (EBML, OGG, MP4):
+            self.assertTrue(audio.looks_like_recording(content), content[:6])
+        for content in (
+            b"#EXTM3U\n#EXT-X-VERSION:3\nhttp://example.test/a.ts\n",
+            b"ffconcat version 1.0\nfile '/etc/passwd'\n",
+            b"v=0\r\nm=audio 5004 RTP/AVP 0\r\n",
+            b"RIFF....WAVEfmt ", b"ID3\x03\x00", b"", b"x" * 3, b"<html></html>", b"\x00" * 12,
+        ):
+            self.assertFalse(audio.looks_like_recording(content), content[:12])
+
+    def test_something_that_does_not_look_like_a_recording_is_refused_before_ffmpeg_is_asked_for(self):
+        with mock.patch("dashboard.audio.ffmpeg_path") as where, mock.patch("dashboard.audio.subprocess.run") as run:
+            with self.assertRaises(audio.AudioError) as refused:
+                audio.to_opus(b"#EXTM3U\nhttp://example.test/x.ts\n")
+        where.assert_not_called()
+        run.assert_not_called()
+        self.assertIn("مش تسجيل", refused.exception.message_ar)
+
+    def test_a_recording_over_the_ceiling_is_refused_whatever_its_format(self):
+        too_big = EBML + b"\x00" * audio.MAX_UPLOAD_BYTES
+        for mime in ("audio/webm", "audio/ogg", "audio/mp4", ""):
+            with self.assertRaises(audio.AudioError, msg=mime):
+                audio.prepare(too_big, "voice", mime)
+        at_the_limit = OGG + b"\x00" * (audio.MAX_UPLOAD_BYTES - len(OGG))
+        self.assertEqual(len(audio.prepare(at_the_limit, "voice.ogg", "audio/ogg")[0]), audio.MAX_UPLOAD_BYTES)
+
+    def test_the_ceiling_is_the_one_the_doors_use(self):
+        self.assertEqual(api_v1.MAX_VOICE_BYTES, audio.MAX_UPLOAD_BYTES)
+
+
+def subprocess_devnull():
+    import subprocess
+
+    return subprocess.DEVNULL
+
+
+class VoiceEdgesTests(_Send):
+    """A recording that cannot be one, and the names that did not fit."""
+
+    def test_an_empty_recording_is_refused_and_writes_nothing_and_opens_no_room(self):
+        rooms = ChatRoom.objects.count()
+        answers = [
+            self.to_client(self.ops, voice=_voice(content=b"")),
+            self.to_group(self.lead, self.team, voice=_voice(content=b"")),
+            self.to_staff(self.hr, self.sales, voice=_voice(content=b"")),
+        ]
+        self.assertEqual([(a.status_code, _json(a)["error"]) for a in answers], [(400, "empty_file")] * 3)
+        self.assertEqual(OutboundMessage.objects.count(), 0)
+        self.assertFalse(ChatMessage.objects.filter(attachments__isnull=False).exists())
+        self.assertEqual(ChatRoom.objects.count(), rooms)
+
+    def test_a_long_name_and_type_for_a_recording_are_cut_to_fit(self):
+        name = "n" * 255
+        self.assertEqual(self.to_group(self.lead, self.team, voice=_voice(name=name + ".ogg")).status_code, 200)
+        self.assertLessEqual(len(ChatMessage.objects.get(room=self.team).attachments.get().original_name), 250)
+        long_type = "audio/ogg; " + "x" * 300
+        answer = self.to_client(self.ops, voice=_voice(name=name + ".ogg", kind=long_type), seconds="2")
+        self.assertEqual(answer.status_code, 200)
+        stored = OutboundMessage.objects.get().uploads.get()
+        self.assertLessEqual(len(stored.original_name), 250)
+        self.assertLessEqual(len(stored.mime), 120)
+
+    def test_a_type_too_long_for_its_column_is_cut_even_when_the_recording_is_refused(self):
+        # A type whose name (before any parameter) is long, on bytes that are no recording: refused, and the row it
+        # leaves holds a type that fits.
+        answer = self.to_client(self.ops, voice=_voice(content=b"not a recording at all", kind="audio/" + "x" * 300), seconds="2")
+        self.assertFalse(_json(answer)["delivered"])
+        stored = OutboundMessage.objects.get().uploads.get()
+        self.assertLessEqual(len(stored.mime), 120)
+        self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
+
+    def test_a_recording_over_the_ceiling_is_refused_by_the_function_too_whichever_door_it_came_by(self):
+        # The classic door has no check of its own: the function behind it says no.
+        big = _voice(content=OGG + b"\x00" * audio.MAX_UPLOAD_BYTES)
+        answer = self.browser(self.ops).post(
+            reverse("dashboard:api_client_chat_send", args=[self.client_obj.code]), {"voice": big, "seconds": "3"},
+        )
+        body = _json(answer)
+        self.assertFalse(body["ok"])
+        self.assertIn("كبير", body["error"])
+        self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
+        self.nothing_left_the_building()
+
+
+class VoiceNotesAreNotDeliverablesTests(_Send):
+    """The task page offers the operation the files of the task's chat to forward to the client: not the talk."""
+
+    def test_a_voice_note_on_a_task_is_not_offered_and_a_document_is(self):
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, Task, TaskStatus
+
+        task = FilesTests.make_task(self, "A job")
+        Task.objects.filter(pk=task.pk).update(translator=self.tr, status=TaskStatus.IN_PROGRESS)
+        message = ChatMessage.objects.create(room=self.team, sender=self.tr, body="", task=task)
+        for name in ("translation.docx", "private-word-to-the-leader.ogg", "note.m4a"):
+            ChatAttachment.objects.create(
+                message=message, file=ContentFile(b"x", name=name), original_name=name, size=1,
+            )
+        page = self.browser(self.ops).get(reverse("dashboard:task_detail", args=[task.code]))
+        self.assertEqual(page.status_code, 200)
+        offered = [(f["name"], f["final"]) for f in page.context["deliverables"]]
+        self.assertEqual(offered, [("translation.docx", True)])

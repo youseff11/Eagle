@@ -301,7 +301,7 @@ export function Composer({
           <span>{t("إرسال", "Send")}</span>
         </button>
       </form>
-      <VoiceBar voice={voice} busy={busy} maxBytes={voiceLimits.bytes} onSend={sendVoice} />
+      <VoiceBar voice={voice} busy={busy || closed || over} maxBytes={voiceLimits.bytes} onSend={sendVoice} />
       {files.length > 0 && (
         <div className="cchat__files">
           {files.map((file, index) => (

@@ -138,6 +138,7 @@ function refusal(code: string, t: (ar: string, en: string) => string): string {
     return t("مش مسموحلك ترد في المحادثة دي.", "You cannot write in this conversation.");
   }
   if (code === "too_many_files") return t("عدد الملفات أكتر من المسموح.", "There are more files than allowed.");
+  if (code === "empty_file") return t("التسجيل فاضي.", "The recording is empty.");
   if (code === "file_too_big") return t("فيه ملف أكبر من المسموح.", "A file is bigger than allowed.");
   if (code === "files_too_big") return t("الملفات مع بعض أكبر من المسموح.", "The files together are bigger than allowed.");
   if (code === "pick_task" || code === "bad_task") {

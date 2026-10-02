@@ -921,7 +921,7 @@ def _store_voice(message, upload):
     ChatAttachment.objects.create(
         message=message,
         file=ContentFile(content, name=name),
-        original_name=name,
+        original_name=services.short_name(name),
         size=len(content),
     )
     return error

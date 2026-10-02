@@ -1,12 +1,12 @@
 /**
  * The browser's microphone, as little of it as the chat needs (chat slice 3c-2: voice notes).
  *
- * Browsers do not agree on what they can record. Firefox gives Ogg/Opus and Safari MP4/AAC, which WhatsApp takes
- * as they are; Chrome gives WebM, which the server converts before it goes out. The first format the browser says
- * it can record is used, in that order.
+ * Browsers do not agree on what they can record. Firefox gives Ogg/Opus and Safari (and a recent Chrome) MP4/AAC,
+ * which WhatsApp takes as they are; an older Chrome gives WebM, which the server converts before it goes out. The
+ * first format the browser says it can record is used, in that order.
  *
- * Nothing here keeps the microphone: it is let go the moment a recording is stopped or dropped, so the browser's
- * "recording" mark goes out with the red dot.
+ * Nothing here keeps the microphone: it is let go the moment a recording is stopped, dropped, or ends by itself
+ * (the device is unplugged, the permission is taken back), so the browser's "recording" mark goes out with the red dot.
  */
 
 /** The longest recording, in seconds, until the server says (`me.limits.voice`). */
@@ -38,10 +38,16 @@ export class RecorderError extends Error {
   }
 }
 
+/** What a finished recording is: the sound and the extension its format is named by. */
+export interface Taken {
+  blob: Blob;
+  extension: string;
+}
+
 /** A recording that is running. */
 export interface Recording {
-  /** Stop, let the microphone go, and hand back what was heard. */
-  stop(): Promise<{ blob: Blob; extension: string }>;
+  /** Stop, let the microphone go, and hand back what was heard (also what was heard before it ended by itself). */
+  stop(): Promise<Taken>;
   /** Drop it: the microphone is let go and nothing is kept. */
   cancel(): void;
 }
@@ -79,8 +85,14 @@ export function recordingSupported(): boolean {
   return pickType() !== null && typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 }
 
-/** Ask for the microphone and start recording. Rejects with a `RecorderError` saying why not. */
-export async function startRecording(): Promise<Recording> {
+/**
+ * Ask for the microphone and start recording. Rejects with a `RecorderError` saying why not.
+ *
+ * `onEnd` is called if the recording stops by itself - the microphone is unplugged, the permission is taken back,
+ * the recorder fails - and not when `stop` or `cancel` was asked for. What was heard until then is still there to
+ * be had with `stop()`.
+ */
+export async function startRecording(onEnd?: () => void): Promise<Recording> {
   const type = pickType();
   if (!type || !navigator.mediaDevices?.getUserMedia) throw new RecorderError("unsupported");
 
@@ -93,41 +105,75 @@ export async function startRecording(): Promise<Recording> {
   }
 
   const release = () => stream.getTracks().forEach((track) => track.stop());
+  const chunks: Blob[] = [];
+  let asked = false;
+  let settle: { resolve: (taken: Taken) => void; reject: (error: RecorderError) => void } = {
+    resolve: () => undefined,
+    reject: () => undefined,
+  };
+  const result = new Promise<Taken>((resolve, reject) => {
+    settle = { resolve, reject };
+  });
+  // Nobody may be waiting for it (a recording that is dropped): that is not an unhandled failure.
+  result.catch(() => undefined);
+
   let recorder: MediaRecorder;
   try {
     recorder = type.mime ? new MediaRecorder(stream, { mimeType: type.mime }) : new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onstop = () => {
+      release();
+      const mime = recorder.mimeType || type.mime || "audio/webm";
+      const blob = new Blob(chunks, { type: mime });
+      if (blob.size === 0) settle.reject(new RecorderError("failed"));
+      else settle.resolve({ blob, extension: extensionOf(mime, type.extension) });
+      if (!asked) onEnd?.();
+    };
+    // The recorder says so when it fails; it stops, and `onstop` follows. A device that goes away does it too.
+    recorder.onerror = () => {
+      if (recorder.state !== "inactive") {
+        try {
+          recorder.stop();
+        } catch {
+          release();
+          settle.reject(new RecorderError("failed"));
+          if (!asked) onEnd?.();
+        }
+      }
+    };
+    stream.getTracks().forEach((track) => {
+      track.onended = () => {
+        if (recorder.state === "recording") recorder.stop();
+      };
+    });
+    recorder.start();
   } catch {
+    // The microphone was granted: it is let go whatever came after, or the browser's mark stays on.
     release();
     throw new RecorderError("failed");
   }
 
-  const chunks: Blob[] = [];
-  recorder.ondataavailable = (event) => {
-    if (event.data && event.data.size > 0) chunks.push(event.data);
-  };
-  recorder.start();
-
   return {
-    stop: () =>
-      new Promise((resolve, reject) => {
-        recorder.onstop = () => {
+    stop: () => {
+      asked = true;
+      if (recorder.state !== "inactive") {
+        try {
+          recorder.stop();
+        } catch {
           release();
-          const mime = recorder.mimeType || type.mime || "audio/webm";
-          const blob = new Blob(chunks, { type: mime });
-          if (blob.size === 0) reject(new RecorderError("failed"));
-          else resolve({ blob, extension: extensionOf(mime, type.extension) });
-        };
-        if (recorder.state === "inactive") {
-          release();
-          reject(new RecorderError("failed"));
-          return;
+          settle.reject(new RecorderError("failed"));
         }
-        recorder.stop();
-      }),
+      }
+      return result;
+    },
     cancel: () => {
+      asked = true;
       // What the recorder was going to say about being stopped is not wanted.
       recorder.ondataavailable = null;
       recorder.onstop = null;
+      recorder.onerror = null;
       if (recorder.state !== "inactive") {
         try {
           recorder.stop();

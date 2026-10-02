@@ -24,7 +24,7 @@ const created = vi.fn();
 const revoked = vi.fn();
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
   addresses = 0;
   created.mockImplementation(() => `blob:take-${++addresses}`);
   vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked }));
@@ -110,6 +110,40 @@ describe("recording", () => {
   });
 });
 
+describe("the clock", () => {
+  it("is the clock on the wall: a tab whose timers are slowed still ends the recording at its limit", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    const take = await begin(result);
+    // The browser throttles a background tab: one tick comes, and by then the wall clock is far on.
+    vi.setSystemTime(Date.now() + 400_000);
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(take.stop).toHaveBeenCalledTimes(1);
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.recorded?.seconds).toBeGreaterThanOrEqual(400);
+  });
+
+  it("reports the length that was recorded, not the number of ticks that were counted", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    await begin(result);
+    vi.setSystemTime(Date.now() + 42_000);
+    await act(async () => result.current.stop());
+    expect(result.current.recorded?.seconds).toBe(42);
+  });
+});
+
+describe("a recording that ends by itself", () => {
+  it("is stopped at once, and what was heard is a take to listen to", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    const take = await begin(result);
+    const end = starting.mock.calls[0]![0] as () => void;
+    await act(async () => vi.advanceTimersByTime(3000));
+    await act(async () => end());
+    expect(take.stop).toHaveBeenCalledTimes(1);
+    expect(result.current.phase).toBe("ready");
+    expect(result.current.recorded?.seconds).toBe(3);
+  });
+});
+
 describe("what goes wrong", () => {
   it("says why when the microphone was refused, and is ready to be asked again", async () => {
     const { result } = renderHook(() => useVoiceRecorder(300));
@@ -162,6 +196,45 @@ describe("throwing it away", () => {
     expect(result.current).toMatchObject({ phase: "idle", recorded: null, url: "" });
     await begin(result);
     expect(result.current.phase).toBe("recording");
+  });
+});
+
+describe("a take that is thrown away while it is being stopped", () => {
+  it("does not come back as a take to send", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    const take = await begin(result);
+    let heard: (value: { blob: Blob; extension: string }) => void = () => undefined;
+    take.stop.mockReturnValueOnce(new Promise((resolve) => (heard = resolve)));
+    act(() => result.current.stop());
+    // The trash is tapped in the moment the recorder takes to say it has stopped.
+    act(() => result.current.discard());
+    await act(async () => heard({ blob: new Blob(["thrown away"]), extension: ".webm" }));
+    expect(result.current.phase).toBe("idle");
+    expect(result.current.recorded).toBeNull();
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it("does not make a failure of its own either when it could not be had", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    const take = await begin(result);
+    let refuse: (error: unknown) => void = () => undefined;
+    take.stop.mockReturnValueOnce(new Promise((_resolve, reject) => (refuse = reject)));
+    act(() => result.current.stop());
+    act(() => result.current.discard());
+    await act(async () => refuse(new RecorderError("failed")));
+    expect(result.current.failure).toBe("");
+  });
+
+  it("does not leave a recording that was asked for and then given up running", async () => {
+    const { result } = renderHook(() => useVoiceRecorder(300));
+    const take = recording();
+    let answer: (value: Recording) => void = () => undefined;
+    starting.mockReturnValueOnce(new Promise<Recording>((resolve) => (answer = resolve)));
+    act(() => result.current.start());
+    act(() => result.current.discard());
+    await act(async () => answer(take));
+    expect(take.cancel).toHaveBeenCalledTimes(1);
+    expect(result.current.phase).toBe("idle");
   });
 });
 

@@ -5,6 +5,7 @@ import { formatSeconds, RecorderError, recordingSupported, startRecording } from
 class FakeRecorder {
   static supported = new Set<string>();
   static failToCreate = false;
+  static failToStart = false;
   static created: FakeRecorder[] = [];
   static isTypeSupported(mime: string): boolean {
     if (mime === "audio/throws") throw new Error("old browser");
@@ -16,6 +17,7 @@ class FakeRecorder {
   chunks: Blob[] = [];
   ondataavailable: ((event: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
+  onerror: (() => void) | null = null;
   stopCalls = 0;
 
   constructor(
@@ -28,7 +30,14 @@ class FakeRecorder {
   }
 
   start() {
+    if (FakeRecorder.failToStart) throw new Error("InvalidStateError");
     this.state = "recording";
+  }
+
+  /** The recorder ends without being asked: the device went away. What was heard is delivered, then it stops. */
+  die() {
+    this.state = "inactive";
+    this.onstop?.();
   }
 
   /** What the browser says while it records. */
@@ -45,6 +54,7 @@ class FakeRecorder {
 
 class FakeTrack {
   stopped = false;
+  onended: (() => void) | null = null;
   stop() {
     this.stopped = true;
   }
@@ -76,6 +86,7 @@ function microphone(behaviour: "allow" | { name: string } = "allow") {
 beforeEach(() => {
   FakeRecorder.supported = new Set(["audio/webm"]);
   FakeRecorder.failToCreate = false;
+  FakeRecorder.failToStart = false;
   FakeRecorder.created = [];
   streams = [];
   vi.stubGlobal("MediaRecorder", FakeRecorder);
@@ -181,6 +192,15 @@ describe("starting", () => {
     await expect(startRecording()).rejects.toBeInstanceOf(RecorderError);
     expect(streams[0]!.tracks.every((track) => track.stopped)).toBe(true);
   });
+
+  it("lets the microphone go if the recorder is made and then will not start", async () => {
+    // Granted, built, and start() throws (the device went away between the two): the browser's mark must not stay on.
+    FakeRecorder.failToStart = true;
+    await expect(startRecording()).rejects.toMatchObject({ code: "failed" });
+    expect(streams[0]!.tracks.every((track) => track.stopped)).toBe(true);
+    await expect(startRecording()).rejects.toBeInstanceOf(RecorderError);
+    expect(streams[1]!.tracks.every((track) => track.stopped)).toBe(true);
+  });
 });
 
 describe("stopping and dropping", () => {
@@ -235,5 +255,66 @@ describe("stopping and dropping", () => {
     const recording = await startRecording();
     recording.cancel();
     expect(() => recording.cancel()).not.toThrow();
+  });
+});
+
+describe("a recording that ends by itself", () => {
+  it("says so, once, and keeps what was heard until then to be had", async () => {
+    const ended = vi.fn();
+    const recording = await startRecording(ended);
+    const recorder = FakeRecorder.created[0]!;
+    recorder.hear("before the cable came out");
+    recorder.die();
+    expect(ended).toHaveBeenCalledTimes(1);
+    expect(streams[0]!.tracks.every((track) => track.stopped)).toBe(true);
+    const taken = await recording.stop();
+    expect(taken.blob.size).toBe("before the cable came out".length);
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when the microphone is taken away from under it", async () => {
+    const ended = vi.fn();
+    await startRecording(ended);
+    const recorder = FakeRecorder.created[0]!;
+    recorder.hear("a few words");
+    streams[0]!.tracks[0]!.onended?.();
+    expect(recorder.stopCalls).toBe(1);
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the recorder when it reports an error", async () => {
+    const ended = vi.fn();
+    await startRecording(ended);
+    const recorder = FakeRecorder.created[0]!;
+    recorder.hear("a few words");
+    recorder.onerror?.();
+    expect(recorder.stopCalls).toBe(1);
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails when what was heard is nothing", async () => {
+    const recording = await startRecording(vi.fn());
+    FakeRecorder.created[0]!.die();
+    await expect(recording.stop()).rejects.toMatchObject({ code: "failed" });
+  });
+
+  it("does not say it ended when it was stopped or dropped on purpose", async () => {
+    const stopped = vi.fn();
+    const first = await startRecording(stopped);
+    FakeRecorder.created[0]!.hear("x");
+    await first.stop();
+    const dropped = vi.fn();
+    const second = await startRecording(dropped);
+    FakeRecorder.created[1]!.hear("x");
+    second.cancel();
+    expect(stopped).not.toHaveBeenCalled();
+    expect(dropped).not.toHaveBeenCalled();
+  });
+
+  it("hands back the same take however many times it is asked for", async () => {
+    const recording = await startRecording();
+    FakeRecorder.created[0]!.hear("sound");
+    const [one, two] = await Promise.all([recording.stop(), recording.stop()]);
+    expect(one).toBe(two);
   });
 });

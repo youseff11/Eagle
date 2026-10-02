@@ -32,6 +32,9 @@ function forget(url: string): void {
 /**
  * One recording at a time, with a clock: record, stop (or run out of time: `maxSeconds`), listen, then send or throw it
  * away. Leaving the page while it runs lets the microphone go.
+ *
+ * The clock is the clock on the wall, not a count of timer ticks: a tab in the background has its timers slowed,
+ * and a recording that is counted by them runs past its limit and is reported shorter than it was.
  */
 export function useVoiceRecorder(maxSeconds: number): Voice {
   const [phase, setPhase] = useState<VoicePhase>("idle");
@@ -41,11 +44,17 @@ export function useVoiceRecorder(maxSeconds: number): Voice {
   const [failure, setFailure] = useState<RecorderFailure | "">("");
 
   const active = useRef<Recording | null>(null);
-  const ticks = useRef(0);
+  const startedAt = useRef(0);
   const timer = useRef<number | null>(null);
   const address = useRef("");
   const starting = useRef(false);
   const alive = useRef(true);
+  // Moves each time a recording is thrown away: an answer that was on its way for the one before is not wanted.
+  const generation = useRef(0);
+  // The latest `stop`, for the recorder to call when it ends by itself.
+  const ending = useRef<() => void>(() => undefined);
+
+  const elapsed = useCallback(() => Math.floor((Date.now() - startedAt.current) / 1000), []);
 
   const stopClock = useCallback(() => {
     if (timer.current !== null) {
@@ -64,66 +73,73 @@ export function useVoiceRecorder(maxSeconds: number): Voice {
     if (!running) return;
     active.current = null;
     stopClock();
+    const length = Math.max(1, Math.round((Date.now() - startedAt.current) / 1000));
+    const mine = generation.current;
     running.stop().then(
       ({ blob, extension }) => {
-        if (!alive.current) return;
+        // Gone while it was being stopped, or thrown away in that moment: the take is not wanted.
+        if (!alive.current || mine !== generation.current) return;
         dropAddress();
         address.current = addressOf(blob);
-        setRecorded({ blob, extension, seconds: Math.max(1, ticks.current) });
+        setRecorded({ blob, extension, seconds: length });
         setUrl(address.current);
         setPhase("ready");
       },
       () => {
-        if (!alive.current) return;
+        if (!alive.current || mine !== generation.current) return;
         setFailure("failed");
         setSeconds(0);
         setPhase("idle");
       },
     );
   }, [dropAddress, stopClock]);
+  ending.current = stop;
 
   const start = useCallback(() => {
     if (starting.current || active.current || phase === "ready") return;
     starting.current = true;
     setFailure("");
     setPhase("starting");
-    startRecording().then(
+    const mine = generation.current;
+    startRecording(() => ending.current()).then(
       (recording) => {
         starting.current = false;
-        // Asked for, and the person went elsewhere while the browser was asking: the microphone is not wanted.
-        if (!alive.current) {
+        // Asked for, and the person went elsewhere (or gave it up) while the browser was asking: the microphone is
+        // not wanted.
+        if (!alive.current || mine !== generation.current) {
           recording.cancel();
           return;
         }
         active.current = recording;
-        ticks.current = 0;
+        startedAt.current = Date.now();
         setSeconds(0);
         setPhase("recording");
         timer.current = window.setInterval(() => {
-          ticks.current += 1;
-          setSeconds(ticks.current);
-          if (ticks.current >= maxSeconds) stop();
+          const now = elapsed();
+          setSeconds(now);
+          if (now >= maxSeconds) ending.current();
         }, 1000);
       },
       (error: unknown) => {
         starting.current = false;
-        if (!alive.current) return;
+        if (!alive.current || mine !== generation.current) return;
         setFailure(error instanceof RecorderError ? error.code : "failed");
         setPhase("idle");
       },
     );
-  }, [maxSeconds, phase, stop]);
+  }, [elapsed, maxSeconds, phase]);
 
   const discard = useCallback(() => {
+    generation.current += 1;
     stopClock();
     active.current?.cancel();
     active.current = null;
     dropAddress();
-    ticks.current = 0;
     setRecorded(null);
     setUrl("");
     setSeconds(0);
     setPhase("idle");
+    starting.current = false;
   }, [dropAddress, stopClock]);
 
   // Leaving the conversation lets the microphone go and drops what was heard.

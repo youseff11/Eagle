@@ -16,7 +16,7 @@ export function VoiceBar({
   onSend,
 }: {
   voice: Voice;
-  /** A message is on its way: the take waits for it, so the order of what was said is kept. */
+  /** Something stops a send now: a message is on its way (the take waits, so the order of what was said is kept), the window is closed, the words beside it are too long. */
   busy: boolean;
   /** The biggest take the server accepts (`me.limits.voice.bytes`). */
   maxBytes: number;

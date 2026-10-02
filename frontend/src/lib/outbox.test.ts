@@ -131,6 +131,13 @@ describe("what has already arrived, for a voice note", () => {
     expect(unmatched([item(1, "listen", { voice: recorded })], [ours(5, "listen", { files: [audioFile(true)] })], 7)).toEqual([]);
   });
 
+  it("is the note of the length that was recorded, where the thread says how long it is", () => {
+    // Recorded for 4 seconds: a client's thread says "0:04", and another audio message of ours is not this one.
+    expect(unmatched([queued()], [ours(5, "", { files: [{ ...audioFile(true), length: "0:04" }] })], 7)).toEqual([]);
+    expect(unmatched([queued()], [ours(5, "", { files: [{ ...audioFile(true), length: "0:09" }] })], 7)).toHaveLength(1);
+    expect(unmatched([queued()], [ours(5, "", { files: [{ ...audioFile(true), length: "" }] })], 7)).toEqual([]);
+  });
+
   it("is not a plain message of ours with an audio file attached, which is files and not a note", () => {
     const attached = item(1, "", { files: [new File(["x".repeat(999)], "song.mp3")] });
     expect(unmatched([attached], [ours(5, "", { files: [audioFile(false, "song.mp3")] })], 7)).toEqual([]);

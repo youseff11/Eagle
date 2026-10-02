@@ -1001,6 +1001,11 @@ def task_detail(request, code):
             .order_by("-id")[:40]
         )
         for attachment in rows:
+            # Voice notes are talk, not a translation: they are left out here as they are of ``translator_files``.
+            # Offered, and ticked as final when the translator sent it, a private word to the leader would be one
+            # click from the client's phone.
+            if attachment.is_audio:
+                continue
             sender = attachment.message.sender
             deliverables.append({
                 "id": attachment.id,

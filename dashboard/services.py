@@ -4634,7 +4634,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
             content, convert_error = raw, exc.message_ar
             log(user, "client.voice_failed", client.code, exc.message_en[:200])
         recording = {
-            "content": content, "name": name, "mime": mime,
+            "content": content, "name": short_name(name), "mime": mime[:120],
             "seconds": max(0, min(int(voice_seconds or 0), audio.MAX_SECONDS)),
         }
 

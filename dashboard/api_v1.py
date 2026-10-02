@@ -429,9 +429,9 @@ def _wrote_something(request):
 MAX_FILES = 10
 MAX_FILE_BYTES = 95 * 1024 * 1024
 MAX_FILES_TOTAL_BYTES = 95 * 1024 * 1024
-#: A recording is at most ``audio.MAX_SECONDS`` of speech, a few megabytes in any format a browser records. One
-#: far bigger is not a recording, and it would be handed to ffmpeg to re-encode.
-MAX_VOICE_BYTES = 15 * 1024 * 1024
+#: A recording is at most ``audio.MAX_SECONDS`` of speech. The ceiling is ``audio``'s own: it is checked there, for
+#: every door that takes a recording, and again here so that a too big one is refused before anything is written.
+MAX_VOICE_BYTES = audio.MAX_UPLOAD_BYTES
 
 
 def _files_problem(request):
@@ -440,6 +440,8 @@ def _files_problem(request):
     voice = request.FILES.get("voice")
     if len(files) > MAX_FILES:
         return "too_many_files"
+    if voice is not None and voice.size == 0:
+        return "empty_file"
     if voice is not None and voice.size > MAX_VOICE_BYTES:
         return "file_too_big"
     sizes = [item.size for item in files] + ([voice.size] if voice is not None else [])
