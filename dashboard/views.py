@@ -616,13 +616,7 @@ def ops_group_chat(request, room_id):
 
     client = room.relay_client
     members = list(room.members.all())
-    # Adding somebody to a client room hands them a live line to that client,
-    # so that stays behind the client-group setting. A work group reaches
-    # nobody outside, so whoever may open one may add to one.
-    may_add = (
-        user.can_create_team_group if room.is_team_group
-        else AppSettings.load().can_create_group(user)
-    )
+    may_add = services.may_add_members(user, room)
     context.update({
         "active": client,
         "active_group": room,

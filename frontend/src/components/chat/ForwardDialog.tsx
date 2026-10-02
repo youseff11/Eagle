@@ -40,6 +40,7 @@ export function ForwardDialog({
   source,
   count,
   uids,
+  files = [],
   kinds,
   onClose,
   onDone,
@@ -48,6 +49,8 @@ export function ForwardDialog({
   source: string;
   count: number;
   uids: string[];
+  /** Files of a client's messages, ticked in "select files": forwarded on their own, without the words. */
+  files?: number[];
   /** The lists this person may forward to. */
   kinds: ChatKind[];
   onClose: () => void;
@@ -93,7 +96,7 @@ export function ForwardDialog({
     if (!chosen || pending) return;
     setProblem("");
     forward.mutate(
-      { source, target: chosen, uids, note: note.trim() },
+      { source, target: chosen, uids, ...(files.length > 0 ? { files } : {}), note: note.trim() },
       {
         onSuccess: (answer) => {
           if (answer.delivered) onDone(answer.code);

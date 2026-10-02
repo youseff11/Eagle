@@ -31,7 +31,7 @@ import logging
 from functools import wraps
 
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, TooManyFilesSent
-from django.http import Http404, JsonResponse
+from django.http import Http404, JsonResponse, QueryDict
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
@@ -215,7 +215,8 @@ def me(request):
             "lang": user.ui_lang,
             "theme": user.ui_theme,
         },
-        "chats": {"types": types},
+        # ``can_create_group``: this person may open an internal work group (``User.can_create_team_group``).
+        "chats": {"types": types, "can_create_group": user.can_create_team_group},
         # The longest message this person may write, for what goes to one client, to a client group and inside.
         "limits": {
             "to_client": limit_for(user, "client"),
@@ -693,6 +694,179 @@ def chat_forward(request):
     if not written:
         return JsonResponse({"ok": False, "error": "refused", "message": words}, status=400)
     return JsonResponse({"ok": True, "delivered": done, "message": words, "code": target})
+
+
+# ---------------------------------------------------------------------------
+# Chats, step 3e (part 1): work groups - who is in one, opening one, adding to one
+#
+# The rules stay where the classic page keeps them: ``services.create_team_group`` (who may open a group, what it
+# is called, who is told) and ``api.group_add_members`` (a work group or a client room, a task's own people, no
+# translator in a room that reaches a client). These doors read a JSON body, put it where those functions look for
+# it (``request.POST``) and say what they answered the way the other doors do: 4xx is "nothing happened", with the
+# reason in ``message``.
+# ---------------------------------------------------------------------------
+
+#: The most people one request may name, and how many a list offers (the classic page's own limit).
+MAX_MEMBERS = 100
+PEOPLE_LISTED = 200
+
+
+def _person_json(person):
+    return {"id": person.pk, "name": person.short_name, "initials": person.initials, "role": person.role}
+
+
+def _as_form(request, **lists):
+    """Make ``request.POST`` what the classic function reads, from values this module has already checked."""
+    form = QueryDict(mutable=True)
+    for name, values in lists.items():
+        form.setlist(name, [str(value) for value in values] if isinstance(values, list) else [str(values)])
+    request.POST = form
+    return request
+
+
+def _member_ids(body):
+    """The ``members`` of a JSON body: a short list of distinct database ids."""
+    raw = body.get("members", [])
+    if not isinstance(raw, list) or len(raw) > MAX_MEMBERS:
+        raise BadBody
+    ids = []
+    for item in raw:
+        value = _clean_id(item)
+        if value not in ids:
+            ids.append(value)
+    return ids
+
+
+def _classic_answer(response, viewer, keep=()):
+    """What a classic JSON door said, as this layer says it.
+
+    ``ok`` with the reason it gives in ``message`` (a partial refusal), or a 4xx with the reason: 403 stays 403,
+    anything else is "refused". The words go through ``identity.for_viewer`` like every other text of ours that a
+    library may have quoted a client's address into. ``keep`` names fields of the classic answer to pass on.
+    """
+    try:
+        detail = json.loads(response.content)
+    except ValueError:
+        detail = {}
+    words = identity.for_viewer(str(detail.get("error") or ""), viewer)
+    if response.status_code == 200 and detail.get("ok"):
+        return JsonResponse({"ok": True, "message": words, **{name: detail[name] for name in keep if name in detail}})
+    forbidden = response.status_code == 403
+    return JsonResponse(
+        {"ok": False, "error": "forbidden" if forbidden else "refused", "message": words},
+        status=403 if forbidden else 400,
+    )
+
+
+@endpoint("GET")
+def people(request):
+    """The people a work group can be opened with. Only for those who may open one (as the classic page's list)."""
+    if not request.user.can_create_team_group:
+        raise PermissionDenied("people for a work group")
+    rows = User.objects.filter(is_active=True).exclude(pk=request.user.pk).order_by("role", "username")[:PEOPLE_LISTED]
+    return JsonResponse({"ok": True, "people": [_person_json(person) for person in rows]})
+
+
+@endpoint("POST")
+def group_create(request):
+    """Open an internal work group: ``{"title": "...", "members": [ids]}``. Nothing in it reaches a client."""
+    try:
+        body = _object(request)
+        title = _text(body, "title", 120)
+        members = _member_ids(body)
+    except (BadBody, BadIds):
+        return _error(400, "bad_request")
+    if not request.user.can_create_team_group:
+        raise PermissionDenied("create a work group")
+    answer = _classic_answer(api.team_group_create(_as_form(request, title=title, members=members)), request.user, keep=("room",))
+    if answer.status_code == 200:
+        room = json.loads(answer.content)["room"]
+        return JsonResponse({"ok": True, "room": room, "code": f"g{room}"})
+    return answer
+
+
+@endpoint("GET")
+def group_members(request, room_id):
+    """Who is in a group, whether this person may add to it, and who they could add.
+
+    Read through the same gate as the group's messages (``api._group_or_404``): a room this person may not open
+    is a 404. The list of people to add is only given to somebody who may add them.
+    """
+    room = api._group_or_404(request, room_id)
+    members = list(room.members.all())
+    may_add = services.may_add_members(request.user, room)
+    addable = []
+    if may_add:
+        rows = User.objects.filter(is_active=True).exclude(pk__in=[member.pk for member in members])
+        if room.kind == RoomKind.CLIENT:
+            # A translator is never seated in a room that reaches a client: not offered, so not refused.
+            rows = rows.exclude(role=Role.TRANSLATOR)
+        addable = [_person_json(person) for person in rows.order_by("role", "username")[:PEOPLE_LISTED]]
+    return JsonResponse({
+        "ok": True,
+        "members": [_person_json(person) for person in members],
+        "can_add": may_add,
+        "addable": addable,
+    })
+
+
+@endpoint("POST")
+def group_add(request, room_id):
+    """Add people to a group: ``{"members": [ids]}``. ``ok`` when somebody was added; ``message`` says who was not."""
+    try:
+        members = _member_ids(_object(request))
+    except (BadBody, BadIds):
+        return _error(400, "bad_request")
+    if not members:
+        return _error(400, "empty")
+    return _classic_answer(api.group_add_members(_as_form(request, members=members), room_id), request.user, keep=("added",))
+
+
+# ---------------------------------------------------------------------------
+# Chats, step 3e (part 2): the translator's "task done" from a work group
+#
+# ``services.handin_tasks_for`` says which of a translator's tasks they may hand files in to from this group;
+# ``services.hand_in_from_chat`` (through the classic door) checks every file again - theirs, in a work group the
+# task's leader is in, no voice note, none already on another task - tags the messages with the task and runs
+# "finished" as if pressed on the task page. These doors only carry the question and the answer.
+# ---------------------------------------------------------------------------
+
+@endpoint("GET")
+def group_handin_tasks(request, room_id):
+    """The tasks this person could hand files in to from this group; empty for anybody but a translator in a work group."""
+    room = api._group_or_404(request, room_id)
+    tasks = services.handin_tasks_for(request.user, room)
+    return JsonResponse({"ok": True, "tasks": [{"code": task.code, "title": task.title} for task in tasks]})
+
+
+@endpoint("POST")
+def task_hand_in(request, code):
+    """``{"files": [chat attachment ids]}``: these are the translation of ``code``, it is done and goes to review."""
+    try:
+        files = _list(_object(request), "files", _clean_id)
+    except (BadBody, BadIds):
+        return _error(400, "bad_request")
+    if not files:
+        return _error(400, "empty")
+    answer = _classic_answer(api.hand_in_from_chat(_as_form(request, files=files), code), request.user, keep=("url",))
+    if answer.status_code == 200:
+        return JsonResponse({"ok": True, "code": code})
+    return answer
+
+
+# ---------------------------------------------------------------------------
+# Chats, step 3e (part 3): "received" under a client's message
+#
+# The one thing under a client's message that sends something: «استلمت» tells the client their message arrived (on
+# the channel it came in on) and marks it claimed. ``api.confirm_message`` decides everything - the roles, that the
+# message is on this person's line and not hidden by the rate rule - and ``services.confirm_receipt`` does it; this
+# door carries the question. Turning a message into a task is not a door at all: it is a link to the task form.
+# ---------------------------------------------------------------------------
+
+@endpoint("POST")
+def message_confirm(request, message_id):
+    """Tell the client the message arrived. ``ok`` once the receipt is out and the message is claimed."""
+    return _classic_answer(api.confirm_message(request, message_id), request.user, keep=("claimed_by",))
 
 
 # ---------------------------------------------------------------------------

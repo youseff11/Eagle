@@ -1198,6 +1198,20 @@ def create_team_group(creator, title="", members=None):
     return room, ""
 
 
+def may_add_members(user, room):
+    """May ``user`` add people to ``room``?
+
+    Never to a private line between two people: a third would read everything the two already said. A work
+    group reaches nobody outside, so whoever may open one may add to one. Adding somebody to a client room hands
+    them a live line to that client, so that stays behind the client-group setting.
+    """
+    if room.kind == RoomKind.STAFF:
+        return False
+    if room.is_team_group:
+        return user.can_create_team_group
+    return AppSettings.load().can_create_group(user)
+
+
 def staff_pair_key(one, two):
     """The key that makes a pair of people a single conversation."""
     low, high = sorted((int(one), int(two)))

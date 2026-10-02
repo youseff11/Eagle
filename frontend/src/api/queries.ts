@@ -8,9 +8,14 @@ import type {
   ChatListResponse,
   FileTasksResponse,
   ForwardResponse,
+  GroupCreated,
+  HandedIn,
   MeResponse,
+  MembersAdded,
+  MembersResponse,
   MovedResponse,
   NotificationsResponse,
+  PeopleResponse,
   ReactResponse,
   ReadResponse,
   SendResponse,
@@ -190,6 +195,8 @@ export interface ForwardDraft {
   source: string;
   target: string;
   uids: string[];
+  /** Files of a client's messages (ticked in "select files"), by id: forwarded on their own, without the words. */
+  files?: number[];
   note: string;
 }
 
@@ -206,6 +213,93 @@ export function useForward() {
       void client.invalidateQueries({ queryKey: qk.chatLists });
       void client.invalidateQueries({ queryKey: qk.thread(draft.target) });
       void client.invalidateQueries({ queryKey: qk.thread(draft.source) });
+    },
+  });
+}
+
+/** The tasks this translator could hand files in to from this work group. Asked for only where it can mean something. */
+export function useHandInTasks(room: number | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.handinTasks(room ?? 0),
+    queryFn: () => api<FileTasksResponse>(`/api/v1/groups/${room}/handin-tasks/`),
+    enabled: enabled && room !== undefined && room > 0,
+  });
+}
+
+/**
+ * "Task done": these files are the translation of this task and it goes to review. Whatever the answer, what the
+ * screen shows is asked for again: a hand-in tags the messages with the task and moves the task, so the group's
+ * thread, the tasks on offer and the translator's own desk have all changed.
+ */
+export function useHandIn(room: number, code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ task, files }: { task: string; files: number[] }) =>
+      api<HandedIn>(`/api/v1/tasks/${encodeURIComponent(task)}/hand-in/`, { json: { files } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+      void client.invalidateQueries({ queryKey: qk.handinTasks(room) });
+      void client.invalidateQueries({ queryKey: qk.boards });
+    },
+  });
+}
+
+/** Everybody a work group could be opened with. Asked for when the dialog opens, and afresh each time. */
+export function usePeople(enabled: boolean) {
+  return useQuery({
+    queryKey: qk.people,
+    queryFn: () => api<PeopleResponse>("/api/v1/people/"),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** Who is in a group, and - if this person may add to it - who they could add. A room that does not exist yet has none. */
+export function useGroupMembers(room: number | undefined, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.members(room ?? 0),
+    queryFn: () => api<MembersResponse>(`/api/v1/groups/${room}/members/`),
+    enabled: enabled && room !== undefined && room > 0,
+    refetchInterval,
+  });
+}
+
+/** Open an internal work group. Nothing is sent to anyone outside by this. */
+export function useCreateGroup() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: { title: string; members: number[] }) => api<GroupCreated>("/api/v1/groups/", { json: draft }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+    },
+  });
+}
+
+/** Add people to a group. The room says so in its own thread ("added to the group"), so that is asked for again too. */
+export function useAddMembers(room: number, code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (members: number[]) => api<MembersAdded>(`/api/v1/groups/${room}/members/add/`, { json: { members } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.members(room) });
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+    },
+  });
+}
+
+/**
+ * «استلمت» under a client's message: the client is told their message arrived (on the channel it came in on) and it
+ * is marked claimed. The thread - which now has our receipt in it, and the name of whoever claimed - and the lists are
+ * asked for again whatever the answer: a refused one wrote nothing, but a dropped connection may have done either.
+ */
+export function useConfirmReceipt(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: number) => api<{ ok: true; message: string; claimed_by: string }>(`/api/v1/messages/${messageId}/confirm/`, { json: {} }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+      void client.invalidateQueries({ queryKey: qk.chatLists });
     },
   });
 }

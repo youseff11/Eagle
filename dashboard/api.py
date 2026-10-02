@@ -1436,6 +1436,11 @@ def group_add_members(request, room_id):
         people = list(User.objects.filter(pk__in=wanted, is_active=True))
         if not people:
             return JsonResponse({"ok": False, "error": "اختار حد الأول."}, status=400)
+        # Somebody already in is not added again: nothing to tell them, and no second "added" line in the room.
+        seated = set(room.members.filter(pk__in=[p.pk for p in people]).values_list("pk", flat=True))
+        people = [p for p in people if p.pk not in seated]
+        if not people:
+            return JsonResponse({"ok": False, "error": "دول في الجروب أصلاً."})
         room.members.add(*people)
         for person in people:
             services.system_message(

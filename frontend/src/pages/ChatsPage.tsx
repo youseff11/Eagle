@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useChatList, useMe } from "../api/queries";
 import type { ChatKind } from "../api/types";
 import { ChatList } from "../components/chat/ChatList";
 import { Conversation } from "../components/chat/Conversation";
+import { NewGroupDialog } from "../components/chat/NewGroupDialog";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
 import { kindOfCode } from "../lib/chatCode";
@@ -25,8 +26,11 @@ function useDebounced<T>(value: T, delay: number): T {
 function Lists({ allowed }: { allowed: ChatKind[] }) {
   const { t } = usePreferences();
   const { code } = useParams();
+  const navigate = useNavigate();
+  const account = useMe().data;
   const [params, setParams] = useSearchParams();
   const [text, setText] = useState("");
+  const [opening, setOpening] = useState(false);
   const query = useDebounced(text.trim(), 300);
 
   const wanted = params.get("type");
@@ -52,7 +56,18 @@ function Lists({ allowed }: { allowed: ChatKind[] }) {
         rows={list.data?.items}
         state={state}
         activeCode={code}
+        onNewGroup={account?.chats.can_create_group ? () => setOpening(true) : undefined}
       />
+      {opening && account && (
+        <NewGroupDialog
+          me={{ name: account.user.short_name, role: account.user.role }}
+          onClose={() => setOpening(false)}
+          onCreated={(created) => {
+            setOpening(false);
+            navigate(`/chats/${created}?type=groups`);
+          }}
+        />
+      )}
       {code ? (
         <Conversation key={code} code={code} kind={kind} allowed={allowed.includes(kindOfCode(code))} />
       ) : (

@@ -222,6 +222,13 @@ urlpatterns = [
     path("api/v1/clients/<str:client_code>/send/", api_v1.client_send, name="v1_client_send"),
     path("api/v1/chats/react/", api_v1.chat_react, name="v1_chat_react"),
     path("api/v1/chats/forward/", api_v1.chat_forward, name="v1_chat_forward"),
+    path("api/v1/people/", api_v1.people, name="v1_people"),
+    path("api/v1/groups/", api_v1.group_create, name="v1_group_create"),
+    path("api/v1/groups/<int:room_id>/members/", api_v1.group_members, name="v1_group_members"),
+    path("api/v1/groups/<int:room_id>/members/add/", api_v1.group_add, name="v1_group_add"),
+    path("api/v1/groups/<int:room_id>/handin-tasks/", api_v1.group_handin_tasks, name="v1_group_handin_tasks"),
+    path("api/v1/tasks/<str:code>/hand-in/", api_v1.task_hand_in, name="v1_task_hand_in"),
+    path("api/v1/messages/<int:message_id>/confirm/", api_v1.message_confirm, name="v1_message_confirm"),
     path("api/v1/translator/home/", api_v1.translator_home, name="v1_translator_home"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------

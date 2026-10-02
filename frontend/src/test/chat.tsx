@@ -53,6 +53,10 @@ export function entry(id: number, overrides: Partial<ThreadEntry> = {}): ThreadE
     seen_by: [],
     forwarded: false,
     reactions: [],
+    actions: false,
+    has_docs: false,
+    has_task: false,
+    claimed_by: "",
     ...overrides,
   };
 }
@@ -77,6 +81,8 @@ export interface Setup {
   thread?: { client: ChatRow; messages: ThreadEntry[] } | Response;
   types?: ChatKind[];
   role?: Parameters<typeof me>[0];
+  /** `me.chats.can_create_group`: this person may open an internal work group. */
+  canCreateGroup?: boolean;
 }
 
 export function renderChats(
@@ -88,7 +94,7 @@ export function renderChats(
   const types = setup.types ?? ["clients", "groups", "staff"];
   const base = me(setup.role ?? { role: "operation" });
   const defaults: FetchRoutes = {
-    "/api/v1/me/": () => jsonResponse({ ...base, chats: { types } }),
+    "/api/v1/me/": () => jsonResponse({ ...base, chats: { types, can_create_group: setup.canCreateGroup ?? false } }),
     "/api/v1/chats/": (url) => {
       const kind = (url.searchParams.get("type") ?? "clients") as ChatKind;
       return jsonResponse({ ok: true, items: setup.lists?.[kind] ?? [] });
@@ -97,8 +103,12 @@ export function renderChats(
       setup.thread instanceof Response
         ? setup.thread
         : jsonResponse(setup.thread ? { ok: true, ...setup.thread } : { ok: false, error: "not_found" }, setup.thread ? 200 : 404),
-    "/api/v1/groups/": () =>
-      setup.thread instanceof Response ? setup.thread : jsonResponse({ ok: true, ...(setup.thread ?? { client: row("g1"), messages: [] }) }),
+    "/api/v1/groups/": (url) => {
+      // What lives under a group besides its messages: nobody to list, nothing to hand in, unless a test says otherwise.
+      if (url.pathname.endsWith("/members/")) return jsonResponse({ ok: true, members: [], can_add: false, addable: [] });
+      if (url.pathname.endsWith("/handin-tasks/")) return jsonResponse({ ok: true, tasks: [] });
+      return setup.thread instanceof Response ? setup.thread : jsonResponse({ ok: true, ...(setup.thread ?? { client: row("g1"), messages: [] }) });
+    },
     "/api/v1/staff/": () =>
       setup.thread instanceof Response ? setup.thread : jsonResponse({ ok: true, ...(setup.thread ?? { client: row("u5"), messages: [] }) }),
   };

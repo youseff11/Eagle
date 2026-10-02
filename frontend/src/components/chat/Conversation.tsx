@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
-import { readPath, threadPath, useMarkChatRead, useMe, useReact, useThread } from "../../api/queries";
+import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useReact, useThread } from "../../api/queries";
 import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { useFilePick } from "../../hooks/useFilePick";
 import { kindOfCode } from "../../lib/chatCode";
 import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
-import { Bubble, OutgoingBubble } from "./Bubble";
+import { AddMembersDialog } from "./AddMembersDialog";
+import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
+import { ConvertDialog } from "./ConvertDialog";
 import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
 import { ForwardDialog } from "./ForwardDialog";
+import { HandInBar } from "./HandInBar";
+import { PickBar } from "./PickBar";
+import { ReceiptDialog } from "./ReceiptDialog";
 import { ReactionPicker } from "./ReactionPicker";
 
 function Header({ row, code }: { row: ChatRow; code: string }) {
@@ -100,6 +106,9 @@ interface BubbleActions {
   onReact?: (entry: ThreadEntry, trigger: HTMLElement) => void;
   onForward?: (entry: ThreadEntry) => void;
   onToggle?: (entry: ThreadEntry) => void;
+  /** Under a client's message with a document: «استلمت», and turning it into a task. */
+  onConfirm?: (entry: ThreadEntry) => void;
+  onConvert?: (entry: ThreadEntry) => void;
 }
 
 function Stream({
@@ -110,6 +119,7 @@ function Stream({
   actions,
   selecting,
   selected,
+  fileMark,
   onRetry,
   onDiscard,
 }: {
@@ -122,6 +132,8 @@ function Stream({
   /** Messages are being picked to be forwarded: a tap picks or drops one. */
   selecting: boolean;
   selected: string[];
+  /** A mode that ticks files is on, or could be started from a file. */
+  fileMark?: FileMark;
   onRetry: (key: number) => void;
   onDiscard: (key: number) => void;
 }) {
@@ -149,7 +161,7 @@ function Stream({
   let day = "";
   return (
     <div
-      className={`cchat__stream${selecting ? " is-selecting" : ""}`}
+      className={`cchat__stream${selecting ? " is-selecting" : ""}${fileMark?.active ? (fileMark.mode === "hand" ? " is-handing" : " is-picking") : ""}`}
       ref={element}
       onScroll={(event) => {
         const node = event.currentTarget;
@@ -174,8 +186,11 @@ function Stream({
               onReact={actions.onReact}
               onForward={actions.onForward}
               onToggle={actions.onToggle}
+              onConfirm={actions.onConfirm}
+              onConvert={actions.onConvert}
               selecting={selecting}
               selected={selected.includes(entry.uid)}
+              fileMark={fileMark}
             />
           </div>
         );
@@ -225,8 +240,10 @@ export function replyTargetOf(entry: ThreadEntry, t: (ar: string, en: string) =>
  * through the same rule.
  *
  * Words, replies, files and voice can be written here, a message can be reacted to, and several can be picked and
- * forwarded to another conversation (step 3d). Turning a message into a task and the work groups come in the
- * next step, and until then the way to the classic page stays on screen.
+ * forwarded to another conversation (step 3d). Step 3e adds the work groups (who is in one, opening one, adding to
+ * one), the translator's «خلصت التاسك», and - for the operation and the admin - «استلمت», turning a message (or
+ * files picked across messages) into a task, which leads to the classic task form. Calls and the AI's suggestions
+ * for a team leader are not here yet, and the way to the classic page stays on screen for them.
  */
 export function Conversation({ code, kind, allowed }: { code: string; kind: ChatKind; allowed: boolean }) {
   const { t } = usePreferences();
@@ -320,6 +337,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   const startSelecting = (entry?: ThreadEntry) => {
     setPicker(null);
     setNotice("");
+    stopHanding();
+    pick.stop();
     setSelecting(true);
     setSelected(entry ? [entry.uid] : []);
   };
@@ -349,9 +368,68 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     if (target) navigate(`/chats/${target}?type=${kindOfCode(target)}`);
   };
 
+  // Who is in a group, and adding to it. A private line is two people and has no row of them.
+  const isGroup = /^g\d+$/.test(code);
+  const members = useGroupMembers(row?.room, isGroup && known);
+  const [adding, setAdding] = useState(false);
+
+  // «خلصت التاسك»: a translator hands in their own files from a work group, and the task goes to review.
+  const handTasks = useHandInTasks(row?.room, isGroup && known && row?.team === true && account?.user.role === "translator");
+  const tasksToHand = handTasks.data?.tasks ?? [];
+  const [handing, setHanding] = useState(false);
+  const [handed, setHanded] = useState<number[]>([]);
+  const [done, setDone] = useState("");
+  const startHanding = (first?: number) => {
+    setPicker(null);
+    setNotice("");
+    setDone("");
+    stopSelecting();
+    pick.stop();
+    setHanding(true);
+    setHanded(first ? [first] : []);
+  };
+  const stopHanding = useCallback(() => {
+    setHanding(false);
+    setHanded([]);
+  }, []);
+  // A file that has gone from the thread is not handed in.
+  const mineHere = messages.flatMap((entry) => (entry.mine ? entry.files.map((one) => one.id) : [])).join(",");
+  useEffect(() => {
+    const here = new Set(mineHere.split(",").map(Number));
+    setHanded((now) => (now.every((id) => here.has(id)) ? now : now.filter((id) => here.has(id))));
+  }, [mineHere]);
+  const handMark: FileMark | undefined =
+    tasksToHand.length > 0
+      ? {
+          mode: "hand",
+          active: handing,
+          show: (entry, one) => entry.mine && one.id > 0 && !one.audio,
+          ticked: (one) => handed.includes(one.id),
+          toggle: (_entry, one) => setHanded((now) => (now.includes(one.id) ? now.filter((id) => id !== one.id) : [...now, one.id])),
+          start: { label: t("خلصت التاسك", "Task done"), run: (_entry, one) => startHanding(one.id) },
+        }
+      : undefined;
+
+  // A client's files: «استلمت» and turning a message into a task (the operation and the admin), and "select files" -
+  // files ticked across messages become one task or are forwarded.
+  const clientThread = kindOfCode(code) === "clients";
+  const pick = useFilePick(messages);
+  const [converting, setConverting] = useState<ThreadEntry | null>(null);
+  const [receipting, setReceipting] = useState<ThreadEntry | null>(null);
+  const [forwardingFiles, setForwardingFiles] = useState(false);
+  const mayPick = clientThread && mayAnswerClients && pick.available;
+  const startPicking = () => {
+    setPicker(null);
+    setNotice("");
+    stopSelecting();
+    stopHanding();
+    pick.start();
+  };
+
   const actions: BubbleActions = {
     onReply: (entry) => setReplyTo(replyTargetOf(entry, t)),
     ...(mayMark ? { onReact: openPicker, onForward: startSelecting, onToggle: toggle } : {}),
+    ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: setConverting } : {}),
   };
 
   const classicUrl = row ? safeInternalPath(row.url) : "";
@@ -365,6 +443,44 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
         </Link>
         {row && <Header row={row} code={code} />}
         <div className="grow" />
+        {members.data?.can_add && row && (
+          <button type="button" className="btn btn--ghost" id="addMemberBtn" onClick={() => setAdding(true)}>
+            <Icon name="user-check" size="sm" />
+            <span>{t("ضيف عضو", "Add member")}</span>
+          </button>
+        )}
+        {thread.data && clientThread && account?.chats.types.includes("clients") && (
+          <a className="btn btn--ghost cchat__profile" href={`/clients/${encodeURIComponent(code)}/`}>
+            <Icon name="user" size="sm" />
+            <span>{t("ملف العميل", "Client profile")}</span>
+          </a>
+        )}
+        {thread.data && mayPick && (
+          <button
+            type="button"
+            className={`btn btn--ghost${pick.picking ? " is-on" : ""}`}
+            id="pickToggle"
+            aria-pressed={pick.picking}
+            title={t("حدد ملفات من كذا رسالة وحوّلها لتاسك واحدة", "Tick files across several messages and turn them into one task")}
+            onClick={() => (pick.picking ? pick.stop() : startPicking())}
+          >
+            <Icon name="list-checks" size="sm" />
+            <span>{t("تحديد ملفات", "Select files")}</span>
+          </button>
+        )}
+        {thread.data && tasksToHand.length > 0 && (
+          <button
+            type="button"
+            className="btn btn--primary"
+            id="handinToggle"
+            aria-pressed={handing}
+            title={t("حدد ملفات الترجمة وخلّص التاسك", "Pick the translated files and finish the task")}
+            onClick={() => (handing ? stopHanding() : startHanding())}
+          >
+            <Icon name="check-circle" size="sm" />
+            <span>{t("خلصت التاسك", "Task done")}</span>
+          </button>
+        )}
         {thread.data && mayMark && messages.length > 0 && (
           <button
             type="button"
@@ -396,11 +512,32 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
       )}
       {thread.data && row && (
         <>
+          {members.data && members.data.members.length > 0 && (
+            <div className="cchat__members">
+              <Icon name="users" size="sm" />
+              {members.data.members.map((person) => (
+                <span className="chip chip--sm" key={person.id}>
+                  {person.name}
+                </span>
+              ))}
+            </div>
+          )}
           <Notes row={row} />
           {notice && (
             <div className="note note--warn cchat__window" role="alert">
               <Icon name="alert" />
               <div>{notice}</div>
+            </div>
+          )}
+          {done && (
+            <div className="note cchat__window" role="status">
+              <Icon name="check-circle" />
+              <div>
+                {t(`تمام: ${done} راحت للمراجعة.`, `Done: ${done} went to review.`)}{" "}
+                {safeInternalPath(`/tasks/${encodeURIComponent(done)}/`) && (
+                  <a href={safeInternalPath(`/tasks/${encodeURIComponent(done)}/`)!}>{t("افتح التاسك", "Open the task")}</a>
+                )}
+              </div>
             </div>
           )}
           <Stream
@@ -411,6 +548,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             actions={actions}
             selecting={selecting}
             selected={selected}
+            fileMark={selecting ? undefined : (pick.mark ?? handMark)}
             onRetry={outbox.retry}
             onDiscard={outbox.discard}
           />
@@ -429,6 +567,31 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
                 <span>{t("تحويل", "Forward")}</span>
               </button>
             </div>
+          ) : pick.picking ? (
+            <PickBar
+              count={pick.ids.length}
+              days={pick.days}
+              day={pick.day}
+              allIn={pick.allIn}
+              messages={pick.messageIds}
+              files={pick.ids}
+              onDay={pick.chooseDay}
+              onAll={pick.toggleAll}
+              onCancel={pick.stop}
+              onForward={() => setForwardingFiles(true)}
+            />
+          ) : handing && row?.room !== undefined ? (
+            <HandInBar
+              room={row.room}
+              code={code}
+              tasks={tasksToHand}
+              files={handed}
+              onCancel={stopHanding}
+              onDone={(task) => {
+                stopHanding();
+                setDone(task);
+              }}
+            />
           ) : (
             <Composer
               code={code}
@@ -452,6 +615,36 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               onClose={closePicker}
             />
           )}
+          {adding && row?.room !== undefined && members.data && (
+            <AddMembersDialog
+              room={row.room}
+              code={code}
+              addable={members.data.addable}
+              reachesClient={row.reaches_client === true}
+              onClose={() => setAdding(false)}
+              onDone={(left) => {
+                setAdding(false);
+                setNotice(left);
+              }}
+            />
+          )}
+          {converting && <ConvertDialog entry={converting} onClose={() => setConverting(null)} />}
+          {receipting && <ReceiptDialog entry={receipting} code={code} onClose={() => setReceipting(null)} />}
+          {forwardingFiles && pick.ids.length > 0 && (
+            <ForwardDialog
+              source={code}
+              count={pick.ids.length}
+              uids={[]}
+              files={pick.ids}
+              kinds={forwardKinds}
+              onClose={() => setForwardingFiles(false)}
+              onDone={(target) => {
+                setForwardingFiles(false);
+                pick.stop();
+                if (target) navigate(`/chats/${target}?type=${kindOfCode(target)}`);
+              }}
+            />
+          )}
           {forwarding && selected.length > 0 && (
             <ForwardDialog
               source={code}
@@ -466,8 +659,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             <Icon name="info" size="sm" />
             <span>
               {t(
-                "تحويل الرسالة لتاسك وإنشاء الجروبات لسه من الواجهة الحالية.",
-                "Turning a message into a task and creating groups are still done in the classic interface.",
+                "المكالمات واقتراحات الـAI لسه من الواجهة الحالية.",
+                "Calls and the AI's suggestions are still in the classic interface.",
               )}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>

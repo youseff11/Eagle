@@ -73,6 +73,7 @@ export function ChatList({
   rows,
   state,
   activeCode,
+  onNewGroup,
 }: {
   kinds: ChatKind[];
   kind: ChatKind;
@@ -82,6 +83,8 @@ export function ChatList({
   rows: ChatRow[] | undefined;
   state: "loading" | "error" | "ready";
   activeCode: string | undefined;
+  /** Open the dialog for a new work group: given only to somebody who may open one, and drawn in the groups list. */
+  onNewGroup?: () => void;
 }) {
   const { t } = usePreferences();
   const problems = useOutboxProblems();
@@ -119,6 +122,15 @@ export function ChatList({
           </button>
         ))}
       </div>
+
+      {kind === "groups" && onNewGroup && (
+        <div className="cchat__new">
+          <button type="button" className="btn btn--sm btn--primary grow" onClick={onNewGroup}>
+            <Icon name="users" size="sm" />
+            <span>{t("جروب شغل", "Work group")}</span>
+          </button>
+        </div>
+      )}
 
       <div className="cchat__threads">
         {state === "loading" && (

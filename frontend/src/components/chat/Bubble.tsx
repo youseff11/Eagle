@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
@@ -12,7 +13,24 @@ import { VoiceNote } from "./VoiceNote";
 /** The colours of the reaction symbols (`r-<kind>` in the sprite). Anything else is not drawn. */
 const REACTIONS = new Set(["like", "love", "laugh", "wow", "sad", "done"]);
 
-function File({ file }: { file: ThreadFile }) {
+/**
+ * A tick box beside a file, for the two modes that pick files: the translator's «خلصت التاسك» (`hand`: their own
+ * files) and the operation's "select files" (`pick`: a client's files, across messages). The mode is the page's;
+ * the bubble only draws it. While `active` the boxes are drawn - and in `pick` a tap on the file itself ticks it
+ * instead of opening it, where a photo is a link and the box is small. A voice note is never a file to pick.
+ */
+export interface FileMark {
+  mode: "hand" | "pick";
+  active: boolean;
+  /** Which files can be ticked at all. */
+  show: (entry: ThreadEntry, file: ThreadFile) => boolean;
+  ticked: (file: ThreadFile) => boolean;
+  toggle: (entry: ThreadEntry, file: ThreadFile) => void;
+  /** Outside the mode: a button beside the file that turns the mode on with this file already ticked. */
+  start?: { label: string; run: (entry: ThreadEntry, file: ThreadFile) => void };
+}
+
+function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mark?: FileMark }) {
   const { t } = usePreferences();
   // The server wrote the address. It is used only if it is a path on this site: never another site,
   // never a `javascript:` address.
@@ -28,17 +46,52 @@ function File({ file }: { file: ThreadFile }) {
       </div>
     );
   }
+  const markable = mark !== undefined && mark.show(entry, file);
+  const on = markable && mark.active;
+  const ticked = on && mark.ticked(file);
+  const classes = ["bub__file"];
+  if (file.image && url) classes.push("bub__file--img");
+  if (ticked) classes.push("is-picked");
+  // While picking, a tap on the file ticks it; a tap on the box is the box's own.
+  const tap =
+    on && mark.mode === "pick"
+      ? (event: MouseEvent<HTMLDivElement>) => {
+          if ((event.target as Element).closest("input")) return;
+          event.preventDefault();
+          mark.toggle(entry, file);
+        }
+      : undefined;
+  const box = on ? (
+    <input
+      type="checkbox"
+      className={mark.mode === "hand" ? "bub__hand" : "bub__pick"}
+      checked={ticked}
+      onChange={() => mark.toggle(entry, file)}
+      aria-label={t("حدد الملف", "Select the file") + `: ${file.name}`}
+    />
+  ) : null;
+  const start =
+    markable && !on && mark.start ? (
+      <button type="button" className="btn btn--sm btn--primary bub__handbtn" onClick={() => mark.start!.run(entry, file)}>
+        <Icon name="check-circle" size="sm" />
+        <span>{mark.start.label}</span>
+      </button>
+    ) : null;
+
   if (file.image && url) {
     return (
-      <div className="bub__file bub__file--img">
+      <div className={classes.join(" ")} onClick={tap}>
+        {box}
         <a className="bub__img" href={url} target="_blank" rel="noopener noreferrer" title={file.name}>
           <img src={url} alt={file.name} loading="lazy" />
         </a>
+        {start}
       </div>
     );
   }
   return (
-    <div className="bub__file">
+    <div className={classes.join(" ")} onClick={tap}>
+      {box}
       <Icon name="paperclip" size="sm" />
       {url ? (
         <a href={url} target="_blank" rel="noopener noreferrer">
@@ -47,6 +100,7 @@ function File({ file }: { file: ThreadFile }) {
       ) : (
         <span>{file.name}</span>
       )}
+      {start}
     </div>
   );
 }
@@ -100,6 +154,9 @@ export function Bubble({
   selecting = false,
   selected = false,
   onToggle,
+  onConfirm,
+  onConvert,
+  fileMark,
 }: {
   entry: ThreadEntry;
   onReply?: (entry: ThreadEntry) => void;
@@ -108,6 +165,11 @@ export function Bubble({
   selecting?: boolean;
   selected?: boolean;
   onToggle?: (entry: ThreadEntry) => void;
+  /** «استلمت» and "turn into a task" under a client's message that carries a document (the server says who gets them). */
+  onConfirm?: (entry: ThreadEntry) => void;
+  onConvert?: (entry: ThreadEntry) => void;
+  /** A mode that ticks files (see `FileMark`), or none. */
+  fileMark?: FileMark;
 }) {
   const { t, lang } = usePreferences();
   const out = entry.kind === "out";
@@ -187,8 +249,31 @@ export function Bubble({
         {entry.subject && <div className="bub__subject">{entry.subject}</div>}
         {entry.body && <div className="bub__text">{entry.body}</div>}
         {entry.files.map((file, index) => (
-          <File key={`${file.id}-${index}`} file={file} />
+          <File key={`${file.id}-${index}`} file={file} entry={entry} mark={fileMark} />
         ))}
+        {entry.actions && entry.has_docs && (onConfirm || onConvert) && (
+          <div className="bub__actions">
+            {onConfirm && (
+              <button type="button" className="btn btn--sm btn--accent" onClick={() => onConfirm(entry)}>
+                <Icon name="check" size="sm" />
+                <span>{t("استلمت", "Received")}</span>
+              </button>
+            )}
+            {entry.task_code && <span className="chip chip--sm mono">{entry.task_code}</span>}
+            {onConvert && (
+              <button type="button" className="btn btn--sm" onClick={() => onConvert(entry)}>
+                <Icon name={entry.task_code ? "plus" : "arrow-right"} size="sm" />
+                <span>{entry.task_code ? t("طلب جديد", "New request") : t("تحويل لتاسك", "Convert to task")}</span>
+              </button>
+            )}
+            {entry.claimed_by && (
+              <span className="chip chip--sm">
+                <Icon name="user-check" size="sm" />
+                {entry.claimed_by}
+              </span>
+            )}
+          </div>
+        )}
         <div className="bub__foot">
           {entry.is_delivery && <span className="chip chip--sm">{t("تسليم تاسك", "Task delivery")}</span>}
           {entry.task_code && <span className="mono muted">{entry.task_code}</span>}

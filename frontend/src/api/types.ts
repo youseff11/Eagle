@@ -29,7 +29,8 @@ export interface MeResponse {
     lang: Lang;
     theme: Theme;
   };
-  chats: { types: string[] };
+  /** The lists this role has; and whether this person may open an internal work group. */
+  chats: { types: string[]; can_create_group?: boolean };
   /** The longest message this person may write: to one client, to a client group (its prefix counts), inside. */
   limits: {
     to_client: number;
@@ -212,6 +213,14 @@ export interface ThreadEntry {
   seen_by: string[];
   forwarded: boolean;
   reactions: Reaction[];
+  /** The buttons under a client's message are for this person (the operation and the admin, on what a client wrote). */
+  actions: boolean;
+  /** The message carries a document (not only words or a voice note): "received" and "turn into a task" mean something. */
+  has_docs: boolean;
+  /** It is already the source of a task (`task_code` says which). */
+  has_task: boolean;
+  /** Who has said "received" for it, if anybody. */
+  claimed_by: string;
 }
 
 /** GET /api/v1/{clients,groups,staff}/.../messages/ */
@@ -246,6 +255,48 @@ export interface ForwardResponse {
   ok: true;
   delivered: boolean;
   message: string;
+  code: string;
+}
+
+/** A colleague as the work-group pickers show them: by id, never by anything a client could be known by. */
+export interface Person {
+  id: number;
+  name: string;
+  initials: string;
+  role: Role;
+}
+
+/** GET /api/v1/people/: everybody a work group could be opened with (only for those who may open one). */
+export interface PeopleResponse {
+  ok: true;
+  people: Person[];
+}
+
+/** GET /api/v1/groups/<id>/members/: who is in a group, whether this person may add to it, and to whom. */
+export interface MembersResponse {
+  ok: true;
+  members: Person[];
+  can_add: boolean;
+  addable: Person[];
+}
+
+/** POST /api/v1/groups/: the group that was opened (`code` is `g<room>`). */
+export interface GroupCreated {
+  ok: true;
+  room: number;
+  code: string;
+}
+
+/** POST /api/v1/groups/<id>/members/add/: somebody was added; `message` says who was left out and why. */
+export interface MembersAdded {
+  ok: true;
+  message: string;
+  added: string[];
+}
+
+/** POST /api/v1/tasks/<code>/hand-in/: the files are the task's translation and it went to review. */
+export interface HandedIn {
+  ok: true;
   code: string;
 }
 
