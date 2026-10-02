@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 from datetime import datetime, timedelta
 
 from django.contrib import messages as flash
@@ -553,6 +554,29 @@ def _chats_context(request, kind, tabs=None):
     return context
 
 
+#: What a conversation's code looks like in an address (CL-0001, g12, u5): only that is put into a redirect.
+_CHAT_CODE = re.compile(r"[A-Za-z0-9-]{1,40}")
+
+
+def _chats_hand_on(request, code=""):
+    """The same conversation in the new app, for a person whose chats were switched over; else ``None``.
+
+    Every classic way into the chats goes through here (the list, a client's conversation, a group, a
+    colleague), so a link in an old notification or on another page lands on the right conversation in the
+    new app. Who may open it is decided there, by the same endpoints and rules: a person sent to a
+    conversation that is not theirs is told it is not available, and the refusal is written to the audit log.
+    The code comes from the address, so it is carried over only when it looks like a code.
+    """
+    if not newui.hand_on(request, "chats"):
+        return None
+    target = newui.app_url("chats")
+    if code and _CHAT_CODE.fullmatch(code):
+        target += f"/{code}"
+    elif not code and request.GET.get("type") in ("clients", "groups", "staff"):
+        target += f"?type={request.GET['type']}"
+    return redirect(target)
+
+
 @login_required
 def ops_chats(request, code=""):
     """WhatsApp-style conversations with the clients.
@@ -562,6 +586,9 @@ def ops_chats(request, code=""):
     leader or translator lands here on their own groups and nothing else —
     which is what they needed a way in for.
     """
+    handed = _chats_hand_on(request, code)
+    if handed is not None:
+        return handed
     user = request.user
     sees_all_clients = user.handles_clients
 
@@ -600,6 +627,9 @@ def ops_chats(request, code=""):
 @login_required
 def ops_group_chat(request, room_id):
     """One group's conversation, rendered by the same page as a 1:1 chat."""
+    handed = _chats_hand_on(request, f"g{room_id}")
+    if handed is not None:
+        return handed
     user = request.user
     room = get_object_or_404(
         ChatRoom.objects.select_related("client", "task"),
@@ -652,6 +682,9 @@ def ops_staff_chat(request, user_id):
     step: the directory row and the conversation are the same click. Nothing
     here touches a client, so no relay and no client identity is involved.
     """
+    handed = _chats_hand_on(request, f"u{user_id}")
+    if handed is not None:
+        return handed
     user = request.user
     other = get_object_or_404(User, pk=user_id, is_active=True)
     if other.pk == user.pk:
@@ -921,6 +954,19 @@ def lead_translators(request):
     })
 
 
+def _translator_hand_on(request, path):
+    """The same page in the new app, for a translator whose screen was switched over; else ``None``.
+
+    The desk, the payslip and the task page are one screen in the plan and one switch
+    (``translator_home``): a person who has the desk in the new app has all three there, and never a
+    mixture. Only a translator is sent: the admin may be switched on for the desk, but the classic task
+    page shows the admin what the translator's page leaves out, and that is what they open it for.
+    """
+    if not request.user.is_translator or not newui.hand_on(request, "translator_home"):
+        return None
+    return redirect("/app" + path)
+
+
 @role_required(Role.TRANSLATOR)
 def translator_home(request):
     # Switched over to the new interface for this person: hand them on, unless something
@@ -936,6 +982,11 @@ def translator_home(request):
 
 @login_required
 def task_detail(request, code):
+    # The translator's own page is in the new app once their screen is switched over; the code goes into the
+    # address only if it looks like one, and what the person may open is decided there (404 and audit).
+    handed = _translator_hand_on(request, f"/tasks/{code}") if _CHAT_CODE.fullmatch(code) else None
+    if handed is not None:
+        return handed
     task = get_object_or_404(
         Task.objects.select_related("client", "team_lead", "translator", "created_by"),
         code=code,
@@ -1109,32 +1160,8 @@ def _ai_notes_context(task, user):
 
 
 def _extension_context(task, user):
-    """What the task page shows about requests for more time, for this person.
-
-    The translator sees their own request and the answer. The team leader
-    (and the admin) sees the open one with where the deadline would land -
-    and the client's date next to it, which the translator never sees.
-    """
-    from .models import ExtensionRequest
-
-    is_translator = task.translator_id == user.id
-    is_lead = task.team_lead_id == user.id or user.is_admin_role
-    if not (is_translator or is_lead):
-        return {}
-    rows = list(task.extension_requests.select_related("requested_by", "decided_by")[:5])
-    pending = next((r for r in rows if r.status == ExtensionRequest.Status.PENDING), None)
-    last = next((r for r in rows if r.status != ExtensionRequest.Status.PENDING), None)
-    return {
-        "extension_pending": pending,
-        "extension_last": last,
-        "extension_new_due": (
-            services.extension_new_due(task, pending.minutes) if pending and is_lead else None
-        ),
-        "extension_can_ask": (
-            is_translator and task.status == TaskStatus.IN_PROGRESS and pending is None
-        ),
-        "extension_can_decide": is_lead and pending is not None,
-    }
+    """What the task page shows about requests for more time, for this person (``services.extension_state``)."""
+    return services.extension_state(task, user)
 
 
 @login_required
@@ -1993,6 +2020,12 @@ def accounts_salary(request, pk):
 @role_required(Role.TRANSLATOR)
 def translator_payroll(request):
     """The translator's own payslip - read only, and only ever their own."""
+    period = request.GET.get("period", "")
+    handed = _translator_hand_on(
+        request, "/payroll" + (f"?period={period}" if payroll.parse_period(period) else "")
+    )
+    if handed is not None:
+        return handed
     year, month = _requested_month(request)
     line = PayrollLine.objects.filter(
         user=request.user, period__year=year, period__month=month

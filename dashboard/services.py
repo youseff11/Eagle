@@ -1954,6 +1954,35 @@ def extension_new_due(task, minutes, now=None):
     return base + timedelta(minutes=int(minutes))
 
 
+def extension_state(task, user):
+    """What a task page shows about requests for more time, for this person.
+
+    The translator sees their own request and the answer. The team leader
+    (and the admin) sees the open one with where the deadline would land -
+    and the client's date next to it, which the translator never sees.
+    """
+    from .models import ExtensionRequest
+
+    is_translator = task.translator_id == user.id
+    is_lead = task.team_lead_id == user.id or user.is_admin_role
+    if not (is_translator or is_lead):
+        return {}
+    rows = list(task.extension_requests.select_related("requested_by", "decided_by")[:5])
+    pending = next((r for r in rows if r.status == ExtensionRequest.Status.PENDING), None)
+    last = next((r for r in rows if r.status != ExtensionRequest.Status.PENDING), None)
+    return {
+        "extension_pending": pending,
+        "extension_last": last,
+        "extension_new_due": (
+            extension_new_due(task, pending.minutes) if pending and is_lead else None
+        ),
+        "extension_can_ask": (
+            is_translator and task.status == TaskStatus.IN_PROGRESS and pending is None
+        ),
+        "extension_can_decide": is_lead and pending is not None,
+    }
+
+
 def request_extension(task, user, minutes, reason=""):
     """The translator asks the team leader for more time. ``(request, error)``.
 

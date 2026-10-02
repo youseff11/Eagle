@@ -147,6 +147,30 @@ def month_bounds(year, month):
     return date(year, month, 1), date(year, month, last)
 
 
+def period_choices(limit=13, today=None):
+    """The current month and the twelve before it, newest first, as ``(year, month)``."""
+    today = today or timezone.localdate()
+    year, month = today.year, today.month
+    out = []
+    for _ in range(limit):
+        out.append((year, month))
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+    return out
+
+
+def parse_period(raw):
+    """``"2026-09"`` (or ``"2026-9"``) as ``(2026, 9)``; ``None`` for anything else, so a typo is an error, not this month."""
+    head, sep, tail = (raw or "").partition("-")
+    if not sep or not (head.isascii() and head.isdecimal() and tail.isascii() and tail.isdecimal()):
+        return None
+    year, month = int(head), int(tail)
+    if not (2000 <= year <= 2100 and 1 <= month <= 12) or len(head) != 4 or len(tail) > 2:
+        return None
+    return year, month
+
+
 # ---------------------------------------------------------------------------
 # Production - read from the jobs, not from the translator
 # ---------------------------------------------------------------------------

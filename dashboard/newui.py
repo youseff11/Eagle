@@ -66,7 +66,6 @@ SCREENS = {
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
                 Role.ACCOUNTING, Role.SALES,
             ),
-            redirects=False,
         ),
     )
 }

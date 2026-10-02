@@ -1,9 +1,10 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
-import { api } from "./client";
+import { ApiError, api } from "./client";
 import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
+  AiCheckAnswer,
   ChatKind,
   ChatListResponse,
   FileTasksResponse,
@@ -15,12 +16,14 @@ import type {
   MembersResponse,
   MovedResponse,
   NotificationsResponse,
+  PayrollResponse,
   PeopleResponse,
   ReactResponse,
   ReadResponse,
   SendResponse,
   ThreadResponse,
   TranslatorHomeResponse,
+  TranslatorTaskResponse,
 } from "./types";
 
 /** How often to ask when the socket is not there to say something changed. */
@@ -90,6 +93,92 @@ export function useTranslatorHome(enabled = true) {
     // Everybody else is refused, and every refusal is written to the audit log: a page left
     // open would write a row at every refresh.
     enabled,
+  });
+}
+
+/** The translator's own payslip for one month (`period` is `2026-09`, or `""` for this month). */
+export function usePayroll(period: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.payroll(period),
+    queryFn: () => api<PayrollResponse>(`/api/v1/translator/payroll/${period ? `?period=${encodeURIComponent(period)}` : ""}`),
+    refetchInterval,
+    enabled,
+  });
+}
+
+/** One task as its translator reads it. A task that is not theirs is a 404, which is not worth asking for again. */
+export function useTranslatorTask(code: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.translatorTask(code),
+    queryFn: () => api<TranslatorTaskResponse>(`/api/v1/translator/tasks/${encodeURIComponent(code)}/`),
+    refetchInterval,
+    enabled,
+  });
+}
+
+/**
+ * The translator's actions on a task are the classic endpoints, unchanged, with the checks they already make
+ * (`api.task_action`, `upload_translation`, `request_extension`, `ai_check`). Two of them answer a refusal of the
+ * service with `200` and `ok: false`, so that is turned into the same error as a `4xx`: one way to fail.
+ */
+function refused<T extends { ok: boolean }>(answer: T): T {
+  if (!answer.ok) throw new ApiError(200, "refused", answer);
+  return answer;
+}
+
+function useTaskAction<V, R extends { ok: boolean }>(code: string, run: (values: V) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: V) => refused(await run(values)),
+    onSettled: () => {
+      // Whatever happened, the page asks again: the answer may have moved the task (finished, a file arrived).
+      void client.invalidateQueries({ queryKey: qk.translatorTask(code) });
+      void client.invalidateQueries({ queryKey: qk.translatorHome });
+    },
+  });
+}
+
+/** «خلصت الترجمة»: the task goes to the leader's review. */
+export function useFinishTask(code: string) {
+  return useTaskAction<void, { ok: boolean }>(code, () =>
+    api<{ ok: boolean }>(`/api/tasks/${encodeURIComponent(code)}/translated/`, { form: {} }),
+  );
+}
+
+/** The translated file, into the group with the leader. */
+export function useUploadTranslation(code: string) {
+  return useTaskAction<File[], { ok: boolean }>(code, (files) => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    return api<{ ok: boolean }>(`/api/tasks/${encodeURIComponent(code)}/translation/`, { multipart: form });
+  });
+}
+
+/** «اطلب وقت أطول»: the leader answers. */
+export function useAskMoreTime(code: string) {
+  return useTaskAction<{ days: number; hours: number; minutes: number; reason: string }, { ok: boolean }>(code, (values) =>
+    api<{ ok: boolean }>(`/api/tasks/${encodeURIComponent(code)}/extension/`, {
+      form: {
+        days: String(values.days),
+        hours: String(values.hours),
+        minutes: String(values.minutes),
+        reason: values.reason,
+      },
+    }),
+  );
+}
+
+/** The AI check of the translation: blank boxes mean "read the files" (the server decides). Its answer is the result, not a refusal. */
+export function useAiCheck(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (values: { source: string; translated: string }) =>
+      api<AiCheckAnswer>(`/api/tasks/${encodeURIComponent(code)}/ai-check/`, {
+        form: { source_text: values.source, translated_text: values.translated },
+      }),
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.translatorTask(code) }),
   });
 }
 

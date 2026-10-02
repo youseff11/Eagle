@@ -230,6 +230,8 @@ urlpatterns = [
     path("api/v1/tasks/<str:code>/hand-in/", api_v1.task_hand_in, name="v1_task_hand_in"),
     path("api/v1/messages/<int:message_id>/confirm/", api_v1.message_confirm, name="v1_message_confirm"),
     path("api/v1/translator/home/", api_v1.translator_home, name="v1_translator_home"),
+    path("api/v1/translator/payroll/", api_v1.translator_payroll, name="v1_translator_payroll"),
+    path("api/v1/translator/tasks/<str:code>/", api_v1.translator_task, name="v1_translator_task"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
     path("app/", spa.shell, name="app"),

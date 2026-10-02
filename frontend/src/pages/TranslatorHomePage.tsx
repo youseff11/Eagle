@@ -1,25 +1,9 @@
-import { Navigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { useMe, useTranslatorHome } from "../api/queries";
-import type { DeskTask, Labelled, TranslatorHomeResponse } from "../api/types";
+import type { DeskTask, TranslatorHomeResponse } from "../api/types";
+import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
-import { safeInternalPath } from "../lib/safeUrl";
-
-/** The badge looks `static/css/app.css` has. The server names one; anything else is drawn plain. */
-const TONES = new Set(["new", "wait", "info", "work", "review", "ok", "done", "dead"]);
-const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
-const DEADLINE_STATES = new Set(["none", "ok", "soon", "late", "done"]);
-
-function StatusBadge({ status }: { status: Labelled & { tone: string } }) {
-  const { lang } = usePreferences();
-  const tone = TONES.has(status.tone) ? status.tone : "new";
-  return (
-    <span className={`badge badge--${tone}`}>
-      <i className="badge__dot" />
-      <span>{lang === "ar" ? status.ar : status.en}</span>
-    </span>
-  );
-}
 
 function Rating({ value }: { value: number }) {
   return (
@@ -33,8 +17,8 @@ function Rating({ value }: { value: number }) {
 
 function TaskRow({ task }: { task: DeskTask }) {
   const { t, lang } = usePreferences();
-  // The server wrote the address; it is drawn only if it is a path on this site.
-  const href = safeInternalPath(task.url);
+  // The task page is a route of this app, made from the code: nothing the server wrote goes into the address.
+  const to = `/tasks/${encodeURIComponent(task.code)}`;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
 
   return (
@@ -47,45 +31,34 @@ function TaskRow({ task }: { task: DeskTask }) {
           <div className="row row--tight">
             <strong className="mono">{task.code}</strong>
             <StatusBadge status={task.status} />
-            {PRIORITIES.has(task.priority.value) && (
-              <span className={`badge badge--prio-${task.priority.value}`}>
-                {lang === "ar" ? task.priority.ar : task.priority.en}
-              </span>
-            )}
+            <PriorityBadge priority={task.priority} />
           </div>
           {/* The translator's own date, which their team leader set and which is often earlier than the
               client's. Never the client's: the server decides which one this is. */}
-          <span className={`row row--tight mono deadline--${DEADLINE_STATES.has(task.due_state) ? task.due_state : "none"}`}>
+          <span className={`row row--tight mono ${deadlineClass(task.due_state)}`}>
             <Icon name="clock" size="sm" />
             {due ?? t("من غير ديدلاين", "No deadline")}
           </span>
         </div>
         <div>
           {task.title}{" "}
-          {task.origin && (
-            <span className={`badge badge--origin badge--${task.origin.value === "email" ? "mail" : "wa"}`}>
-              <Icon name={task.origin.icon} size="sm" />
-              <span>{lang === "ar" ? task.origin.ar : task.origin.en}</span>
-            </span>
-          )}
+          <OriginBadge origin={task.origin} />
         </div>
         <small className="muted mono">
           {task.client} · {task.source_lang} → {task.target_lang}
         </small>
-        {href && (
-          <div className="row desk-actions">
-            <a className="btn btn--sm btn--primary" href={href}>
-              <Icon name="arrow-right" size="sm" />
-              <span>{t("افتح التاسك والشات", "Open task & chat")}</span>
-            </a>
-            {task.can_ask_more_time && (
-              <a className="btn btn--sm" href={`${href}#more-time`}>
-                <Icon name="clock" size="sm" />
-                <span>{t("اطلب وقت أطول", "Ask for more time")}</span>
-              </a>
-            )}
-          </div>
-        )}
+        <div className="row desk-actions">
+          <Link className="btn btn--sm btn--primary" to={to}>
+            <Icon name="arrow-right" size="sm" />
+            <span>{t("افتح التاسك", "Open the task")}</span>
+          </Link>
+          {task.can_ask_more_time && (
+            <Link className="btn btn--sm" to={{ pathname: to, hash: "#more-time" }}>
+              <Icon name="clock" size="sm" />
+              <span>{t("اطلب وقت أطول", "Ask for more time")}</span>
+            </Link>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -136,21 +109,14 @@ function Desk({ data }: { data: TranslatorHomeResponse }) {
             <h3>{t("اتقفلت مؤخرًا", "Recently closed")}</h3>
           </div>
           <ul className="timeline">
-            {data.done.map((task) => {
-              const href = safeInternalPath(task.url);
-              return (
-                <li key={task.code}>
-                  {href ? (
-                    <a className="mono grow" href={href}>
-                      {task.code}
-                    </a>
-                  ) : (
-                    <span className="mono grow">{task.code}</span>
-                  )}
-                  <StatusBadge status={task.status} />
-                </li>
-              );
-            })}
+            {data.done.map((task) => (
+              <li key={task.code}>
+                <Link className="mono grow" to={`/tasks/${encodeURIComponent(task.code)}`}>
+                  {task.code}
+                </Link>
+                <StatusBadge status={task.status} />
+              </li>
+            ))}
             {data.done.length === 0 && <li className="muted">{t("لسه مفيش.", "Nothing yet.")}</li>}
           </ul>
         </div>

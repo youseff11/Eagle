@@ -147,17 +147,6 @@ class ChatsScreenSwitchTests(_Staff):
         browser.force_login(self.lead)
         self.assertNotIn("chats", _json(browser.get(reverse("dashboard:v1_me")))["screens"])
 
-    def test_nobody_is_handed_on_to_a_chat_that_can_only_read(self):
-        self.turn_on(roles=["operation", "admin"])
-        for user in (self.ops, self.admin):
-            request = RequestFactory().get("/ops/chats/")
-            request.user = user
-            self.assertTrue(newui.enabled(user, "chats"))
-            self.assertFalse(newui.hand_on(request, "chats"), user.username)
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        self.assertEqual(browser.get(reverse("dashboard:ops_chats")).status_code, 200)
-
     def test_the_settings_page_offers_the_screen_and_a_person_to_try_it_on(self):
         browser = DjangoClient()
         browser.force_login(self.admin)
@@ -168,6 +157,117 @@ class ChatsScreenSwitchTests(_Staff):
         self.assertIn(self.ops.pk, candidates)
         self.assertNotIn(self.admin.pk, candidates)
         self.assertIn("الشات", page)
+
+
+class ChatsHandOnTests(_Staff):
+    """The classic chat pages hand a switched-on person to the same conversation in the new app."""
+
+    def setUp(self):
+        super().setUp()
+        # As if ``npm run build`` had run: a checkout that never built the app must not change what these say.
+        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built.start()
+        self.addCleanup(built.stop)
+        self.some_client = Client.objects.create(name="Handed On Client", phone="+201000000093")
+        self.team = ChatRoom.objects.create(kind=RoomKind.TEAM, title="Work", created_by=self.lead)
+        self.team.members.add(self.ops, self.lead, self.tr)
+
+    def turn_on(self, roles=(), users=()):
+        conf = AppSettings.load()
+        conf.new_ui = {**(conf.new_ui or {}), "chats": {"roles": list(roles), "users": list(users)}}
+        conf.save()
+
+    def get(self, user, path):
+        browser = DjangoClient()
+        browser.force_login(user)
+        return browser.get(path)
+
+    def places(self):
+        """Every classic way into the chats, and where it leads in the new app."""
+        return [
+            ("/ops/chats/", "/app/chats"),
+            ("/ops/chats/?type=groups", "/app/chats?type=groups"),
+            ("/ops/chats/?type=staff", "/app/chats?type=staff"),
+            (f"/ops/chats/{self.some_client.code}/", f"/app/chats/{self.some_client.code}"),
+            (f"/ops/chats/g/{self.team.pk}/", f"/app/chats/g{self.team.pk}"),
+            (f"/ops/chats/u/{self.lead.pk}/", f"/app/chats/u{self.lead.pk}"),
+        ]
+
+    def test_a_switched_on_person_lands_on_the_same_conversation_in_the_new_app(self):
+        self.turn_on(roles=["operation", "translator"])
+        for user in (self.ops, self.tr):
+            for classic, new in self.places():
+                answer = self.get(user, classic)
+                self.assertEqual((answer.status_code, answer.get("Location")), (302, new), (user.username, classic))
+
+    def test_the_admin_who_is_on_by_default_is_handed_on_too(self):
+        for classic, new in self.places():
+            self.assertEqual(self.get(self.admin, classic).get("Location"), new, classic)
+
+    def test_somebody_who_is_not_switched_on_keeps_the_classic_page(self):
+        self.turn_on(roles=["translator"])
+        for user in (self.ops, self.lead, self.sales, self.hr):
+            for classic, _new in self.places():
+                if "/u/" in classic and user.pk == self.lead.pk:
+                    continue
+                answer = self.get(user, classic)
+                self.assertNotEqual(answer.status_code, 302, (user.username, classic))
+
+    def test_one_person_can_be_tried_before_the_role(self):
+        self.turn_on(users=[self.tr.pk])
+        self.assertEqual(self.get(self.tr, "/ops/chats/").get("Location"), "/app/chats")
+        self.assertEqual(self.get(self.ops, "/ops/chats/").status_code, 200)
+
+    def test_the_classic_page_still_opens_by_name(self):
+        self.turn_on(roles=["operation", "translator"])
+        for user in (self.ops, self.tr, self.admin):
+            for classic, _new in self.places():
+                if user.pk == self.tr.pk and self.some_client.code in classic:
+                    continue    # a translator has no client conversations: the classic page says so
+                answer = self.get(user, classic + ("&" if "?" in classic else "?") + "classic=1")
+                self.assertEqual(answer.status_code, 200, (user.username, classic))
+
+    def test_a_check_in_screen_or_a_waiting_assignment_or_a_missing_build_keep_them_on_the_classic_page(self):
+        self.turn_on(roles=["translator"])
+        self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 302)
+        for kind in ("check_in", "check_out", "extra"):
+            with mock.patch("dashboard.newui.attendance.gate_for", return_value={"kind": kind}):
+                self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 200, kind)
+        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
+            self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 200)
+
+    def test_what_is_not_a_code_is_not_carried_into_the_address(self):
+        self.turn_on(roles=["operation"])
+        for odd in ("we.ird", "a%20b", "%E2%80%AE", "x" * 41, "..", "a:b"):
+            answer = self.get(self.ops, f"/ops/chats/{odd}/")
+            self.assertEqual((answer.status_code, answer.get("Location")), (302, "/app/chats"), odd)
+        # An unknown tab is not carried either.
+        self.assertEqual(self.get(self.ops, "/ops/chats/?type=evil%26x=1").get("Location"), "/app/chats")
+        self.assertEqual(self.get(self.ops, "/ops/chats/?type=//evil.example").get("Location"), "/app/chats")
+
+    def test_handing_on_opens_nothing_and_reads_nothing(self):
+        # The classic page marked a conversation read on opening, and made a colleague's room. Now the
+        # new app does that, once the person sees it - the redirect itself must leave no trace.
+        self.turn_on(roles=["operation"])
+        InboundMessage.objects.create(
+            client=self.some_client, channel=Channel.WHATSAPP, body="unread words", external_id="wamid.in.h",
+        )
+        rooms, reads = ChatRoom.objects.count(), ChatRead.objects.count()
+        before = services.unread_chat_total(self.ops)
+        self.get(self.ops, f"/ops/chats/{self.some_client.code}/")
+        self.get(self.ops, f"/ops/chats/u/{self.tr.pk}/")
+        self.assertEqual((ChatRoom.objects.count(), ChatRead.objects.count()), (rooms, reads))
+        self.assertEqual(services.unread_chat_total(self.ops), before)
+
+    def test_a_conversation_that_is_not_theirs_is_still_refused_where_it_lands(self):
+        # The redirect decides nothing about who may read what: the new app's endpoint does, and says no.
+        self.turn_on(roles=["translator"])
+        self.assertEqual(self.get(self.tr, f"/ops/chats/g/{self.private.pk}/").get("Location"), f"/app/chats/g{self.private.pk}")
+        browser = DjangoClient()
+        browser.force_login(self.tr)
+        answer = browser.get(reverse("dashboard:v1_group_messages", args=[self.private.pk]))
+        self.assertEqual(answer.status_code, 404)
+        self.assertNotIn(b"PRIVATE WORD", answer.content)
 
 
 class ReadUpToTests(_Staff):

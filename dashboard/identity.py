@@ -54,6 +54,25 @@ def for_viewer(text, viewer):
     return scrub_contacts(text)
 
 
+def mask_client(text, client, viewer):
+    """Free words that may name ``client``, as ``viewer`` may read them.
+
+    A task's brief and a client's requirements are typed by people, and a person writes the client's name in
+    them. For whoever may know the client the words stay as written; for everybody else the client's name and
+    company become the client's code, and any address or number is taken out (``scrub_contacts``). Best effort
+    by nature - it finds the name as it is spelled on the client's record, not every way of writing it - so it
+    is a second wall, not the first: the first is that what is typed here is read by the people who work the job.
+    """
+    if viewer is not None and getattr(viewer, "can_see_client_identity", False):
+        return text or ""
+    text = text or ""
+    if client is not None:
+        for name in {(getattr(client, "name", "") or "").strip(), (getattr(client, "company", "") or "").strip()}:
+            if len(name) >= 3:
+                text = re.sub(re.escape(name), client.code, text, flags=re.IGNORECASE)
+    return scrub_contacts(text)
+
+
 # The audit actions this module writes. Named once so the audit page and the
 # tests read the same strings.
 IDENTITY_VIEW = "client.identity.view"

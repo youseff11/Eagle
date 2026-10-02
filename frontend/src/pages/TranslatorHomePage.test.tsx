@@ -58,8 +58,9 @@ describe("TranslatorHomePage", () => {
     expect(within(row).getByText("واتساب")).toBeInTheDocument();
     expect(within(row).getByText(/2026-10-02 5:30 م/)).toBeInTheDocument();
     expect(row).toHaveTextContent("CL-0001 · English → Arabic");
-    expect(within(row).getByRole("link", { name: /افتح التاسك والشات/ })).toHaveAttribute("href", "/tasks/TSK-00001/");
-    expect(within(row).getByRole("link", { name: /اطلب وقت أطول/ })).toHaveAttribute("href", "/tasks/TSK-00001/#more-time");
+    // The task page is a route of this app now, made from the code.
+    expect(within(row).getByRole("link", { name: /افتح التاسك/ })).toHaveAttribute("href", "/tasks/TSK-00001");
+    expect(within(row).getByRole("link", { name: /اطلب وقت أطول/ })).toHaveAttribute("href", "/tasks/TSK-00001#more-time");
   });
 
   it("speaks English when asked, with the server's own English time", async () => {
@@ -106,7 +107,7 @@ describe("TranslatorHomePage", () => {
     expect(container.querySelector('[data-task="TSK-00002"] .deadline--soon')).not.toBeNull();
   });
 
-  it("draws a task link only for an address on this site", async () => {
+  it("makes the task link from the code: whatever address the server wrote is never used", async () => {
     serve(
       desk({
         open: [
@@ -118,11 +119,9 @@ describe("TranslatorHomePage", () => {
     );
     renderWithProviders(<TranslatorHomePage />);
     await screen.findByText("TSK-00003");
-    const links = screen.getAllByRole("link", { name: /افتح التاسك والشات/ });
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("href", "/tasks/TSK-00001/");
-    // The "more time" link hangs off the same address, so it is gone with it.
-    expect(screen.getAllByRole("link", { name: /اطلب وقت أطول/ })).toHaveLength(1);
+    const links = screen.getAllByRole("link", { name: /افتح التاسك/ });
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/tasks/TSK-00001", "/tasks/TSK-00002", "/tasks/TSK-00003"]);
+    expect(screen.getAllByRole("link", { name: /اطلب وقت أطول/ })).toHaveLength(3);
     for (const link of screen.getAllByRole("link")) {
       expect(link.getAttribute("href")).not.toMatch(/evil|javascript/);
     }
@@ -158,7 +157,7 @@ describe("TranslatorHomePage", () => {
     serve(desk());
     renderWithProviders(<TranslatorHomePage />);
     const link = await screen.findByRole("link", { name: "TSK-00009" });
-    expect(link).toHaveAttribute("href", "/tasks/TSK-00009/");
+    expect(link).toHaveAttribute("href", "/tasks/TSK-00009");
     expect(screen.getByText("تم التسليم")).toBeInTheDocument();
   });
 

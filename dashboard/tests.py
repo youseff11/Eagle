@@ -4054,7 +4054,8 @@ class SuggestionsArchiveAndHeaderTests(TestCase):
 
     def test_the_admin_reads_the_name_with_the_code_beside_it(self):
         self.client.force_login(self.admin)
-        response = self.client.get(f"/ops/chats/{self.client_obj.code}/")
+        # The classic page by name: the admin is on the new chat by default once the app is built.
+        response = self.client.get(f"/ops/chats/{self.client_obj.code}/?classic=1")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "ACME Legal")
         self.assertContains(response, f"({self.client_obj.code})")

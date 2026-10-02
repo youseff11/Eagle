@@ -208,11 +208,56 @@ describe("Shell", () => {
     expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي");
   });
 
+  it("knows the pages of the translator's screen: the title follows the page, and 'my work' stays lit on a task", async () => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, ["translator_home"])),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    const at = (route: string) =>
+      renderWithProviders(
+        <Routes>
+          <Route element={<Shell />}>
+            <Route path="translator" element={<div>desk</div>} />
+            <Route path="payroll" element={<div>payslip</div>} />
+            <Route path="tasks/:code" element={<div>task</div>} />
+            <Route path="translators-by-mistake" element={<div>not a screen</div>} />
+          </Route>
+        </Routes>,
+        { route },
+      );
+
+    let view = at("/payroll");
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("مستحقاتي");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/payroll"].is-active')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toHaveClass("is-active");
+    view.unmount();
+
+    view = at("/tasks/TSK-00001");
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"].is-active')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toHaveClass("is-active");
+    view.unmount();
+
+    // An address that only starts like a screen's is not that screen.
+    view = at("/translators-by-mistake");
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("الرئيسية");
+  });
+
+  it("draws the payslip line only for a person whose translator screen is switched on", async () => {
+    const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, [])) });
+    await screen.findByText("Nour");
+    expect(view.container.querySelector('.sidebar a[href="/payroll"]')).toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/translator"]')).toBeNull();
+  });
+
   it("never draws a screen it does not know, whatever the server lists", async () => {
     const view = renderShell({
       "/api/v1/me/": () => jsonResponse({ ...me({ role: "translator" }), screens: ["no_such_screen", "constructor", "translator_home"] }),
     });
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toBeNull());
-    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(4); // home, my work, notifications, classic
+    // home, my work, my payroll (the same screen's other page), notifications, classic
+    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(5);
+    expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toBeNull();
   });
 });

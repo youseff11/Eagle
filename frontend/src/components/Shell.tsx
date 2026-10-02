@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
 import { useMe } from "../api/queries";
@@ -24,9 +24,29 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
   sales: ["مبيعات", "Sales"],
 };
 
-/** The screens that have been ported: where they live in this app, and what the menu calls them. */
-export const SCREENS: Record<ScreenKey, { path: string; icon: string; label: [string, string] }> = {
-  translator_home: { path: "/translator", icon: "pen", label: ["شغلي", "My work"] },
+/**
+ * The screens that have been ported: where they live in this app, and what the menu calls them.
+ *
+ * A screen can be more than one page. `also` are other addresses that belong to it (the task page is "my work"),
+ * so the menu and the title know where the person is; `extra` are the other pages of the screen that get their own
+ * line in the menu (the payslip). One switch for all of them: a person never has half a screen.
+ */
+export interface ScreenEntry {
+  path: string;
+  icon: string;
+  label: [string, string];
+  also?: string[];
+  extra?: { path: string; icon: string; label: [string, string] }[];
+}
+
+export const SCREENS: Record<ScreenKey, ScreenEntry> = {
+  translator_home: {
+    path: "/translator",
+    icon: "pen",
+    label: ["شغلي", "My work"],
+    also: ["/tasks"],
+    extra: [{ path: "/payroll", icon: "folder", label: ["مستحقاتي", "My payroll"] }],
+  },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
 
@@ -78,12 +98,20 @@ function Frame() {
   const unsent = useOutboxProblems().length;
   const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
   // The title follows the address, not the list: it is right before `me` has arrived too.
-  const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) => location.pathname.startsWith(SCREENS[key].path));
-  const title = location.pathname.startsWith("/notifications")
+  const startsWith = (prefix: string) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`);
+  const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) =>
+    [SCREENS[key].path, ...(SCREENS[key].also ?? [])].some(startsWith),
+  );
+  const extraHere = (Object.keys(SCREENS) as ScreenKey[])
+    .flatMap((key) => SCREENS[key].extra ?? [])
+    .find((entry) => startsWith(entry.path));
+  const title = startsWith("/notifications")
     ? t("التنبيهات", "Notifications")
-    : here
-      ? t(...SCREENS[here].label)
-      : t("الرئيسية", "Home");
+    : extraHere
+      ? t(...extraHere.label)
+      : here
+        ? t(...SCREENS[here].label)
+        : t("الرئيسية", "Home");
   const realtimeLabel = {
     open: t("متصل لحظيًا", "Live"),
     connecting: t("بيتصل...", "Connecting..."),
@@ -113,20 +141,33 @@ function Frame() {
               <span>{t("الرئيسية", "Home")}</span>
             </NavLink>
             {screens.map((key) => (
-              <NavLink
-                key={key}
-                to={SCREENS[key].path}
-                className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}
-              >
-                <Icon name={SCREENS[key].icon} />
-                <span>{t(...SCREENS[key].label)}</span>
-                {key === "chats" && unsent > 0 && (
-                  <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
-                    <Icon name="alert" size="sm" />
-                  </span>
-                )}
-                {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
-              </NavLink>
+              <Fragment key={key}>
+                <NavLink
+                  to={SCREENS[key].path}
+                  className={({ isActive }) =>
+                    `nav__item${isActive || (SCREENS[key].also ?? []).some(startsWith) ? " is-active" : ""}`
+                  }
+                >
+                  <Icon name={SCREENS[key].icon} />
+                  <span>{t(...SCREENS[key].label)}</span>
+                  {key === "chats" && unsent > 0 && (
+                    <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
+                      <Icon name="alert" size="sm" />
+                    </span>
+                  )}
+                  {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
+                </NavLink>
+                {(SCREENS[key].extra ?? []).map((entry) => (
+                  <NavLink
+                    key={entry.path}
+                    to={entry.path}
+                    className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}
+                  >
+                    <Icon name={entry.icon} />
+                    <span>{t(...entry.label)}</span>
+                  </NavLink>
+                ))}
+              </Fragment>
             ))}
             <NavLink to="/notifications" className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
               <Icon name="bell" />

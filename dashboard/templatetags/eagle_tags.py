@@ -72,6 +72,17 @@ DAY_STATUS_MAP = {
     "holiday": ("", "أجازة رسمية", "Public holiday"),
 }
 
+#: What a payslip calls a violation (``ViolationKind``), and what it says about its approval (``ApprovalStatus``).
+VIOLATION_KIND_MAP = {
+    "discipline": ("قواعد داخلية", "Internal rules"),
+    "quality": ("خطأ في الترجمة", "Translation error"),
+    "low_output": ("إنتاجية منخفضة", "Low productivity"),
+    "unexcused": ("غياب بدون إذن", "Absence without permission"),
+    "extra_leave": ("إجازة فوق الرصيد", "Leave beyond the balance"),
+    "target_miss": ("الهدف الشهري ماتحققش", "Monthly target missed"),
+    "manual": ("تعديل يدوي", "Manual adjustment"),
+}
+
 WORK_MODE_MAP = {
     "office": ("من المكتب", "Office"),
     "remote": ("عن بُعد", "Remote"),

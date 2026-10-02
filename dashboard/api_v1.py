@@ -37,10 +37,15 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, audio, clock, identity, newui, services
-from .models import AppSettings, ChatRoom, InboundMessage, Notification, Role, RoomKind, TaskStatus, User
+from . import api, audio, clock, identity, newui, payroll, services
+from .models import (
+    AppSettings, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings, Role, RoomKind, Task,
+    TaskStatus, User, Violation, WorkDay,
+)
 from .permissions import api_role_required
-from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
+from .templatetags.eagle_tags import (
+    DAY_STATUS_MAP, KIND_MAP, ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP, VIOLATION_KIND_MAP,
+)
 
 log = logging.getLogger("dashboard")
 
@@ -971,4 +976,190 @@ def translator_home(request):
             {"delta": str(event.delta), "reason_ar": event.reason_ar, "reason_en": event.reason_en}
             for event in desk["rating_events"]
         ],
+    })
+
+
+# ---------------------------------------------------------------------------
+# The translator's payslip and task page (phase 5, first screen: the rest of it)
+#
+# Both are read here and written where they always were: the actions on a task (finished, the translation file,
+# more time, the AI check) are the classic endpoints, unchanged, with the checks they already make. What these
+# two doors add is the translator's own view of the data - the same questions the classic pages ask, answered as
+# JSON - and the 404 + audit row for a task that is not theirs.
+# ---------------------------------------------------------------------------
+
+def _stamp(value, fmt):
+    """A moment as the page shows it, written by the server in both languages (Cairo, twelve hours)."""
+    return {"ar": clock.fmt12(value, "ar", fmt), "en": clock.fmt12(value, "en", fmt)} if value else None
+
+
+def _day_status_json(status):
+    tone, ar, en = DAY_STATUS_MAP.get(status, ("", status, status))
+    return {"value": status, "tone": tone, "ar": ar, "en": en}
+
+
+@endpoint("GET")
+@api_role_required(Role.TRANSLATOR)
+def translator_payroll(request):
+    """This person's own payslip for one month, read only: ``?period=2026-09``, this month when it is left out.
+
+    Only ever their own: the rows are read by ``user=request.user`` and nothing in the request names another
+    person. The full breakdown is the classic page ``/accounts/line/<id>/``, which refuses everybody else's.
+    """
+    user = request.user
+    today = timezone.localdate()
+    raw = request.GET.get("period", "")
+    if raw:
+        parsed = payroll.parse_period(raw)
+        if parsed is None:
+            return _error(400, "bad_period")
+        year, month = parsed
+    else:
+        year, month = today.year, today.month
+    first_day, last_day = payroll.month_bounds(year, month)
+    line = PayrollLine.objects.filter(user=user, period__year=year, period__month=month).select_related("period").first()
+    days = WorkDay.objects.filter(user=user, date__range=(first_day, last_day)).order_by("date")
+    violations = Violation.objects.filter(user=user, date__range=(first_day, last_day))
+    return JsonResponse({
+        "ok": True,
+        "year": year,
+        "month": month,
+        "periods": [{"year": y, "month": m} for y, m in payroll.period_choices(today=today)],
+        "daily_target_words": PayrollSettings.load().daily_target_words,
+        # Money as text: a float would round it.
+        "line": {
+            "id": line.pk,
+            "base_salary": str(line.base_salary),
+            "production_bonus": str(line.production_bonus),
+            "deductions": str(line.deductions),
+            "net": str(line.net),
+            "pending_bonus": str(line.pending_bonus),
+            "url": f"/accounts/line/{line.pk}/",
+        } if line else None,
+        "days": [
+            {"date": day.date.isoformat(), "status": _day_status_json(day.status), "words": day.words}
+            for day in days
+        ],
+        "violations": [
+            {
+                "date": row.date.isoformat(), "kind": _two(VIOLATION_KIND_MAP, row.kind),
+                "reason": row.reason, "status": row.status,
+            }
+            for row in violations
+        ],
+    })
+
+
+def _task_file_json(attachment):
+    """A file of the job as the task page lists it: a link, a name, a size - and a picture when it is one."""
+    return {
+        "id": attachment.pk,
+        "url": attachment.file.url,
+        "name": attachment.original_name or attachment.file.name.rsplit("/", 1)[-1],
+        "size": attachment.pretty_size,
+        "image": services.is_image(attachment),
+    }
+
+
+def _kind_json(kind):
+    ar, en = KIND_MAP.get(kind, (kind, kind))
+    return {"value": kind, "ar": ar, "en": en}
+
+
+@endpoint("GET")
+@api_role_required(Role.TRANSLATOR)
+def translator_task(request, code):
+    """One task as its translator reads it: the page ``/tasks/<code>/`` without what is not theirs to see.
+
+    ``Task.can_view`` decides, as it does on the classic page: a task that is not theirs is a 404 and a row in the
+    audit log, not a 403 that would say the code exists. The client is ``label_for`` (a code), the date is
+    ``deadline_for`` (their own, never the client's), the brief goes through ``clean_client_text`` and then
+    ``identity.for_viewer`` (no e-mail address or number), and the page's other cards are left out: the
+    operation's (deliveries, the client's own messages, the word count) and the team leader's (the AI notes).
+    The translator's own actions are the classic endpoints, whose answers this page reads again afterwards.
+    """
+    task = get_object_or_404(
+        Task.objects.select_related("client", "team_lead", "translator", "created_by"), code=code,
+    )
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+
+    conf = AppSettings.load()
+    mine = task.translator_id == user.id
+    due = task.deadline_for(user)
+    origin = ORIGIN_MAP.get(task.origin)
+    extension = services.extension_state(task, user) if mine else {}
+    pending, last = extension.get("extension_pending"), extension.get("extension_last")
+
+    def words(text):
+        return identity.for_viewer(text or "", user)
+
+    def brief(text):
+        return identity.mask_client(text, task.client, user)
+
+    translation = services.translator_files(task)
+    return JsonResponse({
+        "ok": True,
+        "task": {
+            "code": task.code,
+            "title": task.title,
+            "status": _status_json(task.status),
+            "priority": _two(PRIORITY_MAP, task.priority),
+            "origin": {"value": task.origin, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None,
+            "client": task.client.label_for(user) if task.client_id else "-",
+            "source_lang": task.source_lang,
+            "target_lang": task.target_lang,
+            "due": _stamp(due, "%Y-%m-%d"),
+            "due_state": task.deadline_state(user, conf.deadline_warning_minutes),
+            "description": brief(services.clean_client_text(task.description)),
+            "people": {
+                "operation": task.created_by.short_name if task.created_by_id else None,
+                "team_lead": task.team_lead.short_name if task.team_lead_id else None,
+                "translator": task.translator.short_name if task.translator_id else None,
+            },
+            "mine": mine,
+            "files": {
+                "original": [_task_file_json(a) for a in services.task_source_files(task)],
+                "translation": [dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d")) for a in translation],
+            },
+            # The upload box and the Finished button are the translator's own, while the job is in progress.
+            "can_upload": mine and task.status == TaskStatus.IN_PROGRESS,
+            "translation_missing": services.translation_missing(task),
+            "under_review": mine and task.status == TaskStatus.UNDER_REVIEW,
+            "extension": {
+                "can_ask": bool(extension.get("extension_can_ask")),
+                "pending": {"minutes": pending.minutes, "reason": words(pending.reason)} if pending else None,
+                "last": {
+                    "status": last.status, "minutes": last.minutes, "note": words(last.decision_note),
+                    "at": _stamp(last.decided_at, "%m-%d"),
+                } if last else None,
+            },
+            "chat": services.task_chat_link(task, user),
+            "requirements": [
+                {
+                    "id": r.pk, "kind": _kind_json(r.kind),
+                    "author": r.author.short_name if r.author_id else None, "text": brief(r.text),
+                }
+                for r in task.client.requirements.select_related("author")
+            ],
+            "history": [
+                {
+                    "id": a.pk, "name": a.assignee.short_name, "initials": a.assignee.initials, "role": a.target_role,
+                    "at": _stamp(a.assigned_at, "%m-%d"), "status": a.status,
+                }
+                for a in task.assignments.select_related("assignee")[:20]
+            ],
+            "ai": {
+                "visible": mine,
+                "enabled": conf.ai_check_enabled,
+                "checks": [
+                    {
+                        "id": c.pk, "status": c.status, "count": c.issue_count, "automatic": c.requested_by_id is None,
+                        "summary": words(c.summary or c.error_message), "at": _stamp(c.created_at, "%m-%d"),
+                    }
+                    for c in task.ai_checks.all()[:5]
+                ] if mine else [],
+            },
+        },
     })

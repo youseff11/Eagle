@@ -130,6 +130,105 @@ export interface TranslatorHomeResponse {
   rating_events: { delta: string; reason_ar: string; reason_en: string }[];
 }
 
+/** A moment the server wrote in both languages (Cairo, twelve hours). */
+export interface Stamp {
+  ar: string;
+  en: string;
+}
+
+/** GET /api/v1/translator/payroll/ */
+export interface PayrollResponse {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  daily_target_words: number;
+  /** Money is text, to the cent. `null` while the month has not been run. */
+  line: {
+    id: number;
+    base_salary: string;
+    production_bonus: string;
+    deductions: string;
+    net: string;
+    pending_bonus: string;
+    /** The classic page with the full breakdown. */
+    url: string;
+  } | null;
+  days: { date: string; status: Labelled & { tone: string }; words: number }[];
+  violations: { date: string; kind: Labelled; reason: string; status: "approved" | "pending" | "rejected" }[];
+}
+
+export interface TaskFile {
+  id: number;
+  url: string;
+  name: string;
+  size: string;
+  image: boolean;
+}
+
+export interface AiIssue {
+  location?: string;
+  severity?: "high" | "medium" | "low";
+  source_excerpt?: string;
+  translation_excerpt?: string;
+  issue_ar?: string;
+  issue_en?: string;
+  correct_meaning_ar?: string;
+}
+
+/** The task page as the translator reads it (`api_v1.translator_task`). */
+export interface TranslatorTask {
+  code: string;
+  title: string;
+  status: Labelled & { tone: string };
+  priority: Labelled;
+  origin: (Labelled & { icon: string }) | null;
+  /** A client code. The translator is never given a name. */
+  client: string;
+  source_lang: string;
+  target_lang: string;
+  due: Stamp | null;
+  due_state: "none" | "ok" | "soon" | "late" | "done";
+  description: string;
+  people: { operation: string | null; team_lead: string | null; translator: string | null };
+  /** Whether this task is the person's own (the admin may look at any). */
+  mine: boolean;
+  files: { original: TaskFile[]; translation: (TaskFile & { at: Stamp | null })[] };
+  can_upload: boolean;
+  translation_missing: boolean;
+  under_review: boolean;
+  extension: {
+    can_ask: boolean;
+    pending: { minutes: number; reason: string } | null;
+    last: { status: "approved" | "declined"; minutes: number; note: string; at: Stamp | null } | null;
+  };
+  /** Where "open the group" leads: a classic address (it hands on to the new chat when that is switched on). */
+  chat: { url: string; label_ar: string; label_en: string } | null;
+  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  history: { id: number; name: string; initials: string; role: Role; at: Stamp | null; status: string }[];
+  ai: {
+    visible: boolean;
+    enabled: boolean;
+    checks: { id: number; status: "running" | "clean" | "issues" | "error"; count: number; automatic: boolean; summary: string; at: Stamp | null }[];
+  };
+}
+
+/** GET /api/v1/translator/tasks/<code>/ */
+export interface TranslatorTaskResponse {
+  ok: true;
+  task: TranslatorTask;
+}
+
+/** POST /api/tasks/<code>/ai-check/ - the classic endpoint, whose answer is `ok: false` when the check itself failed. */
+export interface AiCheckAnswer {
+  ok: boolean;
+  status?: "clean" | "issues" | "error";
+  summary?: string;
+  issues?: AiIssue[];
+  error?: string;
+  count?: number;
+}
+
 /** The three lists of the chats page. A role gets only the ones `me.chats.types` names. */
 export type ChatKind = "clients" | "groups" | "staff";
 

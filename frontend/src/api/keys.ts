@@ -23,5 +23,9 @@ export const qk = {
   /** Everything a list page shows: one prefix, so a change on the boards refreshes them all. */
   boards: ["boards"] as const,
   translatorHome: ["boards", "translator-home"] as const,
+  /** The payslip of one month (`""` is this month). */
+  payroll: (period: string) => ["boards", "payroll", period] as const,
+  /** One task as its translator reads it: it moves with the boards (a status, an answer to more time). */
+  translatorTask: (code: string) => ["boards", "translator-task", code] as const,
   room: (id: number) => ["room", id] as const,
 };

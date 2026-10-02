@@ -7,6 +7,8 @@ import { HomePage } from "./pages/HomePage";
 import { NotFound } from "./pages/NotFound";
 import { ChatsPage } from "./pages/ChatsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { PayrollPage } from "./pages/PayrollPage";
+import { TaskPage } from "./pages/TaskPage";
 import { TranslatorHomePage } from "./pages/TranslatorHomePage";
 
 export function App({ pollMs }: { pollMs: number }) {
@@ -19,6 +21,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route index element={<HomePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="translator" element={<TranslatorHomePage />} />
+        <Route path="payroll" element={<PayrollPage />} />
+        <Route path="tasks/:code" element={<TaskPage />} />
         <Route path="chats" element={<ChatsPage />} />
         <Route path="chats/:code" element={<ChatsPage />} />
         <Route path="*" element={<NotFound />} />
