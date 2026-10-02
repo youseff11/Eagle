@@ -253,7 +253,8 @@ export function Bubble({
         ))}
         {entry.actions && entry.has_docs && (onConfirm || onConvert) && (
           <div className="bub__actions">
-            {onConfirm && (
+            {/* One receipt per message: once somebody has said "received", the button is gone and their name is there. */}
+            {onConfirm && !entry.claimed_by && (
               <button type="button" className="btn btn--sm btn--accent" onClick={() => onConfirm(entry)}>
                 <Icon name="check" size="sm" />
                 <span>{t("استلمت", "Received")}</span>

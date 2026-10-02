@@ -87,10 +87,12 @@ export function ForwardDialog({
   const loading = lists.some((list) => list.isPending);
   const failed = !loading && lists.some((list) => list.isError && !list.data);
   const needle = query.trim().toLowerCase();
-  const rows = [staff.data, groups.data, clients.data]
-    .flatMap((answer) => answer?.items ?? [])
-    .filter((row) => row.code !== source)
-    .filter((row) => !needle || row.label.toLowerCase().includes(needle) || row.code.toLowerCase().includes(needle));
+  const everywhere = [staff.data, groups.data, clients.data].flatMap((answer) => answer?.items ?? []).filter((row) => row.code !== source);
+  const rows = everywhere.filter((row) => !needle || row.label.toLowerCase().includes(needle) || row.code.toLowerCase().includes(needle));
+  // What is said in a work group or to a colleague is internal; a client's conversation, or a group that reaches one, is not.
+  const target = everywhere.find((row) => row.code === chosen);
+  const toClient = target !== undefined && ((!target.group && !target.staff) || target.reaches_client === true);
+  const warn = toClient && /^[gu]\d+$/.test(source);
 
   const send = () => {
     if (!chosen || pending) return;
@@ -187,6 +189,17 @@ export function ForwardDialog({
               ))}
             </div>
 
+            {warn && (
+              <div className="note note--warn" role="note">
+                <Icon name="alert" />
+                <div>
+                  {t(
+                    "ده هيتبعت للعميل على واتساب. اتأكد إن اللي اخترته مش كلام داخلي.",
+                    "This goes to the client on WhatsApp. Make sure what you picked is not internal talk.",
+                  )}
+                </div>
+              </div>
+            )}
             <p className="muted fwd-hint">
               {t(
                 "كلام العميل بيتحول للأوبريشن والأدمن بس. لأي حد تاني بتتحول ملفاته من غير نصه.",

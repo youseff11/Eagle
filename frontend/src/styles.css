@@ -77,6 +77,18 @@ button.bub__sel { padding: 0; cursor: pointer; }
 button.bub__reacts { appearance: none; font-family: inherit; }
 button.bub__reacts:disabled { cursor: default; opacity: 1; }
 
+/* The conversation's header carries up to five actions (pick files, client profile, add member, task done, forward). They
+   wrap under the name instead of pushing the room wider than its column - which clipped it and, as the room scrolled,
+   closed the bar of reactions - and on a phone they are icons: each has its words as a title. */
+.cchat__head { flex-wrap: wrap; row-gap: 6px; }
+.cchat__head > div:not(.grow) { min-width: 0; }
+@media (max-width: 860px) {
+  .cchat__head { flex-wrap: wrap; height: auto; }
+  .cchat__head .btn { padding: 6px 8px; }
+  .cchat__head .btn span { display: none; }
+  .cchat__head .cchat__profile { display: inline-flex; }
+}
+
 /* How long the message is, once it is nearly too long; and a conversation in which a message did not go. */
 .cchat__count { flex: none; padding: 0 14px; font-size: 11px; text-align: end; color: var(--muted); }
 .cchat__count.is-over { color: var(--danger, #e5484d); }

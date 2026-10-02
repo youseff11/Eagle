@@ -32,11 +32,12 @@ from functools import wraps
 
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, TooManyFilesSent
 from django.http import Http404, JsonResponse, QueryDict
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from . import api, audio, clock, identity, newui, services
-from .models import AppSettings, ChatRoom, Notification, Role, RoomKind, TaskStatus, User
+from .models import AppSettings, ChatRoom, InboundMessage, Notification, Role, RoomKind, TaskStatus, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ORIGIN_MAP, PRIORITY_MAP, STATUS_MAP
 
@@ -597,6 +598,10 @@ def client_send(request, client_code):
 #: The most messages (or files) one forward may carry, and the longest code a body may name.
 MAX_FORWARD_ITEMS = 100
 MAX_CODE = 40
+#: The most that may go out to a client in one forward (each is a send to WhatsApp, made while the page waits).
+MAX_RELAYED_ITEMS = 20
+#: The biggest JSON body these doors read. What they carry is a few codes and ids: 100 of them are a few kilobytes.
+MAX_JSON_BODY = 64 * 1024
 #: The longest note that goes with a forward (``services.forward_messages`` cuts at the same number).
 MAX_FORWARD_NOTE = 2000
 
@@ -611,6 +616,13 @@ def _object(request):
     if not (request.content_type or "").startswith("application/json"):
         raise BadBody
     try:
+        length = int(request.META.get("CONTENT_LENGTH") or 0)
+    except ValueError:
+        raise BadBody from None
+    # Said before the body is read: a logged-in person must not be able to make the server hold megabytes per call.
+    if length > MAX_JSON_BODY:
+        raise BadBody
+    try:
         body = json.loads(request.body or b"{}")
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise BadBody from None
@@ -622,7 +634,8 @@ def _object(request):
 def _text(body, name, limit):
     """A string field, cut of its edges; anything else, or longer than ``limit``, is ``BadBody``."""
     value = body.get(name, "")
-    if not isinstance(value, str) or len(value) > limit:
+    # A NUL is a character Postgres refuses in text: a 500 there, and nothing a person ever means to write.
+    if not isinstance(value, str) or len(value) > limit or "\x00" in value:
         raise BadBody
     return value.strip()
 
@@ -641,7 +654,7 @@ def _list(body, name, clean):
 
 
 def _code(value):
-    if not isinstance(value, str) or not 0 < len(value.strip()) <= MAX_CODE:
+    if not isinstance(value, str) or not 0 < len(value.strip()) <= MAX_CODE or "\x00" in value:
         raise BadBody
     return value.strip()
 
@@ -686,7 +699,7 @@ def chat_forward(request):
     if not uids and not files:
         return _error(400, "empty")
     done, words, _url, written = services.forward_messages(
-        request.user, source, target, uids=uids, attachment_ids=files, note=note
+        request.user, source, target, uids=uids, attachment_ids=files, note=note, max_relayed=MAX_RELAYED_ITEMS,
     )
     # The words of a refusal are ours; the words of a failed delivery came from a library that quotes the
     # recipient back, and a person who may not know the client does not get their number from this.
@@ -749,6 +762,9 @@ def _classic_answer(response, viewer, keep=()):
     except ValueError:
         detail = {}
     words = identity.for_viewer(str(detail.get("error") or ""), viewer)
+    # A bare code from the classic guard ("forbidden") is not a reason to show a person.
+    if words in ("forbidden", "auth"):
+        words = ""
     if response.status_code == 200 and detail.get("ok"):
         return JsonResponse({"ok": True, "message": words, **{name: detail[name] for name in keep if name in detail}})
     forbidden = response.status_code == 403
@@ -864,8 +880,23 @@ def task_hand_in(request, code):
 # ---------------------------------------------------------------------------
 
 @endpoint("POST")
+@api_role_required(Role.OPERATION, Role.SALES)
 def message_confirm(request, message_id):
-    """Tell the client the message arrived. ``ok`` once the receipt is out and the message is claimed."""
+    """Tell the client the message arrived. ``ok`` once the receipt is out and the message is claimed.
+
+    One receipt per message: a message somebody has already said "received" for is refused, so that a stale page, a
+    second tab or a double press cannot send the client "confirmed" again and again. Said only to somebody who may
+    answer this message at all (the line, the rate rule): for anybody else it is the same 404 as for a message that
+    does not exist.
+    """
+    message = get_object_or_404(InboundMessage.objects.select_related("claimed_by"), pk=message_id)
+    if not message.visible_to(request.user):
+        raise Http404
+    if message.claimed_by_id:
+        return JsonResponse({
+            "ok": False, "error": "refused",
+            "message": f"الرسالة دي اتأكد استلامها قبل كده ({message.claimed_by.short_name}).",
+        }, status=400)
     return _classic_answer(api.confirm_message(request, message_id), request.user, keep=("claimed_by",))
 
 

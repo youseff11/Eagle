@@ -51,7 +51,8 @@ export function ReactionPicker({
   // Opening it puts the focus on the one that is lit, or the first.
   useEffect(() => {
     const buttons = Array.from(node.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
-    (buttons.find((button) => button.classList.contains("is-on")) ?? buttons[0])?.focus();
+    // Without `preventScroll` the browser may scroll the conversation to the bar - and the bar closes on any scroll.
+    (buttons.find((button) => button.classList.contains("is-on")) ?? buttons[0])?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {

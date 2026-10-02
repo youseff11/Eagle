@@ -712,7 +712,7 @@ def _ids(raw_values):
     ids = []
     for value in raw_values or []:
         for chunk in str(value).replace(" ", "").split(","):
-            if chunk.isdigit() and int(chunk) not in ids:
+            if chunk.isdecimal() and int(chunk) not in ids:
                 ids.append(int(chunk))
     return ids
 
@@ -763,7 +763,12 @@ def _source_messages(request):
     qs = InboundMessage.objects.filter(pk__in=ids).select_related("client")
     if not request.user.is_admin_role:
         qs = qs.filter(is_rate_blocked=False)
-    rows = list(qs.prefetch_related("attachments").order_by("received_at", "id"))
+    # The line as well: a Sales person's own number is theirs alone, and an id is only a number. ``visible_to`` is
+    # the rule ``lines.line_q`` applies to every list, for a row in hand.
+    rows = [
+        row for row in qs.prefetch_related("attachments").order_by("received_at", "id")
+        if row.visible_to(request.user)
+    ]
     if not rows:
         return []
     owner = rows[0].client_id
@@ -787,8 +792,7 @@ def ops_task_new(request):
             services.task_inbounds(from_task).select_related("client")
             .prefetch_related("attachments").order_by("received_at", "id")
         )
-        if not request.user.is_admin_role:
-            messages = [m for m in messages if not m.is_rate_blocked]
+        messages = [m for m in messages if m.visible_to(request.user)]
     message = messages[0] if messages else None
 
     # Which of the client's files the operation ticked. Nothing ticked means

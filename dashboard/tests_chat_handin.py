@@ -88,6 +88,14 @@ class TasksTests(_HandIn):
         body = _json(self.tasks_for(self.tr))
         self.assertEqual(body["tasks"], [{"code": self.task.code, "title": "Doc"}])
 
+    def test_a_second_translator_in_the_same_group_is_not_offered_the_first_ones_task(self):
+        # A leader's group may seat several translators: each is offered what is theirs and nothing else.
+        self.group.members.add(self.tr2)
+        self.assertEqual(_json(self.tasks_for(self.tr2))["tasks"], [])
+        mine = self.make_task("Second translator's job", self.tr2)
+        self.assertEqual([t["code"] for t in _json(self.tasks_for(self.tr2))["tasks"]], [mine.code])
+        self.assertEqual([t["code"] for t in _json(self.tasks_for(self.tr))["tasks"]], [self.task.code])
+
     def test_nobody_else_is_offered_anything(self):
         for user in (self.lead, self.admin):
             self.assertEqual(_json(self.tasks_for(user))["tasks"], [], user.username)

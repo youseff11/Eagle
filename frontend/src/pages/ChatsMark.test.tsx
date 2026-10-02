@@ -568,6 +568,36 @@ describe("forwarding", () => {
     expect(body(posts(calls, FORWARD)[0]!)).toEqual({ source: "CL-0001", target: "u5", uids: ["in-1"], note: "" });
   });
 
+  it("warns when what is forwarded from a work group or a colleague is going to a client, and only then", async () => {
+    await pickBoth();
+    await waitFor(() => expect(within(dialog()).getAllByRole("radio")).toHaveLength(4));
+    expect(within(dialog()).queryByRole("note")).not.toBeInTheDocument();
+    await choose("Sam");
+    expect(within(dialog()).queryByRole("note")).not.toBeInTheDocument();
+    await choose("CL-0002");
+    expect(within(dialog()).getByRole("note")).toHaveTextContent("ده هيتبعت للعميل على واتساب");
+    // A group that reaches a client is a client's too.
+    await choose("With Acme");
+    expect(within(dialog()).getByRole("note")).toBeInTheDocument();
+    await choose("Sam");
+    expect(within(dialog()).queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("does not warn when the messages come from the client's own conversation", async () => {
+    render(
+      "/chats/CL-0001",
+      { lists, thread: { client: row("CL-0001"), messages: [entry(1, { uid: "in-1", body: "the client wrote" })] } },
+      { ...arrived },
+    );
+    await screen.findByText("the client wrote");
+    await userEvent.click(screen.getByRole("button", { name: "تحويل" }));
+    await userEvent.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "تحويل" }));
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog()).getAllByRole("radio")).toHaveLength(5));
+    await choose("With Acme");
+    expect(within(dialog()).queryByRole("note")).not.toBeInTheDocument();
+  });
+
   it("draws nothing the server wrote as markup", async () => {
     await pickBoth({
       [FORWARD]: () => jsonResponse({ ok: false, error: "refused", message: "<img src=x onerror=alert(1)>" }, 400),

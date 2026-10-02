@@ -52,7 +52,11 @@ describe("opening a work group", () => {
     "/api/v1/groups/": (url: URL, init: RequestInit | undefined) =>
       url.pathname === "/api/v1/groups/" && init?.method === "POST"
         ? answer(init)
-        : jsonResponse({ ok: true, client: row("g9", { group: true, team: true, label: "New group", room: 19 }), messages: [entry(1, { uid: "g19-1", body: "A new group" })] }),
+        : url.pathname.endsWith("/members/")
+          ? jsonResponse({ ok: true, members: [], can_add: false, addable: [] })
+          : url.pathname.endsWith("/handin-tasks/")
+            ? jsonResponse({ ok: true, tasks: [] })
+            : jsonResponse({ ok: true, client: row("g9", { group: true, team: true, label: "New group", room: 19 }), messages: [entry(1, { uid: "g19-1", body: "A new group" })] }),
   });
 
   async function open(extra: Parameters<typeof render>[2] = {}, setup: Parameters<typeof render>[1] = {}) {

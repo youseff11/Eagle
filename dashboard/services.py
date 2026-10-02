@@ -1044,7 +1044,7 @@ def group_thread(room, user, limit=200):
         quoted = row.reply_to
         receipt, seen_by = receipts.get(row.id, ("", []))
         items.append({
-            "quote": _quote_text(quoted),
+            "quote": _quote_text(quoted, user),
             "quote_who": (
                 ("العميل" if quoted.from_client else (
                     quoted.sender.short_name if quoted.sender_id else ""))
@@ -1052,7 +1052,7 @@ def group_thread(room, user, limit=200):
             ),
             "uid": f"g{room.id}-{row.id}",
             "kind": "in" if row.from_client else "out",
-            "body": row.body,
+            "body": words_of(row, user),
             "subject": "",
             "channel": "",
             "at": row.created_at,
@@ -1077,11 +1077,27 @@ def group_thread(room, user, limit=200):
     return items
 
 
-def _quote_text(message):
+def words_of(message, viewer):
+    """A room message's words as ``viewer`` may read them.
+
+    A client's own words are forwarded into a room only where everybody in it may read them (``forward_messages``:
+    the operation and the admin). That is a rule about who reads, so it holds when somebody reads, not only when it is
+    written: whoever is seated in the room afterwards - a translator, a team leader, HR - sees the files and not the
+    client's words, the same as if they had been forwarded to them. (The row says whose words they are:
+    ``origin_client``.)
+    """
+    if message.origin_client_id and not (
+        viewer is not None and (viewer.is_operation or viewer.is_admin_role)
+    ):
+        return ""
+    return message.body
+
+
+def _quote_text(message, viewer=None):
     """A one-line stand-in for a quoted message — its text, or its file's name."""
     if message is None:
         return ""
-    text = (message.body or "").strip()
+    text = (words_of(message, viewer) or "").strip()
     if not text:
         first = next(iter(message.relay_files), None)
         text = (first.original_name or first.file.name) if first else ""
@@ -1100,7 +1116,7 @@ def _room_last_preview(room, user, last, files=None, receipt=None):
     every room at once (``chatlists``); left out, each is asked of the database
     here, for this one room.
     """
-    text = last.body or _attachment_snippet(last.relay_files if files is None else files)
+    text = words_of(last, user) or _attachment_snippet(last.relay_files if files is None else files)
     mine = user is not None and last.sender_id == user.pk
     ticks = ""
     if mine:
@@ -3932,7 +3948,7 @@ def delete_clients(admin, client_ids):
     if admin is None or not admin.is_admin_role:
         return False, "الخطوة دي للأدمن بس.", [], [], 0
 
-    ids = [int(x) for x in client_ids if str(x).isdigit()]
+    ids = [int(x) for x in client_ids if str(x).isdecimal()]
     try:
         with transaction.atomic():
             plan = client_delete_plan(Client.objects.filter(pk__in=ids))
@@ -4119,7 +4135,7 @@ def _forward_items(user, source, uids, attachment_ids):
 
     for uid in uids or []:
         side, _, raw = str(uid).rpartition("-")
-        if not raw.isdigit():
+        if not raw.isdecimal():
             continue
         pk = int(raw)
         if kind == "client":
@@ -4157,7 +4173,7 @@ def _forward_items(user, source, uids, attachment_ids):
         client = target
         # Only files of messages this person may read: their line, and no rate-blocked one unless admin.
         rows = MessageAttachment.objects.filter(
-            pk__in=[int(x) for x in attachment_ids if str(x).isdigit()],
+            pk__in=[int(x) for x in attachment_ids if str(x).isdecimal()],
             message__in=_wa_inbound(client, user),
         ).select_related("message")
         for row in rows.order_by("message__received_at", "id"):
@@ -4165,6 +4181,9 @@ def _forward_items(user, source, uids, attachment_ids):
 
     items.sort(key=lambda item: item["at"])
     return [item for item in items if item["text"] or item["files"]]
+
+
+_TOO_MANY_TO_CLIENT_AR = "كتير على عميل في مرة واحدة: لحد %d. قسّمهم على كذا مرة."
 
 
 def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
@@ -4175,8 +4194,12 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
     return ok, error, url
 
 
-def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
+def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(), note="", max_relayed=None):
     """Forward messages and/or files. Returns ``(ok, error_ar, url, written)``.
+
+    ``max_relayed`` (a number, or ``None`` for no limit) is the most that may go OUT to a client in one call - to a
+    client's own conversation or to a room that relays to one: each is a send to WhatsApp, made while the page waits,
+    and a request that outlasts the proxy ends in "not sure" and a second send of what already went.
 
     ``written`` says whether anything reached the target, even when ``ok`` is False: a group's relay that
     failed after the messages were in the room, or a client who got the first of three. A page that is told
@@ -4205,6 +4228,8 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
         owners.discard(None)
         if owners - {client.pk}:
             return False, "مينفعش تحوّل رسايل أو ملفات عميل لعميل تاني.", "", False
+        if max_relayed is not None and len(items) > max_relayed:
+            return False, _TOO_MANY_TO_CLIENT_AR % max_relayed, "", False
         reached = False
         if note:
             ok, _out, error = send_client_message(
@@ -4238,6 +4263,8 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
         owners.discard(None)
         if owners - {relays_to.pk}:
             return False, "مينفعش تحوّل رسايل أو ملفات عميل لجروب عميل تاني.", "", False
+        if max_relayed is not None and len(items) > max_relayed:
+            return False, _TOO_MANY_TO_CLIENT_AR % max_relayed, "", False
     members = list(room.members.all())
     # Everyone in the room may read a client's own words - or nobody gets them.
     all_inbox = all(m.is_operation or m.is_admin_role for m in members)
@@ -4283,7 +4310,6 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
                 relay_error = error
 
     mark_room_read(user, room)
-    where = room.title_for(user)
     url = f"/ops/chats/g/{room.id}/" if room.kind != RoomKind.STAFF else ""
     for member in members:
         if member.pk == user.pk:
@@ -4293,6 +4319,8 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
         # room, not somebody whose seat outlived the task.
         if not room.can_open(member):
             continue
+        # A colleague's chat is called by the other person's name: each one's own view of it.
+        where = room.title_for(member)
         notify(
             member, level="info",
             title_ar="رسايل محوّلة", title_en="Forwarded messages",
@@ -4386,7 +4414,7 @@ def toggle_reaction(user, source_code, uid, kind):
     if source is None:
         return False, "المحادثة دي مش متاحة ليك.", []
     side, _, raw = str(uid or "").rpartition("-")
-    if not raw.isdigit():
+    if not raw.isdecimal():
         return False, "الرسالة مش موجودة.", []
     pk = int(raw)
     where, target = source

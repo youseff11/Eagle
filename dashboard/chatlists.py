@@ -170,7 +170,7 @@ def group_facts(user, rooms, staff=False):
                 else:
                     others = [pk for pk in members.get(room.pk, ()) if pk != user.pk]
                     receipt = services.receipt_of(room, last, others, cursors.get(room.pk, {}))[0]
-            files = _files_of(last) if not last.body else None
+            files = _files_of(last) if not services.words_of(last, user) else None
             preview = services._room_last_preview(room, user, last, files=files, receipt=receipt)
         fact = {"preview": preview}
         client = clients[room.pk]

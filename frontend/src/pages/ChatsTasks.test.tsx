@@ -94,6 +94,17 @@ describe("under a client's message", () => {
     expect(within(actions).queryByRole("button", { name: "تحويل لتاسك" })).not.toBeInTheDocument();
     expect(within(actions).getByText("Hana")).toBeInTheDocument();
   });
+
+  it("takes «استلمت» away once somebody has said it: one receipt per message, so a stale page cannot send it again", async () => {
+    const claimed = entry(1, { uid: "in-1", date: "2026-10-01", body: "the contract", actions: true, has_docs: true, claimed_by: "Hana", files: [doc(11, "contract.pdf")] });
+    const fresh = entry(2, { uid: "in-2", date: "2026-10-01", body: "one more page", actions: true, has_docs: true, files: [doc(13, "page.pdf")] });
+    await open({}, {}, { client, messages: [claimed, fresh] });
+    expect(within(document.querySelector('[data-uid="in-1"]') as HTMLElement).queryByRole("button", { name: "استلمت" })).toBeNull();
+    expect(within(document.querySelector('[data-uid="in-1"]') as HTMLElement).getByText("Hana")).toBeInTheDocument();
+    // Turning it into a task is still there, and the other message still has its receipt button.
+    expect(within(document.querySelector('[data-uid="in-1"]') as HTMLElement).getByRole("button", { name: "تحويل لتاسك" })).toBeInTheDocument();
+    expect(within(document.querySelector('[data-uid="in-2"]') as HTMLElement).getByRole("button", { name: "استلمت" })).toBeInTheDocument();
+  });
 });
 
 describe("«استلمت»", () => {

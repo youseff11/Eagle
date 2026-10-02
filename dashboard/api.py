@@ -860,7 +860,7 @@ def _message_json(message, viewer):
     from_client = message.from_client
     return {
         "id": message.id,
-        "body": message.body,
+        "body": services.words_of(message, viewer),
         "system": message.is_system,
         "sender": message.sender.short_name if message.sender_id else "",
         "sender_id": message.sender_id or 0,
@@ -1369,7 +1369,7 @@ def chat_forward(request):
     uids = [u for u in request.POST.getlist("uids") if u]
     files = []
     for value in request.POST.getlist("files"):
-        files += [chunk for chunk in str(value).split(",") if chunk.strip().isdigit()]
+        files += [chunk for chunk in str(value).split(",") if chunk.strip().isdecimal()]
     ok, error, url = services.forward_to_chat(
         request.user,
         request.POST.get("source", ""),
