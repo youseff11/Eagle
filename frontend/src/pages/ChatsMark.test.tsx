@@ -401,6 +401,31 @@ describe("forwarding", () => {
     expect(calls.some((c) => c.url === "/api/v1/staff/5/messages/")).toBe(true);
   });
 
+  it("calls the note a caption only where it is one: in a client's own conversation, with what the client will see", async () => {
+    const { calls } = await pickBoth({ [FORWARD]: () => jsonResponse({ ok: true, delivered: true, message: "", code: "CL-0002" }) });
+    await waitFor(() => expect(within(dialog()).getAllByRole("radio")).toHaveLength(4));
+    const caption = () => within(dialog()).queryByRole("textbox", { name: "كابشن" });
+    const note = () => within(dialog()).queryByRole("textbox", { name: "كلمة مع التحويل" });
+    const hint = () => within(dialog()).queryByText(/الكابشن بيظهر للعميل تحت الملف/);
+    // Nothing chosen yet, a colleague, and a group (even one that reaches the client: it is a line in the chat there).
+    expect([caption(), hint()]).toEqual([null, null]);
+    expect(note()).not.toBeNull();
+    await choose("Sam");
+    expect([caption(), hint()]).toEqual([null, null]);
+    await choose("With Acme");
+    expect([caption(), hint()]).toEqual([null, null]);
+    expect(note()).not.toBeNull();
+
+    await choose("CL-0002");
+    expect(note()).toBeNull();
+    expect(hint()).not.toBeNull();
+    await userEvent.type(caption()!, "  Your translation ");
+    await userEvent.click(send());
+    await waitFor(() => expect(posts(calls, FORWARD)).toHaveLength(1));
+    // It travels in the same field the server already reads, trimmed.
+    expect(body(posts(calls, FORWARD)[0]!)).toEqual({ source: "g1", target: "CL-0002", uids: ["g1-6", "g1-5"], note: "Your translation" });
+  });
+
   it("carries the CSRF token", async () => {
     document.cookie = "csrftoken=tok789";
     const { calls } = await pickBoth({ [FORWARD]: () => jsonResponse({ ok: true, delivered: true, message: "", code: "u5" }) });

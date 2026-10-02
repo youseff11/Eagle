@@ -93,6 +93,8 @@ export function ForwardDialog({
   const target = everywhere.find((row) => row.code === chosen);
   const toClient = target !== undefined && ((!target.group && !target.staff) || target.reaches_client === true);
   const warn = toClient && /^[gu]\d+$/.test(source);
+  // Into a client's own conversation the note is a caption: what the client reads under a file. Anywhere else it is a line in the chat.
+  const caption = target !== undefined && !target.group && !target.staff;
 
   const send = () => {
     if (!chosen || pending) return;
@@ -212,9 +214,17 @@ export function ForwardDialog({
               value={note}
               maxLength={NOTE_LIMIT}
               onChange={(event) => setNote(event.target.value)}
-              placeholder={t("كلمة مع التحويل (اختياري)", "Add a note (optional)")}
-              aria-label={t("كلمة مع التحويل", "Note")}
+              placeholder={caption ? t("كابشن للعميل (اختياري)", "Caption for the client (optional)") : t("كلمة مع التحويل (اختياري)", "Add a note (optional)")}
+              aria-label={caption ? t("كابشن", "Caption") : t("كلمة مع التحويل", "Note")}
             />
+            {caption && (
+              <p className="muted fwd-hint">
+                {t(
+                  "الكابشن بيظهر للعميل تحت الملف، ولو مفيش ملف بيتبعت كرسالة قبل الباقي. من غير كابشن الملف بيتبعت بكلمة «مرفق ملف.» مش باسمه.",
+                  "The caption appears under the file for the client, or goes first as a message if there is no file. With none, a file goes with a neutral line (\"مرفق ملف.\"), not with its stored name.",
+                )}
+              </p>
+            )}
 
             <div className="row" style={{ marginTop: 14, alignItems: "center" }}>
               <div role="alert" style={{ color: "var(--danger, #e5484d)", fontSize: ".8rem" }}>

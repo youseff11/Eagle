@@ -256,6 +256,16 @@ def upload_media(content, filename, mime, from_id=""):
     return media_id
 
 
+#: The kinds of file WhatsApp lets carry a caption (an audio message cannot), and the longest caption it takes.
+CAPTION_KINDS = ("document", "image", "video")
+CAPTION_LIMIT = 1000
+
+
+def can_caption(filename, mime=None):
+    """Whether a file sent as ``filename`` / ``mime`` could carry a caption."""
+    return media_kind(mime or guess_mime(filename)) in CAPTION_KINDS
+
+
 def send_file(to, content, filename, mime=None, caption="", context_id="", from_id=""):
     """Upload then send one file. Returns the WhatsApp message id."""
     mime = mime or guess_mime(filename)
@@ -265,8 +275,8 @@ def send_file(to, content, filename, mime=None, caption="", context_id="", from_
     block = {"id": media_id}
     if kind == "document":
         block["filename"] = filename
-    if caption and kind in ("document", "image", "video"):
-        block["caption"] = caption[:1000]
+    if caption and kind in CAPTION_KINDS:
+        block["caption"] = caption[:CAPTION_LIMIT]
 
     return _send(_with_context({
         "messaging_product": "whatsapp",

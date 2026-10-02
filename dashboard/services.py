@@ -4191,6 +4191,9 @@ def _forward_items(user, source, uids, attachment_ids):
 
 _TOO_MANY_TO_CLIENT_AR = "كتير على عميل في مرة واحدة: لحد %d. قسّمهم على كذا مرة."
 
+#: The line a forwarded file goes to a client with when its sender wrote no caption for it.
+FORWARD_FILE_CAPTION_AR = "مرفق ملف."
+
 
 def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
     """Forward messages and/or files. Returns ``(ok, error_ar, url)``."""
@@ -4236,8 +4239,16 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
             return False, "مينفعش تحوّل رسايل أو ملفات عميل لعميل تاني.", "", False
         if max_relayed is not None and len(items) > max_relayed:
             return False, _TOO_MANY_TO_CLIENT_AR % max_relayed, "", False
+        # What the client reads under a file is the caption the sender chose: the note, on the first file that
+        # came without words of its own. A file with nothing to say goes with a neutral line, never with the
+        # name it was stored under (it may carry a task code or a translator's name). A note with no file
+        # to ride on - or too long for a caption - goes ahead of the messages, as words.
+        from . import whatsapp as wa
+
+        file_only = [item for item in items if not item["text"] and item["files"]]
+        caption = note if file_only and len(note) <= wa.CAPTION_LIMIT else ""
         reached = False
-        if note:
+        if note and not caption:
             ok, _out, error = send_client_message(
                 client, user, body=note, force_channel=Channel.WHATSAPP
             )
@@ -4245,10 +4256,12 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
                 return False, error, "", False
             reached = True
         for item in items:
+            body, carries = item["text"], False
+            if not body and item["files"]:
+                body, caption, carries = caption or FORWARD_FILE_CAPTION_AR, "", True
             ok, _out, error = send_client_message(
-                client, user, body=item["text"],
-                reuse_files=[f for f, _owner in item["files"]],
-                force_channel=Channel.WHATSAPP,
+                client, user, body=body, reuse_files=[f for f, _owner in item["files"]],
+                caption_files=carries, force_channel=Channel.WHATSAPP,
             )
             if not ok:
                 return False, error, "", reached
@@ -4636,7 +4649,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
                         reply_preview="", force_channel="", subject="",
                         in_reply_to="", references=(), thread_key="",
-                        reuse_files=None):
+                        reuse_files=None, caption_files=False):
     """Free-form reply to a client on whichever channel they used last.
 
     ``force_channel`` names the line instead of guessing it. The two pages are
@@ -4660,6 +4673,14 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     ``reuse_files`` are attachment rows already stored (a forward): the new
     outbound row points at the same stored file instead of a copy, so the
     thread still links it and nothing is uploaded twice.
+
+    ``caption_files`` says the words are the caption of the files, not a text
+    of their own: on WhatsApp they ride on the first file that can carry one
+    (a short caption on a document, an image or a video), and the files after
+    it go with none. Without a file that can carry them (an audio message, or
+    words past WhatsApp's caption limit) they are sent first as a text, as
+    always. Without ``caption_files`` and without words a file is captioned
+    with its own name.
 
     Returns ``(ok, outbound, error_ar)``. Nothing is ever silently dropped —
     a failure is stored as a FAILED row so it stays visible in the thread.
@@ -4785,15 +4806,29 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
 
         if channel == Channel.WHATSAPP:
             quote = reply_to_wamid or ""
-            if body:
+            # The words ride on the first file that can carry them, if they were meant to.
+            carried = (
+                body if caption_files and len(body) <= wa.CAPTION_LIMIT
+                and any(wa.can_caption(name, mime) for name, _content, mime in payload)
+                else ""
+            )
+            if body and not carried:
                 outbound.provider_id = wa.send_text(
                     target, body, context_id=quote, from_id=from_number
                 )
                 quote = ""       # only the first message carries the quote
             for index, (name, content, mime) in enumerate(payload):
-                wa.send_file(target, content, name, mime,
-                             caption="" if body else name, context_id=quote,
-                             from_id=from_number)
+                caption = "" if body else name
+                if carried:
+                    caption = ""
+                    if wa.can_caption(name, mime):
+                        caption, carried = carried, ""
+                sent_id = wa.send_file(target, content, name, mime,
+                                       caption=caption, context_id=quote,
+                                       from_id=from_number)
+                # The message that holds the words is the one WhatsApp's ticks will name.
+                if body and caption and not outbound.provider_id:
+                    outbound.provider_id = sent_id
                 quote = ""
                 outbound.files[index]["status"] = "sent"
         else:

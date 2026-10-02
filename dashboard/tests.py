@@ -10352,7 +10352,9 @@ class ReviewedFilesToOperationTests(TestCase):
             )
         self.assertTrue(ok, error)
         self.assertEqual(send.call_count, 1)
-        self.assertEqual(send.call_args.kwargs["body"], "")
+        # A file with nothing said about it goes with the neutral caption, never under its stored name.
+        self.assertEqual(send.call_args.kwargs["body"], services.FORWARD_FILE_CAPTION_AR)
+        self.assertTrue(send.call_args.kwargs["caption_files"])
         self.assertEqual(len(send.call_args.kwargs["reuse_files"]), 1)
 
     def test_they_cannot_be_forwarded_to_another_client(self):
