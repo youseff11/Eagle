@@ -6,15 +6,11 @@ import { ChatList } from "../components/chat/ChatList";
 import { Conversation } from "../components/chat/Conversation";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
+import { kindOfCode } from "../lib/chatCode";
 
 const KINDS: ChatKind[] = ["clients", "groups", "staff"];
 
-/** Which list a conversation belongs to, from the code its row carries. */
-export function kindOfCode(code: string): ChatKind {
-  if (/^g\d+$/.test(code)) return "groups";
-  if (/^u\d+$/.test(code)) return "staff";
-  return "clients";
-}
+export { kindOfCode };
 
 /** A value that follows `value` only once it has stopped changing for `delay` ms (a search box, not a request per key). */
 function useDebounced<T>(value: T, delay: number): T {

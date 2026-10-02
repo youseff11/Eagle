@@ -13,11 +13,11 @@ and was not. A file arriving pings too. The pings carry nothing, so there is no
 harm in several; the page can fold them into one refresh.
 """
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from . import realtime
-from .models import ChatAttachment, ChatMessage, Notification
+from .models import ChatAttachment, ChatMessage, ChatReaction, Notification
 
 
 @receiver(post_save, sender=Notification, dispatch_uid="realtime_notification")
@@ -36,3 +36,19 @@ def push_chat_message(sender, instance, created, raw=False, **kwargs):
 def push_chat_attachment(sender, instance, created, raw=False, **kwargs):
     if created and not raw:
         realtime.push_room(instance.message.room_id)
+
+
+@receiver(post_save, sender=ChatReaction, dispatch_uid="realtime_chat_reaction_saved")
+@receiver(post_delete, sender=ChatReaction, dispatch_uid="realtime_chat_reaction_deleted")
+def push_chat_reaction(sender, instance, raw=False, **kwargs):
+    """A reaction to a room's message (given, changed or taken back) is news for everyone in the room.
+
+    A reaction to a client's own message has no room, so it rings nobody: those pages show it on the next
+    refresh. Looked up by id, not through the relation: when the message itself is being deleted it may be
+    gone already, and then there is nothing to tell.
+    """
+    if raw or not instance.message_id:
+        return
+    room_id = ChatMessage.objects.filter(pk=instance.message_id).values_list("room_id", flat=True).first()
+    if room_id:
+        realtime.push_room(room_id)

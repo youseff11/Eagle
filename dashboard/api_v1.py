@@ -581,6 +581,121 @@ def client_send(request, client_code):
 
 
 # ---------------------------------------------------------------------------
+# Chats, step 3d: reactions and forwarding
+#
+# Two doors over the functions the classic page calls (``services.toggle_reaction``, ``services.forward_messages``):
+# who may see what, which words may travel and where, are decided there and nowhere else. Both take a JSON object.
+# A reaction never leaves the building (it is an internal mark, nothing is sent to a client); a forward to a client
+# does, through ``send_client_message``, and to a group that reaches one, through the relay.
+#
+# What a refusal means is the same as for a send: a 4xx is "nothing was written". A forward that got somewhere and
+# then failed (the client's phone refused the third message, a group's relay broke) is a 200 with ``delivered`` false
+# and the reason, so that the page does not offer to send again what has already arrived.
+# ---------------------------------------------------------------------------
+
+#: The most messages (or files) one forward may carry, and the longest code a body may name.
+MAX_FORWARD_ITEMS = 100
+MAX_CODE = 40
+#: The longest note that goes with a forward (``services.forward_messages`` cuts at the same number).
+MAX_FORWARD_NOTE = 2000
+
+REACTION_KINDS = frozenset(key for key, *_rest in services.REACTIONS)
+
+
+class BadBody(ValueError):
+    """The body of the request is not the JSON object the door reads."""
+
+
+def _object(request):
+    if not (request.content_type or "").startswith("application/json"):
+        raise BadBody
+    try:
+        body = json.loads(request.body or b"{}")
+    except (ValueError, RecursionError, UnicodeDecodeError):
+        raise BadBody from None
+    if not isinstance(body, dict):
+        raise BadBody
+    return body
+
+
+def _text(body, name, limit):
+    """A string field, cut of its edges; anything else, or longer than ``limit``, is ``BadBody``."""
+    value = body.get(name, "")
+    if not isinstance(value, str) or len(value) > limit:
+        raise BadBody
+    return value.strip()
+
+
+def _list(body, name, clean):
+    """A short list of distinct values, in the order given, each one passed through ``clean``."""
+    raw = body.get(name, [])
+    if not isinstance(raw, list) or len(raw) > MAX_FORWARD_ITEMS:
+        raise BadBody
+    values = []
+    for item in raw:
+        value = clean(item)
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def _code(value):
+    if not isinstance(value, str) or not 0 < len(value.strip()) <= MAX_CODE:
+        raise BadBody
+    return value.strip()
+
+
+@endpoint("POST")
+def chat_react(request):
+    """Give one of the six reactions to a message, change it, or take it back (the same one again).
+
+    ``{"source": "CL-0001" | "g12" | "u5", "uid": "in-5", "kind": "like"}``. The message is looked up inside the
+    conversation it is said to belong to, by the same function the classic page uses, so an id from somewhere
+    this person may not look finds nothing: the answer is the same 404 as for an id that does not exist.
+    """
+    try:
+        body = _object(request)
+        source, uid, kind = _text(body, "source", MAX_CODE), _text(body, "uid", MAX_CODE), _text(body, "kind", MAX_CODE)
+    except BadBody:
+        return _error(400, "bad_request")
+    if kind not in REACTION_KINDS:
+        return _error(400, "bad_kind")
+    done, _words, reactions = services.toggle_reaction(request.user, source, uid, kind)
+    if not done:
+        return _error(404, "not_found")
+    return JsonResponse({"ok": True, "uid": uid, "reactions": reactions})
+
+
+@endpoint("POST")
+def chat_forward(request):
+    """Forward some messages (``uids``) and/or files of one conversation to another.
+
+    ``{"source": "CL-0001", "target": "g12", "uids": ["in-5", "out-9"], "files": [3], "note": "..."}``. Every rule
+    (who may forward to a client, that a client's files never go to another client, that a client's own words
+    reach only rooms where everyone may read them) is ``services.forward_messages``'s.
+    """
+    try:
+        body = _object(request)
+        source, target = _code(body.get("source")), _code(body.get("target"))
+        note = _text(body, "note", MAX_FORWARD_NOTE)
+        uids = _list(body, "uids", _code)
+        files = _list(body, "files", _clean_id)
+    except (BadBody, BadIds):
+        return _error(400, "bad_request")
+    if not uids and not files:
+        return _error(400, "empty")
+    done, words, _url, written = services.forward_messages(
+        request.user, source, target, uids=uids, attachment_ids=files, note=note
+    )
+    # The words of a refusal are ours; the words of a failed delivery came from a library that quotes the
+    # recipient back, and a person who may not know the client does not get their number from this.
+    words = identity.for_viewer(words, request.user)
+    if not written:
+        return JsonResponse({"ok": False, "error": "refused", "message": words}, status=400)
+    return JsonResponse({"ok": True, "delivered": done, "message": words, "code": target})
+
+
+# ---------------------------------------------------------------------------
 # The translator's desk (phase 5, first screen)
 # ---------------------------------------------------------------------------
 

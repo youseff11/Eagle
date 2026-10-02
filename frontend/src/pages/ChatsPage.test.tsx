@@ -305,12 +305,12 @@ describe("a conversation", () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "/ops/chats/CL-0001/" }), messages: [] } });
     const link = await screen.findByRole("link", { name: "افتح المحادثة هناك" });
     expect(link).toHaveAttribute("href", "/ops/chats/CL-0001/");
-    expect(screen.getByText(/التفاعلات والتحويل وتحويل الرسالة لتاسك لسه من الواجهة الحالية/)).toBeInTheDocument();
+    expect(screen.getByText(/تحويل الرسالة لتاسك وإنشاء الجروبات لسه من الواجهة الحالية/)).toBeInTheDocument();
   });
 
   it("never offers to open a classic page that is not on this site", async () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "https://evil.example/" }), messages: [] } });
-    await screen.findByText(/التفاعلات والتحويل وتحويل الرسالة لتاسك لسه من الواجهة الحالية/);
+    await screen.findByText(/تحويل الرسالة لتاسك وإنشاء الجروبات لسه من الواجهة الحالية/);
     expect(screen.queryByRole("link", { name: "افتح المحادثة هناك" })).not.toBeInTheDocument();
   });
 });

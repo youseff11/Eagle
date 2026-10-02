@@ -59,10 +59,23 @@ textarea.cchat__input:disabled { cursor: not-allowed; opacity: .7; }
 /* Where files and voice notes are still sent from. */
 .cchat__hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 14px 10px; font-size: 12px; }
 
-/* A phone has no hover to show the reply button and no swipe in this app: the button stays, quietly. */
+/* A phone has no hover to show the reply button and no swipe in this app: the button stays, quietly. The smile stays
+   too; the forward arrow does not (the "Forward" button in the header is the way in there), so three do not crowd a
+   narrow row. */
 @media (hover: none) {
   .cchat .bub__reply { display: grid; visibility: visible; opacity: .55; }
+  .cchat .bub__fwd { display: none; }
 }
+
+/* Picking messages to forward: the mark is a button here (so the keyboard can reach it), drawn as the round mark of
+   the classic page. */
+button.bub__sel { padding: 0; cursor: pointer; }
+.cchat__pickbar { flex-wrap: wrap; }
+#selectToggle.is-on { color: var(--brand); border-color: var(--brand-line); background: var(--brand-soft); }
+
+/* The reaction pill is a button in this app. */
+button.bub__reacts { appearance: none; font-family: inherit; }
+button.bub__reacts:disabled { cursor: default; opacity: 1; }
 
 /* How long the message is, once it is nearly too long; and a conversation in which a message did not go. */
 .cchat__count { flex: none; padding: 0 14px; font-size: 11px; text-align: end; color: var(--muted); }

@@ -1,14 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
-import { readPath, threadPath, useMarkChatRead, useMe, useThread } from "../../api/queries";
+import { readPath, threadPath, useMarkChatRead, useMe, useReact, useThread } from "../../api/queries";
 import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { kindOfCode } from "../../lib/chatCode";
 import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Icon } from "../Icon";
 import { Bubble, OutgoingBubble } from "./Bubble";
 import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
+import { ForwardDialog } from "./ForwardDialog";
+import { ReactionPicker } from "./ReactionPicker";
 
 function Header({ row, code }: { row: ChatRow; code: string }) {
   const { t } = usePreferences();
@@ -90,12 +93,23 @@ function Notes({ row }: { row: ChatRow }) {
   );
 }
 
+/** What can be done with a message beside it: answer it, react to it, start forwarding from it, pick it. */
+interface BubbleActions {
+  onReply: (entry: ThreadEntry) => void;
+  /** Not for every role in every conversation (a Sales person has no say in a client's thread): then they are off. */
+  onReact?: (entry: ThreadEntry, trigger: HTMLElement) => void;
+  onForward?: (entry: ThreadEntry) => void;
+  onToggle?: (entry: ThreadEntry) => void;
+}
+
 function Stream({
   messages,
   outbox,
   reset,
   sent,
-  onReply,
+  actions,
+  selecting,
+  selected,
   onRetry,
   onDiscard,
 }: {
@@ -104,7 +118,10 @@ function Stream({
   reset: string;
   /** Moves each time the person sends: their own message is always brought into view. */
   sent: number;
-  onReply: (entry: ThreadEntry) => void;
+  actions: BubbleActions;
+  /** Messages are being picked to be forwarded: a tap picks or drops one. */
+  selecting: boolean;
+  selected: string[];
   onRetry: (key: number) => void;
   onDiscard: (key: number) => void;
 }) {
@@ -132,7 +149,7 @@ function Stream({
   let day = "";
   return (
     <div
-      className="cchat__stream"
+      className={`cchat__stream${selecting ? " is-selecting" : ""}`}
       ref={element}
       onScroll={(event) => {
         const node = event.currentTarget;
@@ -151,7 +168,15 @@ function Stream({
         return (
           <div key={entry.uid} className="chat-entry">
             {divider && <div className="chat-day muted mono">{entry.date}</div>}
-            <Bubble entry={entry} onReply={onReply} />
+            <Bubble
+              entry={entry}
+              onReply={actions.onReply}
+              onReact={actions.onReact}
+              onForward={actions.onForward}
+              onToggle={actions.onToggle}
+              selecting={selecting}
+              selected={selected.includes(entry.uid)}
+            />
           </div>
         );
       })}
@@ -199,14 +224,23 @@ export function replyTargetOf(entry: ThreadEntry, t: (ar: string, en: string) =>
  * Writing is not reading: a send marks nothing read, and the answer to it (the thread as it now is) goes
  * through the same rule.
  *
- * Words, replies and files can be written here; voice, reactions and forwarding come in the next steps, and
- * until then the way to the classic page stays on screen.
+ * Words, replies, files and voice can be written here, a message can be reacted to, and several can be picked and
+ * forwarded to another conversation (step 3d). Turning a message into a task and the work groups come in the
+ * next step, and until then the way to the classic page stays on screen.
  */
 export function Conversation({ code, kind, allowed }: { code: string; kind: ChatKind; allowed: boolean }) {
   const { t } = usePreferences();
+  const navigate = useNavigate();
   const account = useMe().data;
   const me = account?.user.id ?? 0;
   const limits = account?.limits ?? DEFAULT_LIMITS;
+  // Marking a client's message and forwarding from a client's thread belong to the operation and the admin, as
+  // on the classic page; a work group or a colleague's chat is open to whoever is in it.
+  const mayAnswerClients = account?.user.role === "operation" || account?.user.is_admin === true;
+  const mayMark = kindOfCode(code) !== "clients" || mayAnswerClients;
+  const forwardKinds = (account?.chats.types ?? []).filter(
+    (list): list is ChatKind => (list === "clients" ? mayAnswerClients : list === "groups" || list === "staff"),
+  );
   // A code the page does not know, or a list this role does not have (a translator has no client
   // conversations): nothing is asked of the server, so nothing is refused and written to the audit log
   // at every refresh.
@@ -256,6 +290,70 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     setSent((count) => count + 1);
   };
 
+  // Reactions: one bar, put beside the bubble that asked for it; one reaction at a time is on its way.
+  const react = useReact(code);
+  const [picker, setPicker] = useState<{ uid: string; trigger: HTMLElement } | null>(null);
+  const [notice, setNotice] = useState("");
+  const closePicker = useCallback(() => setPicker(null), []);
+  const openPicker = (entry: ThreadEntry, trigger: HTMLElement) => {
+    setNotice("");
+    setPicker((open) => (open?.uid === entry.uid ? null : { uid: entry.uid, trigger }));
+  };
+  const give = (reaction: string) => {
+    if (!picker) return;
+    const { uid, trigger } = picker;
+    setPicker(null);
+    if (trigger.isConnected) trigger.focus();
+    if (react.isPending) return;
+    setNotice("");
+    react.mutate(
+      { uid, kind: reaction },
+      { onError: () => setNotice(t("التفاعل ماتسجلش. جرّب تاني.", "The reaction was not saved. Try again.")) },
+    );
+  };
+  const pickerEntry = picker ? messages.find((entry) => entry.uid === picker.uid) : undefined;
+
+  // Forwarding: the bubbles become a list to tap, the bar underneath says how many, and "Forward" asks where to.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [forwarding, setForwarding] = useState(false);
+  const startSelecting = (entry?: ThreadEntry) => {
+    setPicker(null);
+    setNotice("");
+    setSelecting(true);
+    setSelected(entry ? [entry.uid] : []);
+  };
+  const stopSelecting = useCallback(() => {
+    setSelecting(false);
+    setSelected([]);
+    setForwarding(false);
+  }, []);
+  const toggle = (entry: ThreadEntry) =>
+    setSelected((now) => (now.includes(entry.uid) ? now.filter((uid) => uid !== entry.uid) : [...now, entry.uid]));
+  // What was picked and has gone from the thread is not forwarded.
+  const present = messages.map((entry) => entry.uid).join(",");
+  useEffect(() => {
+    const here = new Set(present.split(","));
+    setSelected((now) => (now.every((uid) => here.has(uid)) ? now : now.filter((uid) => here.has(uid))));
+  }, [present]);
+  useEffect(() => {
+    if (!selecting || forwarding) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && picker === null) stopSelecting();
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [selecting, forwarding, picker, stopSelecting]);
+  const forwarded = (target: string | null) => {
+    stopSelecting();
+    if (target) navigate(`/chats/${target}?type=${kindOfCode(target)}`);
+  };
+
+  const actions: BubbleActions = {
+    onReply: (entry) => setReplyTo(replyTargetOf(entry, t)),
+    ...(mayMark ? { onReact: openPicker, onForward: startSelecting, onToggle: toggle } : {}),
+  };
+
   const classicUrl = row ? safeInternalPath(row.url) : "";
   const refused = !known || (thread.error instanceof ApiError && [401, 403, 404].includes(thread.error.status));
 
@@ -266,6 +364,20 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
           <Icon name="arrow-right" />
         </Link>
         {row && <Header row={row} code={code} />}
+        <div className="grow" />
+        {thread.data && mayMark && messages.length > 0 && (
+          <button
+            type="button"
+            className={`btn btn--ghost${selecting ? " is-on" : ""}`}
+            id="selectToggle"
+            aria-pressed={selecting}
+            title={t("حدد رسايل وحوّلها لشات تاني", "Select messages to forward")}
+            onClick={() => (selecting ? stopSelecting() : startSelecting())}
+          >
+            <Icon name="forward" size="sm" />
+            <span>{t("تحويل رسايل", "Forward")}</span>
+          </button>
+        )}
       </header>
 
       {known && thread.isPending && (
@@ -285,34 +397,77 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
       {thread.data && row && (
         <>
           <Notes row={row} />
+          {notice && (
+            <div className="note note--warn cchat__window" role="alert">
+              <Icon name="alert" />
+              <div>{notice}</div>
+            </div>
+          )}
           <Stream
             messages={messages}
             outbox={waiting}
             reset={code}
             sent={sent}
-            onReply={(entry) => setReplyTo(replyTargetOf(entry, t))}
+            actions={actions}
+            selecting={selecting}
+            selected={selected}
             onRetry={outbox.retry}
             onDiscard={outbox.discard}
           />
-          <Composer
-            code={code}
-            toClient={!row.staff && (row.reaches_client === true || !row.group)}
-            pickTasks={row.staff === true || row.team === true}
-            fileLimits={limits.files}
-            voiceLimits={limits.voice}
-            limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}
-            reply={replyTo}
-            onClearReply={() => setReplyTo(null)}
-            closed={windowClosed(row)}
-            busy={queued.some((item) => item.state === "sending")}
-            onSend={write}
-          />
+          {selecting ? (
+            <div className="cchat__pickbar" role="toolbar" aria-label={t("تحويل رسايل", "Forward")}>
+              <Icon name="forward" size="sm" />
+              <span aria-live="polite">
+                <b className="mono">{selected.length}</b> {t("رسالة متحددة", "selected")}
+              </span>
+              <span className="grow" />
+              <button type="button" className="btn btn--sm" onClick={stopSelecting}>
+                {t("إلغاء", "Cancel")}
+              </button>
+              <button type="button" className="btn btn--sm btn--primary" disabled={selected.length === 0} onClick={() => setForwarding(true)}>
+                <Icon name="forward" size="sm" />
+                <span>{t("تحويل", "Forward")}</span>
+              </button>
+            </div>
+          ) : (
+            <Composer
+              code={code}
+              toClient={!row.staff && (row.reaches_client === true || !row.group)}
+              pickTasks={row.staff === true || row.team === true}
+              fileLimits={limits.files}
+              voiceLimits={limits.voice}
+              limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}
+              reply={replyTo}
+              onClearReply={() => setReplyTo(null)}
+              closed={windowClosed(row)}
+              busy={queued.some((item) => item.state === "sending")}
+              onSend={write}
+            />
+          )}
+          {picker && pickerEntry && (
+            <ReactionPicker
+              trigger={picker.trigger}
+              mine={pickerEntry.reactions.find((reaction) => reaction.mine)?.kind ?? ""}
+              onPick={give}
+              onClose={closePicker}
+            />
+          )}
+          {forwarding && selected.length > 0 && (
+            <ForwardDialog
+              source={code}
+              count={selected.length}
+              uids={selected}
+              kinds={forwardKinds}
+              onClose={() => setForwarding(false)}
+              onDone={forwarded}
+            />
+          )}
           <div className="cchat__hint muted">
             <Icon name="info" size="sm" />
             <span>
               {t(
-                "التفاعلات والتحويل وتحويل الرسالة لتاسك لسه من الواجهة الحالية.",
-                "Reactions, forwarding and turning a message into a task are still done in the classic interface.",
+                "تحويل الرسالة لتاسك وإنشاء الجروبات لسه من الواجهة الحالية.",
+                "Turning a message into a task and creating groups are still done in the classic interface.",
               )}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>

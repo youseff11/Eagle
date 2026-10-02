@@ -10,12 +10,21 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** What the server answered (parsed JSON, or `null`): a refusal may carry the reason in words (`message`). */
+  readonly payload: unknown;
 
-  constructor(status: number, code: string) {
+  constructor(status: number, code: string, payload: unknown = null) {
     super(`${status} ${code}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.payload = payload;
+  }
+
+  /** The reason the server gave in words, when it gave one. */
+  get detail(): string {
+    const value = this.payload && typeof this.payload === "object" ? (this.payload as { message?: unknown }).message : undefined;
+    return typeof value === "string" ? value : "";
   }
 }
 
@@ -89,6 +98,6 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     onUnauthorized?.();
     throw new ApiError(401, "auth");
   }
-  if (!response.ok) throw new ApiError(response.status, errorCode(payload, response.status));
+  if (!response.ok) throw new ApiError(response.status, errorCode(payload, response.status), payload);
   return payload as T;
 }

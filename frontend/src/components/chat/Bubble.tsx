@@ -51,14 +51,24 @@ function File({ file }: { file: ThreadFile }) {
   );
 }
 
-function Reactions({ reactions }: { reactions: Reaction[] }) {
+/** The pill that hangs off the bubble: who reacted, and a tap on it opens the bar of reactions. */
+function Reactions({ reactions, onOpen, off }: { reactions: Reaction[]; onOpen?: (trigger: HTMLElement) => void; off: boolean }) {
+  const { t } = usePreferences();
   if (reactions.length === 0) return null;
   const total = reactions.reduce((sum, reaction) => sum + reaction.count, 0);
   const top = [...reactions].sort((a, b) => b.count - a.count).slice(0, 3);
   const who = reactions.map((reaction) => reaction.who.join(", ")).join(" · ");
   const mine = reactions.some((reaction) => reaction.mine);
   return (
-    <span className={`bub__reacts${mine ? " is-mine" : ""}`} title={who}>
+    <button
+      type="button"
+      className={`bub__reacts${mine ? " is-mine" : ""}`}
+      title={who}
+      aria-label={`${t("التفاعلات", "Reactions")}: ${who}`}
+      data-react-open=""
+      disabled={off || !onOpen}
+      onClick={(event) => onOpen?.(event.currentTarget)}
+    >
       {top
         .filter((reaction) => REACTIONS.has(reaction.kind))
         .map((reaction) => (
@@ -67,7 +77,7 @@ function Reactions({ reactions }: { reactions: Reaction[] }) {
           </svg>
         ))}
       {total > 1 && <span className="bub__reacts-n">{total}</span>}
-    </span>
+    </button>
   );
 }
 
@@ -75,18 +85,47 @@ function Reactions({ reactions }: { reactions: Reaction[] }) {
  * One message, as the classic page draws it (`templates/ops/_client_bubble.html`, `bubbleHtml` in chat.js):
  * the forwarded tag, the quoted message, the text, the files, who and when, the marks and the reactions.
  *
- * Replying is here (`onReply`); reacting, forwarding and the buttons that turn a message into a task come
- * with their own steps. Every string is drawn as text; nothing the server sent is read as markup.
+ * Replying (`onReply`), reacting (`onReact`, which is given the button that was pressed, so the bar of reactions
+ * can be put beside it) and forwarding (`onForward`: the first message of a selection) are the buttons beside the
+ * bubble. While a selection is being made (`selecting`) they step aside: a tap on the bubble itself picks it or
+ * drops it (`onToggle`), except on a link, a player or a button inside it, which keep working. The buttons that
+ * turn a message into a task come with their own step. Every string is drawn as text; nothing the server sent
+ * is read as markup.
  */
-export function Bubble({ entry, onReply }: { entry: ThreadEntry; onReply?: (entry: ThreadEntry) => void }) {
+export function Bubble({
+  entry,
+  onReply,
+  onReact,
+  onForward,
+  selecting = false,
+  selected = false,
+  onToggle,
+}: {
+  entry: ThreadEntry;
+  onReply?: (entry: ThreadEntry) => void;
+  onReact?: (entry: ThreadEntry, trigger: HTMLElement) => void;
+  onForward?: (entry: ThreadEntry) => void;
+  selecting?: boolean;
+  selected?: boolean;
+  onToggle?: (entry: ThreadEntry) => void;
+}) {
   const { t, lang } = usePreferences();
   const out = entry.kind === "out";
   const classes = ["bub", out ? "bub--out" : "bub--in"];
   if (entry.status === "failed") classes.push("bub--failed");
   if (entry.reactions.length > 0) classes.push("has-reacts");
+  if (selected) classes.push("is-selected");
 
   return (
-    <div className={classes.join(" ")} data-uid={entry.uid}>
+    <div
+      className={classes.join(" ")}
+      data-uid={entry.uid}
+      onClick={(event) => {
+        if (!selecting || !onToggle) return;
+        if ((event.target as Element).closest("a, button, audio, input, .voice")) return;
+        onToggle(entry);
+      }}
+    >
       {onReply && (
         <button
           className="bub__reply"
@@ -96,6 +135,40 @@ export function Bubble({ entry, onReply }: { entry: ThreadEntry; onReply?: (entr
           onClick={() => onReply(entry)}
         >
           <Icon name="reply" size="sm" />
+        </button>
+      )}
+      {onReact && (
+        <button
+          className="bub__reply bub__react"
+          type="button"
+          data-react-open=""
+          title={t("رياكت", "React")}
+          aria-label={t("رياكت", "React")}
+          onClick={(event) => onReact(entry, event.currentTarget)}
+        >
+          <Icon name="smile" size="sm" />
+        </button>
+      )}
+      {onForward && (
+        <button
+          className="bub__reply bub__fwd"
+          type="button"
+          title={t("تحويل", "Forward")}
+          aria-label={t("تحويل", "Forward")}
+          onClick={() => onForward(entry)}
+        >
+          <Icon name="forward" size="sm" />
+        </button>
+      )}
+      {onToggle && selecting && (
+        <button
+          type="button"
+          className="bub__sel"
+          aria-pressed={selected}
+          aria-label={t("حدد الرسالة", "Select the message")}
+          onClick={() => onToggle(entry)}
+        >
+          <Icon name="check" size="sm" />
         </button>
       )}
       <div className="bub__box">
@@ -124,7 +197,11 @@ export function Bubble({ entry, onReply }: { entry: ThreadEntry; onReply?: (entr
           {out && <Ticks status={entry.status} receipt={entry.receipt} mine={entry.mine} seenBy={entry.seen_by} />}
         </div>
         {entry.error && <div className="bub__error">{entry.error}</div>}
-        <Reactions reactions={entry.reactions} />
+        <Reactions
+          reactions={entry.reactions}
+          onOpen={onReact ? (trigger) => onReact(entry, trigger) : undefined}
+          off={selecting}
+        />
       </div>
     </div>
   );

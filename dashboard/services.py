@@ -4087,6 +4087,7 @@ def _forward_items(user, source, uids, attachment_ids):
     "files": [(attachment, owner_client_id)]}`` - the owners are what the two
     rules above are checked against.
     """
+    from . import lines
     from .models import MessageAttachment
 
     kind, target = source
@@ -4115,7 +4116,11 @@ def _forward_items(user, source, uids, attachment_ids):
                     add(row.received_at, row.body, client.pk,
                         [(a, client.pk) for a in row.attachments.all()])
             elif side == "out":
-                row = OutboundMessage.objects.filter(pk=pk, client=client).first()
+                # What the thread lists and nothing else: a WhatsApp message of a line this person works.
+                # An id of a message of another line (a Sales person's own number) finds nothing.
+                row = OutboundMessage.objects.filter(
+                    pk=pk, client=client, channel=Channel.WHATSAPP
+                ).filter(lines.line_q(user)).first()
                 if row is not None:
                     add(row.created_at, row.body, client.pk,
                         [(a, client.pk) for a in row.uploads.all()])
@@ -4136,12 +4141,11 @@ def _forward_items(user, source, uids, attachment_ids):
 
     if kind == "client" and attachment_ids:
         client = target
+        # Only files of messages this person may read: their line, and no rate-blocked one unless admin.
         rows = MessageAttachment.objects.filter(
             pk__in=[int(x) for x in attachment_ids if str(x).isdigit()],
-            message__client=client, message__channel=Channel.WHATSAPP,
+            message__in=_wa_inbound(client, user),
         ).select_related("message")
-        if not user.is_admin_role:
-            rows = rows.filter(message__is_rate_blocked=False)
         for row in rows.order_by("message__received_at", "id"):
             add(row.message.received_at, "", client.pk, [(row, client.pk)])
 
@@ -4151,35 +4155,50 @@ def _forward_items(user, source, uids, attachment_ids):
 
 def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
     """Forward messages and/or files. Returns ``(ok, error_ar, url)``."""
+    ok, error, url, _written = forward_messages(
+        user, source_code, target_code, uids=uids, attachment_ids=attachment_ids, note=note
+    )
+    return ok, error, url
+
+
+def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(), note=""):
+    """Forward messages and/or files. Returns ``(ok, error_ar, url, written)``.
+
+    ``written`` says whether anything reached the target, even when ``ok`` is False: a group's relay that
+    failed after the messages were in the room, or a client who got the first of three. A page that is told
+    "nothing was forwarded" must be right, or it offers a second send of what has already arrived.
+    """
     source = _chat_ref(user, source_code)
     if source is None:
-        return False, "المحادثة دي مش متاحة ليك.", ""
+        return False, "المحادثة دي مش متاحة ليك.", "", False
     target = _chat_ref(user, target_code, create_staff=True)
     if target is None:
-        return False, "اختار شات تحوّل له.", ""
+        return False, "اختار شات تحوّل له.", "", False
     if target[0] == "room" and target[1].kind not in CHAT_ROOM_KINDS:
-        return False, "مينفعش تحوّل للجروب ده.", ""
+        return False, "مينفعش تحوّل للجروب ده.", "", False
 
     items = _forward_items(user, source, uids, attachment_ids)
     if not items:
-        return False, "اختار رسالة أو ملف الأول.", ""
+        return False, "اختار رسالة أو ملف الأول.", "", False
     note = (note or "").strip()[:2000]
 
     if target[0] == "client":
         client = target[1]
         if not (user.is_operation or user.is_admin_role):
-            return False, "التحويل للعميل للأوبريشن بس.", ""
+            return False, "التحويل للعميل للأوبريشن بس.", "", False
         owners = {item["text_owner"] for item in items if item["text"]}
         owners |= {owner for item in items for _f, owner in item["files"]}
         owners.discard(None)
         if owners - {client.pk}:
-            return False, "مينفعش تحوّل رسايل أو ملفات عميل لعميل تاني.", ""
+            return False, "مينفعش تحوّل رسايل أو ملفات عميل لعميل تاني.", "", False
+        reached = False
         if note:
             ok, _out, error = send_client_message(
                 client, user, body=note, force_channel=Channel.WHATSAPP
             )
             if not ok:
-                return False, error, ""
+                return False, error, "", False
+            reached = True
         for item in items:
             ok, _out, error = send_client_message(
                 client, user, body=item["text"],
@@ -4187,9 +4206,10 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
                 force_channel=Channel.WHATSAPP,
             )
             if not ok:
-                return False, error, ""
+                return False, error, "", reached
+            reached = True
         log(user, "chat.forward", client.code, f"{len(items)} item(s)")
-        return True, "", f"/ops/chats/{client.code}/"
+        return True, "", f"/ops/chats/{client.code}/", True
 
     room = target[1]
     # A group that relays to a client is a group like any other (23/09/2026),
@@ -4198,25 +4218,33 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
     relays_to = room.relay_client if room.reaches_client else None
     if room.reaches_client:
         if relays_to is None:
-            return False, "الجروب ده مش مربوط بعميل.", ""
+            return False, "الجروب ده مش مربوط بعميل.", "", False
         owners = {item["text_owner"] for item in items if item["text"]}
         owners |= {owner for item in items for _f, owner in item["files"]}
         owners.discard(None)
         if owners - {relays_to.pk}:
-            return False, "مينفعش تحوّل رسايل أو ملفات عميل لجروب عميل تاني.", ""
+            return False, "مينفعش تحوّل رسايل أو ملفات عميل لجروب عميل تاني.", "", False
     members = list(room.members.all())
     # Everyone in the room may read a client's own words - or nobody gets them.
     all_inbox = all(m.is_operation or m.is_admin_role for m in members)
 
-    written = []
-    if note:
-        written.append(ChatMessage.objects.create(room=room, sender=user, body=note))
+    # What will really be written is decided before anything is: a refusal leaves no note behind in the room.
+    kept = []
     for item in items:
         text = item["text"]
         if text and item["text_owner"] is not None and not all_inbox:
             text = ""
-        if not text and not item["files"]:
-            continue
+        if text or item["files"]:
+            kept.append((item, text))
+    if not kept:
+        return False, (
+            "كلام العميل مابيتحولش للشات ده، والرسايل اللي اخترتها مفيهاش ملفات."
+        ), "", False
+
+    written = []
+    if note:
+        written.append(ChatMessage.objects.create(room=room, sender=user, body=note))
+    for item, text in kept:
         message = ChatMessage.objects.create(
             room=room, sender=user, body=text, forwarded=True,
             origin_client_id=item["text_owner"],
@@ -4229,11 +4257,6 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
                 size=attachment.size or 0, origin_client_id=owner,
             )
         written.append(message)
-
-    if not [m for m in written if m.forwarded]:
-        return False, (
-            "كلام العميل مابيتحولش للشات ده، والرسايل اللي اخترتها مفيهاش ملفات."
-        ), ""
 
     relay_error = ""
     if relays_to is not None:
@@ -4268,8 +4291,8 @@ def forward_to_chat(user, source_code, target_code, uids=(), attachment_ids=(), 
         url = f"/ops/chats/u/{other.pk}/" if other else ""
     log(user, "chat.forward", f"room {room.id}", f"{len(written)} message(s)")
     if relay_error:
-        return False, f"اتحوّلت للجروب بس مروحتش للعميل: {relay_error}"[:300], url
-    return True, "", url
+        return False, f"اتحوّلت للجروب بس مروحتش للعميل: {relay_error}"[:300], url, True
+    return True, "", url, True
 
 
 # ---------------------------------------------------------------------------
@@ -4358,7 +4381,11 @@ def toggle_reaction(user, source_code, uid, kind):
         if side == "in":
             field, row = "inbound", _wa_inbound(target, user).filter(pk=pk).first()
         elif side == "out":
-            field, row = "outbound", OutboundMessage.objects.filter(pk=pk, client=target).first()
+            from . import lines
+
+            field, row = "outbound", OutboundMessage.objects.filter(
+                pk=pk, client=target, channel=Channel.WHATSAPP
+            ).filter(lines.line_q(user)).first()
     elif side == f"g{target.pk}":
         field, row = "message", target.messages.filter(pk=pk, is_system=False).first()
     if row is None:

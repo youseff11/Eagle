@@ -7,9 +7,11 @@ import type {
   ChatKind,
   ChatListResponse,
   FileTasksResponse,
+  ForwardResponse,
   MeResponse,
   MovedResponse,
   NotificationsResponse,
+  ReactResponse,
   ReadResponse,
   SendResponse,
   ThreadResponse,
@@ -74,13 +76,15 @@ export function useTranslatorHome(enabled = true) {
 }
 
 /** One of the three chat lists, optionally narrowed by a search. */
-export function useChatList(kind: ChatKind, query: string) {
+export function useChatList(kind: ChatKind, query: string, enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
     queryKey: qk.chatList(kind, query),
     queryFn: () =>
       api<ChatListResponse>(`/api/v1/chats/?type=${kind}${query ? `&q=${encodeURIComponent(query)}` : ""}`),
     refetchInterval,
+    // A role has only some of the lists: asking for another is refused, and every refusal is written to the audit log.
+    enabled,
   });
 }
 
@@ -159,6 +163,51 @@ export async function postMessage(code: string, draft: Draft): Promise<SendRespo
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+/**
+ * Give one of the reactions to a message, change it, or take it back (the same one again): the server answers
+ * with that message's reactions as they are now, and they replace the ones in the cached thread. Nothing is
+ * sent to anyone by this: a reaction is a mark between colleagues.
+ */
+export function useReact(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uid, kind }: { uid: string; kind: string }) =>
+      api<ReactResponse>("/api/v1/chats/react/", { json: { source: code, uid, kind } }),
+    onSuccess: (answer) => {
+      client.setQueryData<ThreadResponse>(qk.thread(code), (old) =>
+        old
+          ? { ...old, messages: old.messages.map((entry) => (entry.uid === answer.uid ? { ...entry, reactions: answer.reactions } : entry)) }
+          : old,
+      );
+    },
+  });
+}
+
+/** What a forward carries: the conversation it comes from and goes to (their codes), the messages, and a word to go with them. */
+export interface ForwardDraft {
+  source: string;
+  target: string;
+  uids: string[];
+  note: string;
+}
+
+/**
+ * Forward messages of one conversation to another. Whatever the answer, the lists and both threads are asked for
+ * again: a refusal wrote nothing, but a failed delivery has put the messages in the other conversation, and a
+ * dropped connection may have done either.
+ */
+export function useForward() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: ForwardDraft) => api<ForwardResponse>("/api/v1/chats/forward/", { json: draft }),
+    onSettled: (_answer, _error, draft) => {
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+      void client.invalidateQueries({ queryKey: qk.thread(draft.target) });
+      void client.invalidateQueries({ queryKey: qk.thread(draft.source) });
+    },
+  });
 }
 
 /** Where to ask which tasks files sent in a conversation could be for: a work group or a colleague, nothing else. */

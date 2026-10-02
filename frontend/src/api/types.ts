@@ -231,6 +231,24 @@ export interface SendResponse {
   client: ChatRow;
 }
 
+/** POST /api/v1/chats/react/: the reactions of that one message as they are now (the same one again took it back). */
+export interface ReactResponse {
+  ok: true;
+  uid: string;
+  reactions: Reaction[];
+}
+
+/**
+ * POST /api/v1/chats/forward/: the messages are in the other conversation (`code`); `delivered` is false when they
+ * got there and then did not reach where they were going (a client's phone, a group's relay), with the reason in `message`.
+ */
+export interface ForwardResponse {
+  ok: true;
+  delivered: boolean;
+  message: string;
+  code: string;
+}
+
 /** GET .../file-tasks/: the tasks files sent here could be for (several: the sender must choose). */
 export interface FileTasksResponse {
   ok: true;
