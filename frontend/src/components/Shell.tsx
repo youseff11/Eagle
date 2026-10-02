@@ -9,6 +9,8 @@ import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
+import { NotificationToasts } from "./NotificationToasts";
+import { ToastProvider } from "./Toasts";
 
 /** The same labels the classic pages show beside a name (`ROLE_MAP` in eagle_tags). */
 const ROLE_LABELS: Record<Role, [string, string]> = {
@@ -42,7 +44,17 @@ function logout(): void {
   form.submit();
 }
 
+/** The frame of every page, and the toasts that can appear on top of any of them. */
 export function Shell() {
+  return (
+    <ToastProvider>
+      <NotificationToasts />
+      <Frame />
+    </ToastProvider>
+  );
+}
+
+function Frame() {
   const { t, lang, setLang, theme, setTheme } = usePreferences();
   const me = useMe();
   const realtime = useRealtimeStatus();

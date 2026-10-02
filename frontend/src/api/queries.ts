@@ -54,6 +54,19 @@ export function useNotifications() {
   });
 }
 
+/** How many of the newest notifications the toasts look at: more than can arrive between two looks. */
+const LATEST = 10;
+
+/** The newest notifications, for the toasts. Not the list page's own query: it is one page, and always there. */
+export function useLatestNotifications() {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.latestNotifications,
+    queryFn: () => api<NotificationsResponse>(`/api/v1/notifications/?limit=${LATEST}`),
+    refetchInterval,
+  });
+}
+
 /** Mark some notifications read, or all of them when no ids are given. */
 export function useMarkRead() {
   const client = useQueryClient();

@@ -2,6 +2,8 @@
 export const qk = {
   me: ["me"] as const,
   notifications: ["notifications"] as const,
+  /** The newest few, watched from every page for the toasts: under `notifications`, so a doorbell asks again. */
+  latestNotifications: ["notifications", "latest"] as const,
   /** The prefix of everything the chats page shows: one doorbell refreshes the lists and the open thread. */
   chats: ["chats"] as const,
   chatList: (kind: string, query: string) => ["chats", "list", kind, query] as const,
