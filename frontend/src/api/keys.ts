@@ -28,4 +28,8 @@ export const qk = {
   /** One task as its translator reads it: it moves with the boards (a status, an answer to more time). */
   translatorTask: (code: string) => ["boards", "translator-task", code] as const,
   room: (id: number) => ["room", id] as const,
+  /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
+  pending: ["pending-assignment"] as const,
+  /** One hand-off read before it is taken. */
+  assignment: (id: number) => ["boards", "assignment", id] as const,
 };

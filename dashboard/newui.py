@@ -22,7 +22,7 @@ open the page that works.
 from dataclasses import dataclass
 
 from . import attendance, spa
-from .models import AppSettings, Assignment, AssignmentStatus, Role, User
+from .models import AppSettings, Role, User
 
 
 @dataclass(frozen=True)
@@ -137,18 +137,18 @@ def hand_on(request, key):
       503 with no way back, away from the classic pages that still work;
     * the check-in screen, or a check-out or extra-time reminder, is due. Those are
       shown only by the classic interface, and a forgotten check-out costs the day, so
-      the person stays there until they have dealt with it;
-    * an assignment is waiting for an answer. Its 60-second clock is already running,
-      and every page load on the way to the screen that shows it comes out of it.
+      the person stays there until they have dealt with it.
+
+    An assignment waiting for an answer (its 60-second clock running) used to keep a person on the
+    classic page, which was the only one that could show the accept screen. The new app shows it
+    itself now, over whatever page the person is on, so it is no longer a reason to stay.
     """
     user = request.user
     if not SCREENS[key].redirects or wants_classic(request) or not enabled(user, key):
         return False
     if spa.built_assets() is None:
         return False
-    if attendance.gate_for(user):
-        return False
-    return not Assignment.objects.filter(assignee=user, status=AssignmentStatus.PENDING).exists()
+    return not attendance.gate_for(user)
 
 
 def pilot_candidates(key):

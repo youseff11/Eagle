@@ -39,8 +39,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 from . import api, audio, clock, identity, newui, payroll, services
 from .models import (
-    AppSettings, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings, Role, RoomKind, Task,
-    TaskStatus, User, Violation, WorkDay,
+    AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
+    Role, RoomKind, Task, TaskStatus, User, Violation, WorkDay,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import (
@@ -922,6 +922,12 @@ def _status_json(status):
     return {"value": status, "tone": tone, "ar": ar, "en": en}
 
 
+def _origin_json(value):
+    """Where a job came from (WhatsApp, e-mail), as ``{value, icon, ar, en}``; ``None`` for one the tables do not know."""
+    origin = ORIGIN_MAP.get(value)
+    return {"value": value, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None
+
+
 def _desk_task_json(task, user, warning_minutes):
     """One open task as the translator's own page shows it.
 
@@ -1067,6 +1073,57 @@ def _kind_json(kind):
 
 
 @endpoint("GET")
+def assignment(request, pk):
+    """A hand-off before it is taken: the job's files, its brief and the time left - ``/assignments/<id>/`` as JSON.
+
+    Only the person it was handed to, and the admin; anybody else is a 404 and a row in the audit log. A GET changes
+    nothing here: the classic page recorded "they opened the files" when it was fetched, which a link on another
+    site could have done with the person's own cookie, so the page says so with its own POST
+    (``/api/assignments/<id>/files/``). Looking is never answering - the window keeps running.
+
+    The same rules as the translator's task page: the client is ``label_for`` (a code), the date is
+    ``deadline_for``, and the brief and the sender's note are free words, so they go through ``mask_client``.
+    """
+    assignment = get_object_or_404(Assignment.objects.select_related("task", "task__client", "assigned_by"), pk=pk)
+    user = request.user
+    if assignment.assignee_id != user.pk and not user.is_admin_role:
+        identity.hidden(request, "assignment")
+    task = assignment.task
+
+    def brief(text):
+        return identity.mask_client(text, task.client, user)
+
+    due = task.deadline_for(user)
+    return JsonResponse({
+        "ok": True,
+        "assignment": {
+            "id": assignment.pk,
+            "status": assignment.status,
+            # Waiting for an answer, and still inside the window: the one state with buttons.
+            "pending": assignment.status == AssignmentStatus.PENDING and not assignment.is_expired,
+            "seconds_left": assignment.seconds_left,
+            "window": AppSettings.load().response_window_seconds,
+            "role": assignment.target_role,
+            "note": brief(assignment.note),
+            "from": assignment.assigned_by.short_name if assignment.assigned_by_id else None,
+            "mine": assignment.assignee_id == user.pk,
+        },
+        "task": {
+            "code": task.code,
+            "title": task.title,
+            "origin": _origin_json(task.origin),
+            "client": task.client.label_for(user) if task.client_id else "-",
+            "source_lang": task.source_lang,
+            "target_lang": task.target_lang,
+            "due": _stamp(due, "%Y-%m-%d"),
+            "due_iso": due.isoformat() if due else "",
+            "description": brief(services.clean_client_text(task.description)),
+            "files": [_task_file_json(a) for a in services.task_source_files(task)],
+        },
+    })
+
+
+@endpoint("GET")
 @api_role_required(Role.TRANSLATOR)
 def translator_task(request, code):
     """One task as its translator reads it: the page ``/tasks/<code>/`` without what is not theirs to see.
@@ -1088,7 +1145,6 @@ def translator_task(request, code):
     conf = AppSettings.load()
     mine = task.translator_id == user.id
     due = task.deadline_for(user)
-    origin = ORIGIN_MAP.get(task.origin)
     extension = services.extension_state(task, user) if mine else {}
     pending, last = extension.get("extension_pending"), extension.get("extension_last")
 
@@ -1106,7 +1162,7 @@ def translator_task(request, code):
             "title": task.title,
             "status": _status_json(task.status),
             "priority": _two(PRIORITY_MAP, task.priority),
-            "origin": {"value": task.origin, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None,
+            "origin": _origin_json(task.origin),
             "client": task.client.label_for(user) if task.client_id else "-",
             "source_lang": task.source_lang,
             "target_lang": task.target_lang,

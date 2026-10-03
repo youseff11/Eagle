@@ -227,7 +227,7 @@ class ChatsHandOnTests(_Staff):
                 answer = self.get(user, classic + ("&" if "?" in classic else "?") + "classic=1")
                 self.assertEqual(answer.status_code, 200, (user.username, classic))
 
-    def test_a_check_in_screen_or_a_waiting_assignment_or_a_missing_build_keep_them_on_the_classic_page(self):
+    def test_a_check_in_screen_or_a_missing_build_keeps_them_on_the_classic_page(self):
         self.turn_on(roles=["translator"])
         self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 302)
         for kind in ("check_in", "check_out", "extra"):

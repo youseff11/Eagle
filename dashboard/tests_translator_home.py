@@ -299,14 +299,15 @@ class HandOnOnlyWhenNothingStandsInTheWayTests(_Desk):
             self.assertEqual(answer.status_code, 200, kind)
             self.assertTemplateUsed(answer, "translator/home.html")
 
-    def test_an_assignment_waiting_for_an_answer_keeps_them_on_the_classic_page(self):
+    def test_an_assignment_waiting_for_an_answer_no_longer_holds_them_back_the_new_app_shows_it_itself(self):
         from .models import Assignment, AssignmentStatus
 
         Assignment.objects.filter(assignee=self.tr).delete()
         task = _make_task(self, status=TaskStatus.LEAD_ACCEPTED, title="Needs an answer")
         services.assign_to_translator(task, self.tr, self.lead)
         self.assertTrue(Assignment.objects.filter(assignee=self.tr, status=AssignmentStatus.PENDING).exists())
-        self.assertEqual(self.classic(self.tr).status_code, 200)
+        # It was the classic page's job alone to show the accept screen; the new app draws it over any page.
+        self.assertEqual(self.classic(self.tr).status_code, 302)
 
     def test_a_missing_build_keeps_them_on_the_classic_page_instead_of_a_bare_503(self):
         with mock.patch("dashboard.newui.spa.built_assets", return_value=None):

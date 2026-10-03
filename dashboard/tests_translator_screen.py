@@ -454,7 +454,7 @@ class TaskHandOnTests(_Screen):
         self.assertEqual(self.classic(self.tr, theirs.code)["Location"], f"/app/tasks/{theirs.code}")
         self.assertEqual(self.task_page(self.tr, theirs.code).status_code, 404)
 
-    def test_an_assignment_waiting_for_an_answer_keeps_them_on_the_classic_page(self):
+    def test_an_assignment_waiting_for_an_answer_no_longer_holds_them_back_the_new_app_shows_it_itself(self):
         from .models import Assignment, AssignmentStatus
 
         self.turn_on(roles=["translator"])
@@ -462,7 +462,7 @@ class TaskHandOnTests(_Screen):
         task = _make_task(self, status=TaskStatus.LEAD_ACCEPTED, title="Needs an answer")
         services.assign_to_translator(task, self.tr, self.lead)
         self.assertTrue(Assignment.objects.filter(assignee=self.tr, status=AssignmentStatus.PENDING).exists())
-        self.assertEqual(self.classic(self.tr, task.code).status_code, 200)
+        self.assertEqual(self.classic(self.tr, self.task.code).status_code, 302)
 
     def test_the_translators_desk_links_stay_the_classic_addresses_the_new_page_turns_into_routes(self):
         row = _json(self.door(self.tr, "dashboard:v1_translator_home"))["open"][0]

@@ -84,7 +84,8 @@ def _pending_json(assignment, viewer):
         "deadline": _stamp(task.deadline_for(viewer)),
         # For the live "time left" line under it.
         "deadline_iso": task.deadline_for(viewer).isoformat() if task.deadline_for(viewer) else "",
-        "note": assignment.note,
+        # Typed by the sender, who writes the client's name in it: for a person who may not know it, the code.
+        "note": identity.mask_client(assignment.note, task.client, viewer),
     }
 
 

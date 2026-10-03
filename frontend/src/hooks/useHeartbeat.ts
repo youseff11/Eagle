@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { api } from "../api/client";
-import type { HeartbeatResponse } from "../api/types";
+import type { HeartbeatResponse, PendingAssignment } from "../api/types";
 import { CLASSIC_HOME, navigation } from "../lib/navigation";
 
 /** Larger than any notification id, so the answer carries no notification rows. */
@@ -12,16 +12,16 @@ const NO_NOTIFICATIONS = 9007199254740991;
  *  - an attendance screen: the mandatory check-in, which may not be skipped, and the
  *    check-out and extra-time reminders, which are not shown here and which a person who
  *    never sees them pays for with the whole day;
- *  - an assignment waiting for an answer: the accept screen has a 60-second clock,
- *    and a person who is shown as online but cannot see it loses the assignment and
- *    the rating penalty that comes with it;
  *  - a call that is ringing.
+ *
+ * An assignment waiting for an answer is not on the list any more: its 60-second accept screen is drawn
+ * by this app itself, over whatever page the person is on (`AssignmentModal`).
  *
  * The classic reminders can be put off, and the server does not hand a person back to this
  * app while one is still due (`newui.hand_on`), so sending them away cannot loop.
  */
 export function needsClassicInterface(answer: HeartbeatResponse): boolean {
-  return Boolean(answer.attendance) || Boolean(answer.pending) || Boolean(answer.call);
+  return Boolean(answer.attendance) || Boolean(answer.call);
 }
 
 /**
@@ -37,11 +37,22 @@ export function needsClassicInterface(answer: HeartbeatResponse): boolean {
  * fetch themselves again when it moves; `onLive` is how this app does the same: it
  * is called when the value *changes* (not on the first answer, which is only what
  * the page just loaded).
+ *
+ * And it carries `pending`, the hand-off waiting for an answer: `onPending` is told what every beat
+ * says - the hand-off, or `null` when there is none - so the accept screen appears within a beat of the
+ * assignment and goes away within a beat of the answer. A beat that failed says nothing, and leaves
+ * what was shown as it was: the next one tells the truth.
  */
-export function useHeartbeat(pollMs: number, onLive?: () => void): void {
+export function useHeartbeat(
+  pollMs: number,
+  onLive?: () => void,
+  onPending?: (pending: PendingAssignment | null) => void,
+): void {
   const onLiveRef = useRef(onLive);
+  const onPendingRef = useRef(onPending);
   useEffect(() => {
     onLiveRef.current = onLive;
+    onPendingRef.current = onPending;
   });
 
   useEffect(() => {
@@ -56,6 +67,7 @@ export function useHeartbeat(pollMs: number, onLive?: () => void): void {
           navigation.assign(CLASSIC_HOME);
           return;
         }
+        onPendingRef.current?.(answer.pending ?? null);
         if (typeof answer.live === "string") {
           if (stamp !== null && answer.live !== stamp) onLiveRef.current?.();
           stamp = answer.live;

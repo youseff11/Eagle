@@ -4,6 +4,7 @@ import { CLASSIC_HOME, navigation } from "../lib/navigation";
 import { jsonResponse } from "../test/helpers";
 import { useHeartbeat } from "./useHeartbeat";
 
+const PENDING = { id: 5, task_code: "TSK-00001", seconds_left: 59 };
 let answer: unknown;
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -52,18 +53,52 @@ describe("useHeartbeat", () => {
     expect(CLASSIC_HOME).toBe("/?classic=1");
   });
 
-  it("does the same for an assignment waiting for an answer, and for a ringing call", async () => {
-    for (const waiting of [
-      { ok: true, attendance: null, pending: { id: 5, task: "TSK-00001" }, call: null },
-      { ok: true, attendance: null, pending: null, call: { id: 9, from: "Mona" } },
-    ]) {
-      vi.mocked(navigation.assign).mockClear();
-      answer = waiting;
-      const { unmount } = renderHook(() => useHeartbeat(4000));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign, JSON.stringify(waiting)).toHaveBeenCalledWith("/?classic=1");
-      unmount();
-    }
+  it("does the same for a ringing call", async () => {
+    answer = { ok: true, attendance: null, pending: null, call: { id: 9, from: "Mona" } };
+    renderHook(() => useHeartbeat(4000));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+  });
+
+  it("keeps the person here for an assignment waiting for an answer: this app draws the accept screen itself", async () => {
+    answer = { ok: true, attendance: null, pending: PENDING, call: null };
+    renderHook(() => useHeartbeat(4000));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(navigation.assign).not.toHaveBeenCalled();
+  });
+
+  it("tells what each beat says about a hand-off: the hand-off, then nothing once it is gone", async () => {
+    const heard: unknown[] = [];
+    answer = { ok: true, attendance: null, pending: PENDING, call: null };
+    renderHook(() => useHeartbeat(4000, undefined, (pending) => heard.push(pending)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heard).toEqual([PENDING]);
+    answer = { ok: true, attendance: null, pending: null, call: null };
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(heard).toEqual([PENDING, null]);
+  });
+
+  it("says nothing about a hand-off when a beat fails, and leaves what was shown as it was", async () => {
+    const heard: unknown[] = [];
+    answer = { ok: true, attendance: null, pending: PENDING, call: null };
+    renderHook(() => useHeartbeat(4000, undefined, (pending) => heard.push(pending)));
+    await vi.advanceTimersByTimeAsync(0);
+    fetchMock.mockImplementationOnce(async () => {
+      throw new TypeError("network down");
+    });
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(heard).toEqual([PENDING]);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(heard).toEqual([PENDING, PENDING]);
+  });
+
+  it("does not tell a hand-off to a person who is being sent to the classic interface", async () => {
+    const heard: unknown[] = [];
+    answer = { ok: true, attendance: { kind: "check_in" }, pending: PENDING, call: null };
+    renderHook(() => useHeartbeat(4000, undefined, (pending) => heard.push(pending)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+    expect(heard).toEqual([]);
   });
 
   it("sends the person away for the check-out and extra-time reminders too, which only the classic interface shows", async () => {

@@ -89,7 +89,7 @@ export interface HeartbeatResponse {
   /** The attendance screen that is due, or null: `{ kind: "check_in" | "check_out" | "extra", ... }`. */
   attendance: { kind?: string } | null;
   /** An assignment waiting for an answer (the 60-second accept screen), or null. */
-  pending: unknown;
+  pending: PendingAssignment | null;
   /** A call ringing for this person, or null. */
   call: unknown;
   /** Moves whenever anything on the boards moves; says *that*, never what or for whom. */
@@ -128,6 +128,59 @@ export interface TranslatorHomeResponse {
   open: DeskTask[];
   done: { code: string; status: Labelled & { tone: string }; url: string }[];
   rating_events: { delta: string; reason_ar: string; reason_en: string }[];
+}
+
+/** A hand-off waiting for an answer, as `/api/heartbeat/` tells it (`api._pending_json`): what the popup draws. */
+export interface PendingAssignment {
+  id: number;
+  task_code: string;
+  task_title: string;
+  /** The classic task page. */
+  task_url: string;
+  /** A client code, never a name. */
+  client: string;
+  role: Role;
+  seconds_left: number;
+  /** The whole window, in seconds. */
+  window: number;
+  assigned_by: string;
+  files_url: string;
+  open_url: string;
+  priority: string;
+  /** The date that governs this person, in English (`2026-10-02 5:30 PM`). */
+  deadline: string;
+  deadline_iso: string;
+  /** The sender's note, with the client's name taken out. */
+  note: string;
+}
+
+/** GET /api/v1/assignments/<id>/ : a hand-off read before it is taken. */
+export interface AssignmentResponse {
+  ok: true;
+  assignment: {
+    id: number;
+    status: "pending" | "accepted" | "declined" | "expired" | "cancelled";
+    /** Waiting for an answer and still inside the window: the one state with buttons. */
+    pending: boolean;
+    seconds_left: number;
+    window: number;
+    role: Role;
+    note: string;
+    from: string | null;
+    mine: boolean;
+  };
+  task: {
+    code: string;
+    title: string;
+    origin: (Labelled & { icon: string }) | null;
+    client: string;
+    source_lang: string;
+    target_lang: string;
+    due: Stamp | null;
+    due_iso: string;
+    description: string;
+    files: TaskFile[];
+  };
 }
 
 /** A moment the server wrote in both languages (Cairo, twelve hours). */

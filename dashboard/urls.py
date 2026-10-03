@@ -232,6 +232,7 @@ urlpatterns = [
     path("api/v1/translator/home/", api_v1.translator_home, name="v1_translator_home"),
     path("api/v1/translator/payroll/", api_v1.translator_payroll, name="v1_translator_payroll"),
     path("api/v1/translator/tasks/<str:code>/", api_v1.translator_task, name="v1_translator_task"),
+    path("api/v1/assignments/<int:pk>/", api_v1.assignment, name="v1_assignment"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
     path("app/", spa.shell, name="app"),

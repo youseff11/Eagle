@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router";
 import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
 import { useHeartbeat } from "./hooks/useHeartbeat";
+import { AssignmentPage } from "./pages/AssignmentPage";
 import { HomePage } from "./pages/HomePage";
 import { NotFound } from "./pages/NotFound";
 import { ChatsPage } from "./pages/ChatsPage";
@@ -14,7 +15,11 @@ import { TranslatorHomePage } from "./pages/TranslatorHomePage";
 export function App({ pollMs }: { pollMs: number }) {
   const client = useQueryClient();
   // The classic list pages fetch themselves again when the boards move; so do these.
-  useHeartbeat(pollMs, () => void client.invalidateQueries({ queryKey: qk.boards }));
+  useHeartbeat(
+    pollMs,
+    () => void client.invalidateQueries({ queryKey: qk.boards }),
+    (pending) => client.setQueryData(qk.pending, pending),
+  );
   return (
     <Routes>
       <Route element={<Shell />}>
@@ -22,6 +27,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="translator" element={<TranslatorHomePage />} />
         <Route path="payroll" element={<PayrollPage />} />
+        <Route path="assignments/:id" element={<AssignmentPage />} />
         <Route path="tasks/:code" element={<TaskPage />} />
         <Route path="chats" element={<ChatsPage />} />
         <Route path="chats/:code" element={<ChatsPage />} />

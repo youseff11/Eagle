@@ -1178,6 +1178,10 @@ def assignment_preview(request, pk):
     """
     from .models import Assignment
 
+    # A translator whose screen is in the new app reads the job there; who may open it is decided there.
+    handed = _translator_hand_on(request, f"/assignments/{pk}")
+    if handed is not None:
+        return handed
     assignment = get_object_or_404(
         Assignment.objects.select_related("task", "task__client", "assigned_by"), pk=pk
     )

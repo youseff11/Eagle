@@ -7,6 +7,7 @@ import { usePreferences } from "../i18n/Preferences";
 import { CLASSIC_HOME } from "../lib/navigation";
 import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
+import { AssignmentModal } from "./AssignmentModal";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { NotificationToasts } from "./NotificationToasts";
@@ -70,6 +71,8 @@ export function Shell() {
     <ToastProvider>
       <NotificationToasts />
       <Frame />
+      {/* On a clock, so over every page: a person who has not seen it loses the assignment. */}
+      <AssignmentModal />
     </ToastProvider>
   );
 }

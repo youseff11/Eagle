@@ -5,6 +5,7 @@ import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
   AiCheckAnswer,
+  AssignmentResponse,
   ChatKind,
   ChatListResponse,
   FileTasksResponse,
@@ -18,6 +19,7 @@ import type {
   NotificationsResponse,
   PayrollResponse,
   PeopleResponse,
+  PendingAssignment,
   ReactResponse,
   ReadResponse,
   SendResponse,
@@ -93,6 +95,33 @@ export function useTranslatorHome(enabled = true) {
     // Everybody else is refused, and every refusal is written to the audit log: a page left
     // open would write a row at every refresh.
     enabled,
+  });
+}
+
+/**
+ * The hand-off waiting for an answer, or `null`. It is not fetched: `useHeartbeat` writes what each beat says
+ * (`App`), so the popup and the page agree with the one poll that already keeps the person "online".
+ */
+export function usePending(): PendingAssignment | null {
+  return (
+    useQuery<PendingAssignment | null>({
+      queryKey: qk.pending,
+      queryFn: () => null,
+      enabled: false,
+      initialData: null,
+      staleTime: Infinity,
+    }).data ?? null
+  );
+}
+
+/** A hand-off read before it is taken (files, brief, time left). Not asked for with a bad id: a 404 is audited. */
+export function useAssignment(id: number | null) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.assignment(id ?? 0),
+    queryFn: () => api<AssignmentResponse>(`/api/v1/assignments/${id}/`),
+    refetchInterval,
+    enabled: id !== null,
   });
 }
 
