@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router";
 import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
+import { calls } from "./lib/calls";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { AssignmentPage } from "./pages/AssignmentPage";
 import { AttendancePage } from "./pages/AttendancePage";
@@ -31,6 +32,8 @@ export function App({ pollMs }: { pollMs: number }) {
     () => void client.invalidateQueries({ queryKey: qk.boards }),
     (pending) => client.setQueryData(qk.pending, pending),
     (gate) => client.setQueryData(qk.gate, gate),
+    // A call ringing for this person rings here, on whatever page they are on.
+    (call) => calls.incoming(call),
   );
   return (
     <Routes>

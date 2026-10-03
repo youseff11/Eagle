@@ -134,6 +134,21 @@ describe("a conversation", () => {
     expect(staff.calls.some((c) => c.url === "/api/v1/staff/5/messages/")).toBe(true);
   });
 
+  it("puts the two call buttons on a chat with a colleague and on no other", async () => {
+    const group = render("/chats/g12", { thread: { client: row("g12", { group: true, label: "A group" }), messages: [entry(1)] } });
+    await screen.findByText("message 1");
+    expect(screen.queryByRole("button", { name: "مكالمة صوتية" })).toBeNull();
+    group.unmount();
+    const client = render("/chats/CL-0001", { thread: { client: row("CL-0001"), messages: [entry(1)] } });
+    await screen.findByText("message 1");
+    expect(screen.queryByRole("button", { name: "مكالمة فيديو" })).toBeNull();
+    client.unmount();
+    render("/chats/u5", { thread: { client: row("u5", { staff: true, initials: "MS", label: "Mona" }), messages: [entry(1)] } });
+    await screen.findByText("message 1");
+    expect(screen.getByRole("button", { name: "مكالمة صوتية" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "مكالمة فيديو" })).toBeInTheDocument();
+  });
+
   it("draws the text, the quote, the subject and the forwarded tag, and ours on the other side", async () => {
     render("/chats/CL-0001", {
       thread: {
@@ -305,12 +320,12 @@ describe("a conversation", () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "/ops/chats/CL-0001/" }), messages: [] } });
     const link = await screen.findByRole("link", { name: "افتح المحادثة هناك" });
     expect(link).toHaveAttribute("href", "/ops/chats/CL-0001/");
-    expect(screen.getByText(/المكالمات لسه من الواجهة الحالية/)).toBeInTheDocument();
+    expect(screen.getByText(/لو محتاج حاجة مش هنا/)).toBeInTheDocument();
   });
 
   it("never offers to open a classic page that is not on this site", async () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "https://evil.example/" }), messages: [] } });
-    await screen.findByText(/المكالمات لسه من الواجهة الحالية/);
+    await screen.findByText(/لو محتاج حاجة مش هنا/);
     expect(screen.queryByRole("link", { name: "افتح المحادثة هناك" })).not.toBeInTheDocument();
   });
 });

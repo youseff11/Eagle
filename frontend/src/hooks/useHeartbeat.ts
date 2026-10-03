@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { api } from "../api/client";
-import type { AttendanceGate, HeartbeatResponse, PendingAssignment } from "../api/types";
+import type { AttendanceGate, CallInfo, HeartbeatResponse, PendingAssignment } from "../api/types";
 import { CLASSIC_HOME, navigation } from "../lib/navigation";
 
 /** Larger than any notification id, so the answer carries no notification rows. */
@@ -12,8 +12,10 @@ const NO_NOTIFICATIONS = 9007199254740991;
  *  - an attendance screen, when this app does not draw it for this person (`attendance_screen`: their attendance
  *    screen is not switched on): the mandatory check-in, which may not be skipped, and the check-out and
  *    extra-time reminders, which a person who never sees them pays for with the whole day. An answer that does
- *    not say who draws it (an older server) is the classic interface's;
- *  - a call that is ringing.
+ *    not say who draws it (an older server) is the classic interface's.
+ *
+ * A call that is ringing is not on the list any more: this app rings it and draws it itself, over whatever page the person
+ * is on (`CallOverlay`, `lib/calls.ts`).
  *
  * An assignment waiting for an answer is not on the list any more: its 60-second accept screen is drawn
  * by this app itself, over whatever page the person is on (`AssignmentModal`).
@@ -22,7 +24,7 @@ const NO_NOTIFICATIONS = 9007199254740991;
  * app while one is still due (`newui.hand_on`), so sending them away cannot loop.
  */
 export function needsClassicInterface(answer: HeartbeatResponse): boolean {
-  return (Boolean(answer.attendance) && answer.attendance_screen !== true) || Boolean(answer.call);
+  return Boolean(answer.attendance) && answer.attendance_screen !== true;
 }
 
 /**
@@ -42,22 +44,26 @@ export function needsClassicInterface(answer: HeartbeatResponse): boolean {
  * And it carries `pending`, the hand-off waiting for an answer: `onPending` is told what every beat
  * says - the hand-off, or `null` when there is none - so the accept screen appears within a beat of the
  * assignment and goes away within a beat of the answer. `onGate` is the same for the check-in screen: what it
- * asks (or `null`) when this app draws it. A beat that failed says nothing, and leaves what was shown as it
- * was: the next one tells the truth.
+ * asks (or `null`) when this app draws it. `onCall` is told the call that is ringing for this person (said again on every
+ * beat while it rings: the one who takes it knows to ignore what is already on the screen). A beat that failed says
+ * nothing, and leaves what was shown as it was: the next one tells the truth.
  */
 export function useHeartbeat(
   pollMs: number,
   onLive?: () => void,
   onPending?: (pending: PendingAssignment | null) => void,
   onGate?: (gate: AttendanceGate | null) => void,
+  onCall?: (call: CallInfo | null) => void,
 ): void {
   const onLiveRef = useRef(onLive);
   const onPendingRef = useRef(onPending);
   const onGateRef = useRef(onGate);
+  const onCallRef = useRef(onCall);
   useEffect(() => {
     onLiveRef.current = onLive;
     onPendingRef.current = onPending;
     onGateRef.current = onGate;
+    onCallRef.current = onCall;
   });
 
   useEffect(() => {
@@ -73,6 +79,7 @@ export function useHeartbeat(
           return;
         }
         onPendingRef.current?.(answer.pending ?? null);
+        onCallRef.current?.(answer.call ?? null);
         // Only for a person whose screen this app draws: for anybody else it was the classic interface's (above).
         onGateRef.current?.(answer.attendance_screen === true ? (answer.attendance ?? null) : null);
         if (typeof answer.live === "string") {

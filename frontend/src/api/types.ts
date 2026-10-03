@@ -184,7 +184,7 @@ export interface HeartbeatResponse {
   /** An assignment waiting for an answer (the 60-second accept screen), or null. */
   pending: PendingAssignment | null;
   /** A call ringing for this person, or null. */
-  call: unknown;
+  call: CallInfo | null;
   /** Moves whenever anything on the boards moves; says *that*, never what or for whom. */
   live?: string;
 }
@@ -952,4 +952,39 @@ export interface LeadBoard {
     next_due: Stamp | null;
     next_due_state: OpsTaskRow["due_state"];
   })[];
+}
+
+/** A call ringing for this person, as the heartbeat carries it (`services.incoming_call`). */
+export interface CallInfo {
+  id: number;
+  video: boolean;
+  from: string;
+  initials: string;
+  chat_url: string;
+}
+
+/** A call as either end reads it (`api._call_json`). */
+export interface CallJson {
+  id: number;
+  status: "ringing" | "active" | "ended" | "declined" | "missed";
+  video: boolean;
+  caller: boolean;
+  other: string;
+  initials: string;
+  /** When it was answered (ISO), or empty while it rings. */
+  answered_at: string;
+}
+
+/** POST /api/calls/start/ and /api/calls/<id>/answer/: the call, and where the two browsers look for a path to each other. */
+export interface CallStarted {
+  ok: true;
+  call: CallJson;
+  ice?: RTCIceServer[];
+}
+
+/** GET /api/calls/<id>/signals/?after=: what the other end sent since, oldest first, and the call's state. */
+export interface CallSignals {
+  ok: boolean;
+  call: CallJson;
+  signals: { id: number; kind: string; payload: string }[];
 }

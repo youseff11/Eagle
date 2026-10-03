@@ -53,11 +53,60 @@ describe("useHeartbeat", () => {
     expect(CLASSIC_HOME).toBe("/?classic=1");
   });
 
-  it("does the same for a ringing call", async () => {
-    answer = { ok: true, attendance: null, pending: null, call: { id: 9, from: "Mona" } };
-    renderHook(() => useHeartbeat(4000));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+  describe("a call that is ringing", () => {
+    const CALL = { id: 9, video: false, from: "Mona", initials: "MO", chat_url: "/ops/chats/u/4/" };
+
+    it("keeps the person here and tells it, on every beat while it rings: this app rings it itself", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: null, pending: null, call: CALL };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, undefined, (call) => heard.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(navigation.assign).not.toHaveBeenCalled();
+      expect(heard).toEqual([CALL, CALL]);
+    });
+
+    it("tells nothing is ringing once it is not", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: null, pending: null, call: CALL };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, undefined, (call) => heard.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      answer = { ok: true, attendance: null, pending: null, call: null };
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(heard).toEqual([CALL, null]);
+    });
+
+    it("says nothing when a beat fails", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: null, pending: null, call: CALL };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, undefined, (call) => heard.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      fetchMock.mockImplementationOnce(async () => {
+        throw new TypeError("network down");
+      });
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(heard).toEqual([CALL]);
+    });
+
+    it("does not stop the check-in screen from being told, and it does not send the person away", async () => {
+      const gates: unknown[] = [];
+      const calls: unknown[] = [];
+      answer = { ok: true, attendance: { kind: "check_in" }, attendance_screen: true, pending: null, call: CALL };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (gate) => gates.push(gate), (call) => calls.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigation.assign).not.toHaveBeenCalled();
+      expect(gates).toEqual([{ kind: "check_in" }]);
+      expect(calls).toEqual([CALL]);
+    });
+
+    it("still sends the person to the classic interface for a check-in this app does not draw, call or no call", async () => {
+      const calls: unknown[] = [];
+      answer = { ok: true, attendance: { kind: "check_in" }, attendance_screen: false, pending: null, call: CALL };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, undefined, (call) => calls.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+      expect(calls).toEqual([]);
+    });
   });
 
   it("keeps the person here for an assignment waiting for an answer: this app draws the accept screen itself", async () => {
@@ -180,14 +229,6 @@ describe("useHeartbeat", () => {
       expect(heard).toEqual([]);
     });
 
-    it("still sends the person away for a ringing call, which only the classic interface shows", async () => {
-      const heard: unknown[] = [];
-      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: { id: 9 } };
-      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-      expect(heard).toEqual([]);
-    });
   });
 
   it("does not start a second beat while the first is still waiting for its answer", async () => {

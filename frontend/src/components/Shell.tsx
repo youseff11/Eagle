@@ -9,6 +9,7 @@ import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { AssignmentModal } from "./AssignmentModal";
 import { AttendanceGate } from "./AttendanceGate";
+import { CallOverlay } from "./CallOverlay";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { NotificationToasts } from "./NotificationToasts";
@@ -118,6 +119,8 @@ export function Shell() {
       <AssignmentModal />
       {/* The check-in screen: over every page, and it cannot be put off until the person has checked in. */}
       <AttendanceGate />
+      {/* A call from a colleague, ringing or in progress: on every page, because it can come in anywhere. */}
+      <CallOverlay />
     </ToastProvider>
   );
 }

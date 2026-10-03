@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { qk } from "./api/keys";
 import type { PendingAssignment } from "./api/types";
+import { calls } from "./lib/calls";
 import { navigation } from "./lib/navigation";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "./test/helpers";
 
@@ -153,5 +154,36 @@ describe("App: the check-in screen is wired to the heartbeat", () => {
     serveGate({ gate: GATE, screen: true });
     renderWithProviders(<App pollMs={4000} />, { route: "/payroll", client });
     expect(screen.getByRole("dialog", { name: "سجّل حضورك" })).toBeInTheDocument();
+  });
+});
+
+describe("App: a call that rings is drawn by this app", () => {
+  function serveCall(state: { call: unknown }) {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, ["translator_home"])),
+      "/api/heartbeat/": () => jsonResponse({ ok: true, attendance: null, pending: null, call: state.call, live: "a" }),
+      "/api/calls/": () => jsonResponse({ ok: true, call: { id: 9, status: "ringing", video: false, caller: false, other: "Sam", initials: "SA", answered_at: "" }, signals: [] }),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return mocked;
+  }
+
+  it("rings over the page a beat after the call comes in, without leaving the app", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const assign = vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
+    const state = { call: null as unknown };
+    serveCall(state);
+    calls.reset();
+    renderWithProviders(<App pollMs={4000} />, { route: "/payroll" });
+    await beat(0);
+    expect(screen.queryByRole("dialog", { name: "Sam" })).toBeNull();
+
+    state.call = { id: 9, video: true, from: "Sam", initials: "SA", chat_url: "/ops/chats/u/4/" };
+    await beat(4000);
+    expect(await screen.findByRole("dialog", { name: "Sam" })).toHaveAttribute("data-phase", "incoming");
+    expect(screen.getByText("مكالمة فيديو جاية…")).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+    calls.reset();
   });
 });

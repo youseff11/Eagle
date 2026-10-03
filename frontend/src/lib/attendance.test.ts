@@ -291,11 +291,25 @@ describe("what the app is not allowed to do", () => {
     }
   });
 
-  it("opens the microphone for audio only, and in one place", () => {
+  it("opens the microphone for a voice note, and the microphone and the camera for a call: in those two places and no other", () => {
     const users = files.filter((path) => /getUserMedia\s*\(/.test(text(path)));
-    expect(users.map((path) => path.split(/[\\/]/).pop())).toEqual(["recorder.ts"]);
-    expect(text(users[0]!)).toMatch(/getUserMedia\(\{ audio: true \}\)/);
-    expect(text(users[0]!)).not.toMatch(/video\s*:/);
+    const names = users.map((path) => path.split(/[\\/]/).pop());
+    expect(names.sort()).toEqual(["calls.ts", "recorder.ts"]);
+    const of = (name: string) => text(users.find((path) => path.endsWith(name))!);
+    // A voice note is audio and nothing else.
+    expect(of("recorder.ts")).toMatch(/getUserMedia\(\{ audio: true \}\)/);
+    expect(of("recorder.ts")).not.toMatch(/video\s*:/);
+    // A call asks for the camera only when it is a video call somebody placed or answered: the constraint is the call's own
+    // flag, never a literal `true`.
+    expect(of("calls.ts")).toMatch(/getUserMedia\(\{ audio: true, video \}\)/);
+    expect(of("calls.ts")).not.toMatch(/video\s*:\s*true/);
+  });
+
+  it("keeps the attendance code away from the microphone and the camera altogether", () => {
+    for (const name of ["attendance.ts", "AttendanceGate.tsx", "AttendancePage.tsx"]) {
+      const path = files.find((one) => one.endsWith(name))!;
+      expect(text(path), name).not.toMatch(/getUserMedia|mediaDevices|MediaStream|RTCPeerConnection/);
+    }
   });
 
   it("asks for a position in one place only: the attendance code, at a button press", () => {

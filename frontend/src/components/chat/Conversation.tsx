@@ -9,6 +9,7 @@ import { kindOfCode } from "../../lib/chatCode";
 import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { AiNotesPanel } from "../ai/AiNotesPanel";
+import { CallButtons } from "./CallButtons";
 import { Icon } from "../Icon";
 import { AddMembersDialog } from "./AddMembersDialog";
 import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
@@ -243,8 +244,8 @@ export function replyTargetOf(entry: ThreadEntry, t: (ar: string, en: string) =>
  * Words, replies, files and voice can be written here, a message can be reacted to, and several can be picked and
  * forwarded to another conversation (step 3d). Step 3e adds the work groups (who is in one, opening one, adding to
  * one), the translator's «خلصت التاسك», and - for the operation and the admin - «استلمت», turning a message (or
- * files picked across messages) into a task, which leads to the classic task form. Calls are not here yet, and the way
- * to the classic page stays on screen for them. The AI's suggestions on what a translator handed over are the panel
+ * files picked across messages) into a task, which leads to the classic task form. Calls to a colleague are placed from
+ * the header (`CallButtons`) and drawn by the overlay; the way to the classic page stays on screen for what is not here. The AI's suggestions on what a translator handed over are the panel
  * a team leader gets beside a work group or a colleague's chat (`AiNotesPanel`).
  */
 export function Conversation({ code, kind, allowed }: { code: string; kind: ChatKind; allowed: boolean }) {
@@ -451,6 +452,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             <span>{t("ضيف عضو", "Add member")}</span>
           </button>
         )}
+        {/* A colleague can be rung from here: a voice call or a video call. A client never is. */}
+        {row?.staff && <CallButtons code={code} name={row.label} initials={row.initials ?? ""} />}
         {thread.data && clientThread && account?.chats.types.includes("clients") && (
           <a className="btn btn--ghost cchat__profile" href={`/clients/${encodeURIComponent(code)}/`}>
             <Icon name="user" size="sm" />
@@ -662,7 +665,10 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
           <div className="cchat__hint muted">
             <Icon name="info" size="sm" />
             <span>
-              {t("المكالمات لسه من الواجهة الحالية.", "Calls are still in the classic interface.")}{" "}
+              {t(
+                "لو محتاج حاجة مش هنا، المحادثة نفسها في الواجهة الحالية.",
+                "If you need something that is not here, the same conversation is in the classic interface.",
+              )}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>
           </div>
