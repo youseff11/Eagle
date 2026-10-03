@@ -3733,6 +3733,33 @@ def task_reset_counts():
     }
 
 
+#: Wrong passwords the two clear-outs allow in the window below, counted across both of them together. They delete real data
+#: for good, and the password is what stands between that and a session left open on a desk: it must not be guessable at
+#: the speed of a script. Counted from the audit rows the refusals already write, so it holds across processes and restarts.
+RESET_WRONG_LIMIT = 5
+RESET_LOCK_MINUTES = 15
+RESET_LOCKED_MESSAGE = "محاولات باسورد غلط كتير. المسح اتقفل 15 دقيقة."
+_RESET_WRONG_ACTIONS = ("task.reset_refused", "mail.reset_refused")
+
+
+def reset_password_problem(admin, password, kind):
+    """Why this admin's password does not open a clear-out (``kind`` is ``task`` or ``mail``), or ``""`` when it does.
+
+    After ``RESET_WRONG_LIMIT`` wrong passwords in ``RESET_LOCK_MINUTES`` the clear-outs are shut to this admin, and a right
+    password is no way in until the window has passed. A refusal while shut is written down as ``<kind>.reset_locked`` and is
+    not counted: it does not push the end of the window further away for someone who simply waits.
+    """
+    since = timezone.now() - timedelta(minutes=RESET_LOCK_MINUTES)
+    wrong = AuditLog.objects.filter(actor=admin, action__in=_RESET_WRONG_ACTIONS, created_at__gte=since).count()
+    if wrong >= RESET_WRONG_LIMIT:
+        log(admin, f"{kind}.reset_locked", "", "too many wrong passwords")
+        return RESET_LOCKED_MESSAGE
+    if not password or not admin.check_password(password):
+        log(admin, f"{kind}.reset_refused", "", "wrong password")
+        return "الباسورد غلط."
+    return ""
+
+
 def reset_all_tasks(admin, password):
     """Delete every task so numbering starts again at TSK-00001.
 
@@ -3761,9 +3788,9 @@ def reset_all_tasks(admin, password):
 
     if admin is None or not admin.is_admin_role:
         return False, "الخطوة دي للأدمن بس.", "", 0
-    if not password or not admin.check_password(password):
-        log(admin, "task.reset_refused", "", "wrong password")
-        return False, "الباسورد غلط.", "", 0
+    problem = reset_password_problem(admin, password, "task")
+    if problem:
+        return False, problem, "", 0
 
     with transaction.atomic():
         tasks = list(Task.objects.all())
@@ -3875,9 +3902,9 @@ def reset_all_mail(admin, password):
 
     if admin is None or not admin.is_admin_role:
         return False, "الخطوة دي للأدمن بس.", "", 0, 0
-    if not password or not admin.check_password(password):
-        log(admin, "mail.reset_refused", "", "wrong password")
-        return False, "الباسورد غلط.", "", 0, 0
+    problem = reset_password_problem(admin, password, "mail")
+    if problem:
+        return False, problem, "", 0, 0
 
     with transaction.atomic():
         letters_qs, sent_qs, _kept_letters, _kept_sent = _mail_to_clear()

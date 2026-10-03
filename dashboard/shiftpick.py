@@ -6,7 +6,7 @@ order, so a refusal means the same thing on both and neither can leave a half-ma
 """
 
 from . import attendance
-from .forms import NewShiftForm
+from .forms import NewShiftForm, ShiftForm
 from .models import ShiftTemplate
 
 #: ``raw`` value for "a shift nobody has made yet": the three fields under it make it.
@@ -41,3 +41,24 @@ def choose(person, raw, weekdays, *, new_name="", new_start="", new_end="", acto
         )
     attendance.assign_shift(person, template, weekdays, actor=actor)
     return "", template
+
+
+def typed_shift_form(weekday, start, end):
+    """A roster row of typed times (a weekday, from, to) as a ``ShiftForm`` ready to validate and save.
+
+    The box that adds one only has those three boxes; the form also needs the rest of a row (no template, the person's own work
+    mode, the shift's own length, switched on), and without them it refused every row without saying so. A shift that starts and
+    ends together is no shift. Both the classic staff page and the admin panel's use this, so neither can drift from the other.
+    """
+    form = ShiftForm({
+        "weekday": str(weekday) if isinstance(weekday, (int, str)) and not isinstance(weekday, bool) else "",
+        "template": "", "start_time": str(start or "").strip()[:8], "end_time": str(end or "").strip()[:8],
+        "work_mode": "", "required_minutes": "0", "is_active": True,
+    })
+    if form.is_valid():
+        start_at, end_at = form.cleaned_data["start_time"], form.cleaned_data["end_time"]
+        if not start_at or not end_at:
+            form.add_error("end_time" if start_at else "start_time", "اكتب وقت البداية ووقت النهاية.")
+        elif start_at == end_at:
+            form.add_error("end_time", "بداية الشيفت ونهايته نفس الوقت.")
+    return form

@@ -620,9 +620,34 @@ class HandOnTests(_Staff):
         answer = browser.post(reverse("dashboard:admin_user_edit", args=[self.tr.pk]), {"first_name": "Changed", "role": "translator"})
         self.assertNotEqual(answer.get("Location"), f"/app/admin/users/{self.tr.pk}")
 
-    def test_the_classic_box_for_a_typed_shift_saves_nothing(self):
-        """Pinned as it is today: the classic form omits two fields its form needs, so nothing is saved. The new page does not."""
+    def test_the_classic_box_for_a_typed_shift_saves_the_row_it_was_given(self):
+        """It used to save nothing and say nothing (the form wanted fields the box never sent): now it saves an active row."""
         browser = DjangoClient()
         browser.force_login(self.admin)
-        browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), {"weekday": 0, "start_time": "09:00", "end_time": "17:00"})
+        answer = browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), {"weekday": 0, "start_time": "09:00", "end_time": "17:00"})
+        self.assertEqual(answer.status_code, 302)
+        row = Shift.objects.get(user=self.tr)
+        self.assertEqual((row.weekday, row.start_time, row.end_time, row.is_active, row.required_minutes, row.template_id), (0, time(9), time(17), True, 0, None))
+        self.assertEqual(len(self.tr.active_shifts()), 1)
+
+    def test_the_classic_box_says_so_when_the_row_is_not_a_row_and_saves_nothing(self):
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        for body in (
+            {"weekday": 0, "start_time": "", "end_time": "17:00"}, {"weekday": 0, "start_time": "09:00"}, {"weekday": 0},
+            {"weekday": 0, "start_time": "09:00", "end_time": "09:00"}, {"weekday": 9, "start_time": "09:00", "end_time": "17:00"},
+            {"start_time": "09:00", "end_time": "17:00"}, {"weekday": 0, "start_time": "99:99", "end_time": "17:00"},
+        ):
+            answer = browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), body, follow=True)
+            self.assertContains(answer, "اكتب اليوم ووقت البداية ووقت النهاية", msg_prefix=str(body))
         self.assertFalse(Shift.objects.filter(user=self.tr).exists())
+
+    def test_the_classic_box_and_the_new_door_make_the_same_row(self):
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), {"weekday": 2, "start_time": "17:00", "end_time": "01:00"})
+        self.post(self.admin, SHIFT_ADD, {"weekday": 2, "start_time": "17:00", "end_time": "01:00"}, [self.ops.pk])
+        fields = ("weekday", "start_time", "end_time", "is_active", "required_minutes", "work_mode", "template_id")
+        self.assertEqual(
+            list(Shift.objects.filter(user=self.tr).values_list(*fields)), list(Shift.objects.filter(user=self.ops).values_list(*fields)),
+        )

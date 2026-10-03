@@ -9,7 +9,9 @@ The two clear-outs delete real data and cannot be undone, so nothing here makes 
 * a GET only counts what would go and changes nothing;
 * the run needs the password *and* ``confirm: true`` - an absent, false or any other value for ``confirm`` is a 400 and
   nothing is touched, whatever the password;
-* a wrong password is a refusal with its reason, written down as the classic page wrote it, and nothing is touched;
+* a wrong password is a refusal with its reason, written down as the classic page wrote it, and nothing is touched; after
+  five wrong ones in a quarter of an hour both clear-outs are shut to that admin (429), and a right password is no way in
+  until the window has passed (``services.reset_password_problem``, shared with the classic pages);
 * the backup of what was deleted comes back as the file the browser saves. It is not stored on the server, and the
   password is in this request and nowhere else: not answered, not logged.
 """
@@ -106,6 +108,9 @@ def _password_and_yes(request):
 
 
 def _refusal(problem):
+    """A refusal with its reason in words. Too many wrong passwords is its own answer (429), so a page can say it is shut."""
+    if problem == services.RESET_LOCKED_MESSAGE:
+        return JsonResponse({"ok": False, "error": "too_many_attempts", "message": problem}, status=429)
     return JsonResponse({"ok": False, "error": "refused", "message": problem}, status=400)
 
 

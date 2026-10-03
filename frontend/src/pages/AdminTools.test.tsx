@@ -249,6 +249,22 @@ describe("AdminResetPage: the run", () => {
     expect(document.body.textContent).not.toContain("wrong-guess");
   });
 
+  it("says the clear-out is shut after too many wrong passwords, and saves nothing", async () => {
+    serve("admin", {
+      "/api/v1/admin/reset/mail/run/": () => jsonResponse({ ok: false, error: "too_many_attempts", message: "محاولات باسورد غلط كتير. المسح اتقفل 15 دقيقة." }, 429),
+    });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    open("/admin/reset-mail");
+    await user.type(await screen.findByLabelText("باسورد الأدمن بتاعك"), "the-right-one");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /امسح كل الميلات/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("المسح اتقفل 15 دقيقة");
+    expect(screen.getByLabelText("باسورد الأدمن بتاعك")).toHaveValue("");
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.queryByText("the inbox")).toBeNull();
+  });
+
   it("says nothing was deleted when the connection fails", async () => {
     serve("admin", { "/api/v1/admin/reset/tasks/run/": () => jsonResponse({ ok: false, error: "server" }, 500) });
     const user = userEvent.setup();

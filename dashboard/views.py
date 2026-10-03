@@ -1547,11 +1547,17 @@ def admin_user_edit(request, pk):
 @require_POST
 def admin_shift_add(request, pk):
     obj = get_object_or_404(User, pk=pk)
-    form = ShiftForm(request.POST)
+    # The page's box sends a day and two times; the rest of a row is filled in (``shiftpick``). Before this a row was
+    # refused without a word because the form wanted fields the box never sent.
+    form = shiftpick.typed_shift_form(
+        request.POST.get("weekday"), request.POST.get("start_time"), request.POST.get("end_time"),
+    )
     if form.is_valid():
         shift = form.save(commit=False)
         shift.user = obj
         shift.save()
+    else:
+        flash.error(request, "اكتب اليوم ووقت البداية ووقت النهاية (ومختلفين).")
     return redirect("dashboard:admin_user_edit", pk=pk)
 
 

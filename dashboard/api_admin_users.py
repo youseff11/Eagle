@@ -15,7 +15,7 @@ from django.shortcuts import get_object_or_404
 from . import api_forms, attendance, clock, galiases, identity, services, shiftpick
 from .api_ops import _seen_json
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
-from .forms import ShiftForm, StaffCreateForm, StaffEditForm
+from .forms import StaffCreateForm, StaffEditForm
 from .models import ACTIVE_TASK_STATUSES, Role, Shift, ShiftTemplate, Task, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ROLE_MAP
@@ -180,7 +180,7 @@ def aliases_sync(request):
 @endpoint("POST")
 @api_role_required(Role.ADMIN)
 def shift_add(request, pk):
-    """One roster row of typed times: a weekday, from, to. (The classic box for this saved nothing - see the tests.)"""
+    """One roster row of typed times: a weekday, from, to (``shiftpick.typed_shift_form``, the classic box's rule too)."""
     person = get_object_or_404(User, pk=pk)
     try:
         body = _object(request)
@@ -189,14 +189,7 @@ def shift_add(request, pk):
     start, end, day = body.get("start_time"), body.get("end_time"), body.get("weekday")
     if not (isinstance(start, str) and isinstance(end, str) and start.strip() and end.strip()):
         return _error(400, "times_required")
-    form = ShiftForm({
-        "weekday": str(day) if isinstance(day, (int, str)) and not isinstance(day, bool) else "",
-        "template": "", "start_time": start.strip()[:8], "end_time": end.strip()[:8],
-        "work_mode": "", "required_minutes": "0", "is_active": True,
-    })
-    if form.is_valid() and form.cleaned_data["start_time"] == form.cleaned_data["end_time"]:
-        # A shift that starts and ends together is no shift (the company-shift form refuses it the same way).
-        form.add_error("end_time", "بداية الشيفت ونهايته نفس الوقت.")
+    form = shiftpick.typed_shift_form(day, start, end)
     if not form.is_valid():
         return api_forms.invalid(form)
     shift = form.save(commit=False)

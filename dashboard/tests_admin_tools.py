@@ -7,12 +7,17 @@ the admin's own password and the explicit yes, a wrong password or a missing yes
 
 import json
 
+from datetime import timedelta
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client as DjangoClient
 from django.urls import reverse
+from django.utils import timezone
 
 from . import identity, services
-from .models import AppSettings, AuditLog, Channel, ChatRoom, Client, InboundMessage, MessageAttachment, OutboundMessage, Task
+from .models import (
+    AppSettings, AuditLog, Channel, ChatRoom, Client, InboundMessage, MessageAttachment, OutboundMessage, Role, Task, User,
+)
 from .tests_admin_screen import _Admin
 from .tests_api_v1 import _json
 
@@ -326,3 +331,80 @@ class HandOnTests(_Tools):
         sent = browser.post(reverse("dashboard:admin_simulate"), {"channel": "whatsapp", "sender_identity": "+201110003333", "body": "Hi"})
         self.assertEqual(sent.status_code, 302)
         self.assertNotIn("/app/", sent["Location"])
+
+
+class ResetLockTests(_Tools):
+    """Five wrong passwords in a quarter of an hour shut both clear-outs to that admin, whatever comes next."""
+
+    WRONG = ("TASK", "task.reset_refused"), ("MAIL", "mail.reset_refused")
+
+    def guess(self, route, times, user=None):
+        for _ in range(times):
+            self.post(user or self.admin, route, {"password": "not-it", "confirm": True})
+
+    def test_four_wrong_passwords_are_still_a_way_in_and_the_fifth_shuts_it(self):
+        self.guess(TASKS_RUN, 4)
+        right = self.post(self.admin, TASKS_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        self.assertEqual(right.status_code, 200)
+        self.assertFalse(Task.objects.exists())
+
+    def test_after_five_wrong_ones_even_the_right_password_is_refused_and_nothing_is_deleted(self):
+        self.guess(TASKS_RUN, 5)
+        answer = self.post(self.admin, TASKS_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        body = _json(answer)
+        self.assertEqual((answer.status_code, body["error"], body["message"]), (429, "too_many_attempts", services.RESET_LOCKED_MESSAGE))
+        self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action="task.reset_locked", actor=self.admin, detail="too many wrong passwords").exists())
+
+    def test_the_count_is_over_both_clear_outs_together(self):
+        self.guess(TASKS_RUN, 3)
+        self.guess(MAIL_RUN, 2)
+        for route in (TASKS_RUN, MAIL_RUN):
+            answer = self.post(self.admin, route, {"password": ADMIN_PASSWORD, "confirm": True})
+            self.assertEqual(answer.status_code, 429, route)
+        self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
+
+    def test_it_is_a_quarter_of_an_hour_and_not_for_ever(self):
+        self.guess(TASKS_RUN, 5)
+        AuditLog.objects.filter(action="task.reset_refused").update(created_at=timezone.now() - timedelta(minutes=services.RESET_LOCK_MINUTES + 1))
+        answer = self.post(self.admin, TASKS_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        self.assertEqual(answer.status_code, 200)
+
+    def test_trying_while_shut_does_not_push_the_end_further_away(self):
+        self.guess(TASKS_RUN, 5)
+        self.guess(TASKS_RUN, 3)
+        AuditLog.objects.filter(action="task.reset_refused").update(created_at=timezone.now() - timedelta(minutes=services.RESET_LOCK_MINUTES + 1))
+        self.assertTrue(AuditLog.objects.filter(action="task.reset_locked", created_at__gte=timezone.now() - timedelta(minutes=5)).exists())
+        answer = self.post(self.admin, TASKS_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        self.assertEqual(answer.status_code, 200)
+
+    def test_it_is_per_admin(self):
+        other = User.objects.create_user("person_admin_two", password="pw-two", role=Role.ADMIN)
+        self.guess(TASKS_RUN, 5)
+        answer = self.post(other, TASKS_RUN, {"password": "pw-two", "confirm": True})
+        self.assertEqual(answer.status_code, 200)
+
+    def test_somebody_who_is_not_an_admin_neither_counts_nor_is_counted(self):
+        before = AuditLog.objects.filter(action__in=("task.reset_refused", "mail.reset_refused")).count()
+        for user in (self.ops, self.sales):
+            self.guess(TASKS_RUN, 7, user)
+        self.assertEqual(AuditLog.objects.filter(action__in=("task.reset_refused", "mail.reset_refused")).count(), before)
+        ok, error, _backup, _deleted = services.reset_all_tasks(self.ops, "x")
+        self.assertFalse(ok)
+        self.assertNotEqual(error, services.RESET_LOCKED_MESSAGE)
+
+    def test_the_classic_pages_are_shut_by_the_same_count(self):
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        for _ in range(5):
+            browser.post(reverse("dashboard:admin_reset_tasks"), {"password": "not-it", "confirm": "1"})
+        answer = browser.post(reverse("dashboard:admin_reset_tasks"), {"password": ADMIN_PASSWORD, "confirm": "1"})
+        self.assertEqual(answer.status_code, 400)
+        self.assertContains(answer, services.RESET_LOCKED_MESSAGE, status_code=400)
+        mail = browser.post(reverse("dashboard:admin_reset_mail"), {"password": ADMIN_PASSWORD, "confirm": "1"})
+        self.assertContains(mail, services.RESET_LOCKED_MESSAGE, status_code=400)
+        self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
+
+    def test_the_wrong_password_itself_still_says_wrong_before_the_limit(self):
+        answer = self.post(self.admin, TASKS_RUN, {"password": "not-it", "confirm": True})
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "refused"))
