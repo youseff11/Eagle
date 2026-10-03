@@ -28,6 +28,21 @@ export const qk = {
   /** One task as its translator reads it: it moves with the boards (a status, an answer to more time). */
   translatorTask: (code: string) => ["boards", "translator-task", code] as const,
   room: (id: number) => ["room", id] as const,
+  /** The operation's task list (`""` is every task, `open`, or one status). */
+  tasks: (status: string) => ["boards", "tasks", status] as const,
+  /** What the new-task form starts from, by the address it was opened with (`""` is nothing). */
+  taskStart: (search: string) => ["task-start", search] as const,
+  /** One task as the operation reads it. */
+  opsTask: (code: string) => ["boards", "ops-task", code] as const,
+  /** Team leaders and who works under each. */
+  team: ["boards", "team"] as const,
+  /** The mailbox: the conversations (by the filter and the search), and one conversation. Under `boards`: a doorbell asks again. */
+  mail: (state: string, query: string) => ["boards", "mail", "list", state, query] as const,
+  mailLists: ["boards", "mail", "list"] as const,
+  mailThread: (id: number) => ["boards", "mail", "thread", id] as const,
+  /** The client codes (by the search), and one client: under `boards`, so a doorbell asks again. */
+  clients: (query: string) => ["boards", "clients", "list", query] as const,
+  client: (code: string) => ["boards", "clients", "one", code] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

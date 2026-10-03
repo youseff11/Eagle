@@ -234,7 +234,9 @@ describe("Shell", () => {
     view.unmount();
 
     view = at("/tasks/TSK-00001");
-    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي");
+    // Two screens share this address: until the server has said whose it is, it is not named at all.
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent(/^$/);
+    await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي"));
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"].is-active')).not.toBeNull());
     expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toHaveClass("is-active");
     view.unmount();
@@ -259,5 +261,89 @@ describe("Shell", () => {
     // home, my work, my payroll (the same screen's other page), notifications, classic
     expect(view.container.querySelectorAll(".nav__item")).toHaveLength(5);
     expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toBeNull();
+  });
+
+  describe("the operation's screen", () => {
+    const opsMe = (extra: Record<string, unknown> = {}, role: "operation" | "admin" = "operation", screens: string[] = ["operation", "chats"]) =>
+      jsonResponse({ ...me({ role, is_admin: role === "admin" }, 0, screens as never), ...extra });
+    const at = (route: string, who: () => Response) => {
+      const mocked = mockFetch({ "/api/prefs/": () => jsonResponse({ ok: true }), "/api/v1/me/": who });
+      vi.stubGlobal("fetch", mocked.fn);
+      return renderWithProviders(
+        <Routes>
+          <Route element={<Shell />}>
+            <Route path="inbox" element={<div>mailbox</div>} />
+            <Route path="inbox/thread/:id" element={<div>conversation</div>} />
+            <Route path="tasks" element={<div>tasks</div>} />
+            <Route path="tasks/:code" element={<div>task</div>} />
+            <Route path="team" element={<div>team</div>} />
+            <Route path="clients" element={<div>clients</div>} />
+            <Route path="clients/:code" element={<div>client</div>} />
+            <Route path="translator" element={<div>desk</div>} />
+          </Route>
+        </Routes>,
+        { route },
+      );
+    };
+    const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+    it("lists the mail, the tasks, the teams and the client codes in the classic menu's order", async () => {
+      const view = at("/inbox", () => opsMe());
+      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
+      expect(links(view.container).slice(0, 6)).toEqual(["/", "/inbox", "/tasks", "/team", "/clients", "/chats"]);
+      expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلات واردة")).toBeInTheDocument();
+      expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
+    });
+
+    it("shows the two badges beside the mail and the tasks, and none when there is nothing", async () => {
+      const view = at("/inbox", () => opsMe({ mail_unseen: 4, tasks_new: 2 }));
+      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/inbox"] .nav__count')).toHaveTextContent("4"));
+      expect(view.container.querySelector('.sidebar a[href="/tasks"] .nav__count')).toHaveTextContent("2");
+      expect(view.container.querySelector('.sidebar a[href="/team"] .nav__count')).toBeNull();
+      expect(view.container.querySelector('.sidebar a[href="/clients"] .nav__count')).toBeNull();
+      view.unmount();
+      const quiet = at("/inbox", () => opsMe());
+      await waitFor(() => expect(quiet.container.querySelector('.sidebar a[href="/inbox"]')).not.toBeNull());
+      expect(quiet.container.querySelector('.sidebar a[href="/inbox"] .nav__count')).toBeNull();
+      expect(quiet.container.querySelector('.sidebar a[href="/tasks"] .nav__count')).toBeNull();
+    });
+
+    it("titles every page of the screen, and lights the line of the page the person is on", async () => {
+      const pages: [string, string, string][] = [
+        ["/inbox", "ميلات واردة", "/inbox"],
+        ["/inbox/thread/12", "ميلات واردة", "/inbox"],
+        ["/tasks", "التاسكات", "/tasks"],
+        ["/tasks/TSK-00001", "التاسكات", "/tasks"],
+        ["/team", "حالة الفرق", "/team"],
+        ["/clients", "أكواد العملاء", "/clients"],
+        ["/clients/CL-0001", "أكواد العملاء", "/clients"],
+      ];
+      for (const [route, title, lit] of pages) {
+        const view = at(route, () => opsMe());
+        await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+        await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`)).not.toBeNull());
+        expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+        view.unmount();
+      }
+    });
+
+    it("keeps the admin's task list as 'tasks' and not as the translator's 'my work', whatever else is switched on", async () => {
+      const view = at("/tasks", () => opsMe({}, "admin", ["translator_home", "operation", "chats"]));
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("التاسكات"));
+      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/tasks"].is-active')).not.toBeNull());
+      expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toHaveClass("is-active");
+    });
+
+    it("leaves a translator's task page as 'my work' even though the operation's tasks share the address", async () => {
+      const view = at("/tasks/TSK-00001", () => jsonResponse(me({ role: "translator" }, 0, ["translator_home"])));
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي"));
+      expect(view.container.querySelector('.sidebar a[href="/tasks"]')).toBeNull();
+    });
+
+    it("draws none of it for a person whose operation screen is not switched on", async () => {
+      const view = at("/inbox", () => opsMe({}, "operation", ["chats"]));
+      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+      for (const href of ["/inbox", "/tasks", "/team", "/clients"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+    });
   });
 });

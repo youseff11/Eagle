@@ -1,7 +1,7 @@
 export type Lang = "ar" | "en";
 
 /** A screen that has been ported to this app. The menu and the home page follow what the server lists. */
-export type ScreenKey = "translator_home" | "chats";
+export type ScreenKey = "translator_home" | "operation" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -46,6 +46,9 @@ export interface MeResponse {
   unread_notifications: number;
   /** Messages waiting in any chat tab (`services.unread_chat_total`). */
   unread_chats: number;
+  /** Mail conversations this person has not opened, and tasks nobody has been given yet (the operation's menu badges). */
+  mail_unseen: number;
+  tasks_new: number;
   realtime: { path: string; ping_seconds: number };
   server_time: string;
 }
@@ -181,6 +184,127 @@ export interface AssignmentResponse {
     description: string;
     files: TaskFile[];
   };
+}
+
+/** One row of the operation's task list (`api_ops.tasks`). */
+export interface OpsTaskRow {
+  code: string;
+  title: string;
+  origin: (Labelled & { icon: string }) | null;
+  priority: Labelled;
+  /** A code for the operation; the name only for the admin, who may know it. */
+  client: string;
+  status: Labelled & { tone: string };
+  team_lead: string | null;
+  translator: string | null;
+  /** The client's date (the operation answers for the promise), as month-day and the time. */
+  due: Stamp | null;
+  due_state: "none" | "ok" | "soon" | "late" | "done";
+}
+
+/** GET /api/v1/tasks/?status= */
+export interface TasksResponse {
+  ok: true;
+  status: string;
+  counters: { new: number; open: number; review: number; ready: number };
+  /** Every status, for the tabs. */
+  statuses: (Labelled & { tone: string })[];
+  tasks: OpsTaskRow[];
+}
+
+export type Channel = "whatsapp" | "email";
+
+/** One task as the operation reads it (`api_ops.task`). */
+export interface OpsTask {
+  code: string;
+  title: string;
+  status: Labelled & { tone: string };
+  priority: Labelled;
+  origin: (Labelled & { icon: string }) | null;
+  /** A code for the operation; the name beside it for the admin, who may know it. */
+  client: string;
+  client_code: string;
+  source_lang: string;
+  target_lang: string;
+  /** The client's date, which the operation answers for. */
+  due: Stamp | null;
+  due_state: "none" | "ok" | "soon" | "late" | "done";
+  /** What the translator was given (the leader keeps the difference to review in). */
+  translator_due: Stamp | null;
+  description: string;
+  people: { operation: string | null; team_lead: string | null; translator: string | null };
+  /** Who has been asked to take it and has not answered yet, and how long they have. */
+  waiting_for: { name: string; seconds_left: number } | null;
+  files: { original: TaskFile[]; translation: (TaskFile & { at: Stamp | null })[] };
+  chat: { url: string; label_ar: string; label_en: string } | null;
+  client_chat_url: string | null;
+  can: { assign_lead: boolean; take_over: boolean; deliver: boolean; cancel: boolean; add_member: boolean };
+  leads: { id: number; name: string; online: boolean; tasks: number }[];
+  handover: { by: string | null; at: Stamp | null } | null;
+  deliver: {
+    files: { id: number; name: string; size: string; sender: string | null; final: boolean }[];
+    channel: Channel;
+    reachable: boolean;
+  } | null;
+  group_candidates: { id: number; name: string; role: Role }[];
+  words: { state: "empty" | "auto" | "confirmed" | string; value: number | null };
+  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  deliveries: { id: number; at: Stamp | null; channel: Channel; files: number; by: string | null; status: "sent" | "failed" | string; error: string }[];
+  /** The client's own messages on this task that this person may read. */
+  messages: { id: number; channel: Channel; at: Stamp | null; body: string; files: TaskFile[] }[];
+  history: { id: number; name: string; initials: string; role: Role; at: Stamp | null; status: string }[];
+}
+
+/** GET /api/v1/tasks/<code>/ */
+export interface OpsTaskResponse {
+  ok: true;
+  task: OpsTask;
+}
+
+/** GET /api/v1/task-form/ : what the new-task form starts from, and what it offers (`api_ops.task_start`). */
+export interface TaskStartResponse {
+  ok: true;
+  from_task: { code: string; title: string } | null;
+  client_code: string;
+  /** The client's own messages the task is made from (only those this person may read). */
+  messages: { id: number; channel: Channel; at: Stamp | null; subject: string; body: string; files: TaskFile[] }[];
+  /** The files ticked on the way here; empty means "every file of the messages". */
+  picked: TaskFile[];
+  initial: { client: number | null; title: string; description: string; source_lang: string };
+  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  clients: { id: number; code: string; label: string }[];
+  languages: { code: string; ar: string; en: string }[];
+  quick_languages: string[];
+  priorities: Labelled[];
+}
+
+export type PresenceState = "free" | "busy" | "shift" | "off";
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  initials: string;
+  languages: string;
+  state: PresenceState;
+  seen: Stamp;
+  rating: number;
+  /** At most two codes of the tasks they have open. */
+  tasks: string[];
+}
+
+/** GET /api/v1/team/ */
+export interface TeamResponse {
+  ok: true;
+  leads: {
+    id: number;
+    name: string;
+    initials: string;
+    online: boolean;
+    rating: number;
+    tasks: number;
+    counts: { free: number; busy: number; offline: number };
+    members: TeamMember[];
+  }[];
 }
 
 /** A moment the server wrote in both languages (Cairo, twelve hours). */
@@ -463,4 +587,161 @@ export interface MovedResponse {
   ok: true;
   /** Whether the read mark moved (it did not, if it was there already). */
   moved: boolean;
+}
+
+/** A file of a letter or of our reply (`api_mail._file_json`): `url` is a path on this site, never another one. */
+export interface MailFile {
+  id: number;
+  url: string;
+  name: string;
+  size: string;
+  image: boolean;
+  audio: boolean;
+  length: string;
+}
+
+/** One conversation in the list (`api_mail._row_json`). */
+export interface MailRow {
+  key: string;
+  /** The letter the row opens: any letter's id opens the conversation it is in. */
+  id: number;
+  /** The client as this person may know it (a code for the operation); empty for an unknown sender. */
+  from: string;
+  code: string;
+  count: number;
+  at: Stamp | null;
+  subject: string;
+  snippet: string;
+  unread: boolean;
+  blocked: boolean;
+  answered: boolean;
+  tasks: string[];
+  files: number;
+  claimers: string[];
+}
+
+/** GET /api/v1/mail/threads/?state=&q= */
+export interface MailListResponse {
+  ok: true;
+  state: string;
+  q: string;
+  threads: MailRow[];
+  /** Conversations this person has not opened: the badge. */
+  unseen: number;
+  /** Conversations nobody has pressed "received" on. */
+  unclaimed: number;
+  /** Letters hidden from the operation by the rate rule: the admin only. */
+  blocked: number;
+  mail: { configured: boolean; last_fetch: Stamp | null; last_count: number; last_error: string };
+}
+
+/** A letter of the client's inside a conversation. */
+export interface MailLetter {
+  kind: "in";
+  id: number;
+  from: string;
+  code: string;
+  at: Stamp | null;
+  snippet: string;
+  body: string;
+  /** Not opened by this person before now. */
+  unseen: boolean;
+  blocked: boolean;
+  task: string | null;
+  claimed_by: string | null;
+  files: MailFile[];
+  can_confirm: boolean;
+  can_convert: boolean;
+  /** The ids of the files that are documents (not voice notes): what a task can be made from. */
+  documents: number[];
+  /** The raw address, for the admin alone. */
+  raw: string;
+  open: boolean;
+}
+
+/** One of our own replies inside a conversation. */
+export interface MailReply {
+  kind: "out";
+  id: number;
+  by: string | null;
+  at: Stamp | null;
+  body: string;
+  files: MailFile[];
+  failed: boolean;
+  /** Why it did not go, in words that do not quote the client's address. */
+  error: string;
+  open: boolean;
+}
+
+export type MailEntry = MailLetter | MailReply;
+
+/** GET /api/v1/mail/threads/<id>/ */
+export interface MailThreadResponse {
+  ok: true;
+  thread: {
+    id: number;
+    subject: string;
+    count: number;
+    client: string | null;
+    can_reply: boolean;
+    tasks: string[];
+    blocked: boolean;
+    entries: MailEntry[];
+  };
+}
+
+/** POST /api/v1/mail/threads/<id>/seen/ */
+export interface MailSeenResponse {
+  ok: true;
+  marked: number;
+  unseen: number;
+}
+
+/** One row of the client list (`api_clients.clients`): the identity columns are there only for whoever may know the client. */
+export interface ClientRow {
+  code: string;
+  tasks: number;
+  requirements: number;
+  name?: string;
+  company?: string;
+  phone?: string;
+}
+
+/** GET /api/v1/clients/?q= */
+export interface ClientsResponse {
+  ok: true;
+  q: string;
+  sees_identity: boolean;
+  clients: ClientRow[];
+}
+
+/** A requirement as the client page shows it: the day it was written too. */
+export interface ClientRequirement {
+  id: number;
+  kind: Labelled;
+  author: string | null;
+  text: string;
+  at: Stamp | null;
+}
+
+/** GET /api/v1/clients/<code>/ */
+export interface ClientResponse {
+  ok: true;
+  client: {
+    code: string;
+    /** Only for whoever may know the client. */
+    name?: string;
+    company?: string;
+    phones?: string[];
+    emails?: string[];
+    admin_notes?: string;
+  };
+  sees_identity: boolean;
+  may_edit: boolean;
+  /** Counts and dates, for the admin. */
+  activity: { total: number; active: number; delivered: number; last: Stamp | null } | null;
+  requirements: ClientRequirement[];
+  tasks: { code: string; title: string; origin: (Labelled & { icon: string }) | null; status: Labelled & { tone: string } }[];
+  /** The classic form that writes the identity: for the admin alone. */
+  edit_url?: string;
 }

@@ -20,7 +20,7 @@ from django.views.decorators.http import require_POST, require_safe
 
 from . import (
     attendance, chatlists, clock, employees, galiases, identity, newui, payroll, performance, recruitment,
-    services, wordcount,
+    services, taskstart, wordcount,
 )
 from .forms import (
     AICheckForm,
@@ -339,6 +339,9 @@ def ops_inbox(request):
     user = request.user
     state = request.GET.get("state", "")
     query = request.GET.get("q", "").strip()
+    handed = _ops_hand_on(request, "/inbox" + _list_filter_query(state, query))
+    if handed is not None:
+        return handed
     # One row per conversation, like Gmail — the letters inside it are on
     # ops_mail_thread. A client who writes four times is one row, not four.
     threads = services.inbox_threads(user, state, query, limit=100)
@@ -383,6 +386,12 @@ def ops_mail_thread(request, pk):
     Arriving here is reading it, so the badge drops from this line on.
     """
     user = request.user
+    handed = _ops_hand_on(
+        request,
+        f"/inbox/thread/{pk}" + _list_filter_query(request.GET.get("state", ""), request.GET.get("q", "").strip()),
+    )
+    if handed is not None:
+        return handed
     anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
     if not anchor.visible_to(user):
         raise Http404
@@ -714,9 +723,55 @@ def ops_staff_chat(request, user_id):
     return render(request, "ops/chats.html", context)
 
 
+def _list_filter_query(state, query):
+    """A list's filters, as the part of the address that goes along to the new app: a mail state we know, a short search."""
+    from urllib.parse import urlencode
+
+    pairs = []
+    if state in ("unclaimed", "mine", "notask"):
+        pairs.append(("state", state))
+    if query and len(query) <= 200 and "\x00" not in query:
+        pairs.append(("q", query))
+    return ("?" + urlencode(pairs)) if pairs else ""
+
+
+def _task_start_query(request):
+    """The part of the new-task address that goes along to the new app: the messages, the files, the task it repeats.
+
+    Only what is plainly an id or a task code goes (digits and commas; letters, digits and dashes); anything else
+    is left behind, so an address cannot carry markup or another site into the one the redirect names.
+    """
+    from urllib.parse import urlencode
+
+    pairs = []
+    for name in ("message", "messages", "files"):
+        for value in request.GET.getlist(name):
+            if re.fullmatch(r"[0-9, ]{1,400}", value):
+                pairs.append((name, value.replace(" ", "")))
+    source = request.GET.get("from", "")
+    if _CHAT_CODE.fullmatch(source):
+        pairs.append(("from", source))
+    return ("?" + urlencode(pairs)) if pairs else ""
+
+
+def _ops_hand_on(request, path):
+    """The same page in the new app, for the operation (and the admin) once their screen is switched over; else ``None``.
+
+    One switch, ``operation``, for the task list, the new-task form, the team board, the mail and the client
+    pages: nobody has half of it. The caller says where the page is in the new app and what of its query goes along.
+    """
+    if not newui.hand_on(request, "operation"):
+        return None
+    return redirect("/app" + path)
+
+
 @role_required(Role.OPERATION)
 def ops_tasks(request):
     status = request.GET.get("status", "")
+    known = status == "open" or status in TaskStatus.values
+    handed = _ops_hand_on(request, "/tasks" + (f"?status={status}" if status and known else ""))
+    if handed is not None:
+        return handed
     qs = Task.objects.select_related("client", "team_lead", "translator")
     if status == "open":
         qs = qs.filter(status__in=ACTIVE_TASK_STATUSES)
@@ -740,154 +795,36 @@ def _task_counters():
     }
 
 
-def _ids(raw_values):
-    """Ints out of repeated fields and/or comma-joined strings, in order, once."""
-    ids = []
-    for value in raw_values or []:
-        for chunk in str(value).replace(" ", "").split(","):
-            if chunk.isdecimal() and int(chunk) not in ids:
-                ids.append(int(chunk))
-    return ids
-
-
-def _picked_attachments(messages, raw_values):
-    """The attachment rows named in ``raw_values`` - but only these messages' own.
-
-    Takes either the repeated ``files=`` checkboxes the mail page posts or one
-    comma-joined string, because the chat builds the link in JavaScript.
-    ``messages`` is one message or several: the chat can now tick files
-    across a whole run of them and make one task out of the lot.
-
-    The ids come from the browser, so the rows are re-fetched against the
-    messages rather than trusted: an id from somebody else's conversation must
-    not be able to walk a file into a task it has nothing to do with.
-    """
-    from .models import MessageAttachment
-
-    if isinstance(messages, InboundMessage):
-        messages = [messages]
-    messages = [m for m in (messages or []) if m is not None]
-    ids = _ids(raw_values)
-    if not messages or not ids:
-        return []
-    return list(
-        MessageAttachment.objects.filter(message__in=messages, pk__in=ids).order_by("id")
-    )
-
-
-def _source_messages(request):
-    """The client messages a new task is being made from - one, or a run of them.
-
-    ``message=`` is the button under one message; ``messages=`` is the chat's
-    "select files" mode, which can span as many messages as the client sent.
-    Read from the query string and the form both, because the form posts back
-    to the URL it was opened on.
-
-    Every message has to be one this person may see, and they all have to be
-    the same client's: a task has one client, and a stray id from another
-    conversation must not be able to join it.
-    """
-    raw = []
-    for source in (request.GET, request.POST):
-        raw += source.getlist("message") + source.getlist("messages")
-    ids = _ids(raw)
-    if not ids:
-        return []
-    qs = InboundMessage.objects.filter(pk__in=ids).select_related("client")
-    if not request.user.is_admin_role:
-        qs = qs.filter(is_rate_blocked=False)
-    # The line as well: a Sales person's own number is theirs alone, and an id is only a number. ``visible_to`` is
-    # the rule ``lines.line_q`` applies to every list, for a row in hand.
-    rows = [
-        row for row in qs.prefetch_related("attachments").order_by("received_at", "id")
-        if row.visible_to(request.user)
-    ]
-    if not rows:
-        return []
-    owner = rows[0].client_id
-    return [row for row in rows if row.client_id == owner]
+# The rules that decide what a new task is made from are shared with the new app's door (``taskstart``).
+_ids = taskstart.ids
+_picked_attachments = taskstart.picked_attachments
 
 
 @role_required(Role.OPERATION)
 def ops_task_new(request):
+    # Only a GET goes: a POST is the classic form already open, being sent, and it is answered where it is.
+    handed = _ops_hand_on(request, "/tasks/new" + _task_start_query(request)) if request.method == "GET" else None
+    if handed is not None:
+        return handed
     source = request.POST if request.method == "POST" else request.GET
 
-    # "طلب جديد على نفس الملفات": a new task on a finished (or running) one's
-    # material - the same contract into another language, say. It starts
-    # from that task's messages and files; everything else is a fresh task.
-    from_code = (request.GET.get("from") or request.POST.get("from") or "").strip()
-    from_task = Task.objects.filter(code=from_code).select_related("client").first() \
-        if from_code else None
-
-    messages = _source_messages(request)
-    if from_task is not None and not messages:
-        messages = list(
-            services.task_inbounds(from_task).select_related("client")
-            .prefetch_related("attachments").order_by("received_at", "id")
-        )
-        messages = [m for m in messages if m.visible_to(request.user)]
-    message = messages[0] if messages else None
-
-    # Which of the client's files the operation ticked. Nothing ticked means
-    # all of them, which is what it meant before the picker existed.
-    raw_files = source.getlist("files")
-    if from_task is not None and not raw_files:
-        raw_files = [str(a.pk) for a in services.task_source_files(from_task)]
-    picked = _picked_attachments(messages, raw_files)
-    # A message already behind a task stays with it (services.create_task),
-    # so a new task on it has to name its files - "nothing ticked" would
-    # otherwise leave it with none at all.
-    if not picked and any(m.task_id for m in messages):
-        picked = [a for m in messages for a in m.attachments.all()]
+    # ``message=`` is the button under one message; ``messages=`` is the chat's "select files" mode, which can span
+    # as many messages as the client sent. Read from the query string and the form both, because the form posts
+    # back to the URL it was opened on.
+    raw_messages = []
+    for where in (request.GET, request.POST):
+        raw_messages += where.getlist("message") + where.getlist("messages")
+    start = taskstart.resolve(
+        request.user, message_ids=raw_messages, file_ids=source.getlist("files"),
+        from_code=request.GET.get("from") or request.POST.get("from") or "",
+    )
+    messages, picked, from_task = start.messages, start.picked, start.from_task
+    message = start.message
     picked_ids = ",".join(str(row.pk) for row in picked)
 
-    initial = {}
-    if message:
-        # "[document]" is what the webhook writes for a file with no caption.
-        # It says nothing in a task, so it goes; the files are on the task.
-        texts = [services.clean_client_text(m.body) for m in messages]
-        description = "\n\n".join(text for text in texts if text)
-        files = len(picked) or sum(len(m.attachments.all()) for m in messages)
-        if len(messages) == 1 and (message.subject or texts[0]):
-            title = message.subject or texts[0][:60]
-        elif files:
-            # A title that says what the job is rather than whichever line
-            # happened to come first.
-            title = f"{files} ملفات من {message.client_code}"
-        else:
-            title = "Translation request"
-        initial = {
-            "client": message.client_id,
-            "title": title.strip(),
-            "description": description,
-        }
-    if from_task is not None:
-        initial.update({
-            "client": from_task.client_id,
-            "title": f"طلب جديد — {from_task.title}"[:200],
-            "description": services.clean_client_text(from_task.description),
-            "source_lang": from_task.source_lang,
-        })
-
-    form = TaskForm(request.POST or None, initial=initial)
+    form = TaskForm(request.POST or None, initial=start.initial)
     if request.method == "POST" and form.is_valid():
-        task = services.create_task(
-            client=form.cleaned_data["client"],
-            title=form.cleaned_data["title"],
-            created_by=request.user,
-            description=form.cleaned_data["description"],
-            deadline=form.cleaned_data["deadline"],
-            priority=form.cleaned_data["priority"],
-            source_lang=form.cleaned_data["source_lang"],
-            target_lang=form.cleaned_data["target_lang"],
-            messages=messages or None,
-            origin=from_task.origin if from_task is not None else "",
-        )
-        if picked:
-            task.source_files.set(picked)
-        for row in messages:
-            if not row.claimed_by_id:
-                services.claim_message(row, request.user)
+        task = taskstart.create(request.user, form.cleaned_data, start)
         flash.success(request, f"{task.code}")
         return redirect("dashboard:task_detail", code=task.code)
 
@@ -907,6 +844,9 @@ def ops_task_new(request):
 
 @role_required(Role.OPERATION)
 def ops_team(request):
+    handed = _ops_hand_on(request, "/team")
+    if handed is not None:
+        return handed
     return render(request, "ops/team.html", {"rows": services.team_overview()})
 
 
@@ -985,6 +925,10 @@ def task_detail(request, code):
     # The translator's own page is in the new app once their screen is switched over; the code goes into the
     # address only if it looks like one, and what the person may open is decided there (404 and audit).
     handed = _translator_hand_on(request, f"/tasks/{code}") if _CHAT_CODE.fullmatch(code) else None
+    if handed is None and request.user.role == Role.OPERATION and _CHAT_CODE.fullmatch(code):
+        # The operation's own page. Not the admin's: the classic page has the leader's tools and the AI notes
+        # that the new page does not, and the admin opens it for those.
+        handed = _ops_hand_on(request, f"/tasks/{code}")
     if handed is not None:
         return handed
     task = get_object_or_404(
@@ -1262,6 +1206,9 @@ def client_list(request):
     """
     user = request.user
     query = request.GET.get("q", "").strip()
+    handed = _ops_hand_on(request, "/clients" + _list_filter_query("", query))
+    if handed is not None:
+        return handed
     qs = Client.objects.all()
     if query:
         qs = qs.filter(identity.client_search(user, query))
@@ -1279,6 +1226,11 @@ def client_list(request):
 def client_detail(request, code):
     client = get_object_or_404(Client, code=code)
     user = request.user
+    # A form that is already open posts back here and is answered here; only opening the page is handed on.
+    if request.method == "GET" and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", client.code):
+        handed = _ops_hand_on(request, f"/clients/{client.code}")
+        if handed is not None:
+            return handed
     # Requirements are instructions for the work: the people doing it write
     # them. Sales and Accounting read the page; they do not edit it.
     may_edit = user.is_admin_role or user.is_operation or user.is_team_lead

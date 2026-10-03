@@ -21,10 +21,12 @@ export class ApiError extends Error {
     this.payload = payload;
   }
 
-  /** The reason the server gave in words, when it gave one. */
+  /** The reason the server gave in words, when it gave one (`message` on the newer doors, `detail` on the older ones). */
   get detail(): string {
-    const value = this.payload && typeof this.payload === "object" ? (this.payload as { message?: unknown }).message : undefined;
-    return typeof value === "string" ? value : "";
+    if (!this.payload || typeof this.payload !== "object") return "";
+    const { message, detail } = this.payload as { message?: unknown; detail?: unknown };
+    if (typeof message === "string" && message) return message;
+    return typeof detail === "string" ? detail : "";
   }
 }
 

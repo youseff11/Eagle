@@ -273,7 +273,8 @@ class TaskFormLineTests(_Send):
     def form(self, user, **query):
         from urllib.parse import urlencode
 
-        return self.browser(user).get(reverse("dashboard:ops_task_new") + "?" + urlencode(query))
+        # The classic form by name: the admin is on the new one by default once the app is built.
+        return self.browser(user).get(reverse("dashboard:ops_task_new") + "?" + urlencode({**query, "classic": 1}))
 
     def test_the_operation_gets_no_word_and_no_file_name_of_another_line(self):
         answer = self.form(self.ops, messages=self.sales_heard.pk, files=self.secret.pk)

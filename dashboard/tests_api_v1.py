@@ -182,6 +182,25 @@ class MeTests(_Site):
             self.assertIn("groups", types)
             self.assertIn("staff", types)
 
+    def test_the_operations_two_badges_are_counted_for_them_and_zero_for_everybody_else(self):
+        from .models import Channel, InboundMessage, TaskStatus
+
+        InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, subject="s", body="b", sender_identity=CLIENT_EMAIL,
+            thread_key="badge1", external_id="<badge1@mail.test>",
+        )
+        new_tasks = Task.objects.filter(status=TaskStatus.NEW).count()
+        for user in self.everyone:
+            body = _json(self.get(user, "v1_me"))
+            mail = 1 if user.role in (Role.ADMIN, Role.OPERATION, Role.SALES) else 0
+            tasks = new_tasks if user.role in (Role.ADMIN, Role.OPERATION) else 0
+            if user.role == Role.SALES:
+                # The Sales are on their own line: a letter of the company's line is not theirs to count.
+                mail = services.unseen_conversation_count(user)
+            self.assertEqual(body["mail_unseen"], mail, user.username)
+            self.assertEqual(body["tasks_new"], tasks, user.username)
+        self.assertGreaterEqual(_json(self.get(self.ops, "v1_me"))["mail_unseen"], 1)
+
     def test_me_tells_the_page_where_the_socket_is(self):
         realtime = _json(self.get(self.ops, "v1_me"))["realtime"]
         self.assertEqual(realtime["path"], "/ws/events/")

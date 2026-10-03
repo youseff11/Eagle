@@ -2,7 +2,7 @@
 
 from django.urls import path, re_path
 
-from . import api, api_v1, spa, views, webhooks
+from . import api, api_clients, api_mail, api_ops, api_v1, spa, views, webhooks
 
 app_name = "dashboard"
 
@@ -233,6 +233,19 @@ urlpatterns = [
     path("api/v1/translator/payroll/", api_v1.translator_payroll, name="v1_translator_payroll"),
     path("api/v1/translator/tasks/<str:code>/", api_v1.translator_task, name="v1_translator_task"),
     path("api/v1/assignments/<int:pk>/", api_v1.assignment, name="v1_assignment"),
+    path("api/v1/tasks/", api_ops.tasks, name="v1_tasks"),
+    path("api/v1/task-form/", api_ops.task_start, name="v1_task_start"),
+    path("api/v1/task-form/create/", api_ops.task_create, name="v1_task_create"),
+    path("api/v1/team/", api_ops.team, name="v1_team"),
+    path("api/v1/clients/", api_clients.clients, name="v1_clients"),
+    path("api/v1/clients/<str:code>/", api_clients.client, name="v1_client"),
+    path("api/v1/clients/<str:code>/requirements/", api_clients.client_requirement, name="v1_client_requirement"),
+    path("api/v1/mail/threads/", api_mail.threads, name="v1_mail_threads"),
+    path("api/v1/mail/threads/<int:pk>/", api_mail.thread, name="v1_mail_thread"),
+    path("api/v1/mail/threads/<int:pk>/seen/", api_mail.thread_seen, name="v1_mail_thread_seen"),
+    path("api/v1/tasks/<str:code>/", api_ops.task, name="v1_task"),
+    path("api/v1/tasks/<str:code>/words/", api_ops.task_words, name="v1_task_words"),
+    path("api/v1/tasks/<str:code>/requirements/", api_ops.task_requirement, name="v1_task_requirement"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
     path("app/", spa.shell, name="app"),

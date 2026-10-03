@@ -21,6 +21,12 @@ export function taskProblem(error: unknown, t: (ar: string, en: string) => strin
         return t("اختار ملف الأول.", "Choose a file first.");
       case "no_room":
         return t("مفيش جروب مع التيم ليدر تتبعت فيه. كلّم الأوبريشن.", "There is no group with your team leader to send it to. Tell the operation.");
+      case "bad_words":
+        return t("اكتب رقم صحيح.", "Type a whole number.");
+      case "bad_requirement":
+        return t("اكتب المتطلب.", "Write the requirement.");
+      case "bad_date":
+        return t("الديدلاين مش مظبوط.", "That deadline is not right.");
       case "disabled":
         return t("مراجعة الـAI متوقفة من الأدمن.", "The AI check has been turned off by the admin.");
       case "csrf":

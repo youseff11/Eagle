@@ -60,6 +60,10 @@ SCREENS = {
             classic="translator_home", path="/translator", roles=(Role.TRANSLATOR,),
         ),
         Screen(
+            "operation", "شاشة الأوبريشن (التاسكات والفرق)", "The operation's screen (tasks and teams)",
+            classic="ops_tasks", path="/tasks", roles=(Role.OPERATION,),
+        ),
+        Screen(
             "chats", "الشات", "Chats",
             classic="ops_chats", path="/chats",
             roles=(

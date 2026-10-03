@@ -1,19 +1,9 @@
 import { Link, Navigate } from "react-router";
 import { useMe, useTranslatorHome } from "../api/queries";
 import type { DeskTask, TranslatorHomeResponse } from "../api/types";
-import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
+import { deadlineClass, OriginBadge, PriorityBadge, Rating, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
-
-function Rating({ value }: { value: number }) {
-  return (
-    <span className="rating" title={`${value.toFixed(3)} / 5`}>
-      <Icon name="star" size="sm" filled />
-      <b>{value.toFixed(2)}</b>
-      <i>/5</i>
-    </span>
-  );
-}
 
 function TaskRow({ task }: { task: DeskTask }) {
   const { t, lang } = usePreferences();

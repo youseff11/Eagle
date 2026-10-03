@@ -23,6 +23,17 @@ export function StatusBadge({ status }: { status: Labelled & { tone: string } })
   );
 }
 
+/** The star readout of a rating, as the classic pages draw it: two decimals, the third in the tooltip. */
+export function Rating({ value }: { value: number }) {
+  return (
+    <span className="rating" title={`${value.toFixed(3)} / 5`}>
+      <Icon name="star" size="sm" filled />
+      <b>{value.toFixed(2)}</b>
+      <i>/5</i>
+    </span>
+  );
+}
+
 export function PriorityBadge({ priority }: { priority: Labelled }) {
   const { lang } = usePreferences();
   if (!PRIORITIES.has(priority.value)) return null;

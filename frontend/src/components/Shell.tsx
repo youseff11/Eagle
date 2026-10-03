@@ -37,8 +37,13 @@ export interface ScreenEntry {
   icon: string;
   label: [string, string];
   also?: string[];
-  extra?: { path: string; icon: string; label: [string, string] }[];
+  /** The number the menu shows beside the line, from `/me/` (the mail not opened, the tasks nobody has). */
+  badge?: Badge;
+  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge }[];
 }
+
+/** The counters `/me/` carries for the menu. */
+type Badge = "mail_unseen" | "tasks_new";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
   translator_home: {
@@ -47,6 +52,18 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     label: ["شغلي", "My work"],
     also: ["/tasks"],
     extra: [{ path: "/payroll", icon: "folder", label: ["مستحقاتي", "My payroll"] }],
+  },
+  // The classic menu's order for the operation: the mail first, then the tasks, the teams and the client codes.
+  operation: {
+    path: "/inbox",
+    icon: "mail",
+    label: ["ميلات واردة", "Incoming mail"],
+    badge: "mail_unseen",
+    extra: [
+      { path: "/tasks", icon: "layers", label: ["التاسكات", "Tasks"], badge: "tasks_new" },
+      { path: "/team", icon: "users", label: ["حالة الفرق", "Team status"] },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
+    ],
   },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
@@ -100,21 +117,29 @@ function Frame() {
   const unreadChats = me.data?.unread_chats ?? 0;
   const unsent = useOutboxProblems().length;
   const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
-  // The title follows the address, not the list: it is right before `me` has arrived too.
+  // The title follows the address, not the list: it is right before `me` has arrived too (every screen is looked at
+  // until it has). Once it has, only the person's own screens are: the task page is "my work" to a translator and
+  // "tasks" to the operation, and one address cannot be both.
   const startsWith = (prefix: string) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`);
-  const here = (Object.keys(SCREENS) as ScreenKey[]).find((key) =>
-    [SCREENS[key].path, ...(SCREENS[key].also ?? [])].some(startsWith),
-  );
-  const extraHere = (Object.keys(SCREENS) as ScreenKey[])
-    .flatMap((key) => SCREENS[key].extra ?? [])
-    .find((entry) => startsWith(entry.path));
+  const looked = me.data ? screens : (Object.keys(SCREENS) as ScreenKey[]);
+  const own = (key: ScreenKey) => [SCREENS[key].path, ...(SCREENS[key].extra ?? []).map((entry) => entry.path)].some(startsWith);
+  // A screen's own pages first; the addresses it only shares (`also`) when no other screen of the person's owns them.
+  const here = looked.find(own) ?? looked.find((key) => (SCREENS[key].also ?? []).some(startsWith));
+  const extraHere = looked.flatMap((key) => SCREENS[key].extra ?? []).find((entry) => startsWith(entry.path));
+  const sharedWith = (key: ScreenKey) => (SCREENS[key].also ?? []).some(startsWith) && !screens.some((other) => other !== key && own(other));
+  // Before `me` has arrived an address two screens share is not named at all (not the wrong one for a moment).
+  const claimants = looked.filter((key) => own(key) || (SCREENS[key].also ?? []).some(startsWith));
+  const unsure = !me.data && claimants.length > 1;
+  const count = (badge?: Badge) => (badge ? (me.data?.[badge] ?? 0) : 0);
   const title = startsWith("/notifications")
     ? t("التنبيهات", "Notifications")
-    : extraHere
-      ? t(...extraHere.label)
-      : here
-        ? t(...SCREENS[here].label)
-        : t("الرئيسية", "Home");
+    : unsure
+      ? ""
+      : extraHere
+        ? t(...extraHere.label)
+        : here
+          ? t(...SCREENS[here].label)
+          : t("الرئيسية", "Home");
   const realtimeLabel = {
     open: t("متصل لحظيًا", "Live"),
     connecting: t("بيتصل...", "Connecting..."),
@@ -147,12 +172,11 @@ function Frame() {
               <Fragment key={key}>
                 <NavLink
                   to={SCREENS[key].path}
-                  className={({ isActive }) =>
-                    `nav__item${isActive || (SCREENS[key].also ?? []).some(startsWith) ? " is-active" : ""}`
-                  }
+                  className={({ isActive }) => `nav__item${isActive || sharedWith(key) ? " is-active" : ""}`}
                 >
                   <Icon name={SCREENS[key].icon} />
                   <span>{t(...SCREENS[key].label)}</span>
+                  {count(SCREENS[key].badge) > 0 && <span className="nav__count is-hot">{count(SCREENS[key].badge)}</span>}
                   {key === "chats" && unsent > 0 && (
                     <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
                       <Icon name="alert" size="sm" />
@@ -168,6 +192,7 @@ function Frame() {
                   >
                     <Icon name={entry.icon} />
                     <span>{t(...entry.label)}</span>
+                    {count(entry.badge) > 0 && <span className="nav__count is-hot">{count(entry.badge)}</span>}
                   </NavLink>
                 ))}
               </Fragment>

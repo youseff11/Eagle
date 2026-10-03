@@ -238,6 +238,10 @@ def me(request):
         "unread_notifications": _unread(user),
         # The chats entry's badge: messages waiting in any of the three lists.
         "unread_chats": services.unread_chat_total(user),
+        # The operation's two badges, the ones the classic menu shows: conversations in the mailbox this person has not
+        # opened, and tasks nobody has been given yet. The same functions the heartbeat counts with.
+        "mail_unseen": services.unseen_conversation_count(user) if (user.is_operation or user.is_admin_role or user.is_sales) else 0,
+        "tasks_new": Task.objects.filter(status=TaskStatus.NEW).count() if (user.is_operation or user.is_admin_role) else 0,
         "realtime": {"path": "/ws/events/", "ping_seconds": PING_SECONDS},
         "server_time": clock.fmt12(timezone.now(), "en"),
     })

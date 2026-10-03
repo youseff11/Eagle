@@ -8,15 +8,20 @@ import type {
   AssignmentResponse,
   ChatKind,
   ChatListResponse,
+  ClientResponse,
+  ClientsResponse,
   FileTasksResponse,
   ForwardResponse,
   GroupCreated,
   HandedIn,
+  MailListResponse,
+  MailThreadResponse,
   MeResponse,
   MembersAdded,
   MembersResponse,
   MovedResponse,
   NotificationsResponse,
+  OpsTaskResponse,
   PayrollResponse,
   PeopleResponse,
   PendingAssignment,
@@ -24,6 +29,9 @@ import type {
   ReadResponse,
   SendResponse,
   ThreadResponse,
+  TasksResponse,
+  TaskStartResponse,
+  TeamResponse,
   TranslatorHomeResponse,
   TranslatorTaskResponse,
 } from "./types";
@@ -94,6 +102,115 @@ export function useTranslatorHome(enabled = true) {
     refetchInterval,
     // Everybody else is refused, and every refusal is written to the audit log: a page left
     // open would write a row at every refresh.
+    enabled,
+  });
+}
+
+/** The operation's task list: `""` is every task, `open` the ones being worked, or one status. */
+export function useTasks(status: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.tasks(status),
+    queryFn: () => api<TasksResponse>(`/api/v1/tasks/${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+    refetchInterval,
+    // Everybody else is refused, and every refusal is written to the audit log.
+    enabled,
+  });
+}
+
+/**
+ * What the new-task form starts from: the address's own query (`?messages=1,2&files=3&from=TSK-00001`), passed on as it
+ * is - the server looks every id up again against what this person may read. Asked for once: a form being typed in
+ * must not be re-filled by a doorbell.
+ */
+export function useTaskStart(search: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.taskStart(search),
+    queryFn: () => api<TaskStartResponse>(`/api/v1/task-form/${search}`),
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+/** One task as the operation reads it. Moves with the boards (a leader took it, a file arrived). */
+export function useOpsTask(code: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.opsTask(code),
+    queryFn: () => api<OpsTaskResponse>(`/api/v1/tasks/${encodeURIComponent(code)}/`),
+    refetchInterval,
+    enabled,
+  });
+}
+
+/** The team leaders and who works under each. Moves with the boards. */
+export function useTeam(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.team,
+    queryFn: () => api<TeamResponse>("/api/v1/team/"),
+    refetchInterval,
+    enabled,
+  });
+}
+
+/** The client codes, `query` narrowing them (the server leaves the identity fields out of what it matches for most people). */
+export function useClients(query: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.clients(query),
+    queryFn: () => api<ClientsResponse>(`/api/v1/clients/${query ? `?q=${encodeURIComponent(query)}` : ""}`),
+    refetchInterval,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One client. A code that is not there is a 404 the page says so about; it is not asked again. */
+export function useClient(code: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.client(code),
+    queryFn: () => api<ClientResponse>(`/api/v1/clients/${encodeURIComponent(code)}/`),
+    refetchInterval,
+    retry: false,
+    enabled,
+  });
+}
+
+/**
+ * How often the mailbox asks again, whatever the socket says: a letter that arrives by e-mail rings no doorbell (the
+ * classic page polled its feed for the same reason).
+ */
+export const MAIL_POLL_MS = 20000;
+
+/** The conversations, newest first: `state` is `""`, `unclaimed`, `mine` or `notask`, `query` a word or two. */
+export function useMailThreads(state: string, query: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (state) params.set("state", state);
+  if (query) params.set("q", query);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.mail(state, query),
+    queryFn: () => api<MailListResponse>(`/api/v1/mail/threads/${text ? `?${text}` : ""}`),
+    refetchInterval: MAIL_POLL_MS,
+    // Keep the list on screen while a new search is on its way: a list that blinks away at every key is not a search.
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/**
+ * One conversation, asked again on the mailbox's clock for the letters and replies that arrive while it is open. The
+ * page keeps what the person opened and what was new; `unseen` is only true until the page has said it was read.
+ */
+export function useMailThread(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.mailThread(id),
+    queryFn: () => api<MailThreadResponse>(`/api/v1/mail/threads/${id}/`),
+    refetchInterval: MAIL_POLL_MS,
     enabled,
   });
 }

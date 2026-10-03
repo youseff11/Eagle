@@ -5930,7 +5930,7 @@ class NavTests(TestCase):
 
         admin = self._user("nav_admin3", Role.ADMIN)
         self.client.force_login(admin)
-        html = self.client.get("/ops/tasks/").content.decode()
+        html = self.client.get("/ops/tasks/?classic=1").content.decode()
 
         groups = nav.sidebar(admin, "ops_tasks")
         self.assertEqual(html.count('class="nav__group" data-nav-group'), len(groups))
@@ -5949,7 +5949,7 @@ class NavTests(TestCase):
     def test_the_legal_pages_left_the_nav_but_not_the_page(self):
         admin = self._user("nav_admin4", Role.ADMIN)
         self.client.force_login(admin)
-        html = self.client.get("/ops/tasks/").content.decode()
+        html = self.client.get("/ops/tasks/?classic=1").content.decode()
         self.assertIn("side-legal", html)
         for url in ("/privacy/", "/terms/", "/data-deletion/"):
             self.assertIn(f'href="{url}"', html)
@@ -7144,7 +7144,7 @@ class NavSearchTests(TestCase):
     def test_the_page_carries_the_index_and_the_box(self):
         admin = self._user("ns_admin2", Role.ADMIN)
         self.client.force_login(admin)
-        html = self.client.get("/ops/tasks/").content.decode()
+        html = self.client.get("/ops/tasks/?classic=1").content.decode()
         self.assertIn('id="navSearchInput"', html)
         self.assertIn('id="navSearchIndex"', html)
         self.assertIn("s-rate-keywords", html)
@@ -8822,7 +8822,8 @@ class ClientExtraIdentitiesTests(TestCase):
             "extra_emails": "", "country": "", "admin_notes": "", "is_active": "on",
         })
         self.assertEqual(response.status_code, 302)
-        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        # The admin is handed on to the new app by default: this is about the classic page.
+        page = self.client.get(f"/clients/{self.client_obj.code}/?classic=1").content.decode()
         self.assertIn("+201444444444", page)
 
 
@@ -9242,7 +9243,7 @@ class NoIdentityOnAnyPageTests(TestCase):
         """Run the same walk as the admin: if nothing shows the name even to
         the owner, the walk above proves nothing."""
         self.client.force_login(self.admin)
-        page = self.client.get(f"/clients/{self.client_obj.code}/").content.decode()
+        page = self.client.get(f"/clients/{self.client_obj.code}/?classic=1").content.decode()
         self.assertIn(self.NAME, page)
 
 
