@@ -59,6 +59,13 @@ class Screen:
 SCREENS = {
     screen.key: screen
     for screen in (
+        # The admin's own panel. Nobody else has one, so there is no role to switch on, and the admin is not on it until
+        # they say so. The settings page is in it, and holds these very switches: the classic one stays reachable with
+        # ``?classic=1`` for the day the new one breaks.
+        Screen(
+            "admin", "لوحة الأدمن (كل صفحاتها)", "The admin panel (all of its pages)",
+            classic="admin_overview", path="/admin", roles=(), admin_default=False,
+        ),
         Screen(
             "translator_home", "شغل المترجم", "The translator's desk",
             classic="translator_home", path="/translator", roles=(Role.TRANSLATOR,),

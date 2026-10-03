@@ -56,6 +56,24 @@ export const qk = {
   /** The team leader's board and their translators' board: with the boards, so a beat that says something moved asks again. */
   lead: ["boards", "lead", "home"] as const,
   leadBoard: ["boards", "lead", "board"] as const,
+  /** The admin's overview: with the boards, so a beat that says something moved asks again. */
+  adminOverview: ["boards", "admin", "overview"] as const,
+  /** The audit log, by filter: outside the boards on purpose, a log that moves under the eye is harder to read (it has a refresh button). */
+  adminAudit: (only: string) => ["admin-audit", only] as const,
+  /** The staff table: with the boards (who is here moves). A person's file and the new-person form are outside them, so a doorbell never refills a form being typed in. */
+  adminUsers: ["boards", "admin", "users"] as const,
+  adminUser: (id: number) => ["admin-user", id] as const,
+  adminUserNew: ["admin-user-new"] as const,
+  /** The client records (by search and filter) and one client's identity form: outside the boards, read when opened. */
+  adminClients: (q: string, show: string) => ["admin-clients", q, show] as const,
+  adminClientsAll: ["admin-clients"] as const,
+  adminClient: (code: string) => ["admin-client", code] as const,
+  adminClientNew: ["admin-client-new"] as const,
+  /** The simulator's latest messages and the clear-outs' counts: read when opened (a count that moves under the eye is a count to doubt). */
+  adminSimulate: ["admin-simulate"] as const,
+  adminResetCounts: (kind: "tasks" | "mail") => ["admin-reset", kind] as const,
+  /** The settings page: outside the boards, read when opened and after a save (a form being typed in is not refilled). */
+  adminSettings: ["admin-settings"] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

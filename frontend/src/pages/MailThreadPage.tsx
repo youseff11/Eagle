@@ -3,13 +3,12 @@ import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../api/client";
 import { useConfirmReceipt, useMarkThreadSeen, useReply } from "../api/mailActions";
 import { useMailThread, useMe } from "../api/queries";
-import type { MailEntry, MailFile, MailLetter, MailReply } from "../api/types";
-import { VoiceNote } from "../components/chat/VoiceNote";
+import type { MailEntry, MailLetter, MailReply } from "../api/types";
 import { Confirm } from "../components/Confirm";
 import { Icon } from "../components/Icon";
+import { MailFiles } from "../components/MailFiles";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
-import { safeInternalPath } from "../lib/safeUrl";
 import { prettySize } from "../lib/size";
 import { taskProblem } from "../lib/taskProblem";
 
@@ -17,35 +16,6 @@ import { taskProblem } from "../lib/taskProblem";
 const MAX_MAIL_BYTES = 25 * 1024 * 1024;
 
 const keyOf = (entry: MailEntry) => `${entry.kind}-${entry.id}`;
-
-function Files({ files }: { files: MailFile[] }) {
-  const { t } = usePreferences();
-  if (files.length === 0) return null;
-  return (
-    <div className="files">
-      {files.map((file) => {
-        // The server wrote the address; it is followed only if it is a path on this site.
-        const url = safeInternalPath(file.url);
-        if (file.audio && url) return <VoiceNote key={file.id} url={url} length={file.length} />;
-        const label = (
-          <>
-            <Icon name="paperclip" size="sm" />
-            {file.name}
-          </>
-        );
-        return url ? (
-          <a key={file.id} className="file-pill" href={url} target="_blank" rel="noopener noreferrer" title={file.size}>
-            {label}
-          </a>
-        ) : (
-          <span key={file.id} className="file-pill" title={t("الملف مش متاح", "The file is not available")}>
-            {label}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
 
 /** «تحويل لتاسك»: tick the files that are the job (nothing ticked is everything), then the task form opens with them. */
 function Convert({ letter }: { letter: MailLetter }) {
@@ -189,7 +159,7 @@ function Letter({
           <div className="mail__text" dir="auto">
             {letter.body}
           </div>
-          <Files files={letter.files} />
+          <MailFiles files={letter.files} />
           {letter.raw && <div className="muted mono mail__raw">{letter.raw}</div>}
           {(letter.can_confirm || letter.claimed_by) && (
             <div className="mail__actions">
@@ -256,7 +226,7 @@ function Reply({ reply, open, onToggle }: { reply: MailReply; open: boolean; onT
               {reply.body}
             </div>
           )}
-          <Files files={reply.files} />
+          <MailFiles files={reply.files} />
           {reply.failed && reply.error && (
             <div className="note note--high mt" role="alert">
               <Icon name="alert" />

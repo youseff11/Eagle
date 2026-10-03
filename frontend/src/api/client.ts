@@ -62,6 +62,41 @@ function errorCode(payload: unknown, status: number): string {
   return `http_${status}`;
 }
 
+/** A file the server sent back (a backup): its bytes, the name it gave, and the headers it carried. */
+export interface Download {
+  blob: Blob;
+  filename: string;
+  headers: Headers;
+}
+
+/**
+ * A write whose answer is a file. A refusal still arrives as JSON (an `ApiError` as anywhere else); only a success is
+ * read as bytes. Used where the file is the only copy of what the request just deleted.
+ */
+export async function apiDownload(path: string, json: unknown, fallbackName: string): Promise<Download> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRFToken": csrfToken() },
+    body: JSON.stringify(json),
+    credentials: "same-origin",
+  });
+  if (response.status === 401) {
+    onUnauthorized?.();
+    throw new ApiError(401, "auth");
+  }
+  if (!response.ok) {
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    throw new ApiError(response.status, errorCode(payload, response.status), payload);
+  }
+  const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "");
+  return { blob: await response.blob(), filename: match?.[1] ?? fallbackName, headers: response.headers };
+}
+
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const writes = options.json !== undefined || options.form !== undefined || options.multipart !== undefined;
   const method = options.method ?? (writes ? "POST" : "GET");

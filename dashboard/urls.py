@@ -2,7 +2,10 @@
 
 from django.urls import path, re_path
 
-from . import api, api_ai, api_attendance, api_clients, api_lead, api_mail, api_ops, api_sales, api_v1, spa, views, webhooks
+from . import (
+    api, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_clients, api_lead, api_mail, api_ops, api_sales, api_v1, spa, views,
+    webhooks,
+)
 
 app_name = "dashboard"
 
@@ -240,6 +243,39 @@ urlpatterns = [
     path("api/v1/attendance/", api_attendance.card, name="v1_attendance"),
     path("api/v1/lead/", api_lead.home, name="v1_lead"),
     path("api/v1/lead/translators/", api_lead.translators, name="v1_lead_translators"),
+    path("api/v1/admin/overview/", api_admin.overview, name="v1_admin_overview"),
+    path("api/v1/admin/audit/", api_admin.audit, name="v1_admin_audit"),
+    path("api/v1/admin/users/", api_admin_users.users, name="v1_admin_users"),
+    path("api/v1/admin/users/new/", api_admin_users.user_new, name="v1_admin_user_new"),
+    path("api/v1/admin/users/create/", api_admin_users.user_create, name="v1_admin_user_create"),
+    path("api/v1/admin/users/<int:pk>/", api_admin_users.user, name="v1_admin_user"),
+    path("api/v1/admin/users/<int:pk>/save/", api_admin_users.user_save, name="v1_admin_user_save"),
+    path("api/v1/admin/users/<int:pk>/shift/", api_admin_users.user_shift, name="v1_admin_user_shift"),
+    path("api/v1/admin/users/<int:pk>/shifts/add/", api_admin_users.shift_add, name="v1_admin_shift_add"),
+    path(
+        "api/v1/admin/users/<int:pk>/shifts/<int:shift_id>/delete/", api_admin_users.shift_delete,
+        name="v1_admin_shift_delete",
+    ),
+    path("api/v1/admin/aliases/sync/", api_admin_users.aliases_sync, name="v1_admin_aliases_sync"),
+    path("api/v1/admin/settings/", api_admin_settings.settings, name="v1_admin_settings"),
+    path("api/v1/admin/settings/save/", api_admin_settings.settings_save, name="v1_admin_settings_save"),
+    path("api/v1/admin/settings/google/sync/", api_admin_settings.google_sync, name="v1_admin_google_sync"),
+    path("api/v1/admin/settings/google/disconnect/", api_admin_settings.google_disconnect, name="v1_admin_google_disconnect"),
+    path("api/v1/admin/settings/test/whatsapp/", api_admin_settings.test_whatsapp, name="v1_admin_test_whatsapp"),
+    path("api/v1/admin/settings/test/email/", api_admin_settings.test_email, name="v1_admin_test_email"),
+    path("api/v1/admin/simulate/", api_admin_tools.simulate, name="v1_admin_simulate"),
+    path("api/v1/admin/simulate/send/", api_admin_tools.simulate_send, name="v1_admin_simulate_send"),
+    path("api/v1/admin/reset/tasks/", api_admin_tools.reset_tasks_counts, name="v1_admin_reset_tasks"),
+    path("api/v1/admin/reset/tasks/run/", api_admin_tools.reset_tasks_run, name="v1_admin_reset_tasks_run"),
+    path("api/v1/admin/reset/mail/", api_admin_tools.reset_mail_counts, name="v1_admin_reset_mail"),
+    path("api/v1/admin/reset/mail/run/", api_admin_tools.reset_mail_run, name="v1_admin_reset_mail_run"),
+    path("api/v1/admin/clients/", api_admin_clients.clients, name="v1_admin_clients"),
+    path("api/v1/admin/clients/new/", api_admin_clients.client_new, name="v1_admin_client_new"),
+    path("api/v1/admin/clients/create/", api_admin_clients.client_create, name="v1_admin_client_create"),
+    path("api/v1/admin/clients/delete-plan/", api_admin_clients.delete_plan, name="v1_admin_clients_plan"),
+    path("api/v1/admin/clients/delete/", api_admin_clients.delete, name="v1_admin_clients_delete"),
+    path("api/v1/admin/clients/<str:code>/", api_admin_clients.client, name="v1_admin_client"),
+    path("api/v1/admin/clients/<str:code>/save/", api_admin_clients.client_save, name="v1_admin_client_save"),
     path("api/v1/tasks/<str:code>/ai-notes/", api_ai.task_notes, name="v1_ai_task_notes"),
     path("api/v1/groups/<int:room_id>/ai-notes/", api_ai.group_notes, name="v1_ai_group_notes"),
     path("api/v1/staff/<int:user_id>/ai-notes/", api_ai.staff_notes, name="v1_ai_staff_notes"),

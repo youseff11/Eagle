@@ -8,12 +8,13 @@ import { HomePage } from "./HomePage";
 afterEach(() => vi.unstubAllGlobals());
 
 function renderHome(role: Role, screens: ScreenKey[]) {
-  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, short_name: "Nour" }, 0, screens)) });
+  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin", short_name: "Nour" }, 0, screens)) });
   vi.stubGlobal("fetch", mocked.fn);
   return renderWithProviders(
     <Routes>
       <Route index element={<HomePage />} />
       <Route path="translator" element={<div>the translator desk</div>} />
+      <Route path="admin" element={<div>the admin overview</div>} />
     </Routes>,
   );
 }
@@ -28,6 +29,22 @@ describe("HomePage", () => {
     renderHome("translator", []);
     expect(await screen.findByText(/Nour/)).toBeInTheDocument();
     expect(screen.queryByText("the translator desk")).not.toBeInTheDocument();
+  });
+
+  it("starts the admin whose panel was switched over on the overview, as the classic / does", async () => {
+    renderHome("admin", ["admin"]);
+    expect(await screen.findByText("the admin overview")).toBeInTheDocument();
+  });
+
+  it("keeps an admin whose panel was not switched over on the home page, and no other role is moved by it", async () => {
+    renderHome("admin", ["chats"]);
+    expect(await screen.findByText(/Nour/)).toBeInTheDocument();
+    for (const role of ["operation", "team_lead", "hr"] as const) {
+      const view = renderHome(role, ["admin"]);
+      expect(await screen.findByText(/Nour/), role).toBeInTheDocument();
+      expect(screen.queryByText("the admin overview"), role).not.toBeInTheDocument();
+      view.unmount();
+    }
   });
 
   it("does not move anyone else, whatever the server lists for them", async () => {

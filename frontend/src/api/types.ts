@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
+export type ScreenKey = "admin" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -952,6 +952,257 @@ export interface LeadBoard {
     next_due: Stamp | null;
     next_due_state: OpsTaskRow["due_state"];
   })[];
+}
+
+/** GET /api/v1/admin/overview/: the admin's board (`api_admin.overview`). */
+export interface AdminOverview {
+  ok: true;
+  counters: { new: number; open: number; delivered: number; clients: number };
+  /** Letters the rate rule hid from the operation: the sender's address is the admin's to read. */
+  blocked: {
+    id: number;
+    code: string;
+    channel: Channel;
+    at: Stamp | null;
+    body: string;
+    sender: string;
+    keyword: string;
+    files: MailFile[];
+  }[];
+  /** Hand-offs waiting for an answer, with the seconds left when the board was read. */
+  pending: { id: number; task: string; assignee: string; seconds_left: number }[];
+  late: { code: string; translator: string | null; deadline: Stamp | null }[];
+  recent: { code: string; title: string; origin: (Labelled & { icon: string }) | null; status: Labelled & { tone: string } }[];
+}
+
+export type AuditFilter = "" | "security" | "denied";
+
+/** GET /api/v1/admin/audit/?only=: the log, newest first (`api_admin.audit`). */
+export interface AdminAudit {
+  ok: true;
+  only: AuditFilter;
+  rows: {
+    id: number;
+    at: Stamp | null;
+    /** `null` is the system itself (a command, the worker). */
+    actor: string | null;
+    action: string;
+    target: string;
+    detail: string;
+    ip: string;
+    path: string;
+  }[];
+}
+
+/** How a form field is drawn (`api_forms.kind_of`). */
+export type FormFieldKind = "checkbox" | "multi" | "select" | "password" | "number" | "email" | "time" | "textarea" | "text";
+
+/** One field of a Django form, as the server describes it (`api_forms.describe`). A secret has `saved` and never a `value`. */
+export interface FormField {
+  name: string;
+  label: string;
+  kind: FormFieldKind;
+  required: boolean;
+  help: string;
+  disabled: boolean;
+  /** The value is an address, a number, a code: written left to right whatever the page's language. */
+  ltr: boolean;
+  value?: string | number | boolean | string[];
+  /** A secret field: whether one is stored. The value is never sent. */
+  saved?: boolean;
+  choices?: { value: string; label: string }[];
+  /** Bilingual texts, when the classic page wrote its own beside the field (the settings). */
+  label_ar?: string;
+  label_en?: string;
+  hint_ar?: string;
+  hint_en?: string;
+  maxlength?: number | string;
+  min?: number | string;
+  max?: number | string;
+  step?: number | string;
+  rows?: number | string;
+  placeholder?: string;
+}
+
+/** What a form sends for a field: text, a box ticked or not, the ticked choices, or `null` (clear a stored secret). */
+export type FormValue = string | boolean | string[] | null;
+
+/** A form that did not validate: `{ field: [messages] }`, `__all__` for what belongs to no field. */
+export type FormErrors = Record<string, string[]>;
+
+/** A time of day in both languages (Cairo, twelve hours). */
+export type AdminTime = Stamp;
+
+export type StaffState = "disabled" | PresenceState;
+
+/** GET /api/v1/admin/users/: everybody, with what the staff table shows. */
+export interface AdminUsers {
+  ok: true;
+  users: {
+    id: number;
+    username: string;
+    name: string;
+    initials: string;
+    role: Labelled;
+    team_lead: string | null;
+    mail_alias: string;
+    state: StaffState;
+    seen: Stamp;
+    shifts: number;
+    rating: number;
+  }[];
+}
+
+/** GET /api/v1/admin/users/new/. */
+export interface AdminUserNew {
+  ok: true;
+  form: FormField[];
+}
+
+/** GET /api/v1/admin/users/<id>/: a person's file. */
+export interface AdminUser {
+  ok: true;
+  user: { id: number; username: string; name: string; initials: string; role: Labelled };
+  form: FormField[];
+  shifts: { id: number; weekday: { num: number; ar: string; en: string }; start: AdminTime | null; end: AdminTime | null }[];
+  events: { delta: string; reason: string; at: Stamp | null }[];
+  picker: {
+    current: number | null;
+    has_custom: boolean;
+    templates: { id: number; label: string; start: AdminTime | null; end: AdminTime | null }[];
+    days: { num: number; ar: string; en: string; checked: boolean }[];
+  };
+}
+
+/** GET /api/v1/admin/clients/: every client with the real details (`api_admin_clients.clients`). */
+export interface AdminClients {
+  ok: true;
+  q: string;
+  show: "" | "robots";
+  /** How many match (the list shows at most 300). */
+  shown: number;
+  all_count: number;
+  robots_count: number;
+  clients: {
+    id: number;
+    code: string;
+    name: string;
+    company: string;
+    phone: string;
+    more_phones: number;
+    email: string;
+    more_emails: number;
+    active: boolean;
+  }[];
+}
+
+/** GET /api/v1/admin/clients/<code>/ and /new/: the identity form. */
+export interface AdminClientForm {
+  ok: true;
+  code: string;
+  form: FormField[];
+}
+
+export interface ClientPlanRow {
+  id: number;
+  code: string;
+  name: string;
+  contact: string;
+  letters: number;
+  files: number;
+  replies: number;
+  rooms: number;
+  blocked: string;
+}
+
+/** POST /api/v1/admin/clients/delete-plan/: what deleting them would take, and which cannot go. Changes nothing. */
+export interface ClientDeletePlan {
+  ok: true;
+  deletable: ClientPlanRow[];
+  blocked: ClientPlanRow[];
+}
+
+/** POST /api/v1/admin/clients/delete/. */
+export interface ClientsDeleted {
+  ok: true;
+  deleted: string[];
+  blocked: string[];
+  files_removed: number;
+}
+
+/** GET /api/v1/admin/simulate/: the choices of the simulator and the latest messages. */
+export interface AdminSimulate {
+  ok: true;
+  channels: { value: string; label: string }[];
+  recent: { id: number; code: string; body: string; blocked: boolean }[];
+}
+
+/** GET /api/v1/admin/reset/tasks/. */
+export interface TaskResetCounts {
+  tasks: number;
+  open: number;
+  assignments: number;
+  deliveries: number;
+  ai_checks: number;
+  rooms: number;
+}
+
+/** GET /api/v1/admin/reset/mail/. */
+export interface MailResetCounts {
+  letters: number;
+  sent: number;
+  files: number;
+  kept_letters: number;
+  kept_sent: number;
+}
+
+/** GET /api/v1/admin/settings/: everything the settings page draws. A secret has `saved` and never a value. */
+export interface AdminSettings {
+  ok: true;
+  fields: FormField[];
+  sections: {
+    key: string;
+    icon: string;
+    ar: string;
+    en: string;
+    note_ar?: string;
+    note_en?: string;
+    groups: { ar?: string; en?: string; note_ar?: string; note_en?: string; fields: string[] }[];
+  }[];
+  /** One row of the rollout switches per screen: the two form fields that edit it. */
+  newui: { key: string; ar: string; en: string; roles: string; users: string }[];
+  status: {
+    whatsapp_saved: boolean;
+    email_saved: boolean;
+    google_configured: boolean;
+    google_connected: boolean;
+    google_sync_at: Stamp | null;
+    google_sync_error: string;
+  };
+  urls: { webhook: string; google_redirect: string; google_connect: string; is_local: boolean; is_https: boolean };
+}
+
+/** What a "save & test" button gets back (`whatsapp.check_connection`, `mailer.check_connection`). */
+export interface ConnectionReport {
+  ok: boolean;
+  number?: string;
+  name?: string;
+  quality?: string;
+  host?: string;
+  user?: string;
+  sent?: boolean;
+  error_ar?: string;
+  error_en?: string;
+}
+
+/** POST /api/v1/admin/settings/google/sync/. */
+export interface GoogleSynced {
+  ok: true;
+  ran: boolean;
+  error: string;
+  added: string[];
+  removed: string[];
+  released: string[];
 }
 
 /** A call ringing for this person, as the heartbeat carries it (`services.incoming_call`). */

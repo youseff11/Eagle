@@ -41,13 +41,30 @@ export interface ScreenEntry {
   also?: string[];
   /** The number the menu shows beside the line, from `/me/` (the mail not opened, the tasks nobody has). */
   badge?: Badge;
-  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge }[];
+  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge; danger?: boolean }[];
 }
 
 /** The counters `/me/` carries for the menu. */
 type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
+  // The admin's panel, a page at a time: the overview and the audit log are here, the rest of the panel is still the
+  // classic one ("the classic interface" in this menu is the way to it).
+  admin: {
+    path: "/admin",
+    icon: "chart",
+    label: ["نظرة عامة", "Overview"],
+    extra: [
+      { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"] },
+      { path: "/admin/users", icon: "lock", label: ["المستخدمين والشيفتات", "Users & shifts"] },
+      { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"] },
+      { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"] },
+      { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"] },
+      // The two that delete for good, last of all and in red: out of the way of everyday clicking.
+      { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true },
+      { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true },
+    ],
+  },
   translator_home: {
     path: "/translator",
     icon: "pen",
@@ -222,7 +239,7 @@ function Frame() {
                   <NavLink
                     key={entry.path}
                     to={entry.path}
-                    className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}
+                    className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}${entry.danger ? " nav__item--danger" : ""}`}
                   >
                     <Icon name={entry.icon} />
                     <span>{t(...entry.label)}</span>

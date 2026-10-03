@@ -5,6 +5,15 @@ import { aiNotesPath } from "../lib/chatCode";
 import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
+  AdminAudit,
+  AdminSettings,
+  AdminSimulate,
+  AdminClientForm,
+  AdminClients,
+  AdminOverview,
+  AdminUser,
+  AdminUserNew,
+  AdminUsers,
   AiCheckAnswer,
   AttendanceCard,
   AttendanceGate,
@@ -204,6 +213,112 @@ export function useLeadHome(enabled = true) {
 export function useLeadBoard(enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({ queryKey: qk.leadBoard, queryFn: () => api<LeadBoard>("/api/v1/lead/translators/"), refetchInterval, enabled });
+}
+
+/** The admin's overview: the numbers, the letters held back, hand-offs waiting, late tasks, the newest tasks. */
+export function useAdminOverview(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.adminOverview,
+    queryFn: () => api<AdminOverview>("/api/v1/admin/overview/"),
+    refetchInterval,
+    // Everybody else is refused, and every refusal is written to the audit log.
+    enabled,
+  });
+}
+
+/** The audit log (`only` is `security`, `denied` or empty for all). Read when opened, not watched; a tab never shows another tab's rows while it loads. */
+export function useAdminAudit(only: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminAudit(only),
+    queryFn: () => api<AdminAudit>(`/api/v1/admin/audit/${only ? `?only=${encodeURIComponent(only)}` : ""}`),
+    enabled,
+  });
+}
+
+/**
+ * The client records. Asked for when the page opens and when a search is sent - never on a clock, a doorbell or a return
+ * to the window - because each answer is written to the audit log (it shows every client's identity).
+ */
+export function useAdminClients(q: string, show: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (show) params.set("show", show);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.adminClients(q, show),
+    queryFn: () => api<AdminClients>(`/api/v1/admin/clients/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One client's identity form (`code` empty is the form for a new client). */
+export function useAdminClient(code: string, enabled = true) {
+  return useQuery({
+    queryKey: code ? qk.adminClient(code) : qk.adminClientNew,
+    queryFn: () => api<AdminClientForm>(code ? `/api/v1/admin/clients/${encodeURIComponent(code)}/` : "/api/v1/admin/clients/new/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** The simulator: its choices and the latest messages. */
+export function useAdminSimulate(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminSimulate,
+    queryFn: () => api<AdminSimulate>("/api/v1/admin/simulate/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** What a clear-out would take (`kind` is `tasks` or `mail`). Counted when the page opens, not on a clock. */
+export function useResetCounts<T>(kind: "tasks" | "mail", enabled = true) {
+  return useQuery({
+    queryKey: qk.adminResetCounts(kind),
+    queryFn: () => api<{ ok: true; counts: T }>(`/api/v1/admin/reset/${kind}/`),
+    refetchOnWindowFocus: false,
+    gcTime: 0,
+    enabled,
+  });
+}
+
+/** The settings page: the form's fields (a secret is only `saved`), the sections, the rollout rows and the Google state. */
+export function useAdminSettings(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminSettings,
+    queryFn: () => api<AdminSettings>("/api/v1/admin/settings/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** The staff table: everybody, and whether they are here. */
+export function useAdminUsers(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({ queryKey: qk.adminUsers, queryFn: () => api<AdminUsers>("/api/v1/admin/users/"), refetchInterval, enabled });
+}
+
+/** One person's file. Asked for when it opens and after a save, never on a clock or a doorbell: the form is being typed in. */
+export function useAdminUser(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUser(id),
+    queryFn: () => api<AdminUser>(`/api/v1/admin/users/${id}/`),
+    refetchOnWindowFocus: false,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** The fields of the form for a new person. */
+export function useAdminUserNew(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUserNew,
+    queryFn: () => api<AdminUserNew>("/api/v1/admin/users/new/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
 }
 
 /** A Sales person's own number and address (the admin may read the page, and sees it empty). */

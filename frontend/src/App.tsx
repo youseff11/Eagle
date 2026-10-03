@@ -4,6 +4,15 @@ import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
 import { calls } from "./lib/calls";
 import { useHeartbeat } from "./hooks/useHeartbeat";
+import { AdminAuditPage } from "./pages/AdminAuditPage";
+import { AdminClientFormPage } from "./pages/AdminClientFormPage";
+import { AdminClientsPage } from "./pages/AdminClientsPage";
+import { AdminOverviewPage } from "./pages/AdminOverviewPage";
+import { AdminResetPage } from "./pages/AdminResetPage";
+import { AdminSettingsPage } from "./pages/AdminSettingsPage";
+import { AdminSimulatePage } from "./pages/AdminSimulatePage";
+import { AdminUserNewPage, AdminUserPage } from "./pages/AdminUserPage";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AssignmentPage } from "./pages/AssignmentPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { ClientPage } from "./pages/ClientPage";
@@ -40,6 +49,18 @@ export function App({ pollMs }: { pollMs: number }) {
       <Route element={<Shell />}>
         <Route index element={<HomePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="admin" element={<AdminOverviewPage />} />
+        <Route path="admin/audit" element={<AdminAuditPage />} />
+        <Route path="admin/clients" element={<AdminClientsPage />} />
+        <Route path="admin/clients/new" element={<AdminClientFormPage />} />
+        <Route path="admin/clients/:code/edit" element={<AdminClientFormPage />} />
+        <Route path="admin/settings" element={<AdminSettingsPage />} />
+        <Route path="admin/simulate" element={<AdminSimulatePage />} />
+        <Route path="admin/reset-tasks" element={<AdminResetPage kind="tasks" />} />
+        <Route path="admin/reset-mail" element={<AdminResetPage kind="mail" />} />
+        <Route path="admin/users" element={<AdminUsersPage />} />
+        <Route path="admin/users/new" element={<AdminUserNewPage />} />
+        <Route path="admin/users/:id" element={<AdminUserPage />} />
         <Route path="translator" element={<TranslatorHomePage />} />
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="assignments/:id" element={<AssignmentPage />} />

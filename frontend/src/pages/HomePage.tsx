@@ -13,6 +13,10 @@ export function HomePage() {
   if (me.data?.user.role === "translator" && (me.data.screens ?? []).includes("translator_home")) {
     return <Navigate to="/translator" replace />;
   }
+  // The admin whose panel was switched over starts on the overview, as the classic `/` does for them.
+  if (me.data?.user.is_admin && (me.data.screens ?? []).includes("admin")) {
+    return <Navigate to="/admin" replace />;
+  }
 
   return (
     <>

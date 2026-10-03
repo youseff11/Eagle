@@ -12,7 +12,7 @@ could show a translator. What is pinned here is what the new page may *read*, an
 """
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.core.files.base import ContentFile
 from django.test import Client as DjangoClient
@@ -93,13 +93,14 @@ class AssignmentDoorTests(_Handoff):
         mine = timezone.now() + timedelta(hours=5)
         theirs = timezone.now() + timedelta(days=9)
         Task.objects.filter(pk=self.job.pk).update(translator_deadline=mine, deadline=theirs)
+        # The moment itself, not the start of its text: the answer is in UTC and the day Cairo reads can differ from it.
         task = _json(self.read(self.tr))["task"]
-        self.assertTrue(task["due_iso"].startswith(timezone.localtime(mine).strftime("%Y-%m-%d")))
+        self.assertLess(abs(datetime.fromisoformat(task["due_iso"]) - mine), timedelta(seconds=1))
         # A team leader is asked to take the task before any translator date exists: they are told the client's.
         handoff = self.handoff_to_lead()
         Task.objects.filter(pk=handoff.task_id).update(deadline=theirs)
         task = _json(self.read(self.lead, handoff.pk))["task"]
-        self.assertTrue(task["due_iso"].startswith(timezone.localtime(theirs).strftime("%Y-%m-%d")))
+        self.assertLess(abs(datetime.fromisoformat(task["due_iso"]) - theirs), timedelta(seconds=1))
 
     def test_no_deadline_at_all_is_an_empty_moment_and_not_an_error(self):
         Task.objects.filter(pk=self.job.pk).update(translator_deadline=None, deadline=None)

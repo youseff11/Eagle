@@ -4,6 +4,7 @@ import copy
 import json
 import re
 from datetime import datetime, timedelta
+from urllib.parse import quote, urlencode
 
 from django.contrib import messages as flash
 from django.contrib.auth import login as auth_login, logout as auth_logout
@@ -20,7 +21,7 @@ from django.views.decorators.http import require_POST, require_safe
 
 from . import (
     attendance, chatlists, clock, employees, galiases, identity, newui, payroll, performance, recruitment,
-    services, taskstart, wordcount,
+    services, shiftpick, taskstart, wordcount,
 )
 from .forms import (
     AICheckForm,
@@ -36,7 +37,6 @@ from .forms import (
     InterviewScoreForm,
     LeaveDecisionForm,
     LeaveRequestForm,
-    NewShiftForm,
     ProbationDecisionForm,
     OfficeLocationForm,
     PayrollSettingsForm,
@@ -1296,6 +1296,9 @@ def client_detail(request, code):
 @admin_only
 def client_form(request, code=None):
     client = get_object_or_404(Client, code=code) if code else None
+    handed = _admin_hand_on(request, f"/admin/clients/{quote(client.code, safe='')}/edit" if client else "/admin/clients/new")
+    if handed is not None:
+        return handed
     form = ClientForm(request.POST or None, instance=client)
     if request.method == "POST" and form.is_valid():
         obj = form.save()
@@ -1319,8 +1322,22 @@ def notifications(request):
 # Admin panel
 # ---------------------------------------------------------------------------
 
+def _admin_hand_on(request, path):
+    """The same page of the panel in the new app once the admin's ``admin`` screen is switched on; else ``None``.
+
+    Only a GET goes: a form that is already open posts to its own address and is answered where it is. The pages of the
+    panel that are not in the new app yet (users, clients, settings...) never come here and stay as they are.
+    """
+    if request.method != "GET" or not newui.hand_on(request, "admin"):
+        return None
+    return redirect("/app" + path)
+
+
 @admin_only
 def admin_overview(request):
+    handed = _admin_hand_on(request, "/admin")
+    if handed is not None:
+        return handed
     now = timezone.now()
     return render(request, "adminx/overview.html", {
         "counters": _task_counters(),
@@ -1346,6 +1363,11 @@ def _pending_assignments():
 
 @admin_only
 def admin_settings(request):
+    # The switches that send people to the new interface live on this page: if the new page ever breaks, ``?classic=1`` is
+    # the way back to the one that has them.
+    handed = _admin_hand_on(request, "/admin/settings")
+    if handed is not None:
+        return handed
     conf = AppSettings.load()
     switch_before = copy.deepcopy(conf.new_ui)
     form = SettingsForm(request.POST or None, instance=conf)
@@ -1463,6 +1485,9 @@ def _report_sync(request, outcome):
 
 @admin_only
 def admin_users(request):
+    handed = _admin_hand_on(request, "/admin/users")
+    if handed is not None:
+        return handed
     return render(request, "adminx/users.html", {
         "users": User.objects.all().prefetch_related("shifts", "team_members"),
         "roles": Role.choices,
@@ -1471,6 +1496,9 @@ def admin_users(request):
 
 @admin_only
 def admin_user_new(request):
+    handed = _admin_hand_on(request, "/admin/users/new")
+    if handed is not None:
+        return handed
     form = StaffCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
@@ -1483,6 +1511,9 @@ def admin_user_new(request):
 @admin_only
 def admin_user_edit(request, pk):
     obj = get_object_or_404(User, pk=pk)
+    handed = _admin_hand_on(request, f"/admin/users/{obj.pk}")
+    if handed is not None:
+        return handed
     # Read before the form binds: ModelForm writes the posted values onto
     # the instance during validation, not at save().
     before = identity.access_snapshot(obj)
@@ -1541,6 +1572,11 @@ def admin_clients(request):
     """
     query = (request.GET.get("q") or "").strip()
     show = "robots" if request.GET.get("show") == "robots" else ""
+    # Only what the new page itself would accept goes along: a search longer than it reads is dropped, not carried.
+    carried = {**({"show": show} if show else {}), **({"q": query} if query and len(query) <= 200 and "\x00" not in query else {})}
+    handed = _admin_hand_on(request, "/admin/clients" + (f"?{urlencode(carried)}" if carried else ""))
+    if handed is not None:
+        return handed
     rows = services.automated_clients() if show else Client.objects.all()
     if query:
         rows = rows.filter(identity.client_search(request.user, query))
@@ -1595,6 +1631,9 @@ def admin_clients_delete(request):
 
 @admin_only
 def admin_simulate(request):
+    handed = _admin_hand_on(request, "/admin/simulate")
+    if handed is not None:
+        return handed
     form = SimulateMessageForm(request.POST or None, request.FILES or None)
     if request.method == "POST" and form.is_valid():
         uploads = request.FILES.getlist("files")
@@ -1626,6 +1665,9 @@ def admin_reset_tasks(request):
     """
     from django.http import HttpResponse
 
+    handed = _admin_hand_on(request, "/admin/reset-tasks")
+    if handed is not None:
+        return handed
     error = ""
     if request.method == "POST":
         if request.POST.get("confirm") != "1":
@@ -1664,6 +1706,9 @@ def admin_reset_mail(request):
     """
     from django.http import HttpResponse
 
+    handed = _admin_hand_on(request, "/admin/reset-mail")
+    if handed is not None:
+        return handed
     error = ""
     if request.method == "POST":
         if request.POST.get("confirm") != "1":
@@ -1695,6 +1740,9 @@ def admin_audit(request):
     from .models import AuditLog
 
     only = request.GET.get("only", "")
+    handed = _admin_hand_on(request, "/admin/audit" + (f"?only={only}" if only in ("security", "denied") else ""))
+    if handed is not None:
+        return handed
     logs = AuditLog.objects.select_related("actor")
     if only == "security":
         logs = logs.filter(action__in=identity.SECURITY_ACTIONS)
@@ -2926,35 +2974,19 @@ def _shift_picker(person, next_url):
 def hr_employee_shift(request, pk):
     """Pick one of the company's shifts for somebody, from their file."""
     person = get_object_or_404(User, pk=pk)
-    raw = request.POST.get("template") or ""
-    template = (
-        ShiftTemplate.objects.filter(pk=raw, is_active=True).first() if raw.isdigit() else None
+    # The rule is shared with the admin's staff page (``shiftpick``): a refusal changes nothing there either.
+    problem, template = shiftpick.choose(
+        person, request.POST.get("template") or "", request.POST.getlist("weekdays"),
+        new_name=request.POST.get("new_name", ""), new_start=request.POST.get("new_start", ""),
+        new_end=request.POST.get("new_end", ""), actor=request.user,
     )
-    new_shift = None
-    if raw == "new":
-        # A shift nobody has made yet: built from the three fields under the
-        # "new shift" choice, then assigned like any other.
-        new_shift = NewShiftForm({
-            "name_ar": request.POST.get("new_name", ""),
-            "start_time": request.POST.get("new_start", ""),
-            "end_time": request.POST.get("new_end", ""),
-        })
-    weekdays = request.POST.getlist("weekdays")
-    if new_shift is not None and not new_shift.is_valid():
+    if problem == shiftpick.BAD_NEW_SHIFT:
         flash.error(request, "اكتب وقت بداية ونهاية الشيفت الجديد.")
-    elif raw and raw != "new" and template is None:
+    elif problem == shiftpick.NO_SUCH_SHIFT:
         flash.error(request, "الشيفت ده مش موجود.")
-    elif raw and not weekdays:
+    elif problem == shiftpick.NO_DAYS:
         flash.error(request, "اختار أيام الشغل.")
     else:
-        # Only now, with every check passed, so a refusal never leaves a
-        # half-made shift behind in the pickers.
-        if new_shift is not None:
-            template, _created = attendance.shift_for_hours(
-                new_shift.cleaned_data["start_time"], new_shift.cleaned_data["end_time"],
-                new_shift.cleaned_data["name_ar"], actor=request.user,
-            )
-        attendance.assign_shift(person, template, weekdays, actor=request.user)
         flash.success(request, template.label if template else "اتشال الشيفت")
 
     target = request.POST.get("next") or ""

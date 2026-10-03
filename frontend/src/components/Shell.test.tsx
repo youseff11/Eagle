@@ -505,3 +505,69 @@ describe("Shell: the team leader's screen", () => {
   });
 });
 
+describe("Shell: the admin's panel", () => {
+  const at = (route: string, screens: string[], role: "admin" | "operation" = "admin") => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin" }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="admin" element={<div>overview</div>} />
+          <Route path="admin/*" element={<div>a page of the panel</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+  const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+  it("lists every page of the panel in the classic menu's order and words, the two that delete last and in red, then the chats", async () => {
+    const view = at("/admin", ["admin", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/audit"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 10)).toEqual([
+      "/", "/admin", "/admin/clients", "/admin/users", "/admin/settings", "/admin/simulate", "/admin/audit",
+      "/admin/reset-mail", "/admin/reset-tasks", "/chats",
+    ]);
+    const words: [string, string][] = [
+      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/admin/users", "المستخدمين والشيفتات"],
+      ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
+      ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"],
+    ];
+    for (const [href, label] of words) {
+      expect(within(view.container.querySelector(`.sidebar a[href="${href}"]`) as HTMLElement).getByText(label), href).toBeInTheDocument();
+    }
+    for (const href of ["/admin/reset-mail", "/admin/reset-tasks"]) {
+      expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toHaveClass("nav__item--danger");
+    }
+    expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).not.toHaveClass("nav__item--danger");
+  });
+
+  it("titles every page and lights exactly one line on each", async () => {
+    for (const [route, title, lit] of [
+      ["/admin", "نظرة عامة", "/admin"],
+      ["/admin/audit", "سجل النشاط", "/admin/audit"],
+      ["/admin/users", "المستخدمين والشيفتات", "/admin/users"],
+      ["/admin/users/5", "المستخدمين والشيفتات", "/admin/users"],
+      ["/admin/clients/CL-0001/edit", "بيانات العملاء", "/admin/clients"],
+      ["/admin/settings", "الإعدادات و AI", "/admin/settings"],
+      ["/admin/simulate", "محاكاة رسالة", "/admin/simulate"],
+      ["/admin/reset-tasks", "ريستارت التاسكات", "/admin/reset-tasks"],
+    ] as const) {
+      const view = at(route, ["admin"]);
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`)).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("draws none of it for an admin who has not switched it on, and keeps the way to the classic panel", async () => {
+    const view = at("/admin", ["chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    for (const href of ["/admin", "/admin/audit"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/?classic=1"]')).not.toBeNull();
+  });
+});
