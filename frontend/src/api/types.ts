@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
+export type ScreenKey = "admin" | "accounts" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -995,7 +995,8 @@ export interface AdminAudit {
 }
 
 /** How a form field is drawn (`api_forms.kind_of`). */
-export type FormFieldKind = "checkbox" | "multi" | "select" | "password" | "number" | "email" | "time" | "textarea" | "text";
+export type FormFieldKind =
+  | "checkbox" | "multi" | "select" | "password" | "number" | "email" | "time" | "date" | "datetime" | "textarea" | "text";
 
 /** One field of a Django form, as the server describes it (`api_forms.describe`). A secret has `saved` and never a `value`. */
 export interface FormField {
@@ -1206,6 +1207,165 @@ export interface GoogleSynced {
   added: string[];
   removed: string[];
   released: string[];
+}
+
+/** A payroll month's state (`PayrollPeriod.status`). */
+export interface AccountsPeriod {
+  id: number;
+  label: string;
+  status: { value: "draft" | "approved" | "locked"; ar: string; en: string };
+}
+
+/** One translator's line on the month's sheet (`api_accounts._line_row`). Money is text: a float would round it. */
+export interface AccountsLineRow {
+  id: number;
+  user: { id: number; name: string; username: string; initials: string };
+  base_salary: string;
+  worked_days: number;
+  working_days: number;
+  leave_days: number;
+  extra_leave_days: number;
+  unexcused_days: number;
+  total_words: number;
+  below_alert: boolean;
+  production_bonus: string;
+  bonus_total: string;
+  pending_bonus: string;
+  deductions: string;
+  net: string;
+}
+
+/** A deduction somebody proposed (`api_accounts._violation_json`). */
+export interface AccountsViolation {
+  id: number;
+  user: string;
+  date: string;
+  kind: Labelled;
+  task: string | null;
+  reason: string;
+  penalty_days: string;
+  penalty_amount: string;
+  escalated: boolean;
+  status: "pending" | "approved" | "rejected" | string;
+  decided_by: string | null;
+}
+
+/** GET /api/v1/accounts/overview/?period=: the month's sheet. */
+export interface AccountsOverview {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  period: AccountsPeriod | null;
+  totals: { net: string; words: number; deductions: string; alerts: number } | null;
+  lines: AccountsLineRow[];
+  pending_violations: AccountsViolation[];
+  missing_salary: { id: number; name: string; username: string; initials: string }[];
+  unsettled_tasks: { code: string; translator: string | null }[];
+  can: { line: boolean; task: boolean };
+}
+
+/** GET /api/v1/accounts/lines/<id>/: a payslip in full. */
+export interface AccountsLine {
+  ok: true;
+  line: AccountsLineRow & {
+    period: AccountsPeriod;
+    label: string;
+    day_value: string;
+    target_words: number;
+    under_target_days: number;
+    overtime_bonus: string;
+    overtime_minutes: number;
+    discipline_bonus: string;
+    discipline_bonus_earned: boolean;
+    target_bonus: string;
+    target_bonus_earned: boolean;
+    bonuses_approved: boolean;
+    gross: string;
+    scheduled_days: number;
+    office_days: number;
+    remote_days: number;
+    late_days: number;
+    late_minutes: number;
+    early_leave_minutes: number;
+    short_minutes: number;
+    work_minutes: number;
+  };
+  days: {
+    date: string;
+    status: Labelled & { tone: string };
+    secondary: boolean;
+    difficult: boolean;
+    words: number;
+    target: number;
+    bonus: string;
+  }[];
+  deductions: { date: string; kind: Labelled; reason: string; days: string; amount: string; status: "applied" | "pending" }[];
+  conf: { monthly_leave_allowance: number; discipline_bonus: string; target_bonus: string };
+  can: { salary: boolean; release: boolean };
+}
+
+/** GET /api/v1/accounts/attendance/?period=&user=. */
+export interface AccountsSheet {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  people: { id: number; name: string }[];
+  person: { id: number; name: string; username: string; initials: string } | null;
+  days: {
+    id: number;
+    date: string;
+    status: Labelled & { tone: string };
+    check_in: Stamp | null;
+    check_out: Stamp | null;
+    late_minutes: number;
+    words: number;
+    under_floor: boolean;
+    absence_reason: string;
+    note: string;
+  }[];
+  words: number;
+  leave_used: number;
+  conf: { monthly_leave_allowance: number; monthly_target_words: number; daily_target_words: number };
+  form: FormField[];
+}
+
+/** GET /api/v1/accounts/violations/. */
+export interface AccountsViolations {
+  ok: true;
+  pending: AccountsViolation[];
+  decided: AccountsViolation[];
+  conf: Record<"quality_penalty_days" | "unexcused_penalty_days" | "low_output_penalty_days" | "extra_leave_penalty_days" | "target_miss_penalty", string>;
+  form: FormField[];
+}
+
+/** GET /api/v1/accounts/salary/<id>/. */
+export interface AccountsSalary {
+  ok: true;
+  person: { id: number; name: string; username: string; initials: string };
+  records: { id: number; effective_from: string; amount: string; note: string; by: string | null }[];
+  lines: { id: number; label: string; base_salary: string; words: number; net: string }[];
+  can: { line: boolean };
+  form: FormField[];
+}
+
+/** One band of the daily production bonus. */
+export interface AccountsTier {
+  id: number;
+  min_words: number;
+  max_words: number | null;
+  bonus: string;
+}
+
+/** GET /api/v1/accounts/rules/: every number the payroll runs on. */
+export interface AccountsRules {
+  ok: true;
+  fields: FormField[];
+  sections: { key: string; icon: string; ar: string; en: string; note_ar?: string; note_en?: string; fields: string[] }[];
+  tiers: { primary: AccountsTier[]; secondary: AccountsTier[] };
+  tier_form: FormField[];
+  check: { working_days: number; daily_target_words: number; monthly_target_words: number };
 }
 
 /** A call ringing for this person, as the heartbeat carries it (`services.incoming_call`). */

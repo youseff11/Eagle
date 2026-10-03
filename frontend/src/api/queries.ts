@@ -5,6 +5,12 @@ import { aiNotesPath } from "../lib/chatCode";
 import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
+  AccountsLine,
+  AccountsOverview,
+  AccountsRules,
+  AccountsSalary,
+  AccountsSheet,
+  AccountsViolations,
   AdminAudit,
   AdminSettings,
   AdminSimulate,
@@ -281,6 +287,68 @@ export function useResetCounts<T>(kind: "tasks" | "mail", enabled = true) {
     queryFn: () => api<{ ok: true; counts: T }>(`/api/v1/admin/reset/${kind}/`),
     refetchOnWindowFocus: false,
     gcTime: 0,
+    enabled,
+  });
+}
+
+/** The month's payroll sheet (`period` is `2026-09`, or empty for this month). */
+export function useAccountsOverview(period: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.accountsOverview(period),
+    queryFn: () => api<AccountsOverview>(`/api/v1/accounts/overview/${period ? `?period=${encodeURIComponent(period)}` : ""}`),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** A payslip in full: the admin's, or a translator's own. */
+export function useAccountsLine(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.accountsLine(id),
+    queryFn: () => api<AccountsLine>(`/api/v1/accounts/lines/${id}/`),
+    refetchOnWindowFocus: false,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** One translator's month, day by day (`user` is an id, or empty for the first translator). */
+export function useAccountsSheet(period: string, user: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (period) params.set("period", period);
+  if (user) params.set("user", user);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.accountsSheet(period, user),
+    queryFn: () => api<AccountsSheet>(`/api/v1/accounts/attendance/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+export function useAccountsViolations(enabled = true) {
+  return useQuery({
+    queryKey: qk.accountsViolations,
+    queryFn: () => api<AccountsViolations>("/api/v1/accounts/violations/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useAccountsSalary(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.accountsSalary(id),
+    queryFn: () => api<AccountsSalary>(`/api/v1/accounts/salary/${id}/`),
+    refetchOnWindowFocus: false,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+export function useAccountsRules(enabled = true) {
+  return useQuery({
+    queryKey: qk.accountsRules,
+    queryFn: () => api<AccountsRules>("/api/v1/accounts/rules/"),
+    refetchOnWindowFocus: false,
     enabled,
   });
 }

@@ -3042,7 +3042,12 @@ class PayrollLine(models.Model):
         """Money the translator has earned that approval is still holding."""
         if self.bonuses_approved:
             return Decimal("0.00")
-        conf = PayrollSettings.load()
+        return self.pending_bonus_for(PayrollSettings.load())
+
+    def pending_bonus_for(self, conf):
+        """``pending_bonus`` with the settings already in hand: a list of lines reads them once, not once per line."""
+        if self.bonuses_approved:
+            return Decimal("0.00")
         total = Decimal("0.00")
         if self.discipline_bonus_earned:
             total += conf.discipline_bonus

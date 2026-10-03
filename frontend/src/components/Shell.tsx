@@ -41,7 +41,7 @@ export interface ScreenEntry {
   also?: string[];
   /** The number the menu shows beside the line, from `/me/` (the mail not opened, the tasks nobody has). */
   badge?: Badge;
-  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge; danger?: boolean }[];
+  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge; danger?: boolean; adminOnly?: boolean }[];
 }
 
 /** The counters `/me/` carries for the menu. */
@@ -65,11 +65,25 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true },
     ],
   },
+  // The money screens: the month's sheet, the deductions, and (the admin's only, as in the classic menu) attendance and output
+  // and the payroll rules. A payslip and a salary history open from the sheet.
+  accounts: {
+    path: "/accounts",
+    icon: "calendar",
+    label: ["كشف الشهر", "Monthly payroll"],
+    also: ["/accounts/lines", "/accounts/salary"],
+    extra: [
+      { path: "/accounts/attendance", icon: "timer", label: ["الحضور والإنتاج", "Attendance & output"], adminOnly: true },
+      { path: "/accounts/violations", icon: "alert", label: ["المخالفات والخصومات", "Violations"] },
+      { path: "/accounts/rules", icon: "list-checks", label: ["قواعد الحساب", "Payroll rules"], adminOnly: true },
+    ],
+  },
   translator_home: {
     path: "/translator",
     icon: "pen",
     label: ["شغلي", "My work"],
-    also: ["/tasks"],
+    // The payslip in full is the translator's own too: it opens under the money screens' address.
+    also: ["/tasks", "/accounts/lines"],
     extra: [{ path: "/payroll", icon: "folder", label: ["مستحقاتي", "My payroll"] }],
   },
   // The classic menu's order for the operation: the mail first, then the tasks, the teams and the client codes.
@@ -235,7 +249,7 @@ function Frame() {
                   )}
                   {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
                 </NavLink>
-                {(SCREENS[key].extra ?? []).map((entry) => (
+                {(SCREENS[key].extra ?? []).filter((entry) => !entry.adminOnly || user?.is_admin).map((entry) => (
                   <NavLink
                     key={entry.path}
                     to={entry.path}

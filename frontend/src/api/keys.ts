@@ -74,6 +74,14 @@ export const qk = {
   adminResetCounts: (kind: "tasks" | "mail") => ["admin-reset", kind] as const,
   /** The settings page: outside the boards, read when opened and after a save (a form being typed in is not refilled). */
   adminSettings: ["admin-settings"] as const,
+  /** The money screens: read when opened and after a write, never on a clock (a number that moves under the eye is a number to doubt). */
+  accounts: ["accounts"] as const,
+  accountsOverview: (period: string) => ["accounts", "overview", period] as const,
+  accountsLine: (id: number) => ["accounts", "line", id] as const,
+  accountsSheet: (period: string, user: string) => ["accounts", "sheet", period, user] as const,
+  accountsViolations: ["accounts", "violations"] as const,
+  accountsSalary: (id: number) => ["accounts", "salary", id] as const,
+  accountsRules: ["accounts", "rules"] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

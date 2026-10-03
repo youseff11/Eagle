@@ -1186,12 +1186,39 @@ class WorkDayForm(forms.ModelForm):
         return data
 
 
+class _RecentTasks(forms.models.ModelChoiceIterator):
+    """The newest tasks, and only those, as the list to pick from."""
+
+    LIMIT = 200
+
+    def __iter__(self):
+        if self.field.empty_label is not None:
+            yield ("", self.field.empty_label)
+        for task in self.queryset[: self.LIMIT]:
+            yield self.choice(task)
+
+
+class RecentTaskField(forms.ModelChoiceField):
+    """Any task may be chosen; the list shows the newest few hundred, by code.
+
+    The form used to cut the queryset to 200 to keep the list short, and a cut queryset cannot be looked up in: every task
+    that was picked came back as "not one of the available choices", so the box never worked. The code is the label because
+    a task's title is typed by people and may carry a client's name, which the people who record deductions may not know.
+    """
+
+    iterator = _RecentTasks
+
+    def label_from_instance(self, obj):
+        return obj.code
+
+
 class ViolationForm(forms.ModelForm):
     """A deduction someone is proposing. It is worth nothing until approved."""
 
     class Meta:
         model = Violation
         fields = ("user", "task", "date", "kind", "penalty_days", "penalty_amount", "reason")
+        field_classes = {"task": RecentTaskField}
         widgets = {
             "user": forms.Select(attrs={"class": "input"}),
             "task": forms.Select(attrs={"class": "input"}),
@@ -1212,7 +1239,7 @@ class ViolationForm(forms.ModelForm):
             role=Role.TRANSLATOR, is_active=True
         )
         self.fields["task"].required = False
-        self.fields["task"].queryset = Task.objects.order_by("-created_at")[:200]
+        self.fields["task"].queryset = Task.objects.order_by("-created_at")
 
     def clean(self):
         data = super().clean()

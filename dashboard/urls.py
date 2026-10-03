@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_clients, api_lead, api_mail, api_ops, api_sales, api_v1, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_clients, api_lead, api_mail, api_ops, api_sales, api_v1, spa, views,
     webhooks,
 )
 
@@ -243,6 +243,26 @@ urlpatterns = [
     path("api/v1/attendance/", api_attendance.card, name="v1_attendance"),
     path("api/v1/lead/", api_lead.home, name="v1_lead"),
     path("api/v1/lead/translators/", api_lead.translators, name="v1_lead_translators"),
+    path("api/v1/accounts/overview/", api_accounts.overview, name="v1_accounts_overview"),
+    path("api/v1/accounts/recalculate/", api_accounts.recalculate, name="v1_accounts_recalculate"),
+    path("api/v1/accounts/periods/<int:pk>/approve/", api_accounts.period_approve, name="v1_accounts_period_approve"),
+    path("api/v1/accounts/lines/<int:pk>/", api_accounts.line, name="v1_accounts_line"),
+    path("api/v1/accounts/lines/<int:pk>/bonus/", api_accounts.line_bonus, name="v1_accounts_line_bonus"),
+    path("api/v1/accounts/attendance/", api_accounts.attendance_sheet, name="v1_accounts_attendance"),
+    path("api/v1/accounts/attendance/refresh/", api_accounts.attendance_refresh, name="v1_accounts_attendance_refresh"),
+    path("api/v1/accounts/attendance/save/", api_accounts.attendance_save, name="v1_accounts_attendance_save"),
+    path("api/v1/accounts/violations/", api_accounts.violations, name="v1_accounts_violations"),
+    path("api/v1/accounts/violations/create/", api_accounts.violation_create, name="v1_accounts_violation_create"),
+    path(
+        "api/v1/accounts/violations/<int:pk>/<str:action>/", api_accounts.violation_decide,
+        name="v1_accounts_violation_decide",
+    ),
+    path("api/v1/accounts/salary/<int:pk>/", api_accounts.salary, name="v1_accounts_salary"),
+    path("api/v1/accounts/salary/<int:pk>/save/", api_accounts.salary_save, name="v1_accounts_salary_save"),
+    path("api/v1/accounts/rules/", api_accounts.rules, name="v1_accounts_rules"),
+    path("api/v1/accounts/rules/save/", api_accounts.rules_save, name="v1_accounts_rules_save"),
+    path("api/v1/accounts/rules/tiers/add/", api_accounts.tier_add, name="v1_accounts_tier_add"),
+    path("api/v1/accounts/rules/tiers/<int:pk>/delete/", api_accounts.tier_delete, name="v1_accounts_tier_delete"),
     path("api/v1/admin/overview/", api_admin.overview, name="v1_admin_overview"),
     path("api/v1/admin/audit/", api_admin.audit, name="v1_admin_audit"),
     path("api/v1/admin/users/", api_admin_users.users, name="v1_admin_users"),

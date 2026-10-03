@@ -598,12 +598,13 @@ def approve_period(period, by, lock=False):
 def month_totals(period):
     """Headline figures for the period screen."""
     lines = period.lines.all()
+    conf = PayrollSettings.load()
     return {
         "lines": lines.count(),
         "words": lines.aggregate(total=Sum("total_words"))["total"] or 0,
         "gross": sum((line.gross for line in lines), Decimal("0.00")),
         "deductions": sum((line.deductions for line in lines), Decimal("0.00")),
         "net": sum((line.net for line in lines), Decimal("0.00")),
-        "pending": sum((line.pending_bonus for line in lines), Decimal("0.00")),
+        "pending": sum((line.pending_bonus_for(conf) for line in lines), Decimal("0.00")),
         "alerts": lines.filter(below_alert_threshold=True).count(),
     }

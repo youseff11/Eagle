@@ -21,6 +21,7 @@ from decimal import Decimal
 from django import forms
 from django.db.models import QuerySet
 from django.http import JsonResponse
+from django.utils import timezone
 
 #: The largest text a single field may carry in a request: far above any real value, below a body that wastes memory.
 MAX_TEXT = 20_000
@@ -42,7 +43,7 @@ class BadValues(ValueError):
 # ---------------------------------------------------------------------------
 
 def kind_of(field, secret=False):
-    """How a front end draws this field: checkbox, multi, select, password, number, email, time, textarea or text.
+    """How a front end draws this field: checkbox, multi, select, password, number, email, time, date, datetime, textarea or text.
 
     ``secret`` marks a field that holds a secret although its widget is a plain box (a verify token, a shared secret): it is
     drawn, described and read back as a password.
@@ -64,6 +65,10 @@ def kind_of(field, secret=False):
         return "email"
     if isinstance(field, forms.TimeField):
         return "time"
+    if isinstance(field, forms.DateTimeField):
+        return "datetime"
+    if isinstance(field, forms.DateField):
+        return "date"
     if isinstance(widget, forms.Textarea):
         return "textarea"
     return "text"
@@ -86,6 +91,10 @@ def _scalar(value):
     if isinstance(value, datetime.time):
         return value.strftime("%H:%M")
     if isinstance(value, datetime.datetime):
+        # A moment is written the way the person reads it: Cairo time. Left in UTC it would be read back as Cairo and move
+        # by three hours every time a form that did not touch it was saved.
+        if timezone.is_aware(value):
+            value = timezone.localtime(value)
         return value.strftime("%Y-%m-%dT%H:%M")
     if isinstance(value, datetime.date):
         return value.isoformat()

@@ -571,3 +571,65 @@ describe("Shell: the admin's panel", () => {
     expect(view.container.querySelector('.sidebar a[href="/?classic=1"]')).not.toBeNull();
   });
 });
+
+describe("Shell: the money screens", () => {
+  const at = (route: string, screens: string[], role: "admin" | "accounting" | "translator" = "accounting") => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin" }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="accounts/*" element={<div>a money page</div>} />
+          <Route path="translator" element={<div>my work</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+  const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+  it("gives accounting the sheet and the deductions, and keeps attendance and the rules for the admin", async () => {
+    const view = at("/accounts", ["accounts", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/accounts/violations"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 4)).toEqual(["/", "/accounts", "/accounts/violations", "/chats"]);
+    expect(links(view.container)).not.toContain("/accounts/attendance");
+    expect(links(view.container)).not.toContain("/accounts/rules");
+    view.unmount();
+    const admin = at("/accounts", ["accounts", "chats"], "admin");
+    await waitFor(() => expect(admin.container.querySelector('.sidebar a[href="/accounts/rules"]')).not.toBeNull());
+    expect(links(admin.container).slice(0, 6)).toEqual(["/", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/rules", "/chats"]);
+  });
+
+  it("titles every page and lights exactly one line on each", async () => {
+    for (const [route, title, lit] of [
+      ["/accounts", "كشف الشهر", "/accounts"],
+      ["/accounts/lines/9", "كشف الشهر", "/accounts"],
+      ["/accounts/salary/4", "كشف الشهر", "/accounts"],
+      ["/accounts/violations", "المخالفات والخصومات", "/accounts/violations"],
+      ["/accounts/attendance", "الحضور والإنتاج", "/accounts/attendance"],
+      ["/accounts/rules", "قواعد الحساب", "/accounts/rules"],
+    ] as const) {
+      const view = at(route, ["accounts"], "admin");
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`), route).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("lights a translator's own payslip under 'my work', since no money screen is theirs", async () => {
+    const view = at("/accounts/lines/9", ["translator_home", "chats"], "translator");
+    await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("شغلي"));
+    expect(view.container.querySelector('.sidebar a[href="/translator"].is-active')).not.toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/accounts"]')).toBeNull();
+  });
+
+  it("draws none of it for accounting that has not been switched on", async () => {
+    const view = at("/accounts", ["chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    for (const href of ["/accounts", "/accounts/violations", "/accounts/rules"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+  });
+});

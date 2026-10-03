@@ -140,7 +140,8 @@ function Control({
         />
       );
     default: {
-      const type = field.kind === "number" ? "number" : field.kind === "email" ? "email" : field.kind === "time" ? "time" : "text";
+      const INPUT_TYPES: Partial<Record<FormField["kind"], string>> = { number: "number", email: "email", time: "time", date: "date", datetime: "datetime-local" };
+      const type = INPUT_TYPES[field.kind] ?? "text";
       return (
         <input
           {...common}

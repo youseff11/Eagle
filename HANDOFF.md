@@ -62,6 +62,27 @@ Staging: https://eagle-web.onrender.com (داتابيز `eagle-staging` فيها
 5. **باقي التحويل:** الصفحات الكلاسيك للحسابات والـHR لسه (مش جزء من لوحة الأدمن).
 6. **تست قديم اتصلّح:** `tests_assignment_screen` `test_the_translators_own_date_and_the_leaders_are_not_the_same_date` كان بيقارن بداية نص تاريخ UTC بتاريخ القاهرة فبيقع بين ~9 م ومنتصف الليل بتوقيت القاهرة؛ بقى يقارن اللحظة. و`verify.py` لما يطبع فشل فيه حرف غير cp1252 والخرج متحوّل لملف بيقع بـ`UnicodeEncodeError`: شغّله بـ`PYTHONIOENCODING=utf-8`.
 
+## شاشة الحسابات في الـReact (متبنية ومتختبرة 2026-10-03، لسه ما اتراجعتش ولا اتجرّبت في متصفح حقيقي)
+
+**مفتاح واحد: `accounts`** (`dashboard/newui.py`، `roles=(Role.ACCOUNTING,)`، `admin_default=False`: الأدمن مش شغال عليه لحد ما يعلّمه). بعد ما يتعلّم: `/accounts` والصفحات الخمس (`/accounts/lines/<id>` و`/attendance` و`/violations` و`/rules` و`/salary/<id>`) بتتحوّل لـ`/app/accounts/...` (GET بس، `?classic=1` بيفتح الكلاسيك). `accounts_line` للمترجم بتتحوّل على مفتاح `translator_home` مش `accounts`.
+
+**الأبواب** (`dashboard/api_accounts.py`، 19 باب تحت `/api/v1/accounts/`، الحسابات والأدمن): `overview` (`?period=Y-M`، 400 `bad_period`) · `recalculate` (409 `period_locked`) · `periods/<id>/approve` (`{lock}`، 409 لو مقفول) · `lines/<id>` (الأدمن أو المترجم صاحب السطر، غير كده `identity.hidden` = 404) · `lines/<id>/bonus` (الأدمن بس، 409 مقفول أو اتصرف قبل كده) · `attendance` + `attendance/refresh` (POST: إعادة اشتقاق الكلمات من سجل التاسكات، كانت side effect في GET) + `attendance/save` · `violations` + `create` + `<id>/approve|reject` (409 `already_decided`) · `salary/<id>` + `save` · `rules` + `save` + `tiers/add` + `tiers/<id>/delete`. الفلوس نص (`str(Decimal)`)، والوقت 12 ساعة بتوقيت القاهرة (`clock.fmt12`)، والفورمات هي `WorkDayForm` و`ViolationForm` و`SalaryRecordForm` و`PayrollSettingsForm` و`ProductionTierForm` عبر `api_forms` (الفورم بتقرر الصح والغلط).
+
+**الجديد المشترك:** `api_forms.kind_of` بقى بيرجّع `date`/`datetime` و`DjangoForm` بيرسمهم `<input type=date|datetime-local>`، والتاريخ مع الوقت بيتحوّل لتوقيت القاهرة قبل ما يتبعت (`timezone.localtime`). `payroll_texts.py` فيه أقسام وكلام الأربعين حقل في `PayrollSettingsForm` عربي/إنجليزي (الصفحة بترسم الأقسام من السيرفر).
+
+**اللي اتصلّح في الكلاسيك (غير سلوكه):**
+1. صندوق «التاسك» في فورم المخالفة كان بيعرض آخر 200 تاسك بس (slice على الـqueryset) وبيرفض أي تاسك أقدم: `forms.RecentTaskField` بيعرض آخر 200 باسم الكود وبيتحقق على الكل.
+2. `PayrollLine.pending_bonus` كان بيحمّل إعدادات الحسابات لكل سطر (N+1): `pending_bonus_for(conf)` و`payroll.month_totals` بيحمّل مرة واحدة.
+
+**قرارات اتاخدت (للمستخدم يراجعها):**
+1. **المحاسب بياخد 404 على تفاصيل السطر** (زي الكلاسيك: التفاصيل للأدمن وللمترجم صاحبها بس). الزرار «التفاصيل» مش بيتعرض له (`can.line`). التوصية: نسمح له (هو اللي بيدفع المرتب). متعدّلش من غير ما يقول.
+2. **صرف المكافآت للأدمن بس في الباب الجديد.** الكلاسيك كان بيسمح للمحاسب في الباب نفسه بس الزرار للأدمن بس. الباب الجديد طابق الزرار.
+3. **قرار مخالفة اتاخد مش بيتاخد تاني** (409 `already_decided`). الكلاسيك كان بيسمح بتغيير القرار.
+4. **التاسكات في صندوق المخالفة بالكود بس** (من غير اسم عميل: الهوية).
+5. **قفل الشهر بيسأل «متأكد؟»** في الـReact (الكلاسيك كان بيقفل على طول).
+
+**تستات:** باك إند `tests_accounts_screen` (100: مصفوفة الأدوار، نظرة عامة، تشغيل الشهر، اعتماد/قفل، السطر، المكافآت، ورقة الحضور وتسجيل يوم، المخالفات، الراتب، القواعد، المفتاح والتحويل) · فرونت `Accounts.test.tsx` (51 على الصفحات الست) و+4 `Shell` (قايمة المحاسب غير قايمة الأدمن، العناوين والخط المضيء، سطر المترجم تحت «شغلي»). **ماتعملتش مراجعة ولا مرور متصفح ولا جولة تخريب**؛ بس كسّرنا بإيدينا: ثلاث تجارب باك إند وثلاث فرونت (قفل بدون سؤال، سطور الأدمن للمحاسب، حرّاس صفحة القواعد) واتقبضوا.
+
 ## مراجعة المرحلة 1: أمنية، على اللبنات المشتركة للوحة الأدمن (اتعملت 2026-10-03، security-reviewer بـSonnet 5.5)
 
 نطاقها: `api_forms` و`api_admin*` و`shiftpick` وقفل الريسيت ومعالجة الأسرار في الإعدادات وملفات الفرونت المشتركة (`DjangoForm` وصفحتي الإعدادات والريسيت و`adminActions` و`apiDownload`). المراجع شغّل ثلاث probes فعلية على داتابيز مؤقتة. **سليم:** الأبواب السبعة وعشرين كلها `@endpoint` ثم `@api_role_required(ADMIN)` وCSRF شغّال، ما فيش مسار بيطلّع قيمة سر، mass assignment مرفوض (`is_superuser` وحقول بمسافات ومتداخلة)، تغيير الدور/الهوية/`is_active` بيتسجل، الريسيت (`confirm` لازم `True` بالظبط، الباسورد مش في أي سجل، النسخة الاحتياطية `no-store`)، `_admin_hand_on` مفيهوش open redirect، ملفات المحاكاة بتتخزن بأسماء عشوائية وبتتخدم من `/files/` بس، ولا `dangerouslySetInnerHTML` في الفرونت.

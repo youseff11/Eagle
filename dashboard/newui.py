@@ -66,6 +66,13 @@ SCREENS = {
             "admin", "لوحة الأدمن (كل صفحاتها)", "The admin panel (all of its pages)",
             classic="admin_overview", path="/admin", roles=(), admin_default=False,
         ),
+        # The money screens: the month's sheet, a payslip, attendance and output, violations, salaries, and (the admin's alone) the
+        # payroll rules. Accounting runs the month; the admin is not on it until they say so.
+        Screen(
+            "accounts", "الحسابات (كشف الشهر، المخالفات والخصومات، الحضور والإنتاج، الرواتب، قواعد الحساب)",
+            "Accounts (the month, violations, attendance and output, salaries, payroll rules)",
+            classic="accounts_overview", path="/accounts", roles=(Role.ACCOUNTING,), admin_default=False,
+        ),
         Screen(
             "translator_home", "شغل المترجم", "The translator's desk",
             classic="translator_home", path="/translator", roles=(Role.TRANSLATOR,),

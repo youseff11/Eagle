@@ -4,6 +4,12 @@ import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
 import { calls } from "./lib/calls";
 import { useHeartbeat } from "./hooks/useHeartbeat";
+import { AccountsAttendancePage } from "./pages/AccountsAttendancePage";
+import { AccountsLinePage } from "./pages/AccountsLinePage";
+import { AccountsOverviewPage } from "./pages/AccountsOverviewPage";
+import { AccountsRulesPage } from "./pages/AccountsRulesPage";
+import { AccountsSalaryPage } from "./pages/AccountsSalaryPage";
+import { AccountsViolationsPage } from "./pages/AccountsViolationsPage";
 import { AdminAuditPage } from "./pages/AdminAuditPage";
 import { AdminClientFormPage } from "./pages/AdminClientFormPage";
 import { AdminClientsPage } from "./pages/AdminClientsPage";
@@ -49,6 +55,12 @@ export function App({ pollMs }: { pollMs: number }) {
       <Route element={<Shell />}>
         <Route index element={<HomePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="accounts" element={<AccountsOverviewPage />} />
+        <Route path="accounts/lines/:id" element={<AccountsLinePage />} />
+        <Route path="accounts/attendance" element={<AccountsAttendancePage />} />
+        <Route path="accounts/violations" element={<AccountsViolationsPage />} />
+        <Route path="accounts/rules" element={<AccountsRulesPage />} />
+        <Route path="accounts/salary/:id" element={<AccountsSalaryPage />} />
         <Route path="admin" element={<AdminOverviewPage />} />
         <Route path="admin/audit" element={<AdminAuditPage />} />
         <Route path="admin/clients" element={<AdminClientsPage />} />

@@ -1802,8 +1802,31 @@ def _requested_month(request):
     return year, month
 
 
+def _accounts_hand_on(request, path, key="accounts", carry=()):
+    """The same money page in the new app once the person's ``accounts`` screen is switched on; else ``None``.
+
+    A GET only. ``carry`` names the query parameters that go along: the month (as the one ``period=2026-09`` the new pages
+    read, from the classic ``period`` or ``year`` and ``month``) and a person's id, each only when it is the shape the new
+    page accepts.
+    """
+    if request.method != "GET" or not newui.hand_on(request, key):
+        return None
+    params = {}
+    if "period" in carry and any(name in request.GET for name in ("period", "year", "month")):
+        year, month = _requested_month(request)
+        params["period"] = f"{year}-{month}"
+    if "user" in carry:
+        who = request.GET.get("user", "")
+        if who.isascii() and who.isdecimal() and len(who) <= 18:
+            params["user"] = who
+    return redirect("/app" + path + (f"?{urlencode(params)}" if params else ""))
+
+
 @accounting_only
 def accounts_overview(request):
+    handed = _accounts_hand_on(request, "/accounts", carry=("period",))
+    if handed is not None:
+        return handed
     year, month = _requested_month(request)
     period = PayrollPeriod.objects.filter(year=year, month=month).first()
     lines = (
@@ -1870,6 +1893,12 @@ def accounts_line(request, pk):
     # A translator may read their own payslip and nobody else's.
     if not (request.user.is_admin_role or line.user_id == request.user.id):
         raise Http404
+    # The translator's own by their screen (``translator_home``), the admin's by theirs (``accounts``).
+    handed = _accounts_hand_on(
+        request, f"/accounts/lines/{line.pk}", key="translator_home" if request.user.is_translator else "accounts",
+    )
+    if handed is not None:
+        return handed
     return render(request, "accounts/line.html", {
         "line": line,
         "conf": PayrollSettings.load(),
@@ -1893,6 +1922,9 @@ def accounts_line_bonus(request, pk):
 
 @accounting_only
 def accounts_attendance(request):
+    handed = _accounts_hand_on(request, "/accounts/attendance", carry=("period", "user"))
+    if handed is not None:
+        return handed
     year, month = _requested_month(request)
     first_day, last_day = payroll.month_bounds(year, month)
     people = User.objects.filter(role=Role.TRANSLATOR, is_active=True)
@@ -1950,6 +1982,9 @@ def accounts_attendance(request):
 
 @accounting_only
 def accounts_violations(request):
+    handed = _accounts_hand_on(request, "/accounts/violations")
+    if handed is not None:
+        return handed
     form = ViolationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
@@ -1987,6 +2022,9 @@ def accounts_violation_decide(request, pk, action):
 
 @admin_only
 def accounts_rules(request):
+    handed = _accounts_hand_on(request, "/accounts/rules")
+    if handed is not None:
+        return handed
     conf = PayrollSettings.load()
     form = PayrollSettingsForm(request.POST or None, instance=conf)
     tier_form = ProductionTierForm()
@@ -2029,6 +2067,9 @@ def accounts_tier_delete(request, pk):
 @accounting_only
 def accounts_salary(request, pk):
     person = get_object_or_404(User, pk=pk)
+    handed = _accounts_hand_on(request, f"/accounts/salary/{person.pk}")
+    if handed is not None:
+        return handed
     form = SalaryRecordForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
