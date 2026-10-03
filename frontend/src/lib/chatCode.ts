@@ -6,3 +6,11 @@ export function kindOfCode(code: string): ChatKind {
   if (/^u\d+$/.test(code)) return "staff";
   return "clients";
 }
+
+/** Where the AI's notes for a leader's chat are asked for: a work group or a colleague's chat; a client's conversation has none. */
+export function aiNotesPath(code: string): string | null {
+  const group = /^g(\d+)$/.exec(code)?.[1];
+  if (group) return `/api/v1/groups/${group}/ai-notes/`;
+  const person = /^u(\d+)$/.exec(code)?.[1];
+  return person ? `/api/v1/staff/${person}/ai-notes/` : null;
+}

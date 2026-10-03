@@ -39,7 +39,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 from . import api, audio, clock, identity, newui, payroll, services
 from .models import (
-    AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
+    ACTIVE_TASK_STATUSES, AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
     Role, RoomKind, Task, TaskStatus, User, Violation, WorkDay,
 )
 from .permissions import api_role_required
@@ -242,6 +242,8 @@ def me(request):
         # opened, and tasks nobody has been given yet. The same functions the heartbeat counts with.
         "mail_unseen": services.unseen_conversation_count(user) if (user.is_operation or user.is_admin_role or user.is_sales) else 0,
         "tasks_new": Task.objects.filter(status=TaskStatus.NEW).count() if (user.is_operation or user.is_admin_role) else 0,
+        # The team leader's one badge, the classic menu's own: their tasks that are being worked.
+        "tasks_open": Task.objects.filter(team_lead=user, status__in=ACTIVE_TASK_STATUSES).count() if user.is_team_lead else 0,
         "realtime": {"path": "/ws/events/", "ping_seconds": PING_SECONDS},
         "server_time": clock.fmt12(timezone.now(), "en"),
     })

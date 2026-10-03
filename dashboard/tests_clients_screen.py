@@ -41,8 +41,8 @@ class _Clients(_Site):
         return Client.objects.create(**{"name": "Other Corp", "phone": "+201119998888", "email": "x@other.example", **fields})
 
     def refused_for_everybody_else(self, name, args=None):
-        # The Sales read these pages too (the section below pins what they are given); nobody else but the operation and the admin.
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
+        # The Sales and the team leaders read these pages too (the sections below pin what they are given); nobody else but the operation and the admin.
+        for user in (self.tr, self.hr, self.reviewer, self.accounting):
             answer = self.get(user, name, args)
             self.assertEqual((answer.status_code, _json(answer)), (403, {"ok": False, "error": "forbidden"}), user.username)
         self.assertEqual(self.get(None, name, args).status_code, 401)
@@ -257,7 +257,7 @@ class ClientRequirementDoorTests(_Clients):
         for user in (self.ops, self.admin):
             answer = self.post(user, ADD, [code], {"kind": "rule", "text": f"By {user.username}"})
             self.assertEqual(answer.status_code, 200, user.username)
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
             self.assertEqual(self.post(user, ADD, [code], {"kind": "rule", "text": "No"}).status_code, 403, user.username)
         self.assertEqual(self.post(None, ADD, [code], {"kind": "rule", "text": "No"}).status_code, 401)
         self.assertEqual(ClientRequirement.objects.count(), 2)

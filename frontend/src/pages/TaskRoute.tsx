@@ -7,8 +7,9 @@ import { TaskPage } from "./TaskPage";
 
 /**
  * `/tasks/<code>` is two pages: the translator's (their own job, with the upload box and the Finished button) and the
- * operation's (where it stands, and what can be done with it next). Who the person is decides; the server decides
- * again what each may read. The admin gets the operation's - the translator's page is theirs only to look at.
+ * operation's (where it stands, and what can be done with it next - which for the task's team leader means giving it to a
+ * translator, answering a request for more time and finishing the review). Who the person is decides; the server decides
+ * again what each may read and do. The admin gets the operation's - the translator's page is theirs only to look at.
  */
 export function TaskRoute() {
   const { t } = usePreferences();
@@ -33,6 +34,6 @@ export function TaskRoute() {
   }
   const { role, is_admin: admin } = me.data.user;
   if (role === "translator" && !admin) return <TaskPage />;
-  if (role === "operation" || admin) return <OperationTaskPage />;
+  if (role === "operation" || role === "team_lead" || admin) return <OperationTaskPage />;
   return <Navigate to="/" replace />;
 }

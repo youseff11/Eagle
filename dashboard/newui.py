@@ -68,6 +68,11 @@ SCREENS = {
             classic="ops_tasks", path="/tasks", roles=(Role.OPERATION,),
         ),
         Screen(
+            "lead", "شاشة التيم ليدر (تاسكاتي، حالة المترجمين، أكواد العملاء، صفحة التاسك)",
+            "The team leader's screen (my tasks, translator status, client codes, the task page)",
+            classic="lead_home", path="/lead", roles=(Role.TEAM_LEAD,), admin_default=False,
+        ),
+        Screen(
             "sales", "شاشة المبيعات (ميلاتي، رقمي وإيميلي، أكواد العملاء)", "The Sales screen (my mail, my number and mail, client codes)",
             classic="sales_line", path="/line", roles=(Role.SALES,), admin_default=False,
         ),

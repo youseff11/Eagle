@@ -45,7 +45,7 @@ export function ClientsPage() {
   // The address is the person's to type: a search of a sensible length goes to the server (it checks too).
   const query = asked.length <= 200 ? asked : "";
   // The same people the server lets in (`api_role_required`: the operation, the Sales, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "sales" || me.data.user.is_admin);
+  const allowed = me.data !== undefined && (["operation", "sales", "team_lead"].includes(me.data.user.role) || me.data.user.is_admin);
   const list = useClients(query, allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;

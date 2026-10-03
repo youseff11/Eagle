@@ -346,7 +346,7 @@ class ClientDoorsForSalesTests(_Sales):
 
     def test_the_others_who_open_the_classic_pages_still_have_no_door(self):
         code = self.client_obj.code
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting):
             self.assertEqual(self.get(user, "dashboard:v1_clients").status_code, 403, user.username)
             self.assertEqual(self.get(user, "dashboard:v1_client", [code]).status_code, 403, user.username)
 

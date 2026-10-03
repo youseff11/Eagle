@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "translator_home" | "operation" | "sales" | "attendance" | "chats";
+export type ScreenKey = "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -135,6 +135,8 @@ export interface MeResponse {
   /** Mail conversations this person has not opened, and tasks nobody has been given yet (the operation's menu badges). */
   mail_unseen: number;
   tasks_new: number;
+  /** A team leader's tasks that are being worked: their menu's one badge. */
+  tasks_open: number;
   realtime: { path: string; ping_seconds: number };
   server_time: string;
 }
@@ -326,7 +328,21 @@ export interface OpsTask {
   files: { original: TaskFile[]; translation: (TaskFile & { at: Stamp | null })[] };
   chat: { url: string; label_ar: string; label_en: string } | null;
   client_chat_url: string | null;
-  can: { assign_lead: boolean; take_over: boolean; deliver: boolean; cancel: boolean; add_member: boolean };
+  can: {
+    assign_lead: boolean;
+    take_over: boolean;
+    deliver: boolean;
+    cancel: boolean;
+    add_member: boolean;
+    /** The same material, a new job: the operation's own. */
+    new_request: boolean;
+    /** The client's date, which the operation promises. */
+    set_deadline: boolean;
+    /** The word count: the operation, the admin and the task's own team leader. */
+    set_words: boolean;
+  };
+  /** What the task's team leader (and the admin) may do on it; `null` for everybody else. */
+  lead: LeadTools | null;
   leads: { id: number; name: string; online: boolean; tasks: number }[];
   handover: { by: string | null; at: Stamp | null } | null;
   deliver: {
@@ -842,4 +858,98 @@ export interface SalesLine {
   values: { wa_phone_number_id: string; wa_display_number: string; mail_alias: string };
   /** The company mailbox the person's address has to deliver into. */
   company_mail: string;
+}
+
+/** One note of the AI on a translation (`api_ai._issue_json`): every free text is already read through the mask for this reader. */
+export interface AiNote {
+  severity: "high" | "medium" | "low";
+  location: string;
+  category: { ar: string; en: string } | null;
+  /** What the client sent, and what the translator wrote: empty when the check did not quote them. */
+  source: string;
+  translation: string;
+  /** Whether the check quoted the two texts (a check from before 28/09/2026 did not). */
+  compared: boolean;
+  text: { ar: string; en: string };
+  /** What the source means, in Arabic. */
+  meaning: string;
+}
+
+/** GET /api/v1/tasks/<code>/ai-notes/: the box at the top of a task page, for the admin and the task's own team leader. */
+export interface TaskAiNotes {
+  ok: true;
+  task: { code: string; title: string };
+  /** The switch is on, the key is there and no check is running. */
+  can_recheck: boolean;
+  /** `null` when no check has run yet. */
+  check: {
+    id: number;
+    status: "running" | "clean" | "issues" | "error";
+    count: number;
+    at: Stamp | null;
+    /** Nobody asked for it: it ran by itself when the translator handed the work over. */
+    automatic: boolean;
+    /** From before the side-by-side comparison: worth running again. */
+    old: boolean;
+    summary: string;
+    error: string;
+  } | null;
+  issues: AiNote[];
+}
+
+/** GET /api/v1/groups/<id>/ai-notes/ and /api/v1/staff/<id>/ai-notes/: the panel beside the leader's chat, or `null`. */
+export interface ChatAiNotes {
+  ok: true;
+  notes: { task: { code: string; title: string }; count: number; issues: AiNote[] } | null;
+}
+
+/** What a team leader may do on a task (`api_ops._lead_json`): every action is a classic endpoint that checks it again. */
+export interface LeadTools {
+  /** It waits for a translator: give it to one of `translators`. */
+  can_assign: boolean;
+  translators: { id: number; name: string; state: "free" | "busy" | "off"; rating: number }[];
+  /** A translator has it: their date can be changed. */
+  can_set_translator_deadline: boolean;
+  /** It is under review: the review can be finished. */
+  can_review: boolean;
+  /** The client's date, to remind the leader of the review time they keep. */
+  client_due: Stamp | null;
+  /** The translator's request for more time, waiting for this person's yes or no. */
+  extension: { id: number; length: string; reason: string; new_due: Stamp | null } | null;
+}
+
+/** One person of a team leader's team (`api_lead._person_json`) and whether they can take a job now. */
+export interface LeadPerson {
+  id: number;
+  name: string;
+  initials: string;
+  languages: string;
+  rating: number;
+  state: PresenceState;
+}
+
+/** GET /api/v1/lead/: the leader's board. */
+export interface LeadHome {
+  ok: true;
+  counters: { open: number; free: number; busy: number; offline: number };
+  tasks: OpsTaskRow[];
+  team: (LeadPerson & { seen: Stamp })[];
+  closed: { code: string; status: Labelled & { tone: string } }[];
+}
+
+/** GET /api/v1/lead/translators/: who is free and who is busy, with the evidence. */
+export interface LeadBoard {
+  ok: true;
+  counters: { free: number; busy: number; shift: number; offline: number; open: number };
+  /** Tasks waiting for a translator. */
+  waiting: { code: string; due: Stamp | null; due_state: OpsTaskRow["due_state"] }[];
+  team: (LeadPerson & {
+    awaiting_answer: boolean;
+    load: number;
+    load_percent: number;
+    words: number;
+    tasks: string[];
+    next_due: Stamp | null;
+    next_due_state: OpsTaskRow["due_state"];
+  })[];
 }

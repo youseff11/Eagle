@@ -13,15 +13,16 @@ const STATES: Record<PresenceState, { dot: string; ar: string; en: string }> = {
  * One person's state in a row: the dot, the word, and - for the two states where it matters - when they were last
  * here. Written by the server (it works out who is online); this only draws it.
  */
-export function Presence({ state, seen }: { state: PresenceState; seen: Stamp }) {
+export function Presence({ state, seen }: { state: PresenceState; seen?: Stamp }) {
   const { lang } = usePreferences();
   const { dot, ar, en } = STATES[state] ?? STATES.off;
-  const when = lang === "ar" ? seen.ar : seen.en;
+  // The board of who is free does not say when they were last here: the state is the answer it is read for.
+  const when = seen ? (lang === "ar" ? seen.ar : seen.en) : "";
   return (
     <span className="presence" data-state={state} title={when}>
       <span className={`dot dot--${dot}`} />
       <small className="presence__state">{lang === "ar" ? ar : en}</small>
-      {(state === "off" || state === "shift") && <small className="presence__seen">{when}</small>}
+      {when && (state === "off" || state === "shift") && <small className="presence__seen">{when}</small>}
     </span>
   );
 }

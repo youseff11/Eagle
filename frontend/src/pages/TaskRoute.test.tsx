@@ -44,6 +44,14 @@ describe("TaskRoute: /tasks/<code> is two pages", () => {
     expect(mocked.calls.some((c) => c.url.startsWith("/api/v1/translator/"))).toBe(false);
   });
 
+  it("is the same page for the team leader: with their own tools on it, and the door says whose task it is", async () => {
+    const mocked = serve("team_lead");
+    open();
+    expect(await screen.findByText("التاسك دي مش موجودة.")).toBeInTheDocument();
+    expect(mocked.calls.some((c) => c.url === "/api/v1/tasks/TSK-00001/")).toBe(true);
+    expect(mocked.calls.some((c) => c.url.startsWith("/api/v1/translator/"))).toBe(false);
+  });
+
   it("is the operation's page for the admin: the translator's is theirs only to look at", async () => {
     const mocked = serve("admin", true);
     open();
@@ -53,7 +61,7 @@ describe("TaskRoute: /tasks/<code> is two pages", () => {
   });
 
   it("sends anybody else home without asking for a task", async () => {
-    for (const role of ["team_lead", "hr", "reviewer", "accounting", "sales"] as const) {
+    for (const role of ["hr", "reviewer", "accounting", "sales"] as const) {
       const mocked = serve(role);
       const view = open();
       expect(await screen.findByText("home page"), role).toBeInTheDocument();

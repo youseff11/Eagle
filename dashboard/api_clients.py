@@ -7,10 +7,11 @@ that matched a typed name and answered with the code would hand the name over as
 the identity, in a list or on a client, is a row in the audit log, as it is on the classic pages. A GET changes
 nothing; a requirement is the one write, and it is checked where the classic page checks it.
 
-The operation, the Sales and the admin use these doors; the other roles that open the classic pages (the team
-leader, Accounting) are not moved to the new app yet, so they have no door here. A Sales person reads what the
-classic page shows them - the code and who the client is (Sales may always know), the requirements, the follow-up
-numbers and the newest tasks - and writes nothing: requirements are the work-doers' (``_may_edit``).
+The operation, the Sales, the team leaders and the admin use these doors; Accounting, the other role that opens the
+classic pages, is not moved to the new app yet, so it has no door here. A Sales person reads what the classic page shows
+them - the code and who the client is (Sales may always know), the requirements, the follow-up numbers and the newest
+tasks - and writes nothing: requirements are the work-doers' (``_may_edit``: the operation, the team leader, the admin).
+A team leader reads the code only, like the operation.
 """
 
 from django.db.models import Count
@@ -33,7 +34,7 @@ MAX_QUERY = 200
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.TEAM_LEAD)
 def clients(request):
     """The client codes, ``?q=`` narrowing them. The identity columns are there only for who may see them."""
     user = request.user
@@ -70,7 +71,7 @@ def _may_edit(user):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.TEAM_LEAD)
 def client(request, code):
     """One client: the requirements, the tasks (the newest thirty) and - for whoever may - who the client is."""
     user = request.user
@@ -122,7 +123,7 @@ def client(request, code):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
 def client_requirement(request, code):
     """Add a thing the client likes, dislikes or insists on. ``{"kind": "rule", "text": "..."}``.
 

@@ -759,10 +759,12 @@ def _ops_hand_on(request, path):
 
     One switch, ``operation``, for the task list, the new-task form, the team board, the mail and the client
     pages: nobody has half of it. A Sales person reads the same mail and client pages by their own switch,
-    ``sales`` (the pages are the same: the server answers each person what is theirs). The caller says where the
-    page is in the new app and what of its query goes along.
+    ``sales``, and a team leader the client pages and their task page by theirs, ``lead`` (the pages are the same: the
+    server answers each person what is theirs). The caller says where the page is in the new app and what of its
+    query goes along.
     """
-    key = "sales" if request.user.is_sales else "operation"
+    user = request.user
+    key = "sales" if user.is_sales else "lead" if user.is_team_lead else "operation"
     if not newui.hand_on(request, key):
         return None
     return redirect("/app" + path)
@@ -857,9 +859,22 @@ def ops_team(request):
 # Team leader / translator home
 # ---------------------------------------------------------------------------
 
+def _lead_hand_on(request, path):
+    """The leader's own pages in the new app once their ``lead`` screen is switched over; else ``None``.
+
+    Only a team leader is sent (the admin opens these pages to read them as they are, with no team of their own).
+    """
+    if not request.user.is_team_lead or not newui.hand_on(request, "lead"):
+        return None
+    return redirect("/app" + path)
+
+
 @role_required(Role.TEAM_LEAD)
 def lead_home(request):
     user = request.user
+    handed = _lead_hand_on(request, "/lead")
+    if handed is not None:
+        return handed
     tasks = Task.objects.filter(team_lead=user).select_related("client", "translator")
     team = User.objects.filter(team_lead=user, is_active=True).prefetch_related("shifts")
     return render(request, "lead/home.html", {
@@ -880,6 +895,9 @@ def lead_translators(request):
     leader looks at before handing out work, and it has to hold the evidence
     (the open tasks, the nearest deadline, the load) not just a coloured dot.
     """
+    handed = _lead_hand_on(request, "/lead/translators")
+    if handed is not None:
+        return handed
     rows = services.translator_board(request.user)
     return render(request, "lead/translators.html", {
         "rows": rows,
@@ -928,9 +946,9 @@ def task_detail(request, code):
     # The translator's own page is in the new app once their screen is switched over; the code goes into the
     # address only if it looks like one, and what the person may open is decided there (404 and audit).
     handed = _translator_hand_on(request, f"/tasks/{code}") if _CHAT_CODE.fullmatch(code) else None
-    if handed is None and request.user.role == Role.OPERATION and _CHAT_CODE.fullmatch(code):
-        # The operation's own page. Not the admin's: the classic page has the leader's tools and the AI notes
-        # that the new page does not, and the admin opens it for those.
+    if handed is None and request.user.role in (Role.OPERATION, Role.TEAM_LEAD) and _CHAT_CODE.fullmatch(code):
+        # The operation's and the team leader's own pages, each by their own switch. Not the admin's: the classic
+        # page still has the chat inside it and the add-a-member box, which the admin opens it for.
         handed = _ops_hand_on(request, f"/tasks/{code}")
     if handed is not None:
         return handed

@@ -155,3 +155,58 @@ export function useSaveLine() {
     onSuccess: (line) => client.setQueryData(qk.salesLine, line),
   });
 }
+
+/**
+ * «أعد الفحص»: ask for the check again (the classic endpoint, for the task's own leader and the admin). It runs in the
+ * background and the box follows it; a refusal comes back as a sentence of its own (the switch is off, one is running).
+ */
+export function useAiRecheck(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => refused(await api<{ ok: boolean }>(`/api/tasks/${encodeURIComponent(code)}/ai-recheck/`, { form: {} })),
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.aiNotes(code) }),
+  });
+}
+
+/** The team leader's own date for the translator, or the translator's date changed: days, hours, minutes from now. */
+export interface TranslatorDate {
+  days: string;
+  hours: string;
+  minutes: string;
+}
+
+const dateForm = (date: TranslatorDate) => ({
+  tdeadline_days: date.days,
+  tdeadline_hours: date.hours,
+  tdeadline_minutes: date.minutes,
+});
+
+/**
+ * «ابعتها للمترجم»: the task goes to one translator, who has a minute to say yes, and the leader's own date goes with it
+ * (shorter than the client's on purpose: the difference is the time the leader keeps to review). Boxes left empty are the
+ * client's own date. The classic endpoint keeps its checks (the team, the status, a date past the client's).
+ */
+export function useAssignTranslator(code: string) {
+  return useOpsAction<{ translator: number; date: TranslatorDate }, { ok: boolean }>(code, ({ translator, date }) =>
+    api<{ ok: boolean }>(`${base(code)}/assign-translator/`, { form: { user: String(translator), ...dateForm(date) } }),
+  );
+}
+
+/** «حفظ ديدلاين المترجم»: only the boxes that were typed in are sent; zeros clear it (the translator works to the client's date). */
+export function useSaveTranslatorDeadline(code: string) {
+  return useOpsAction<TranslatorDate, { ok: boolean }>(code, (date) =>
+    api<{ ok: boolean }>(`${base(code)}/translator-deadline/`, { form: dateForm(date) }),
+  );
+}
+
+/** The leader's yes or no to a translator's request for more time: nothing moves before the answer. */
+export function useDecideExtension(code: string) {
+  return useOpsAction<{ id: number; decision: "approve" | "decline" }, { ok: boolean }>(code, ({ id, decision }) =>
+    api<{ ok: boolean }>(`/api/extensions/${id}/${decision}/`, { form: {} }),
+  );
+}
+
+/** «تمت المراجعة»: the review is done and the task goes on to the operation. */
+export function useFinishReview(code: string) {
+  return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/reviewed/`, { form: {} }));
+}

@@ -2,7 +2,7 @@
 
 from django.urls import path, re_path
 
-from . import api, api_attendance, api_clients, api_mail, api_ops, api_sales, api_v1, spa, views, webhooks
+from . import api, api_ai, api_attendance, api_clients, api_lead, api_mail, api_ops, api_sales, api_v1, spa, views, webhooks
 
 app_name = "dashboard"
 
@@ -238,6 +238,11 @@ urlpatterns = [
     path("api/v1/task-form/create/", api_ops.task_create, name="v1_task_create"),
     path("api/v1/team/", api_ops.team, name="v1_team"),
     path("api/v1/attendance/", api_attendance.card, name="v1_attendance"),
+    path("api/v1/lead/", api_lead.home, name="v1_lead"),
+    path("api/v1/lead/translators/", api_lead.translators, name="v1_lead_translators"),
+    path("api/v1/tasks/<str:code>/ai-notes/", api_ai.task_notes, name="v1_ai_task_notes"),
+    path("api/v1/groups/<int:room_id>/ai-notes/", api_ai.group_notes, name="v1_ai_group_notes"),
+    path("api/v1/staff/<int:user_id>/ai-notes/", api_ai.staff_notes, name="v1_ai_staff_notes"),
     path("api/v1/sales/line/", api_sales.line, name="v1_sales_line"),
     path("api/v1/sales/line/save/", api_sales.line_save, name="v1_sales_line_save"),
     path("api/v1/clients/", api_clients.clients, name="v1_clients"),

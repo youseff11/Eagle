@@ -8,6 +8,7 @@ import { useFilePick } from "../../hooks/useFilePick";
 import { kindOfCode } from "../../lib/chatCode";
 import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
+import { AiNotesPanel } from "../ai/AiNotesPanel";
 import { Icon } from "../Icon";
 import { AddMembersDialog } from "./AddMembersDialog";
 import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
@@ -242,8 +243,9 @@ export function replyTargetOf(entry: ThreadEntry, t: (ar: string, en: string) =>
  * Words, replies, files and voice can be written here, a message can be reacted to, and several can be picked and
  * forwarded to another conversation (step 3d). Step 3e adds the work groups (who is in one, opening one, adding to
  * one), the translator's «خلصت التاسك», and - for the operation and the admin - «استلمت», turning a message (or
- * files picked across messages) into a task, which leads to the classic task form. Calls and the AI's suggestions
- * for a team leader are not here yet, and the way to the classic page stays on screen for them.
+ * files picked across messages) into a task, which leads to the classic task form. Calls are not here yet, and the way
+ * to the classic page stays on screen for them. The AI's suggestions on what a translator handed over are the panel
+ * a team leader gets beside a work group or a colleague's chat (`AiNotesPanel`).
  */
 export function Conversation({ code, kind, allowed }: { code: string; kind: ChatKind; allowed: boolean }) {
   const { t } = usePreferences();
@@ -523,6 +525,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             </div>
           )}
           <Notes row={row} />
+          {/* A team leader's: what the AI noticed in the translation this person handed over. Nobody else is asked. */}
+          <AiNotesPanel code={code} enabled={account?.user.role === "team_lead"} />
           {notice && (
             <div className="note note--warn cchat__window" role="alert">
               <Icon name="alert" />
@@ -658,10 +662,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
           <div className="cchat__hint muted">
             <Icon name="info" size="sm" />
             <span>
-              {t(
-                "المكالمات واقتراحات الـAI لسه من الواجهة الحالية.",
-                "Calls and the AI's suggestions are still in the classic interface.",
-              )}{" "}
+              {t("المكالمات لسه من الواجهة الحالية.", "Calls are still in the classic interface.")}{" "}
               {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
             </span>
           </div>

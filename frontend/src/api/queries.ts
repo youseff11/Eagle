@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { ApiError, api } from "./client";
+import { aiNotesPath } from "../lib/chatCode";
 import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
@@ -9,6 +10,7 @@ import type {
   AttendanceGate,
   AssignmentResponse,
   ChatKind,
+  ChatAiNotes,
   ChatListResponse,
   ClientResponse,
   ClientsResponse,
@@ -16,6 +18,8 @@ import type {
   ForwardResponse,
   GroupCreated,
   HandedIn,
+  LeadBoard,
+  LeadHome,
   MailListResponse,
   MailThreadResponse,
   MeResponse,
@@ -32,6 +36,7 @@ import type {
   SalesLine,
   SendResponse,
   ThreadResponse,
+  TaskAiNotes,
   TasksResponse,
   TaskStartResponse,
   TeamResponse,
@@ -157,6 +162,48 @@ export function useTeam(enabled = true) {
     refetchInterval,
     enabled,
   });
+}
+
+/** How often the box asks again while a check is running: the page "updates itself when it is done". */
+export const AI_RUNNING_POLL_MS = 5000;
+
+/** The AI's notes on a task: for the admin and the task's own team leader (anybody else is refused, and logged). */
+export function useTaskAiNotes(code: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.aiNotes(code),
+    queryFn: () => api<TaskAiNotes>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-notes/`),
+    // A check that is running ends by itself, and nothing rings for it: ask on a clock until it has.
+    refetchInterval: (query) => (query.state.data?.check?.status === "running" ? AI_RUNNING_POLL_MS : refetchInterval),
+    retry: false,
+    enabled,
+  });
+}
+
+/** The panel beside a team leader's chat with one translator (`code` is `g<room>` or `u<person>`). */
+export function useChatAiNotes(code: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  const path = aiNotesPath(code);
+  return useQuery({
+    queryKey: qk.chatAiNotes(code),
+    queryFn: () => api<ChatAiNotes>(path ?? ""),
+    refetchInterval,
+    retry: false,
+    // A client's conversation has no panel, and an address that is not a room is not asked about.
+    enabled: enabled && path !== null,
+  });
+}
+
+/** The team leader's own board: their tasks, their team, what was closed lately. */
+export function useLeadHome(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({ queryKey: qk.lead, queryFn: () => api<LeadHome>("/api/v1/lead/"), refetchInterval, enabled });
+}
+
+/** Who of the leader's team is free and who is busy, and what the busy ones are doing. */
+export function useLeadBoard(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({ queryKey: qk.leadBoard, queryFn: () => api<LeadBoard>("/api/v1/lead/translators/"), refetchInterval, enabled });
 }
 
 /** A Sales person's own number and address (the admin may read the page, and sees it empty). */

@@ -39,7 +39,8 @@ function task(over: Partial<OpsTask> = {}): OpsTask {
     },
     chat: { url: "/ops/chats/u/9/", label_ar: "افتح الشات مع Mona", label_en: "Open the chat with Mona" },
     client_chat_url: "/ops/chats/CL-0001/",
-    can: { assign_lead: false, take_over: false, deliver: false, cancel: true, add_member: false },
+    can: { assign_lead: false, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true },
+    lead: null,
     leads: [],
     handover: null,
     deliver: null,
@@ -288,7 +289,7 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
   ];
 
   it("offers every leader with whether they are here and how many tasks they have, the first chosen", async () => {
-    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false }, leads }));
+    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true }, leads }));
     open();
     const select = (await screen.findByLabelText("اعمل assign لتيم ليدر")) as HTMLSelectElement;
     expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Mona — online · 2 tasks", "Hany — offline · 0 tasks"]);
@@ -296,7 +297,7 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
   });
 
   it("sends the chosen leader, says so, and reads the task again", async () => {
-    const mocked = serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false }, leads }), {
+    const mocked = serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true }, leads }), {
       [A("assign-lead")]: () => {
         mocked.state.task = task({ status: { value: "awaiting_lead", tone: "wait", ar: "بانتظار التيم ليدر", en: "Awaiting team leader" } });
         return jsonResponse({ ok: true, assignment: 5, status: "awaiting_lead" });
@@ -312,7 +313,7 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
   });
 
   it("sends the first leader when none was chosen", async () => {
-    const mocked = serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false }, leads }), {
+    const mocked = serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true }, leads }), {
       [A("assign-lead")]: () => jsonResponse({ ok: true }),
     });
     open();
@@ -322,7 +323,7 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
   });
 
   it("says why when it is refused, and says so when there is nobody to send it to", async () => {
-    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false }, leads }), {
+    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true }, leads }), {
       [A("assign-lead")]: () => jsonResponse({ ok: false, error: "forbidden" }, 403),
     });
     const view = open();
@@ -330,7 +331,7 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("مش من حقك تعمل ده.");
     view.unmount();
     vi.unstubAllGlobals();
-    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false }, leads: [] }));
+    serve(task({ can: { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true }, leads: [] }));
     open();
     expect(await screen.findByText("مفيش تيم ليدرز مسجلين تبعتلهم التاسك.")).toBeInTheDocument();
   });
@@ -344,11 +345,11 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
 });
 
 describe("OperationTaskPage: taking over and delivering", () => {
-  const taking = () => task({ status: { value: "reviewed", tone: "ok", ar: "تمت المراجعة", en: "Reviewed" }, can: { assign_lead: false, take_over: true, deliver: false, cancel: true, add_member: false } });
+  const taking = () => task({ status: { value: "reviewed", tone: "ok", ar: "تمت المراجعة", en: "Reviewed" }, can: { assign_lead: false, take_over: true, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true } });
   const delivering = (over: Partial<OpsTask> = {}) =>
     task({
       status: { value: "reviewed", tone: "ok", ar: "تمت المراجعة", en: "Reviewed" },
-      can: { assign_lead: false, take_over: false, deliver: true, cancel: true, add_member: false },
+      can: { assign_lead: false, take_over: false, deliver: true, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true },
       handover: { by: "Nour", at: stamp("10-02 6:00") },
       deliver: {
         channel: "whatsapp",
@@ -535,7 +536,7 @@ describe("OperationTaskPage: the deadline, the group, cancelling", () => {
 
   it("lets the admin add somebody to the group, from those who are not in it", async () => {
     const mocked = serve(
-      task({ can: { assign_lead: false, take_over: false, deliver: false, cancel: true, add_member: true }, group_candidates: [{ id: 21, name: "Nadia", role: "operation" }, { id: 22, name: "Omar", role: "team_lead" }] }),
+      task({ can: { assign_lead: false, take_over: false, deliver: false, cancel: true, add_member: true, new_request: true, set_deadline: true, set_words: true }, group_candidates: [{ id: 21, name: "Nadia", role: "operation" }, { id: 22, name: "Omar", role: "team_lead" }] }),
       { [A("add-member")]: () => jsonResponse({ ok: true }) },
       "admin",
     );
@@ -549,7 +550,7 @@ describe("OperationTaskPage: the deadline, the group, cancelling", () => {
   it("asks before it cancels, cancels once confirmed, and is not there for a finished task", async () => {
     const mocked = serve(task(), {
       [A("cancel")]: () => {
-        mocked.state.task = task({ can: { assign_lead: false, take_over: false, deliver: false, cancel: false, add_member: false } });
+        mocked.state.task = task({ can: { assign_lead: false, take_over: false, deliver: false, cancel: false, add_member: false, new_request: true, set_deadline: true, set_words: true } });
         return jsonResponse({ ok: true, status: "cancelled" });
       },
     });
@@ -650,5 +651,319 @@ describe("OperationTaskPage: the word count and the requirements", () => {
     await waitFor(() => expect(posts(mocked.calls, REQ)).toHaveLength(1));
     expect(new Headers(posts(mocked.calls, REQ)[0]!.init!.headers).get("X-CSRFToken")).toBe("tok123");
     document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+});
+
+describe("OperationTaskPage: the AI's notes", () => {
+  const AI = `/api/v1/tasks/${CODE}/ai-notes/`;
+  const notes = (over: object = {}) => ({
+    ok: true,
+    task: { code: CODE, title: "Contract for review" },
+    can_recheck: true,
+    check: { id: 3, status: "issues", count: 1, at: stamp("10-02 5:30"), automatic: true, old: false, summary: "One thing.", error: "" },
+    issues: [{ severity: "high", location: "page 2", category: null, source: "s", translation: "t", compared: true, text: { ar: "غلط", en: "Wrong" }, meaning: "" }],
+    ...over,
+  });
+
+  it("is open at the top of the page for the admin, who reviews", async () => {
+    const mocked = serve(task(), { [AI]: () => jsonResponse(notes()) }, "admin");
+    open();
+    expect(await screen.findByText("ملاحظات الـ AI على الترجمة")).toBeInTheDocument();
+    expect(screen.getByText("One thing.")).toBeInTheDocument();
+    const box = document.querySelector("#aiNotes") as HTMLElement;
+    const title = screen.getByText(/Contract for review/, { selector: "h2" });
+    // Above the task's own card: the box is the first thing the reviewer reads.
+    expect(box.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mocked.calls.some((call) => call.url === AI)).toBe(true);
+  });
+
+  it("is not asked for, and not drawn, for the operation: it is not theirs to read", async () => {
+    const mocked = serve(task(), { [AI]: () => jsonResponse(notes()) }, "operation");
+    open();
+    await loaded();
+    expect(mocked.calls.some((call) => call.url === AI)).toBe(false);
+    expect(document.querySelector("#aiNotes")).toBeNull();
+  });
+
+  it("is not drawn for the admin when no check has run", async () => {
+    serve(task(), { [AI]: () => jsonResponse(notes({ check: null, issues: [] })) }, "admin");
+    open();
+    await loaded();
+    expect(document.querySelector("#aiNotes")).toBeNull();
+  });
+});
+
+describe("OperationTaskPage: the team leader's page", () => {
+  const LEADER_CAN = { assign_lead: false, take_over: false, deliver: false, cancel: false, add_member: false, new_request: false, set_deadline: false, set_words: true };
+  const tools = (over: object = {}) => ({
+    can_assign: false,
+    translators: [],
+    can_set_translator_deadline: false,
+    can_review: false,
+    client_due: stamp("10-30 5:30"),
+    extension: null,
+    ...over,
+  });
+  const leaderTask = (lead: object, over: Partial<OpsTask> = {}) =>
+    task({ can: LEADER_CAN, lead: tools(lead), client_chat_url: null, messages: [], leads: [], ...over } as Partial<OpsTask>);
+  const AI = `/api/v1/tasks/${CODE}/ai-notes/`;
+  const form = (call: { init?: RequestInit }) => Object.fromEntries(new URLSearchParams(String(call.init?.body)));
+  const calls = (mocked: { calls: { url: string; init?: RequestInit }[] }, path: string) => mocked.calls.filter((call) => call.url === path && call.init?.method === "POST");
+
+  it("is open to the leader, with none of the operation's tools: no new request, no client date, no cancel", async () => {
+    serve(leaderTask({}), {}, "team_lead");
+    open();
+    await loaded();
+    expect(screen.queryByRole("link", { name: /طلب جديد على نفس الملفات/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "حفظ الديدلاين" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "إلغاء التاسك" })).toBeNull();
+    // Nothing for the leader to do on this task now: there is no card of actions at all.
+    expect(screen.queryByText("الإجراءات")).toBeNull();
+    // But the word count is theirs to settle.
+    expect(screen.getByText("عدد الكلمات", { selector: "h3" })).toBeInTheDocument();
+  });
+
+  it("asks for the AI's notes, which are the leader's to read", async () => {
+    const mocked = serve(leaderTask({}), { [AI]: () => jsonResponse({ ok: true, task: { code: CODE, title: "x" }, can_recheck: false, check: null, issues: [] }) }, "team_lead");
+    open();
+    await loaded();
+    await waitFor(() => expect(mocked.calls.some((call) => call.url === AI)).toBe(true));
+  });
+
+  it("hides the word count from a person who may not settle it", async () => {
+    serve(leaderTask({}, { can: { ...LEADER_CAN, set_words: false } }), {}, "team_lead");
+    open();
+    await loaded();
+    expect(screen.queryByText("عدد الكلمات")).toBeNull();
+  });
+
+  describe("giving it to a translator", () => {
+    const TRANSLATORS = [
+      { id: 21, name: "Nada", state: "free", rating: 4.5 },
+      { id: 22, name: "Sam", state: "busy", rating: 3.25 },
+      { id: 23, name: "Ola", state: "off", rating: 5 },
+    ];
+    const waiting = () => leaderTask({ can_assign: true, translators: TRANSLATORS }, { translator_due: null, people: { operation: "Nour", team_lead: "Mona", translator: null } });
+
+    it("offers the leader's own team, each with whether they are free, the first one chosen", async () => {
+      serve(waiting(), {}, "team_lead");
+      open();
+      const select = await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(select).toHaveValue("21");
+      expect(Array.from(select.querySelectorAll("option")).map((option) => option.textContent)).toEqual([
+        "Nada — فاضي · 4.50",
+        "Sam — مشغول · 3.25",
+        "Ola — أوفلاين · 5.00",
+      ]);
+    });
+
+    it("sends the translator chosen and the leader's own date, as the classic form does", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: true, assignment: 5, status: "awaiting_translator" }) }, "team_lead");
+      open();
+      await user.selectOptions(await screen.findByLabelText("اعمل assign لمترجم من فريقك"), "22");
+      await user.type(screen.getByLabelText("الديدلاين اللي هتديه للمترجم - يوم"), "2");
+      await user.type(screen.getByLabelText("الديدلاين اللي هتديه للمترجم - ساعة"), "3");
+      await user.click(screen.getByRole("button", { name: "ابعتها للمترجم" }));
+      expect(await screen.findByText("اتبعتت للمترجم")).toBeInTheDocument();
+      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "22", tdeadline_days: "2", tdeadline_hours: "3", tdeadline_minutes: "" });
+    });
+
+    it("sends empty boxes when the leader gives no date of their own: the client's date is then the translator's", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "ابعتها للمترجم" }));
+      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "21", tdeadline_days: "", tdeadline_hours: "", tdeadline_minutes: "" });
+    });
+
+    it("reminds the leader of the client's date, and of the review time a shorter one keeps", async () => {
+      serve(waiting(), {}, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(screen.getByText(/شيل لنفسك وقت للمراجعة/)).toBeInTheDocument();
+      expect(screen.getByTitle("ديدلاين العميل")).toHaveTextContent("10-30 5:30 م");
+    });
+
+    it("says why it was refused, in the server's own words, and keeps what was typed", async () => {
+      const user = userEvent.setup();
+      serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: false, error: "الديدلاين ده أبعد من ديدلاين العميل." }, 400) }, "team_lead");
+      open();
+      const days = await screen.findByLabelText("الديدلاين اللي هتديه للمترجم - يوم");
+      await user.type(days, "9");
+      await user.click(screen.getByRole("button", { name: "ابعتها للمترجم" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("الديدلاين ده أبعد من ديدلاين العميل.");
+      expect(days).toHaveValue(9);
+    });
+
+    it("says there is nobody to send it to when the leader has no team", async () => {
+      serve(leaderTask({ can_assign: true, translators: [] }), {}, "team_lead");
+      open();
+      expect(await screen.findByText("مفيش مترجمين تحتك تبعتلهم التاسك.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "ابعتها للمترجم" })).toBeNull();
+    });
+
+    it("is not offered once a translator has it", async () => {
+      serve(leaderTask({ can_assign: false, can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await loaded();
+      expect(screen.queryByRole("button", { name: "ابعتها للمترجم" })).toBeNull();
+    });
+
+    it("sends one request for two presses", async () => {
+      const user = userEvent.setup();
+      let release: (() => void) | undefined;
+      const mocked = serve(waiting(), { [A("assign-translator")]: () => new Promise<Response>((resolve) => (release = () => resolve(jsonResponse({ ok: true })))) }, "team_lead");
+      open();
+      const button = await screen.findByRole("button", { name: "ابعتها للمترجم" });
+      await user.click(button);
+      await user.click(button);
+      expect(calls(mocked, A("assign-translator"))).toHaveLength(1);
+      release?.();
+    });
+  });
+
+  describe("the translator's own date", () => {
+    it("is changed with the same three boxes, only once something is typed", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_set_translator_deadline: true }), { [A("translator-deadline")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      const save = await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(save).toBeDisabled();
+      await user.type(screen.getByLabelText("ديدلاين المترجم - ساعة"), "5");
+      expect(save).toBeEnabled();
+      await user.click(save);
+      expect(await screen.findByText("ديدلاين المترجم اتحفظ")).toBeInTheDocument();
+      expect(form(calls(mocked, A("translator-deadline"))[0]!)).toEqual({ tdeadline_days: "", tdeadline_hours: "5", tdeadline_minutes: "" });
+      // The boxes are empty again: blank means "leave it alone".
+      expect(screen.getByLabelText("ديدلاين المترجم - ساعة")).toHaveValue(null);
+    });
+
+    it("says what the translator has now, and what zeros do", async () => {
+      serve(leaderTask({ can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.getByText(/أصفار يعني المترجم يشتغل على ديدلاين العميل/)).toBeInTheDocument();
+      expect(screen.getAllByText(/10-28 3:00 م/).length).toBeGreaterThan(0);
+    });
+
+    it("says why it was refused", async () => {
+      const user = userEvent.setup();
+      serve(leaderTask({ can_set_translator_deadline: true }), { [A("translator-deadline")]: () => jsonResponse({ ok: false, error: "مفيش ديدلاين بالسالب." }, 400) }, "team_lead");
+      open();
+      await user.type(await screen.findByLabelText("ديدلاين المترجم - يوم"), "3");
+      await user.click(screen.getByRole("button", { name: "حفظ ديدلاين المترجم" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("مفيش ديدلاين بالسالب.");
+    });
+  });
+
+  describe("a request for more time", () => {
+    const asked = () => leaderTask({ extension: { id: 7, length: "يوم و3 ساعات", reason: "The file is long", new_due: stamp("11-01 3:00") } });
+
+    it("is read with the length, why, and where the translator's date would land beside the client's", async () => {
+      serve(asked(), {}, "team_lead");
+      open();
+      expect(await screen.findByText("المترجم طالب وقت إضافي")).toBeInTheDocument();
+      expect(screen.getByText("يوم و3 ساعات — The file is long")).toBeInTheDocument();
+      const dates = screen.getByText("ديدلاينه هيبقى").closest("div") as HTMLElement;
+      expect(dates).toHaveTextContent("11-01 3:00 م");
+      expect(dates).toHaveTextContent("العميل 10-30 5:30 م");
+    });
+
+    it("is approved with one press", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(asked(), { "/api/extensions/7/approve/": () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "موافق" }));
+      expect(await screen.findByText("وافقت على الوقت الإضافي")).toBeInTheDocument();
+      expect(calls(mocked, "/api/extensions/7/approve/")).toHaveLength(1);
+    });
+
+    it("is declined only after asking, and not at all if the leader says no", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(asked(), { "/api/extensions/7/decline/": () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "رفض" }));
+      expect(screen.getByText("ترفض الوقت الإضافي؟")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "إلغاء" }));
+      expect(calls(mocked, "/api/extensions/7/decline/")).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "رفض" }));
+      await user.click(screen.getByRole("button", { name: "أيوه، ارفض" }));
+      expect(await screen.findByText("رفضت الوقت الإضافي")).toBeInTheDocument();
+      expect(calls(mocked, "/api/extensions/7/decline/")).toHaveLength(1);
+    });
+
+    it("says why an answer was refused and leaves the request where it was", async () => {
+      const user = userEvent.setup();
+      serve(asked(), { "/api/extensions/7/approve/": () => jsonResponse({ ok: false, error: "التاسك دي اتقفلت." }, 400) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "موافق" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("التاسك دي اتقفلت.");
+      expect(screen.getByText("المترجم طالب وقت إضافي")).toBeInTheDocument();
+    });
+
+    it("is not drawn when nobody has asked", async () => {
+      serve(leaderTask({ can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.queryByText("المترجم طالب وقت إضافي")).toBeNull();
+    });
+  });
+
+  describe("the review", () => {
+    it("is finished after asking, and goes on to the operation", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تمت المراجعة" }));
+      expect(screen.getByText("تأكيد إن المراجعة خلصت؟")).toBeInTheDocument();
+      expect(calls(mocked, A("reviewed"))).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "أيوه، خلصت" }));
+      expect(await screen.findByText("المراجعة خلصت")).toBeInTheDocument();
+      expect(calls(mocked, A("reviewed"))).toHaveLength(1);
+    });
+
+    it("can be put off with no after-effect", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تمت المراجعة" }));
+      await user.click(screen.getByRole("button", { name: "إلغاء" }));
+      expect(calls(mocked, A("reviewed"))).toHaveLength(0);
+    });
+
+    it("says why it was refused", async () => {
+      const user = userEvent.setup();
+      serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: false, error: "حالة التاسك دلوقتي مش بتسمح بده." }, 400) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تمت المراجعة" }));
+      await user.click(screen.getByRole("button", { name: "أيوه، خلصت" }));
+      expect(await screen.findAllByText("حالة التاسك دلوقتي مش بتسمح بده.")).not.toHaveLength(0);
+    });
+
+    it("is not offered while the task is not under review", async () => {
+      serve(leaderTask({ can_review: false, can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.queryByRole("button", { name: "تمت المراجعة" })).toBeNull();
+    });
+  });
+
+  it("gives the admin both sets: the operation's tools and the leader's", async () => {
+    serve(
+      task({
+        can: { ...LEADER_CAN, cancel: true, new_request: true, set_deadline: true },
+        lead: tools({ can_set_translator_deadline: true, can_review: true }),
+      } as Partial<OpsTask>),
+      {},
+      "admin",
+    );
+    open();
+    await loaded();
+    expect(screen.getByRole("button", { name: "إلغاء التاسك" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حفظ الديدلاين" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حفظ ديدلاين المترجم" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تمت المراجعة" })).toBeInTheDocument();
   });
 });

@@ -42,6 +42,7 @@ export function me(
     unread_chats: 0,
     mail_unseen: 0,
     tasks_new: 0,
+    tasks_open: 0,
     realtime: { path: "/ws/events/", ping_seconds: 25 },
     server_time: "8:00 AM",
   };

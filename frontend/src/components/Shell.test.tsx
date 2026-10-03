@@ -444,3 +444,64 @@ describe("Shell: the Sales screen", () => {
   });
 });
 
+describe("Shell: the team leader's screen", () => {
+  const at = (route: string, screens: string[], extra: Record<string, unknown> = {}) => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse({ ...me({ role: "team_lead" }, 0, screens as never), ...extra }),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="lead" element={<div>board</div>} />
+          <Route path="lead/translators" element={<div>translators</div>} />
+          <Route path="tasks/:code" element={<div>task</div>} />
+          <Route path="clients" element={<div>clients</div>} />
+          <Route path="clients/:code" element={<div>client</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+  const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+  it("lists their tasks, who is free and the client codes in the classic menu's words, then the chats", async () => {
+    const view = at("/lead", ["lead", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 5)).toEqual(["/", "/lead", "/lead/translators", "/clients", "/chats"]);
+    expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
+    expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
+  });
+
+  it("shows how many of their tasks are being worked beside the first line", async () => {
+    const view = at("/lead", ["lead"], { tasks_open: 4 });
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/lead"] .nav__count')).toHaveTextContent("4"));
+    const quiet = at("/lead", ["lead"]);
+    await waitFor(() => expect(quiet.container.querySelectorAll('.sidebar a[href="/lead"]').length).toBeGreaterThan(0));
+  });
+
+  it("titles every page of the screen, the task page is 'my tasks' and exactly one line is lit", async () => {
+    const pages: [string, string, string][] = [
+      ["/lead", "تاسكاتي", "/lead"],
+      ["/lead/translators", "حالة المترجمين", "/lead/translators"],
+      ["/tasks/TSK-00001", "تاسكاتي", "/lead"],
+      ["/clients", "أكواد العملاء", "/clients"],
+      ["/clients/CL-0001", "أكواد العملاء", "/clients"],
+    ];
+    for (const [route, title, lit] of pages) {
+      const view = at(route, ["lead"]);
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`)).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("draws none of it for a leader whose screen is not switched on", async () => {
+    const view = at("/lead", ["chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    for (const href of ["/lead", "/lead/translators", "/clients"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+  });
+});
+

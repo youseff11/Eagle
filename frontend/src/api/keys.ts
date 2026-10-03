@@ -49,6 +49,13 @@ export const qk = {
   attendance: ["boards", "attendance"] as const,
   /** A Sales person's own line (their number and address). */
   salesLine: ["sales-line"] as const,
+  /** The AI's notes on a task (the box on its page): it moves with the boards, and while a check runs it asks on a clock. */
+  aiNotes: (code: string) => ["boards", "ai-notes", code] as const,
+  /** The panel beside a leader's chat (`g12`, `u5`): under `chats`, so the doorbell that brings a message asks again. */
+  chatAiNotes: (code: string) => ["chats", "ai-notes", code] as const,
+  /** The team leader's board and their translators' board: with the boards, so a beat that says something moved asks again. */
+  lead: ["boards", "lead", "home"] as const,
+  leadBoard: ["boards", "lead", "board"] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

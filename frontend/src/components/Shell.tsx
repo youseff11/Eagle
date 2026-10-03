@@ -44,7 +44,7 @@ export interface ScreenEntry {
 }
 
 /** The counters `/me/` carries for the menu. */
-type Badge = "mail_unseen" | "tasks_new";
+type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
   translator_home: {
@@ -63,6 +63,19 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/tasks", icon: "layers", label: ["التاسكات", "Tasks"], badge: "tasks_new" },
       { path: "/team", icon: "users", label: ["حالة الفرق", "Team status"] },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
+    ],
+  },
+  // The team leader's own: their tasks (the classic menu's badge is how many are being worked), who of their team is
+  // free, and the client codes. The task page is theirs too (`/tasks/<code>`), titled by the screen they have.
+  lead: {
+    path: "/lead",
+    icon: "target",
+    label: ["تاسكاتي", "My tasks"],
+    badge: "tasks_open",
+    also: ["/tasks"],
+    extra: [
+      { path: "/lead/translators", icon: "users", label: ["حالة المترجمين", "Translator status"] },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
     ],
   },
@@ -187,6 +200,9 @@ function Frame() {
               <Fragment key={key}>
                 <NavLink
                   to={SCREENS[key].path}
+                  // A screen whose other pages live under its own address (`/lead` and `/lead/translators`) must not
+                  // light its first line on them as well: one line at a time.
+                  end={(SCREENS[key].extra ?? []).some((entry) => entry.path.startsWith(`${SCREENS[key].path}/`))}
                   className={({ isActive }) => `nav__item${isActive || sharedWith(key) ? " is-active" : ""}`}
                 >
                   <Icon name={SCREENS[key].icon} />

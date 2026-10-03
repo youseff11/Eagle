@@ -206,10 +206,56 @@ def _requirement_json(requirement, client, viewer):
     }
 
 
+def _lead_json(task, user):
+    """What the task's team leader (and the admin) may do on it, or ``None`` for everybody else.
+
+    Giving it to a translator and changing that translator's date are the classic endpoints
+    (``api.assign_translator``, ``api.set_translator_deadline``), which check the team and the status again; the
+    translators offered are the leader's own (the admin: the task's leader's), each with whether they are free now.
+    A request for more time waits for this person's yes or no (``services.decide_extension``).
+    """
+    if not (user.is_team_lead or user.is_admin_role):
+        return None
+    if user.is_team_lead and not user.is_admin_role and task.team_lead_id != user.id:
+        return None
+    can_assign = task.status in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR)
+    translators = []
+    lead_id = user.pk if user.is_team_lead and not user.is_admin_role else task.team_lead_id
+    if can_assign and lead_id:
+        for person in User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead_id=lead_id).prefetch_related("shifts"):
+            translators.append({
+                "id": person.pk,
+                "name": person.short_name,
+                "state": "off" if not person.is_online else "busy" if person.is_busy else "free",
+                "rating": float(person.rating),
+            })
+    state = services.extension_state(task, user)
+    pending = state.get("extension_pending") if state.get("extension_can_decide") else None
+    return {
+        "can_assign": can_assign,
+        "translators": translators,
+        "can_set_translator_deadline": bool(task.translator_id),
+        "can_review": task.status == TaskStatus.UNDER_REVIEW,
+        "client_due": _stamp(task.deadline, "%Y-%m-%d"),
+        "extension": {
+            "id": pending.pk,
+            "length": pending.pretty_length,
+            "reason": identity.mask_client(pending.reason or "", task.client, user),
+            "new_due": _stamp(state.get("extension_new_due"), "%Y-%m-%d"),
+        } if pending else None,
+    }
+
+
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
 def task(request, code):
-    """One task as the operation reads it: the page ``/tasks/<code>/`` without the leader's and the translator's tools.
+    """One task as the operation reads it: the page ``/tasks/<code>/`` without the translator's tools.
+
+    The team leader of the task reads the same page (``Task.can_view``: a task that is not theirs is a 404 and a row
+    in the audit log) with the operation's own tools left out - taking it over, delivering it, cancelling it, the
+    client's own messages and the way to the client's conversation - and their own added: ``lead`` says what they may
+    do (give it to a translator, change that translator's date, answer a request for more time, finish the review).
+    The admin gets both sets, as on the classic page.
 
     Everything the operation does on the page is here to be drawn - who the task can go to, whether it waits for
     somebody to take it over, what would be sent to the client and over which channel - and everything it does is
@@ -221,12 +267,17 @@ def task(request, code):
         Task.objects.select_related("client", "team_lead", "translator", "created_by", "handover_ack_by"), code=code,
     )
     user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
     conf = AppSettings.load()
     due = task.deadline_for(user)
     pending = task.pending_assignment
-    new = task.status == TaskStatus.NEW
-    waiting = task.status == TaskStatus.REVIEWED and not task.handover_ack_at
-    taken = task.status == TaskStatus.REVIEWED and bool(task.handover_ack_at)
+    # The operation's tools are the operation's and the admin's: a leader reads the task, and does not take it over,
+    # deliver it, cancel it or talk to the client from here.
+    ops = user.is_operation or user.is_admin_role
+    new = task.status == TaskStatus.NEW and ops
+    waiting = task.status == TaskStatus.REVIEWED and not task.handover_ack_at and ops
+    taken = task.status == TaskStatus.REVIEWED and bool(task.handover_ack_at) and ops
     group = task.rooms.filter(kind=RoomKind.GROUP).first()
 
     return JsonResponse({
@@ -245,7 +296,8 @@ def task(request, code):
             "due_state": task.deadline_state(user, conf.deadline_warning_minutes),
             # What the translator was given: the leader keeps the difference to review in.
             "translator_due": _stamp(task.translator_deadline, "%m-%d"),
-            "description": services.clean_client_text(task.description),
+            # Typed by the operation, who writes the client's name in it: whoever may not know it reads the code.
+            "description": identity.mask_client(services.clean_client_text(task.description), task.client, user),
             "people": {
                 "operation": task.created_by.short_name if task.created_by_id else None,
                 "team_lead": task.team_lead.short_name if task.team_lead_id else None,
@@ -262,14 +314,21 @@ def task(request, code):
                 ],
             },
             "chat": services.task_chat_link(task, user),
-            "client_chat_url": f"/ops/chats/{task.client.code}/" if task.client_id else None,
+            "client_chat_url": f"/ops/chats/{task.client.code}/" if task.client_id and ops else None,
             "can": {
                 "assign_lead": new,
                 "take_over": waiting,
                 "deliver": taken,
-                "cancel": not task.is_done,
+                "cancel": not task.is_done and ops,
                 "add_member": user.is_admin_role and group is not None,
+                # The same material, a new job: the operation's own (it makes tasks).
+                "new_request": ops,
+                # The client's date is promised by the operation; the leader's own is the translator's (``lead``).
+                "set_deadline": ops,
+                # The people who see both the client's file and the translator's, never the translator.
+                "set_words": ops or task.team_lead_id == user.id,
             },
+            "lead": _lead_json(task, user),
             "leads": _leads_json() if new else [],
             "handover": {
                 "by": task.handover_ack_by.short_name if task.handover_ack_by_id else None,
@@ -306,7 +365,7 @@ def task(request, code):
                 }
                 for m in services.task_inbounds(task).prefetch_related("attachments").order_by("received_at", "id")
                 if m.visible_to(user)
-            ],
+            ] if ops else [],
             "history": [
                 {
                     "id": a.pk, "name": a.assignee.short_name, "initials": a.assignee.initials, "role": a.target_role,
@@ -319,7 +378,7 @@ def task(request, code):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
 def task_words(request, code):
     """Settle the word count by hand - the only way it is set. ``{"words": 3000}``.
 
@@ -328,6 +387,9 @@ def task_words(request, code):
     nothing is written: the classic page flashed "type a number" and went back.
     """
     task = get_object_or_404(Task, code=code)
+    # The operation, the admin and the task's own team leader (``can_view``: a leader's own tasks only).
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
     try:
         body = _object(request)
     except BadBody:
@@ -340,7 +402,7 @@ def task_words(request, code):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
 def task_requirement(request, code):
     """Add a thing the client likes, dislikes or insists on. ``{"kind": "rule", "text": "..."}``.
 
@@ -348,6 +410,8 @@ def task_requirement(request, code):
     answer is the row, so a page can show it without a reload.
     """
     task = get_object_or_404(Task.objects.select_related("client"), code=code)
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
     try:
         body = _object(request)
         kind, text = _text(body, "kind", 20), _text(body, "text", MAX_REQUIREMENT)

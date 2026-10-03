@@ -355,7 +355,7 @@ class OpsTaskDoorTests(_Ops):
     def test_the_operation_and_the_admin_are_answered_everybody_else_is_refused(self):
         for user in (self.ops, self.admin):
             self.assertEqual(self.read(user).status_code, 200, user.username)
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
             answer = self.read(user)
             self.assertEqual((answer.status_code, _json(answer)), (403, {"ok": False, "error": "forbidden"}), user.username)
         self.assertEqual(self.read(None).status_code, 401)
@@ -583,7 +583,7 @@ class OpsTaskWordsAndRequirementTests(_Ops):
             answer = self.post(user, "dashboard:v1_task_words", {"words": 1500})
             self.assertEqual((answer.status_code, _json(answer)), (200, {"ok": True, "words": 1500, "state": "confirmed"}),
                              user.username)
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
             self.assertEqual(self.post(user, "dashboard:v1_task_words", {"words": 7}).status_code, 403, user.username)
         self.assertEqual(self.post(None, "dashboard:v1_task_words", {"words": 7}).status_code, 401)
         self.task.refresh_from_db()
@@ -637,7 +637,7 @@ class OpsTaskWordsAndRequirementTests(_Ops):
     def test_a_requirement_is_the_operations_and_the_admins_alone(self):
         from .models import ClientRequirement
 
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
             self.assertEqual(self.post(user, "dashboard:v1_task_requirement", {"kind": "rule", "text": "x"}).status_code, 403,
                              user.username)
         self.assertEqual(self.post(self.admin, "dashboard:v1_task_requirement", {"kind": "rule", "text": "from admin"}).status_code, 200)

@@ -9,6 +9,8 @@ import { ClientPage } from "./pages/ClientPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { HomePage } from "./pages/HomePage";
 import { InboxPage } from "./pages/InboxPage";
+import { LeadBoardPage } from "./pages/LeadBoardPage";
+import { LeadHomePage } from "./pages/LeadHomePage";
 import { MailThreadPage } from "./pages/MailThreadPage";
 import { NotFound } from "./pages/NotFound";
 import { ChatsPage } from "./pages/ChatsPage";
@@ -44,6 +46,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="tasks/new" element={<NewTaskPage />} />
         <Route path="tasks/:code" element={<TaskRoute />} />
+        <Route path="lead" element={<LeadHomePage />} />
+        <Route path="lead/translators" element={<LeadBoardPage />} />
         <Route path="line" element={<SalesLinePage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:code" element={<ClientPage />} />

@@ -4,6 +4,8 @@ import { useMe, useOpsTask } from "../api/queries";
 import type { OpsTask, TaskFile } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
+import { AiNotesCard } from "../components/ai/AiNotesCard";
+import { AssignTranslatorBox, ExtensionBox, ReviewButton, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
 import { DeliveriesCard, HistoryCard, MessagesCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
@@ -82,6 +84,13 @@ function Files({ task }: { task: OpsTask }) {
 
 function Task({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
+  // The AI's notes are the review's owner's: the admin, and the task's own team leader (the door refuses everybody else).
+  const account = useMe().data?.user;
+  const reviewer = account?.is_admin === true || account?.role === "team_lead";
+  const { can, lead } = task;
+  // The leader's own tools, drawn only when there is one to use; and the card only when anything is in it.
+  const leadTools = lead !== null && (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.extension !== null);
+  const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
   const clientChat = task.client_chat_url ? safeInternalPath(task.client_chat_url) : null;
@@ -106,6 +115,8 @@ function Task({ task }: { task: OpsTask }) {
         )}
       </div>
 
+      {reviewer && <AiNotesCard code={task.code} />}
+
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="row row--between">
           <div>
@@ -127,13 +138,15 @@ function Task({ task }: { task: OpsTask }) {
             {task.description}
           </div>
         )}
-        {/* The same material, a new job: another language, a second copy, a revised request. */}
-        <div className="row mt">
-          <Link className="btn btn--sm" to={{ pathname: "/tasks/new", search: `?from=${encodeURIComponent(task.code)}` }}>
-            <Icon name="plus" size="sm" />
-            <span>{t("طلب جديد على نفس الملفات", "New request, same files")}</span>
-          </Link>
-        </div>
+        {/* The same material, a new job: another language, a second copy, a revised request. The operation's. */}
+        {can.new_request && (
+          <div className="row mt">
+            <Link className="btn btn--sm" to={{ pathname: "/tasks/new", search: `?from=${encodeURIComponent(task.code)}` }}>
+              <Icon name="plus" size="sm" />
+              <span>{t("طلب جديد على نفس الملفات", "New request, same files")}</span>
+            </Link>
+          </div>
+        )}
         <Files task={task} />
       </div>
 
@@ -172,19 +185,25 @@ function Task({ task }: { task: OpsTask }) {
         </div>
 
         <div className="sticky-side">
-          <div className="card">
-            <div className="card__head">
-              <Icon name="list-checks" />
-              <h3>{t("الإجراءات", "Actions")}</h3>
+          {hasActions && (
+            <div className="card">
+              <div className="card__head">
+                <Icon name="list-checks" />
+                <h3>{t("الإجراءات", "Actions")}</h3>
+              </div>
+              {can.assign_lead && <AssignLeadBox task={task} />}
+              {can.take_over && <TakeOverBox task={task} />}
+              {can.deliver && <DeliverBox task={task} />}
+              {can.set_deadline && <DeadlineBox task={task} />}
+              <AddMemberBox task={task} />
+              <CancelButton task={task} />
+              <AssignTranslatorBox task={task} />
+              <TranslatorDeadlineBox task={task} />
+              <ExtensionBox task={task} />
+              <ReviewButton task={task} />
             </div>
-            {task.can.assign_lead && <AssignLeadBox task={task} />}
-            {task.can.take_over && <TakeOverBox task={task} />}
-            {task.can.deliver && <DeliverBox task={task} />}
-            <DeadlineBox task={task} />
-            <AddMemberBox task={task} />
-            <CancelButton task={task} />
-          </div>
-          <WordCountCard task={task} />
+          )}
+          {can.set_words && <WordCountCard task={task} />}
           <RequirementsCard task={task} />
           <DeliveriesCard task={task} />
           <HistoryCard task={task} />
@@ -199,8 +218,8 @@ export function OperationTaskPage() {
   const { t } = usePreferences();
   const { code = "" } = useParams();
   const me = useMe();
-  // The same people the server lets in (`api_role_required`: the operation, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.is_admin);
+  // The same people the server lets in (`api_role_required`: the operation, the team leader of the task, and the admin).
+  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "team_lead" || me.data.user.is_admin);
   const query = useOpsTask(code, allowed && code !== "");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
