@@ -8,6 +8,7 @@ the admin's own password and the explicit yes, a wrong password or a missing yes
 import json
 
 from datetime import timedelta
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client as DjangoClient
@@ -408,3 +409,22 @@ class ResetLockTests(_Tools):
     def test_the_wrong_password_itself_still_says_wrong_before_the_limit(self):
         answer = self.post(self.admin, TASKS_RUN, {"password": "not-it", "confirm": True})
         self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "refused"))
+
+
+class TheBackupSurvivesTests(_Tools):
+    """The backup is the only copy of what was deleted: a failure after the delete must not cost the admin the file."""
+
+    def test_a_failed_audit_row_does_not_lose_the_tasks_backup(self):
+        with mock.patch("dashboard.identity.record_export", side_effect=RuntimeError("audit write failed")):
+            answer = self.post(self.admin, TASKS_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        self.assertEqual(answer.status_code, 200)
+        self.assertIn("attachment", answer["Content-Disposition"])
+        self.assertTrue(any(entry["model"] == "dashboard.task" for entry in json.loads(answer.content.decode("utf-8"))))
+        self.assertFalse(Task.objects.exists())
+
+    def test_a_failed_audit_row_does_not_lose_the_mail_backup(self):
+        self.letter()
+        with mock.patch("dashboard.identity.record_export", side_effect=RuntimeError("audit write failed")):
+            answer = self.post(self.admin, MAIL_RUN, {"password": ADMIN_PASSWORD, "confirm": True})
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(answer["X-Eagle-Deleted"], "1")

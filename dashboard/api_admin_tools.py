@@ -16,6 +16,8 @@ The two clear-outs delete real data and cannot be undone, so nothing here makes 
   password is in this request and nowhere else: not answered, not logged.
 """
 
+import logging
+
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.text import Truncator
@@ -25,6 +27,8 @@ from .api_v1 import BadBody, _error, _object, endpoint
 from .forms import SimulateMessageForm
 from .models import InboundMessage, Role
 from .permissions import api_role_required
+
+log = logging.getLogger("dashboard")
 
 #: How many recent messages the simulator lists, and how much of each it quotes: the classic page's own numbers.
 MAX_RECENT = 20
@@ -114,6 +118,15 @@ def _refusal(problem):
     return JsonResponse({"ok": False, "error": "refused", "message": problem}, status=400)
 
 
+def _record_export(request, what, count):
+    """Write down the download. By now the data is gone and the backup is the only copy: a failure to write this row must
+    never cost the admin the file, so it is logged and the answer goes out."""
+    try:
+        identity.record_export(request, what, count)
+    except Exception:  # noqa: BLE001 - see the docstring
+        log.exception("api v1: the audit row for %s could not be written", what)
+
+
 def _backup(backup, name, headers):
     """The backup as the file the browser saves. Dated in Egypt time, like every time Eagle shows."""
     stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
@@ -134,7 +147,7 @@ def reset_tasks_run(request):
     ok, problem, backup, deleted = services.reset_all_tasks(request.user, password)
     if not ok:
         return _refusal(problem)
-    identity.record_export(request, "tasks-backup", deleted)
+    _record_export(request, "tasks-backup", deleted)
     return _backup(backup, "tasks", {"X-Eagle-Deleted": deleted})
 
 
@@ -148,5 +161,5 @@ def reset_mail_run(request):
     ok, problem, backup, deleted, removed = services.reset_all_mail(request.user, password)
     if not ok:
         return _refusal(problem)
-    identity.record_export(request, "mail-backup", deleted)
+    _record_export(request, "mail-backup", deleted)
     return _backup(backup, "mail", {"X-Eagle-Deleted": deleted, "X-Eagle-Files": removed})

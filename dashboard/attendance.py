@@ -244,7 +244,7 @@ def assign_shift(user, template, weekdays, actor=None):
     under (the schedule is frozen onto each day), so nothing in the past moves.
     ``template=None`` clears the roster.
     """
-    days = sorted({int(d) for d in weekdays if str(d).isdigit() and 0 <= int(d) <= 6})
+    days = sorted({int(d) for d in weekdays if str(d).isdecimal() and 0 <= int(d) <= 6})
     Shift.objects.filter(user=user).delete()
     rows = []
     if template is not None:

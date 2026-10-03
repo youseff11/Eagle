@@ -68,7 +68,10 @@ function settings(over: Partial<AdminSettings> = {}): AdminSettings {
       { key: "operation", ar: "شاشة الأوبريشن", en: "The operation's screen", roles: "newui_operation_roles", users: "newui_operation_users" },
       { key: "admin", ar: "لوحة الأدمن", en: "The admin panel", roles: "newui_admin_roles", users: "newui_admin_users" },
     ],
-    status: { whatsapp_saved: true, email_saved: false, google_configured: true, google_connected: false, google_sync_at: null, google_sync_error: "" },
+    status: {
+      whatsapp_saved: true, email_saved: false, google_configured: true, google_connected: false, google_sync_at: null, google_sync_error: "",
+      webhook_signed: true, webhook_secret_set: true,
+    },
     urls: { webhook: "https://eagle.example.com/webhooks/whatsapp/", google_redirect: "https://eagle.example.com/panel/settings/google/callback/", google_connect: "/panel/settings/google/connect/", is_local: false, is_https: true },
     ...over,
   };
@@ -332,6 +335,33 @@ describe("AdminSettingsPage: WhatsApp", () => {
     expect(container.querySelector("#whUrl")).toHaveTextContent("https://eagle.example.com/webhooks/whatsapp/");
     await user.click(screen.getByRole("button", { name: "نسخ" }));
     expect(write).toHaveBeenCalledWith("https://eagle.example.com/webhooks/whatsapp/");
+  });
+
+  it("says nothing about the webhook when it can check a signature and has its secret", async () => {
+    serve("admin");
+    const { container } = open();
+    await screen.findByText("واتساب");
+    expect(container.querySelector("[data-warning]")).toBeNull();
+  });
+
+  it("warns that anybody can send a Meta-looking message when the App secret is not saved", async () => {
+    serve("admin", () => settings({ status: { ...settings().status, webhook_signed: false } }));
+    const { container } = open();
+    const warning = await waitFor(() => {
+      const found = container.querySelector('[data-warning="unsigned"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(warning).toHaveClass("note--warn");
+    expect(warning).toHaveTextContent("الـApp secret مش محفوظ");
+    expect(container.querySelector('[data-warning="open"]')).toBeNull();
+  });
+
+  it("warns that the simple webhook takes any request when its secret is not set", async () => {
+    serve("admin", () => settings({ status: { ...settings().status, webhook_secret_set: false } }));
+    const { container } = open();
+    await waitFor(() => expect(container.querySelector('[data-warning="open"]')).not.toBeNull());
+    expect(container.querySelector('[data-warning="unsigned"]')).toBeNull();
   });
 
   it("warns about a local address, and about an address that is not https", async () => {

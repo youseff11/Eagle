@@ -361,6 +361,27 @@ class FormTests(_Records):
         values = {field["name"]: field.get("value") for field in body["form"]}
         self.assertEqual((values["name"], values["phone"]), ("", ""))
 
+    def test_a_created_client_is_written_down_by_code_only(self):
+        self.post(self.admin, CREATE, self.values())
+        row = AuditLog.objects.filter(action="client.create").latest("pk")
+        self.assertEqual((row.actor_id, row.target, row.detail), (self.admin.pk, Client.objects.get(name="New Buyer").code, ""))
+        self.assertNotIn("New Buyer", json.dumps(list(AuditLog.objects.values()), default=str))
+
+    def test_a_saved_client_is_written_down_by_the_names_of_the_boxes_changed_and_never_the_values(self):
+        self.post(self.admin, SAVE, {"values": {"company": "Renamed Co", "extra_phones": "+201555000333"}}, [self.client_obj.code])
+        row = AuditLog.objects.filter(action="client.update").latest("pk")
+        self.assertEqual((row.target, sorted(row.detail.split(", "))), (self.client_obj.code, ["company", "extra_phones"]))
+        everything = json.dumps(list(AuditLog.objects.values()), default=str)
+        for value in ("Renamed Co", "+201555000333"):
+            self.assertNotIn(value, everything)
+
+    def test_a_refused_save_writes_nothing(self):
+        other = self.plain()
+        before = AuditLog.objects.filter(action__in=("client.create", "client.update")).count()
+        answer = self.post(self.admin, SAVE, {"values": {"phone": CLIENT_PHONE}}, [other.code])
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(AuditLog.objects.filter(action__in=("client.create", "client.update")).count(), before)
+
     def test_a_refused_save_changes_nothing(self):
         other = self.plain()
         answer = self.post(self.admin, SAVE, {"values": {"name": "Changed", "phone": CLIENT_PHONE}}, [other.code])

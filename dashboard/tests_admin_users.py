@@ -516,6 +516,27 @@ class PickTests(_Staff):
         self.assertEqual(self.rows(self.tr), [(0, self.noon.pk)])
         self.assertEqual(ShiftTemplate.objects.count(), before_templates)
 
+    def test_a_digit_that_int_cannot_read_is_an_answer_and_not_a_crash(self):
+        attendance.assign_shift(self.tr, self.noon, [0])
+        for body, error in (
+            ({"template": "²", "weekdays": [0]}, "no_such_shift"),
+            ({"template": self.noon.pk, "weekdays": ["²"]}, "no_days"),
+        ):
+            answer = self.post(self.admin, PICK, body, [self.tr.pk])
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, error), body)
+        self.assertEqual(self.rows(self.tr), [(0, self.noon.pk)])
+
+    def test_days_that_are_all_invalid_refuse_the_choice_and_leave_the_roster_as_it_was(self):
+        attendance.assign_shift(self.tr, self.noon, [0, 1])
+        for days in ([7], ["x"], [-1, 9], [True], ["²", 7]):
+            answer = self.post(self.admin, PICK, {"template": self.noon.pk, "weekdays": days}, [self.tr.pk])
+            self.assertEqual(answer.status_code, 400, days)
+        self.assertEqual(self.rows(self.tr), [(0, self.noon.pk), (1, self.noon.pk)])
+
+    def test_arabic_indic_digits_are_read_as_the_digits_they_are(self):
+        self.post(self.admin, PICK, {"template": str(self.noon.pk), "weekdays": ["٠", "١"]}, [self.tr.pk])
+        self.assertEqual(self.rows(self.tr), [(0, self.noon.pk), (1, self.noon.pk)])
+
     def test_a_retired_shift_cannot_be_picked(self):
         self.noon.is_active = False
         self.noon.save()

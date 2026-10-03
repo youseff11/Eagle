@@ -373,8 +373,13 @@ export function AdminUserNewPage() {
     setErrors({});
     setFailed(false);
     create.mutate(edits.edited, {
-      onSuccess: (answer) => navigate(`/admin/users/${answer.id}`),
+      onSuccess: (answer) => {
+        // The password the request carried is not kept in its state once it is over.
+        create.reset();
+        navigate(`/admin/users/${answer.id}`);
+      },
       onError: (error) => {
+        create.reset();
         const found = formErrors(error);
         if (found) setErrors(found);
         else setFailed(true);

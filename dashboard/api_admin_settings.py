@@ -203,6 +203,29 @@ def _clean(value, conf):
     return value
 
 
+def _changed(form, values, switches_moved):
+    """Which boxes a save changed, as names only: a secret is "set" or "cleared", never its value.
+
+    The audit row used to say only that settings were saved. A webhook secret cleared on purpose, by mistake or from a stolen
+    session leaves the webhook open to anybody who knows its address, and nothing said so.
+
+    Only boxes the request carried can have changed (the rest were filled from what is stored), which also keeps out the
+    fields the form cannot compare when it is filled in (it sets their starting value only for an empty form). The rollout
+    switches have a row of their own with the whole map, so here they are one word.
+    """
+    out = []
+    for name in form.changed_data:
+        if name not in values or name.startswith("newui_"):
+            continue
+        if name in SECRET_FIELDS:
+            out.append(f"{name}:{'set' if form.cleaned_data.get(name) else 'cleared'}")
+        else:
+            out.append(name)
+    if switches_moved:
+        out.append("newui")
+    return ", ".join(out)[:500]
+
+
 def _is_local(request):
     host = request.get_host()
     return host.split(":")[0] in ("127.0.0.1", "localhost", "0.0.0.0") or host.startswith("192.168.") or host.startswith("10.")
@@ -263,6 +286,10 @@ def settings(request):
             "google_connected": galiases.is_connected(conf),
             "google_sync_at": _stamp(conf.google_sync_at, "%d/%m"),
             "google_sync_error": scrub(conf.google_sync_error, conf),
+            # Without an App secret the webhook takes a Meta-shaped message from anybody who knows its address (no signature to
+            # check); without the shared secret it takes the simple one. The page says so.
+            "webhook_signed": bool(conf.whatsapp_app_secret),
+            "webhook_secret_set": bool(conf.webhook_shared_secret),
         },
         "urls": {
             "webhook": request.build_absolute_uri(reverse("dashboard:wh_whatsapp")),
@@ -295,7 +322,7 @@ def settings_save(request):
     if not form.is_valid():
         return api_forms.invalid(form)
     form.save()
-    services.log(request.user, "settings.update")
+    services.log(request.user, "settings.update", "", _changed(form, values, conf.new_ui != switch_before))
     if conf.new_ui != switch_before:
         # Who was sent to which interface: the one setting whose change moves people from page to page, written in full.
         services.log(request.user, "settings.new_ui", "-", json.dumps(conf.new_ui, sort_keys=True))

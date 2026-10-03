@@ -47,6 +47,8 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
     run.mutate(password, {
       onSuccess: (done) => {
         setPassword("");
+        // The password the request carried is not kept in its state once it is over.
+        run.reset();
         push({
           level: "success",
           sticky: true,
@@ -59,7 +61,19 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
       onError: (error) => {
         setPassword("");
         const detail = error instanceof ApiError ? error.detail : "";
-        setProblem(detail || t("حصلت مشكلة. محدش اتمسح.", "Something went wrong. Nothing was deleted."));
+        // A "no" from the server (4xx) came before it did anything. Anything else - a server error, a dropped connection - may
+        // have come after: the data can be gone with the backup lost on the way, so the page says it does not know.
+        const refused = error instanceof ApiError && error.status >= 400 && error.status < 500;
+        setProblem(
+          detail ||
+            (refused
+              ? t("حصلت مشكلة. محدش اتمسح.", "Something went wrong. Nothing was deleted.")
+              : t(
+                  "حصلت مشكلة وماعرفناش النتيجة. ممكن يكون اتمسح: حدّث الصفحة وراجع الأرقام قبل ما تحاول تاني.",
+                  "Something went wrong and the result is not known. It may have been deleted: reload the page and check the numbers before trying again.",
+                )),
+        );
+        run.reset();
       },
     });
   };

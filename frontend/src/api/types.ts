@@ -1178,6 +1178,9 @@ export interface AdminSettings {
     google_connected: boolean;
     google_sync_at: Stamp | null;
     google_sync_error: string;
+    /** Whether the webhook can check Meta's signature (the App secret is saved) and the simple payload's shared secret. */
+    webhook_signed: boolean;
+    webhook_secret_set: boolean;
   };
   urls: { webhook: string; google_redirect: string; google_connect: string; is_local: boolean; is_https: boolean };
 }

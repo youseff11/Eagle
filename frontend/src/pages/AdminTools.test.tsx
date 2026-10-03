@@ -272,7 +272,30 @@ describe("AdminResetPage: the run", () => {
     await user.type(await screen.findByLabelText("باسورد الأدمن بتاعك"), "x");
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: /امسح كل التاسكات/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة. محدش اتمسح.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة وماعرفناش النتيجة");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("محدش اتمسح");
+  });
+
+  it("says it does not know the result when the connection drops before the answer", async () => {
+    serve("admin", { "/api/v1/admin/reset/tasks/run/": () => Promise.reject(new TypeError("Failed to fetch")) });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    open("/admin/reset-tasks");
+    await user.type(await screen.findByLabelText("باسورد الأدمن بتاعك"), "x");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /امسح كل التاسكات/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ممكن يكون اتمسح");
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("is sure nothing was deleted when the server said no before doing anything", async () => {
+    serve("admin", { "/api/v1/admin/reset/tasks/run/": () => jsonResponse({ ok: false, error: "bad_body" }, 400) });
+    const user = userEvent.setup();
+    open("/admin/reset-tasks");
+    await user.type(await screen.findByLabelText("باسورد الأدمن بتاعك"), "x");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /امسح كل التاسكات/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("محدش اتمسح");
   });
 
   it("keeps the password out of the address and out of the page", async () => {

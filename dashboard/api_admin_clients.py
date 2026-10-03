@@ -156,6 +156,8 @@ def client_create(request):
     if refused is not None:
         return refused
     row = form.save()
+    # The code only: this log is read by people who may not see a client's identity.
+    services.log(request.user, "client.create", row.code)
     return JsonResponse({"ok": True, "code": row.code})
 
 
@@ -167,4 +169,6 @@ def client_save(request, code):
     if refused is not None:
         return refused
     form.save()
+    # Which boxes, not what is in them: a number added to a client changes where that client's messages land.
+    services.log(request.user, "client.update", row.code, ", ".join(form.changed_data))
     return JsonResponse({"ok": True, "code": row.code})

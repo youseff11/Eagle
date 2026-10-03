@@ -25,7 +25,9 @@ def choose(person, raw, weekdays, *, new_name="", new_start="", new_end="", acto
     changes nothing, and a new shift is made only after every other check has passed.
     """
     raw = str(raw or "")
-    template = ShiftTemplate.objects.filter(pk=raw, is_active=True).first() if raw.isdigit() else None
+    # ``isdecimal``, not ``isdigit``: "²" is a digit that ``int`` cannot read, and that was a 500.
+    template = ShiftTemplate.objects.filter(pk=raw, is_active=True).first() if raw.isdecimal() else None
+    weekdays = [day for day in weekdays if str(day).isdecimal() and 0 <= int(day) <= 6]
     fresh = None
     if raw == NEW:
         fresh = NewShiftForm({"name_ar": new_name, "start_time": new_start, "end_time": new_end})

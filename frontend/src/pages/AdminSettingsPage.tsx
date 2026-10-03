@@ -309,6 +309,8 @@ export function AdminSettingsPage() {
       save.mutate(edits.edited, {
         onSuccess: () => {
           edits.reset();
+          // What was typed (a secret among it) is not kept in the request's own state once it is saved.
+          save.reset();
           if (announce) push({ level: "success", title: t("اتحفظ", "Saved") });
           resolve({ ok: true, fields: [] });
         },
@@ -377,6 +379,28 @@ export function AdminSettingsPage() {
                     {t("نسخ", "Copy")}
                   </button>
                 </div>
+                {!data.status.webhook_signed && (
+                  <div className="note note--warn mt" data-warning="unsigned">
+                    <Icon name="shield" />
+                    <div>
+                      {t(
+                        "الـApp secret مش محفوظ: الويب هوك مش بيتحقق من توقيع Meta، فأي حد يعرف رابطه يقدر يبعت رسالة شكلها من Meta وتتسجل كأنها من عميل. احفظه.",
+                        "The App secret is not saved: the webhook cannot check Meta's signature, so anybody who knows its address can send a message that looks like Meta's and have it recorded as a client's. Save it.",
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!data.status.webhook_secret_set && (
+                  <div className="note note--warn mt" data-warning="open">
+                    <Icon name="shield" />
+                    <div>
+                      {t(
+                        "سر الويب هوك مش متحدد: الويب هوك البسيط (غير بتاع Meta) بيقبل أي طلب من غير سر.",
+                        "The webhook secret is not set: the simple (non-Meta) webhook accepts any request without a secret.",
+                      )}
+                    </div>
+                  </div>
+                )}
                 {data.urls.is_local ? (
                   <div className="note note--high mt">
                     <Icon name="alert" />

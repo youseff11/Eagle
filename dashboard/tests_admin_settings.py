@@ -545,3 +545,56 @@ class HandOnTests(_Settings):
     def test_nobody_else_opens_it(self):
         for user in (self.ops, self.sales, self.accounting):
             self.assertEqual(self.get(user, "dashboard:admin_settings").status_code, 403, user.username)
+
+
+class WhatWasChangedTests(_Settings):
+    """A save says which boxes it changed - by name, never by value - and a secret as set or cleared."""
+
+    def last_detail(self):
+        return AuditLog.objects.filter(action="settings.update").latest("pk").detail
+
+    def test_the_names_of_the_changed_boxes_are_written_down(self):
+        self.save(claude_model="claude-new", response_window_seconds="75")
+        self.assertEqual(sorted(self.last_detail().split(", ")), ["claude_model", "response_window_seconds"])
+
+    def test_a_secret_is_written_as_set_or_cleared_and_never_with_its_value(self):
+        self.store_secrets()
+        self.save(whatsapp_app_secret="a-brand-new-app-secret", webhook_shared_secret=None)
+        detail = self.last_detail()
+        self.assertIn("whatsapp_app_secret:set", detail)
+        self.assertIn("webhook_shared_secret:cleared", detail)
+        everything = json.dumps(list(AuditLog.objects.values()), default=str)
+        for value in (*ALL_SECRETS.values(), "a-brand-new-app-secret"):
+            self.assertNotIn(value, everything)
+
+    def test_a_change_of_the_switches_is_one_word_and_the_map_has_its_own_row(self):
+        self.save(newui_operation_roles=["admin", "operation"], claude_model="claude-x")
+        self.assertEqual(sorted(self.last_detail().split(", ")), ["claude_model", "newui"])
+        self.assertTrue(AuditLog.objects.filter(action="settings.new_ui").exists())
+
+    def test_the_group_creators_are_named_only_when_they_were_sent(self):
+        self.save(claude_model="claude-x")
+        self.assertEqual(self.last_detail(), "claude_model")
+        self.save(group_creator_roles=["translator"])
+        self.assertEqual(self.last_detail(), "group_creator_roles")
+
+    def test_nothing_changed_writes_an_empty_detail(self):
+        self.save(claude_model=self.fresh().claude_model)
+        self.assertEqual(self.last_detail(), "")
+
+    def test_a_secret_left_alone_is_not_named(self):
+        self.store_secrets()
+        self.save(claude_model="claude-other")
+        self.assertEqual(self.last_detail(), "claude_model")
+
+    def test_the_page_is_told_whether_the_webhook_can_check_a_signature(self):
+        status = _json(self.get(self.admin, GET))["status"]
+        self.assertEqual((status["webhook_signed"], status["webhook_secret_set"]), (False, False))
+        conf = AppSettings.load()
+        conf.whatsapp_app_secret, conf.webhook_shared_secret = "app-secret-value", "shared-secret-value"
+        conf.save()
+        status = _json(self.get(self.admin, GET))["status"]
+        self.assertEqual((status["webhook_signed"], status["webhook_secret_set"]), (True, True))
+        self.assertNotIn("app-secret-value", json.dumps(status))
+        self.save(whatsapp_app_secret=None)
+        self.assertIs(_json(self.get(self.admin, GET))["status"]["webhook_signed"], False)
