@@ -64,6 +64,14 @@ SCREENS = {
             classic="ops_tasks", path="/tasks", roles=(Role.OPERATION,),
         ),
         Screen(
+            "attendance", "الحضور والانصراف (الكارت وشاشة التسجيل)", "Attendance (the card and the check-in screen)",
+            classic="my_attendance", path="/attendance",
+            roles=(
+                Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
+                Role.ACCOUNTING, Role.SALES,
+            ),
+        ),
+        Screen(
             "chats", "الشات", "Chats",
             classic="ops_chats", path="/chats",
             roles=(
@@ -130,6 +138,16 @@ def wants_classic(request):
     return request.GET.get(CLASSIC_PARAM) == "1"
 
 
+def gate_in_app(user):
+    """Does the new app draw this person's check-in screen and shift reminders itself.
+
+    Yes once their ``attendance`` screen is switched on. Until then only the classic pages draw them, so whoever owes
+    one is kept there (``hand_on``, ``spa.shell`` and the heartbeat all ask this one question, which is what keeps
+    them from sending a person back and forth between the two interfaces).
+    """
+    return enabled(user, "attendance")
+
+
 def hand_on(request, key):
     """Should this request for a classic page be sent to the new app instead.
 
@@ -139,9 +157,10 @@ def hand_on(request, key):
     * they asked for the classic page by name (``?classic=1``);
     * the new app has not been built: a switched-on person would be sent to a bare
       503 with no way back, away from the classic pages that still work;
-    * the check-in screen, or a check-out or extra-time reminder, is due. Those are
-      shown only by the classic interface, and a forgotten check-out costs the day, so
-      the person stays there until they have dealt with it.
+    * the check-in screen, or a check-out or extra-time reminder, is due and the person's
+      ``attendance`` screen is not switched on. Then only the classic interface shows it, and a
+      forgotten check-out costs the day, so they stay there until they have dealt with it. With
+      the screen on the new app draws it over whatever page they are on (``AttendanceGate``).
 
     An assignment waiting for an answer (its 60-second clock running) used to keep a person on the
     classic page, which was the only one that could show the accept screen. The new app shows it
@@ -152,7 +171,7 @@ def hand_on(request, key):
         return False
     if spa.built_assets() is None:
         return False
-    return not attendance.gate_for(user)
+    return key == "attendance" or gate_in_app(user) or not attendance.gate_for(user)
 
 
 def pilot_candidates(key):

@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, chatlists, clock, identity, services
+from . import ai, attendance, chatlists, clock, identity, newui, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -158,6 +158,8 @@ def heartbeat(request):
     # The check-in screen: opens by itself when a shift starts, even on a page
     # that was already open (static/js/attendance.js).
     data["attendance"] = attendance.gate_for(user)
+    # Whether the new app draws that screen itself (its heartbeat must not send the person to the classic pages for it).
+    data["attendance_screen"] = newui.gate_in_app(user)
     code = (request.GET.get("task") or "").strip()
     if code:
         task = Task.objects.filter(code=code).first()

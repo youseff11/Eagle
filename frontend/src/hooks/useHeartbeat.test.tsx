@@ -112,6 +112,84 @@ describe("useHeartbeat", () => {
     }
   });
 
+  describe("the check-in screen, when this app draws it", () => {
+    const GATE = { kind: "check_in", date: "2026-09-21", shift: "Shift 1" };
+
+    it("keeps the person here and tells what is asked, for each of the three kinds", async () => {
+      for (const kind of ["check_in", "check_out", "extra"]) {
+        vi.mocked(navigation.assign).mockClear();
+        const heard: unknown[] = [];
+        const gate = { ...GATE, kind };
+        answer = { ok: true, attendance: gate, attendance_screen: true, pending: null, call: null };
+        const { unmount } = renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(navigation.assign, kind).not.toHaveBeenCalled();
+        expect(heard, kind).toEqual([gate]);
+        unmount();
+      }
+    });
+
+    it("tells nothing is asked once it is done, and what is asked again when it comes back", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: null };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      answer = { ok: true, attendance: null, attendance_screen: true, pending: null, call: null };
+      await vi.advanceTimersByTimeAsync(4000);
+      answer = { ok: true, attendance: { ...GATE, kind: "check_out" }, attendance_screen: true, pending: null, call: null };
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(heard).toEqual([GATE, null, { ...GATE, kind: "check_out" }]);
+    });
+
+    it("says nothing when a beat fails: the screen stays as it was until the next one tells the truth", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: null };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      fetchMock.mockImplementationOnce(async () => {
+        throw new TypeError("network down");
+      });
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(heard).toEqual([GATE]);
+    });
+
+    it("still sends the person to the classic interface when it is not this app that draws it", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: GATE, attendance_screen: false, pending: null, call: null };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+      expect(heard).toEqual([]);
+    });
+
+    it("tells nothing is asked to a person whose screen is not drawn here and who owes nothing", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: null, attendance_screen: false, pending: null, call: null };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(heard).toEqual([null]);
+      expect(navigation.assign).not.toHaveBeenCalled();
+    });
+
+    it("never takes the word of an answer that does not say who draws it", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: GATE, pending: null, call: null };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+      expect(heard).toEqual([]);
+    });
+
+    it("still sends the person away for a ringing call, which only the classic interface shows", async () => {
+      const heard: unknown[] = [];
+      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: { id: 9 } };
+      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
+      expect(heard).toEqual([]);
+    });
+  });
+
   it("does not start a second beat while the first is still waiting for its answer", async () => {
     let release: (value: Response) => void = () => undefined;
     fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (release = resolve)));

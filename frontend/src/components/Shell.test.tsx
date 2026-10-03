@@ -347,3 +347,38 @@ describe("Shell", () => {
     });
   });
 });
+
+describe("Shell: the attendance screen", () => {
+  const at = (route: string, screens: string[]) => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="attendance" element={<div>card</div>} />
+          <Route path="translator" element={<div>desk</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+
+  it("lists «حضوري» for a person whose attendance screen is on, lit on its page and titled by it", async () => {
+    const view = at("/attendance", ["translator_home", "attendance"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/attendance"]')).not.toBeNull());
+    expect(within(view.container.querySelector('.sidebar a[href="/attendance"]') as HTMLElement).getByText("حضوري")).toBeInTheDocument();
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("حضوري");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/attendance"].is-active')).not.toBeNull());
+    expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
+  });
+
+  it("does not list it for a person whose screen is off", async () => {
+    const view = at("/translator", ["translator_home"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/attendance"]')).toBeNull();
+  });
+});
+

@@ -5,6 +5,8 @@ import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
   AiCheckAnswer,
+  AttendanceCard,
+  AttendanceGate,
   AssignmentResponse,
   ChatKind,
   ChatListResponse,
@@ -213,6 +215,33 @@ export function useMailThread(id: number, enabled = true) {
     refetchInterval: MAIL_POLL_MS,
     enabled,
   });
+}
+
+/** The person's own card: today, the last fortnight, the month, their devices. */
+export function useAttendance() {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.attendance,
+    queryFn: () => api<AttendanceCard>("/api/v1/attendance/"),
+    refetchInterval,
+  });
+}
+
+/**
+ * What the check-in screen asks right now, or `null`. It is not fetched: the page that carried the app wrote what it
+ * asked at load (`main.tsx`) and `useHeartbeat` writes what each beat says, so the screen opens within a beat of the
+ * shift starting and closes within a beat of the check-in - on the same poll that keeps the person "online".
+ */
+export function useGate(): AttendanceGate | null {
+  return (
+    useQuery<AttendanceGate | null>({
+      queryKey: qk.gate,
+      queryFn: () => null,
+      enabled: false,
+      initialData: null,
+      staleTime: Infinity,
+    }).data ?? null
+  );
 }
 
 /**

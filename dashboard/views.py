@@ -2006,6 +2006,13 @@ def translator_payroll(request):
 # Attendance - the person's own card
 # ---------------------------------------------------------------------------
 
+def _attendance_hand_on(request):
+    """The card in the new app once this person's ``attendance`` screen is switched on; else ``None``."""
+    if newui.hand_on(request, "attendance"):
+        return redirect("/app/attendance")
+    return None
+
+
 @login_required
 def my_attendance(request):
     """Check in, break, check out - and the last fortnight, read only.
@@ -2014,6 +2021,10 @@ def my_attendance(request):
     by HR with a reason attached, which is the whole point of section 9.
     """
     user = request.user
+    # A form that is already open posts to its own endpoint, so only opening the card is handed on.
+    handed = _attendance_hand_on(request)
+    if handed is not None:
+        return handed
     today = timezone.localdate()
     # A day whose check-out never came is settled before it is drawn.
     attendance.expire_open_days(user=user)

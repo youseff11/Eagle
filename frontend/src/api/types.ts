@@ -1,7 +1,93 @@
 export type Lang = "ar" | "en";
 
 /** A screen that has been ported to this app. The menu and the home page follow what the server lists. */
-export type ScreenKey = "translator_home" | "operation" | "chats";
+/** A moment the server wrote in both languages (Cairo, twelve hours) - the same shape as `Stamp`. */
+type Both = { ar: string; en: string };
+
+/**
+ * What the check-in screen asks right now (`attendance.gate_for`): the check-in, which stays until it is done; the
+ * reminder after the shift (check out, or press extra time); and the one while extra time runs.
+ */
+export type AttendanceGate =
+  | {
+      kind: "check_in";
+      date: string;
+      shift: string;
+      start: Both;
+      end: Both;
+      grace_until: Both;
+      grace: number;
+      /** How many minutes late this person already is (the whole delay counts once past the grace). */
+      late_now: number;
+      needs_location: boolean;
+      checkout_after: number;
+    }
+  | { kind: "check_out"; date: string; shift: string; end: Both; deadline: Both; needs_location: boolean }
+  | { kind: "extra"; date: string; shift: string; end: Both; extra_since: Both; deadline: Both; needs_location: boolean };
+
+export type PunchAction = "check_in" | "check_out" | "break_start" | "break_end" | "extra_start";
+
+/** POST /api/attendance/punch/: a refusal is `ok: false` with its reason in both languages, not an HTTP error. */
+export type PunchAnswer =
+  | { ok: true; action: PunchAction; at: string; late_minutes: number; overtime_minutes: number }
+  | { ok: false; error: string; ar?: string; en?: string };
+
+/** GET /api/v1/attendance/: the person's own card. */
+export interface AttendanceCard {
+  ok: true;
+  enabled: boolean;
+  work_date: string;
+  plan: {
+    working: boolean;
+    label: string;
+    mode: Labelled | null;
+    start: Both | null;
+    end: Both | null;
+  };
+  needs_location: boolean;
+  day: {
+    state: "none" | "open" | "closed";
+    check_in: Both | null;
+    check_out: Both | null;
+    extra_started_at: Both | null;
+    extra_running: boolean;
+    break_minutes: number;
+    on_break: boolean;
+    hours: string;
+    late_minutes: number;
+    needs_review: boolean;
+    review_reason: string;
+    checkout_missed: boolean;
+    /** The end of the shift as a moment (ISO); `null` on a day nobody is rostered. */
+    shift_end: string | null;
+  };
+  conf: { grace_minutes: number; missing_checkout_after_minutes: number };
+  summary: {
+    scheduled_days: number;
+    present_days: number;
+    office_days: number;
+    remote_days: number;
+    late_days: number;
+    late_minutes: number;
+    short_minutes: number;
+    overtime_minutes: number;
+  };
+  recent: {
+    date: string;
+    mode: Labelled | null;
+    schedule: string;
+    check_in: Both | null;
+    check_out: Both | null;
+    hours: string;
+    status: Labelled & { tone: string };
+    late_minutes: number;
+    overtime_minutes: number;
+    checkout_missed: boolean;
+  }[];
+  devices: { label: string; status: "approved" | "pending" | "rejected" }[];
+}
+
+export type ScreenKey = "translator_home" | "operation" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -90,7 +176,9 @@ export interface ReadResponse {
 export interface HeartbeatResponse {
   ok: true;
   /** The attendance screen that is due, or null: `{ kind: "check_in" | "check_out" | "extra", ... }`. */
-  attendance: { kind?: string } | null;
+  attendance: AttendanceGate | null;
+  /** Whether this app draws that screen itself for this person (their attendance screen is switched on). */
+  attendance_screen?: boolean;
   /** An assignment waiting for an answer (the 60-second accept screen), or null. */
   pending: PendingAssignment | null;
   /** A call ringing for this person, or null. */

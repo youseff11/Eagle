@@ -8,6 +8,7 @@ import { CLASSIC_HOME } from "../lib/navigation";
 import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { AssignmentModal } from "./AssignmentModal";
+import { AttendanceGate } from "./AttendanceGate";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { NotificationToasts } from "./NotificationToasts";
@@ -65,6 +66,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
     ],
   },
+  attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"] },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
 
@@ -90,6 +92,8 @@ export function Shell() {
       <Frame />
       {/* On a clock, so over every page: a person who has not seen it loses the assignment. */}
       <AssignmentModal />
+      {/* The check-in screen: over every page, and it cannot be put off until the person has checked in. */}
+      <AttendanceGate />
     </ToastProvider>
   );
 }

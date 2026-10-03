@@ -4,6 +4,7 @@ import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { AssignmentPage } from "./pages/AssignmentPage";
+import { AttendancePage } from "./pages/AttendancePage";
 import { ClientPage } from "./pages/ClientPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { HomePage } from "./pages/HomePage";
@@ -26,6 +27,7 @@ export function App({ pollMs }: { pollMs: number }) {
     pollMs,
     () => void client.invalidateQueries({ queryKey: qk.boards }),
     (pending) => client.setQueryData(qk.pending, pending),
+    (gate) => client.setQueryData(qk.gate, gate),
   );
   return (
     <Routes>
@@ -35,6 +37,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="translator" element={<TranslatorHomePage />} />
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="assignments/:id" element={<AssignmentPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="inbox/thread/:id" element={<MailThreadPage />} />
         <Route path="tasks" element={<TasksPage />} />

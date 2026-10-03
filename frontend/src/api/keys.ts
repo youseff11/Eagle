@@ -43,6 +43,10 @@ export const qk = {
   /** The client codes (by the search), and one client: under `boards`, so a doorbell asks again. */
   clients: (query: string) => ["boards", "clients", "list", query] as const,
   client: (code: string) => ["boards", "clients", "one", code] as const,
+  /** What the check-in screen asks right now, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
+  gate: ["attendance-gate"] as const,
+  /** The person's own attendance card: under `boards`, so a beat that says something moved asks again. */
+  attendance: ["boards", "attendance"] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

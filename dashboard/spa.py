@@ -119,9 +119,13 @@ def content_security_policy(request):
 @ensure_csrf_cookie
 @require_safe
 def shell(request, path=""):
-    # The check-in screen may not be skipped, and the check-out and extra-time reminders are
-    # shown only by the classic interface: whoever owes one of them works there.
-    if attendance.gate_for(request.user):
+    # The check-in screen may not be skipped, and a check-out or extra-time reminder costs the day when it is
+    # missed. The new app draws them itself for a person whose attendance screen is on; for everybody else only
+    # the classic interface shows them, so whoever owes one of them works there.
+    from . import newui
+
+    in_app = newui.gate_in_app(request.user)
+    if not in_app and attendance.gate_for(request.user):
         return redirect(reverse("dashboard:home") + "?classic=1")
     assets = built_assets()
     if assets is None:
@@ -131,6 +135,10 @@ def shell(request, path=""):
             status=503,
             content_type="text/plain; charset=utf-8",
         )
-    response = render(request, "app/shell.html", {"assets": assets, "app_config": _config(request)})
+    config = _config(request)
+    if in_app:
+        # What the screen asks right now, so it is on the first paint and not a beat later (as the classic page does).
+        config["gate"] = attendance.gate_for(request.user)
+    response = render(request, "app/shell.html", {"assets": assets, "app_config": config})
     response["Content-Security-Policy"] = content_security_policy(request)
     return response

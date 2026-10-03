@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App";
 import { ApiError, setUnauthorizedHandler } from "./api/client";
+import { qk } from "./api/keys";
 import { readConfig } from "./config";
 import { PreferencesProvider } from "./i18n/Preferences";
 import { redirectToLogin } from "./lib/navigation";
@@ -24,6 +25,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// What the check-in screen asks at this moment, from the page itself: on the first paint, not a beat later.
+queryClient.setQueryData(qk.gate, config.gate);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
