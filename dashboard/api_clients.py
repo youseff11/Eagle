@@ -7,8 +7,10 @@ that matched a typed name and answered with the code would hand the name over as
 the identity, in a list or on a client, is a row in the audit log, as it is on the classic pages. A GET changes
 nothing; a requirement is the one write, and it is checked where the classic page checks it.
 
-The operation and the admin use these doors; the other roles that open the classic pages (the team leader, Sales,
-Accounting) are not moved to the new app yet, so they have no door here.
+The operation, the Sales and the admin use these doors; the other roles that open the classic pages (the team
+leader, Accounting) are not moved to the new app yet, so they have no door here. A Sales person reads what the
+classic page shows them - the code and who the client is (Sales may always know), the requirements, the follow-up
+numbers and the newest tasks - and writes nothing: requirements are the work-doers' (``_may_edit``).
 """
 
 from django.db.models import Count
@@ -31,7 +33,7 @@ MAX_QUERY = 200
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 def clients(request):
     """The client codes, ``?q=`` narrowing them. The identity columns are there only for who may see them."""
     user = request.user
@@ -68,7 +70,7 @@ def _may_edit(user):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SALES)
 def client(request, code):
     """One client: the requirements, the tasks (the newest thirty) and - for whoever may - who the client is."""
     user = request.user
@@ -77,9 +79,10 @@ def client(request, code):
     if sees:
         identity.record_identity_view(request, row, "client_detail")
     tasks = row.tasks.all()
-    # Counts and dates only, for the people who follow a client without running it (the admin sees it on this page too).
+    # Counts and dates only, for the people who follow a client without running it: after a client is won Sales
+    # follows them and does not run them - no files, no conversation, no money (the admin sees it on this page too).
     activity = None
-    if user.is_admin_role:
+    if user.is_admin_role or user.is_sales:
         activity = {
             "total": tasks.count(),
             "active": tasks.filter(status__in=ACTIVE_TASK_STATUSES).count(),

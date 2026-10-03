@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
 import { qk } from "./keys";
+import type { SalesLine } from "./types";
 
 /**
  * What the operation does on a task: the classic endpoints, unchanged, with the checks they already make
@@ -139,5 +140,18 @@ export function useAddClientRequirement(code: string) {
       // The list counts them.
       void client.invalidateQueries({ queryKey: ["boards", "clients", "list"] });
     },
+  });
+}
+
+/**
+ * Save a Sales person's own WhatsApp number. A refusal names the box and says why in the classic page's words
+ * (`ApiError.payload.fields`), and nothing is saved; the answer is the line as it is now.
+ */
+export function useSaveLine() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: { wa_phone_number_id: string; wa_display_number: string }) =>
+      api<SalesLine>("/api/v1/sales/line/save/", { json: values }),
+    onSuccess: (line) => client.setQueryData(qk.salesLine, line),
   });
 }

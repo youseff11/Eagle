@@ -175,6 +175,26 @@ def number_problem(user, phone_number_id):
     return ""
 
 
+def save_own_line(user, phone_number_id, display_number):
+    """Put a Sales person's own WhatsApp number on their record. Returns the reason it cannot be, or ``""``.
+
+    One function for the classic page and the new app's door, so what may be saved is written once. Nothing is
+    changed when there is a reason.
+    """
+    from . import services
+
+    phone_number_id = (phone_number_id or "").strip()[:40]
+    display_number = (display_number or "").strip()[:30]
+    problem = number_problem(user, phone_number_id)
+    if problem:
+        return problem
+    user.wa_phone_number_id = phone_number_id
+    user.wa_display_number = display_number
+    user.save(update_fields=["wa_phone_number_id", "wa_display_number"])
+    services.log(user, "sales.line", user.username, f"wa={phone_number_id or '-'}")
+    return ""
+
+
 def alias_problem(user, alias):
     """Why this can't be this person's mail address. Empty when it can."""
     from .models import AppSettings, User

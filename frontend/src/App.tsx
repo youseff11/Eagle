@@ -15,6 +15,7 @@ import { ChatsPage } from "./pages/ChatsPage";
 import { NewTaskPage } from "./pages/NewTaskPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PayrollPage } from "./pages/PayrollPage";
+import { SalesLinePage } from "./pages/SalesLinePage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { TeamPage } from "./pages/TeamPage";
@@ -43,6 +44,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="tasks/new" element={<NewTaskPage />} />
         <Route path="tasks/:code" element={<TaskRoute />} />
+        <Route path="line" element={<SalesLinePage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:code" element={<ClientPage />} />
         <Route path="team" element={<TeamPage />} />

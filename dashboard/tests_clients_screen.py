@@ -41,7 +41,8 @@ class _Clients(_Site):
         return Client.objects.create(**{"name": "Other Corp", "phone": "+201119998888", "email": "x@other.example", **fields})
 
     def refused_for_everybody_else(self, name, args=None):
-        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+        # The Sales read these pages too (the section below pins what they are given); nobody else but the operation and the admin.
+        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting):
             answer = self.get(user, name, args)
             self.assertEqual((answer.status_code, _json(answer)), (403, {"ok": False, "error": "forbidden"}), user.username)
         self.assertEqual(self.get(None, name, args).status_code, 401)

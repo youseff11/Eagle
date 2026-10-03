@@ -97,7 +97,7 @@ export function ClientPage() {
   const { t } = usePreferences();
   const me = useMe();
   const { code = "" } = useParams();
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.is_admin);
+  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "sales" || me.data.user.is_admin);
   const query = useClient(code, allowed);
   const add = useAddClientRequirement(code);
 

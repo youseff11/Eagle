@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "translator_home" | "operation" | "attendance" | "chats";
+export type ScreenKey = "translator_home" | "operation" | "sales" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -832,4 +832,14 @@ export interface ClientResponse {
   tasks: { code: string; title: string; origin: (Labelled & { icon: string }) | null; status: Labelled & { tone: string } }[];
   /** The classic form that writes the identity: for the admin alone. */
   edit_url?: string;
+}
+
+/** GET /api/v1/sales/line/ (and what a save answers with): a Sales person's own number, and the address the admin gave them. */
+export interface SalesLine {
+  ok: true;
+  /** Each Sales person fills it in for themselves; anybody else may read what it asks for. */
+  is_owner: boolean;
+  values: { wa_phone_number_id: string; wa_display_number: string; mail_alias: string };
+  /** The company mailbox the person's address has to deliver into. */
+  company_mail: string;
 }

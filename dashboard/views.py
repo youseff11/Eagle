@@ -758,9 +758,12 @@ def _ops_hand_on(request, path):
     """The same page in the new app, for the operation (and the admin) once their screen is switched over; else ``None``.
 
     One switch, ``operation``, for the task list, the new-task form, the team board, the mail and the client
-    pages: nobody has half of it. The caller says where the page is in the new app and what of its query goes along.
+    pages: nobody has half of it. A Sales person reads the same mail and client pages by their own switch,
+    ``sales`` (the pages are the same: the server answers each person what is theirs). The caller says where the
+    page is in the new app and what of its query goes along.
     """
-    if not newui.hand_on(request, "operation"):
+    key = "sales" if request.user.is_sales else "operation"
+    if not newui.hand_on(request, key):
         return None
     return redirect("/app" + path)
 
@@ -3358,6 +3361,11 @@ def sales_line(request):
     from . import lines
 
     user = request.user
+    # A form that is already open posts back here and is answered here; only opening the page is handed on.
+    if request.method == "GET" and user.is_sales:
+        handed = _ops_hand_on(request, "/line")
+        if handed is not None:
+            return handed
     errors = {}
     saved = False
     values = {
@@ -3371,16 +3379,10 @@ def sales_line(request):
             "wa_display_number": request.POST.get("wa_display_number", "").strip()[:30],
             "mail_alias": user.mail_alias,
         }
-        problem = lines.number_problem(user, values["wa_phone_number_id"])
+        problem = lines.save_own_line(user, values["wa_phone_number_id"], values["wa_display_number"])
         if problem:
             errors["wa_phone_number_id"] = problem
-        if not errors:
-            fields = ["wa_phone_number_id", "wa_display_number"]
-            for field in fields:
-                setattr(user, field, values[field])
-            user.save(update_fields=fields)
-            services.log(user, "sales.line", user.username,
-                         f"wa={values['wa_phone_number_id'] or '-'}")
+        else:
             saved = True
 
     conf = AppSettings.load()

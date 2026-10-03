@@ -38,6 +38,10 @@ class Screen:
     #: Whether the classic page hands a switched-on person to the new one. A screen that cannot do
     #: everything the classic page does yet is shown in the new app's menu only: nobody is sent to it.
     redirects: bool = True
+    #: Whether the admin is switched on by default, before anybody has touched the setting. Off for a screen that is
+    #: another role's way into pages the admin already has (the Sales' mail and client codes are the operation's
+    #: pages in the new app): the admin would otherwise find the same lines in the menu twice.
+    admin_default: bool = True
 
     def allows(self, user):
         """May this person open the screen at all, whatever the switch says."""
@@ -64,6 +68,10 @@ SCREENS = {
             classic="ops_tasks", path="/tasks", roles=(Role.OPERATION,),
         ),
         Screen(
+            "sales", "شاشة المبيعات (ميلاتي، رقمي وإيميلي، أكواد العملاء)", "The Sales screen (my mail, my number and mail, client codes)",
+            classic="sales_line", path="/line", roles=(Role.SALES,), admin_default=False,
+        ),
+        Screen(
             "attendance", "الحضور والانصراف (الكارت وشاشة التسجيل)", "Attendance (the card and the check-in screen)",
             classic="my_attendance", path="/attendance",
             roles=(
@@ -85,6 +93,11 @@ SCREENS = {
 #: What a screen with no setting yet looks like: the admin's alone.
 DEFAULT = {"roles": [Role.ADMIN.value], "users": []}
 
+
+def default_for(key):
+    """``DEFAULT`` for one screen: the admin's alone, or nobody's when the screen is not the admin's to begin with."""
+    return {"roles": list(DEFAULT["roles"]) if SCREENS[key].admin_default else [], "users": []}
+
 #: ``?classic=1`` on a classic page: show it, do not hand the person on.
 CLASSIC_PARAM = "classic"
 
@@ -104,7 +117,7 @@ def config(conf, key):
     raw = (conf.new_ui or {}) if isinstance(conf.new_ui, dict) else {}
     entry = raw.get(key)
     if not isinstance(entry, dict) or not isinstance(entry.get("roles"), list):
-        return {"roles": list(DEFAULT["roles"]), "users": []}
+        return default_for(key)
     known = set(screen.eligible_roles)
     roles = [r for r in entry["roles"] if isinstance(r, str) and r in known]
     people = entry.get("users")

@@ -47,6 +47,8 @@ export const qk = {
   gate: ["attendance-gate"] as const,
   /** The person's own attendance card: under `boards`, so a beat that says something moved asks again. */
   attendance: ["boards", "attendance"] as const,
+  /** A Sales person's own line (their number and address). */
+  salesLine: ["sales-line"] as const,
   /** The hand-off waiting for an answer, as the heartbeat last told it (written by `useHeartbeat`, never fetched). */
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */

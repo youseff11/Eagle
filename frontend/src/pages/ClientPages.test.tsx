@@ -122,13 +122,24 @@ describe("ClientsPage", () => {
   });
 
   it("sends everybody else home without asking", async () => {
-    for (const who of ["translator", "team_lead", "hr", "accounting", "reviewer", "sales"] as Role[]) {
+    for (const who of ["translator", "team_lead", "hr", "accounting", "reviewer"] as Role[]) {
       const mocked = serveList(() => jsonResponse(list()), who);
       const { unmount } = shell("/clients");
       expect(await screen.findByText("home page")).toBeInTheDocument();
       expect(listCalls(mocked.calls), who).toEqual([]);
       unmount();
     }
+  });
+
+  it("is a Sales person's page too: they are given who the clients are, as the classic page gives them", async () => {
+    const mocked = serveList(
+      () => jsonResponse(list({ sees_identity: true, clients: [row("CL-0001", { name: "ACME Ltd", company: "ACME Holdings", phone: "+2010" })] })),
+      "sales",
+    );
+    shell("/clients");
+    expect(await screen.findByText("ACME Ltd")).toBeInTheDocument();
+    expect(screen.getByText("+2010")).toBeInTheDocument();
+    expect(listCalls(mocked.calls)).toEqual(["/api/v1/clients/"]);
   });
 
   it("says it could not load, and speaks English too", async () => {
@@ -315,6 +326,27 @@ describe("ClientPage", () => {
     expect(await screen.findByText("حصلت مشكلة في التحميل.")).toBeInTheDocument();
   });
 
+  it("is a Sales person's page too: who the client is, the follow-up numbers, the tasks - and no form to add a requirement", async () => {
+    serveOne(
+      () =>
+        jsonResponse(
+          client({
+            sees_identity: true,
+            may_edit: false,
+            client: { code: "CL-0001", name: "ACME Ltd", company: "ACME Holdings", phones: ["+2010"], emails: ["a@acme.example"], admin_notes: "" },
+            activity: { total: 9, active: 2, delivered: 6, last: { ar: "2026-10-01", en: "2026-10-01" } },
+          }),
+        ),
+      "sales",
+    );
+    shell("/clients/CL-0001");
+    expect(await screen.findByText("+2010")).toBeInTheDocument();
+    expect(screen.getByText("متابعة العميل")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "المتطلب" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "TSK-00001" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "تعديل البيانات" })).toBeNull();
+  });
+
   it("goes back to the list", async () => {
     serveOne(() => jsonResponse(client()));
     shell("/clients/CL-0001");
@@ -322,7 +354,7 @@ describe("ClientPage", () => {
   });
 
   it("sends everybody else home without asking", async () => {
-    for (const who of ["translator", "team_lead", "hr", "accounting", "reviewer", "sales"] as Role[]) {
+    for (const who of ["translator", "team_lead", "hr", "accounting", "reviewer"] as Role[]) {
       const mocked = serveOne(() => jsonResponse(client()), who);
       const { unmount } = shell("/clients/CL-0001");
       expect(await screen.findByText("home page")).toBeInTheDocument();

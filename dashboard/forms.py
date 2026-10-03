@@ -948,7 +948,7 @@ class SettingsForm(forms.ModelForm):
         from .templatetags.eagle_tags import ROLE_MAP
 
         for key, screen in newui.SCREENS.items():
-            setting = newui.config(instance, key) if instance is not None else newui.DEFAULT
+            setting = newui.config(instance, key) if instance is not None else newui.default_for(key)
             choices = [
                 (role, " · ".join(ROLE_MAP.get(role, (role, role))))
                 for role in screen.eligible_roles

@@ -382,3 +382,65 @@ describe("Shell: the attendance screen", () => {
   });
 });
 
+describe("Shell: the Sales screen", () => {
+  const at = (route: string, screens: string[], extra: Record<string, unknown> = {}) => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse({ ...me({ role: "sales" }, 0, screens as never), ...extra }),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="inbox" element={<div>mailbox</div>} />
+          <Route path="inbox/thread/:id" element={<div>conversation</div>} />
+          <Route path="line" element={<div>line</div>} />
+          <Route path="clients" element={<div>clients</div>} />
+          <Route path="clients/:code" element={<div>client</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+  const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+  it("lists their mail, their number and mail, and the client codes in the classic menu's words, then the chats", async () => {
+    const view = at("/inbox", ["sales", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 5)).toEqual(["/", "/inbox", "/line", "/clients", "/chats"]);
+    expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلاتي")).toBeInTheDocument();
+    expect(within(view.container.querySelector('.sidebar a[href="/line"]') as HTMLElement).getByText("رقمي وإيميلي")).toBeInTheDocument();
+    expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
+  });
+
+  it("shows the badge of the mail they have not opened, and no tasks line", async () => {
+    const view = at("/inbox", ["sales"], { mail_unseen: 3 });
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/inbox"] .nav__count')).toHaveTextContent("3"));
+    expect(view.container.querySelector('.sidebar a[href="/tasks"]')).toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/team"]')).toBeNull();
+  });
+
+  it("titles every page of the screen and lights exactly the line of the page they are on", async () => {
+    const pages: [string, string, string][] = [
+      ["/inbox", "ميلاتي", "/inbox"],
+      ["/inbox/thread/12", "ميلاتي", "/inbox"],
+      ["/line", "رقمي وإيميلي", "/line"],
+      ["/clients", "أكواد العملاء", "/clients"],
+      ["/clients/CL-0001", "أكواد العملاء", "/clients"],
+    ];
+    for (const [route, title, lit] of pages) {
+      const view = at(route, ["sales"]);
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`)).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("draws none of it for a person whose Sales screen is not switched on", async () => {
+    const view = at("/inbox", ["chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    for (const href of ["/inbox", "/line", "/clients"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+  });
+});
+

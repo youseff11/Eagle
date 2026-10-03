@@ -29,6 +29,7 @@ import type {
   PendingAssignment,
   ReactResponse,
   ReadResponse,
+  SalesLine,
   SendResponse,
   ThreadResponse,
   TasksResponse,
@@ -154,6 +155,15 @@ export function useTeam(enabled = true) {
     queryKey: qk.team,
     queryFn: () => api<TeamResponse>("/api/v1/team/"),
     refetchInterval,
+    enabled,
+  });
+}
+
+/** A Sales person's own number and address (the admin may read the page, and sees it empty). */
+export function useSalesLine(enabled = true) {
+  return useQuery({
+    queryKey: qk.salesLine,
+    queryFn: () => api<SalesLine>("/api/v1/sales/line/"),
     enabled,
   });
 }

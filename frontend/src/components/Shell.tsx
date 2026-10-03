@@ -66,6 +66,17 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
     ],
   },
+  // A Sales person's own line, in the classic menu's words: their mail, their number and address, the client codes.
+  sales: {
+    path: "/inbox",
+    icon: "mail",
+    label: ["ميلاتي", "My mail"],
+    badge: "mail_unseen",
+    extra: [
+      { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"] },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
+    ],
+  },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"] },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
