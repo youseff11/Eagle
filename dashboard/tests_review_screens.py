@@ -722,3 +722,237 @@ class ReceiptLeavesFromTheLettersOwnLineTests(ReplyLeavesFromTheLettersOwnLineTe
         own = self.letter("omar@eagle.example", "Quote")
         self.letter("info@eagle.example", "Another thing")
         self.assertEqual(self.receipt(own), "omar@eagle.example")
+
+
+class RelayCredentialsTests(_Site):
+    """With a secret the relay's password is made for one person and one call; without it the older pair is handed out."""
+
+    def relay(self, user, **env):
+        import os
+        from unittest import mock
+
+        base = {"EAGLE_TURN_URL": "turn:relay.example:3478", "EAGLE_TURN_USER": "static-user", "EAGLE_TURN_PASSWORD": "static-pass", "EAGLE_TURN_SECRET": ""}
+        base.update(env)
+        with mock.patch.dict(os.environ, base):
+            return services.ice_servers(user, now=1_800_000_000)[-1]
+
+    def test_with_a_secret_the_username_carries_the_expiry_and_the_person_and_the_password_is_the_hmac(self):
+        import base64
+        import hashlib
+        import hmac
+
+        server = self.relay(self.tr, EAGLE_TURN_SECRET="shared-secret")
+        expires = 1_800_000_000 + services.TURN_CREDENTIAL_SECONDS
+        self.assertEqual(server["username"], f"{expires}:{self.tr.pk}")
+        expected = base64.b64encode(hmac.new(b"shared-secret", server["username"].encode(), hashlib.sha1).digest()).decode()
+        self.assertEqual(server["credential"], expected)
+        self.assertNotIn("static-pass", json.dumps(server))
+        self.assertNotIn("static-user", json.dumps(server))
+
+    def test_each_person_gets_their_own_and_it_is_not_the_other_persons(self):
+        mine = self.relay(self.tr, EAGLE_TURN_SECRET="shared-secret")
+        theirs = self.relay(self.lead, EAGLE_TURN_SECRET="shared-secret")
+        self.assertNotEqual(mine["credential"], theirs["credential"])
+        self.assertNotEqual(mine["username"], theirs["username"])
+
+    def test_without_a_secret_the_older_pair_is_handed_out_as_before(self):
+        server = self.relay(self.tr)
+        self.assertEqual((server["username"], server["credential"]), ("static-user", "static-pass"))
+
+    def test_no_relay_set_up_means_no_relay_entry(self):
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"EAGLE_TURN_URL": ""}):
+            self.assertEqual(len(services.ice_servers(self.tr)), 1)
+
+    def test_the_call_doors_hand_out_the_per_person_credential(self):
+        import os
+        from unittest import mock
+
+        browser = DjangoClient()
+        browser.force_login(self.ops)
+        with mock.patch.dict(os.environ, {"EAGLE_TURN_URL": "turn:relay.example:3478", "EAGLE_TURN_SECRET": "shared-secret", "EAGLE_TURN_PASSWORD": "static-pass"}):
+            body = browser.post("/api/calls/start/", {"user": self.lead.pk}).json()
+        relay = body["ice"][-1]
+        self.assertTrue(relay["username"].endswith(f":{self.ops.pk}"))
+        self.assertNotIn("static-pass", json.dumps(body))
+
+
+class OneDeliveryAtATimeTests(_Desk):
+    """A second press on the same job, while the first is sending, sends nothing."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, ChatMessage, RoomKind
+
+        self.job = _make_task(self, status=TaskStatus.REVIEWED, title="Ready", handover_ack_at=timezone.now())
+        room = services.ensure_room(self.job, RoomKind.GROUP)
+        message = ChatMessage.objects.create(room=room, sender=self.tr, body="done")
+        self.out = ChatAttachment.objects.create(message=message, file=ContentFile(b"translated", name="out.txt"), original_name="out.txt", size=10)
+
+    def deliver(self, **kw):
+        from unittest import mock
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.0") as text, \
+                mock.patch("dashboard.whatsapp.send_file", return_value="wamid.1") as sender:
+            result = services.deliver_to_client(self.job, self.ops, attachment_ids=[self.out.pk], note="here", **kw)
+        return result, text, sender
+
+    def claim(self, age_seconds=0):
+        from .models import OutboundMessage
+
+        row = OutboundMessage.objects.create(
+            task=self.job, client=self.client_obj, created_by=self.ops, channel=Channel.WHATSAPP, status=OutboundMessage.Status.SENDING,
+        )
+        OutboundMessage.objects.filter(pk=row.pk).update(created_at=timezone.now() - timedelta(seconds=age_seconds))
+        return row
+
+    def test_a_send_in_flight_keeps_a_second_one_off_and_nothing_goes_out(self):
+        from .models import OutboundMessage
+
+        self.claim()
+        before = OutboundMessage.objects.count()
+        (ok, delivery, error), text, sender = self.deliver()
+        self.assertFalse(ok)
+        self.assertTrue(error)
+        self.assertEqual((text.call_count, sender.call_count), (0, 0))
+        self.assertEqual(OutboundMessage.objects.count(), before)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, TaskStatus.REVIEWED)
+
+    def test_the_door_answers_a_400_with_the_reason_while_one_is_in_flight(self):
+        self.claim()
+        browser = DjangoClient()
+        browser.force_login(self.ops)
+        answer = browser.post(f"/api/tasks/{self.job.code}/deliver/", {"attachments": [self.out.pk], "note": "here"})
+        self.assertEqual(answer.status_code, 400)
+        self.assertFalse(_json(answer)["ok"])
+
+    def test_a_row_left_by_a_crash_stops_counting_after_a_few_minutes(self):
+        self.claim(age_seconds=services.DELIVERY_CLAIM_SECONDS + 30)
+        (ok, delivery, error), _text, sender = self.deliver()
+        self.assertTrue(ok, error)
+        self.assertEqual(sender.call_count, 1)
+
+    def test_the_claim_is_written_before_the_files_leave(self):
+        from unittest import mock
+
+        from .models import OutboundMessage
+
+        seen = {}
+
+        def leaving(*args, **kwargs):
+            seen["claimed"] = OutboundMessage.objects.filter(task=self.job, status=OutboundMessage.Status.SENDING).exists()
+            return "wamid.0"
+
+        with mock.patch("dashboard.whatsapp.send_text", side_effect=leaving), mock.patch("dashboard.whatsapp.send_file", return_value="wamid.1"):
+            ok, _delivery, error = services.deliver_to_client(self.job, self.ops, attachment_ids=[self.out.pk], note="here")
+        self.assertTrue(ok, error)
+        self.assertTrue(seen["claimed"])
+
+    def test_a_send_that_finishes_leaves_no_row_saying_it_is_still_sending(self):
+        from .models import OutboundMessage
+
+        (ok, delivery, error), _text, _sender = self.deliver()
+        self.assertTrue(ok, error)
+        self.assertEqual(delivery.status, OutboundMessage.Status.SENT)
+        self.assertFalse(OutboundMessage.objects.filter(task=self.job, status=OutboundMessage.Status.SENDING).exists())
+
+    def test_a_send_that_fails_says_failed_and_lets_the_next_try_through(self):
+        from unittest import mock
+
+        from . import whatsapp
+        from .models import OutboundMessage
+
+        with mock.patch("dashboard.whatsapp.send_text", side_effect=whatsapp.WhatsAppError("boom", "boom")):
+            ok, delivery, error = services.deliver_to_client(self.job, self.ops, attachment_ids=[self.out.pk], note="here")
+        self.assertFalse(ok)
+        self.assertEqual(delivery.status, OutboundMessage.Status.FAILED)
+        self.assertFalse(OutboundMessage.objects.filter(task=self.job, status=OutboundMessage.Status.SENDING).exists())
+        (ok, _delivery, error), _text, sender = self.deliver()
+        self.assertTrue(ok, error)
+
+    def test_another_job_is_not_held_by_this_ones_send(self):
+        self.claim()
+        other = _make_task(self, status=TaskStatus.REVIEWED, title="Other", handover_ack_at=timezone.now())
+        from unittest import mock
+
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.0"):
+            ok, _delivery, error = services.deliver_to_client(other, self.ops, attachment_ids=[], note="here")
+        self.assertTrue(ok, error)
+
+
+class WhatTheClientWroteIsMaskedForTheOperationTests(_Site):
+    """The operation reads the letter to do the work; the client's name and contacts in it are taken out."""
+
+    SIGNATURE = f"Please quote the lease.\n\nRegards,\n{CLIENT_NAME}\n{CLIENT_PHONE}\n{CLIENT_EMAIL}"
+
+    def setUp(self):
+        super().setUp()
+        self.letter = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, sender_identity=CLIENT_EMAIL, subject=f"{CLIENT_NAME} lease",
+            body=self.SIGNATURE, thread_key="t-sign",
+        )
+
+    def assertClean(self, response, who):
+        text = response.content.decode("utf-8")
+        for marker in IDENTITY_MARKERS:
+            self.assertNotIn(marker, text, f"{who}: {marker}")
+
+    def test_the_thread_carries_the_subject_snippet_and_body_with_the_name_and_contacts_out_and_the_rest_in(self):
+        answer = _get(self.ops, "dashboard:v1_mail_thread", [self.letter.pk])
+        self.assertEqual(answer.status_code, 200)
+        self.assertClean(answer, "thread")
+        body = _json(answer)["thread"]
+        self.assertIn(self.client_obj.code, body["subject"])
+        entry = body["entries"][0]
+        self.assertIn("Please quote the lease.", entry["body"])
+        self.assertIn(self.client_obj.code, entry["body"])
+        self.assertIn("Regards", entry["snippet"] + entry["body"])
+
+    def test_the_list_row_carries_them_masked_too(self):
+        answer = _get(self.ops, "dashboard:v1_mail_threads")
+        self.assertClean(answer, "list")
+        row = next(one for one in _json(answer)["threads"] if one["id"] == self.letter.pk)
+        self.assertIn(self.client_obj.code, row["subject"])
+
+    def test_the_admin_and_the_owner_of_a_sales_line_read_it_as_written(self):
+        admin = _json(_get(self.admin, "dashboard:v1_mail_thread", [self.letter.pk]))["thread"]
+        self.assertIn(CLIENT_NAME, admin["subject"])
+        self.assertIn(CLIENT_PHONE, admin["entries"][0]["body"])
+        mine = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, sender_identity=CLIENT_EMAIL, subject="Mine", body=self.SIGNATURE,
+            thread_key="t-own", owner=self.sales,
+        )
+        own = _json(_get(self.sales, "dashboard:v1_mail_thread", [mine.pk]))["thread"]
+        self.assertIn(CLIENT_PHONE, own["entries"][0]["body"])
+
+    def test_the_task_page_and_the_new_task_form_carry_the_letter_masked(self):
+        InboundMessage.objects.filter(pk=self.letter.pk).update(task=self.task)
+        page = _get(self.ops, "dashboard:v1_task", [self.task.code])
+        self.assertClean(page, "task page")
+        form = _get(self.ops, "dashboard:v1_task_start", message=self.letter.pk)
+        self.assertEqual(form.status_code, 200)
+        self.assertClean(form, "task form")
+
+    def test_a_search_for_the_name_finds_nothing_for_the_operation_and_something_for_the_admin(self):
+        def found(user, query):
+            rows = _json(_get(user, "dashboard:v1_mail_threads", q=query))["threads"]
+            return [one["id"] for one in rows]
+
+        self.assertEqual(found(self.ops, "ACME"), [])
+        self.assertEqual(found(self.ops, "acme-secret"), [])
+        self.assertEqual(found(self.ops, "boss@"), [])
+        self.assertEqual(found(self.ops, "2001234567"), [])
+        self.assertIn(self.letter.pk, found(self.admin, "ACME"))
+
+    def test_a_search_for_what_is_shown_still_finds_it(self):
+        def found(user, query):
+            return [one["id"] for one in _json(_get(user, "dashboard:v1_mail_threads", q=query))["threads"]]
+
+        self.assertIn(self.letter.pk, found(self.ops, "quote the lease"))
+        self.assertIn(self.letter.pk, found(self.ops, self.client_obj.code))
+        self.assertIn(self.letter.pk, found(self.ops, "Regards"))

@@ -485,6 +485,16 @@ def _punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=Non
 
     # -- the device ---------------------------------------------------------
     device, device_ok = touch_device(user, conf, fingerprint, user_agent)
+    # A browser that sends no identity at all is a browser nobody can tell from another. Under "refuse" that is not "nothing to
+    # check": the punch waits for a browser that can say who it is. (Under the other policies it goes through, as it always did.)
+    if (
+        kind == PunchKind.CHECK_IN and conf.device_check_enabled and not (fingerprint or "").strip()
+        and conf.unknown_device_policy == OffSitePolicy.REJECT
+    ):
+        raise PunchRefused(
+            "no_device", "ما قدرناش نعرّف الجهاز ده — افتح من متصفح عادي أو كلّم الـHR.",
+            "This browser could not be identified - open it in a normal browser or ask HR.",
+        )
     if kind == PunchKind.CHECK_IN and device is not None and not device_ok:
         if conf.unknown_device_policy == OffSitePolicy.REJECT:
             raise PunchRefused(
@@ -519,6 +529,13 @@ def _punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=Non
                 level="warning", url="/hr/attendance/",
             )
         elif inside is None and latitude is None:
+            # With offices on the map and the policy "refuse", no position is no proof: the punch waits until the browser
+            # shares one. (Nothing is asked for on a remote day, and with no office set up there is nothing to compare with.)
+            if conf.off_site_policy == OffSitePolicy.REJECT and OfficeLocation.objects.filter(is_active=True).exists():
+                raise PunchRefused(
+                    "no_location", "لازم تسمح للمتصفح بتحديد موقعك عشان تسجّل الحضور.",
+                    "Allow the browser to share your location to punch.",
+                )
             _flag(row, "حضور من غير تحديد موقع")
 
     event = AttendanceEvent.objects.create(

@@ -2188,6 +2188,9 @@ class OutboundMessage(models.Model):
     """Anything we send back to the client — a task delivery or a chat reply."""
 
     class Status(models.TextChoices):
+        #: Written before the files leave, so a second press (or a second person) on the same job finds a send in flight
+        #: instead of sending the files again. It becomes SENT or FAILED when the send is over.
+        SENDING = "sending", "Sending"
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
         SKIPPED = "skipped", "Closed without sending"

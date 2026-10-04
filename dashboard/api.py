@@ -1297,7 +1297,7 @@ def call_start(request):
         return JsonResponse({"ok": False, "error": error}, status=400)
     return JsonResponse({
         "ok": True, "call": _call_json(call, request.user),
-        "ice": services.ice_servers(),
+        "ice": services.ice_servers(request.user),
     })
 
 
@@ -1309,7 +1309,7 @@ def call_answer(request, pk):
         identity.hidden(request, "call")
     ok = services.answer_call(call, request.user)
     return JsonResponse({
-        "ok": ok, "call": _call_json(call, request.user), "ice": services.ice_servers(),
+        "ok": ok, "call": _call_json(call, request.user), "ice": services.ice_servers(request.user),
         "error": "" if ok else "المكالمة خلصت.",
     }, status=200 if ok else 400)
 

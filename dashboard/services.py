@@ -327,7 +327,36 @@ def inbox_queryset(user, state="", query=""):
         if user.can_see_client_identity:
             match |= Q(sender_identity__icontains=query)
         qs = qs.filter(match)
+        if not user.can_see_client_identity:
+            qs = _search_what_is_shown(qs, user, query)
     return qs
+
+
+#: How many of the newest matching letters a search reads the shown words of (see ``_search_what_is_shown``).
+SEARCH_SCAN = 500
+
+
+def _search_what_is_shown(qs, user, query):
+    """Keep the letters whose words, as ``user`` reads them (the client's name and contacts taken out), contain the query, or
+    whose client code does.
+
+    The words are matched in the database as they were written, but shown with the name taken out: a search for a company's
+    name would otherwise bring up exactly the letters that name it, under a code, and the search would tell the operation who
+    that client is.
+    """
+    from . import identity
+    from .models import Client
+
+    needle = query.lower()
+    rows = list(qs.order_by("-received_at", "-id").values_list("pk", "subject", "body", "client_id")[:SEARCH_SCAN])
+    clients = Client.objects.in_bulk({row[3] for row in rows if row[3]})
+    kept = []
+    for pk, subject, body, client_id in rows:
+        client = clients.get(client_id)
+        shown = identity.mask_client(f"{subject}\n{body}", client, user).lower()
+        if needle in shown or (client is not None and needle in client.code.lower()):
+            kept.append(pk)
+    return qs.filter(pk__in=kept)
 
 
 # ---------------------------------------------------------------------------
@@ -2782,6 +2811,10 @@ def _read_attachment(attachment):
     return name, content, getattr(attachment, "mime", "") or wa.guess_mime(name)
 
 
+#: How long a send in flight keeps a second one off the same job. A send takes seconds; a row older than this is a crash's.
+DELIVERY_CLAIM_SECONDS = 180
+
+
 def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
     """Send the finished files to the client, then close the task.
 
@@ -2833,6 +2866,22 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
 
     payload = [_read_attachment(a) for a in attachments]
     caption = note or f"{task.title} — {task.code}"
+
+    # One send at a time per job. The files leave before the job is marked delivered, so two presses (a double click, two people
+    # on the operation desk) would both find it reviewed and both send. The first writes a "sending" row under a lock on the
+    # job; the second finds it and waits for it to finish. A row left by a crash stops counting after a few minutes.
+    with transaction.atomic():
+        Task.objects.select_for_update().filter(pk=task.pk).first()
+        in_flight = OutboundMessage.objects.filter(
+            task=task, kind=OutboundMessage.Kind.DELIVERY, status=OutboundMessage.Status.SENDING,
+            created_at__gte=timezone.now() - timedelta(seconds=DELIVERY_CLAIM_SECONDS),
+        ).exists()
+        if in_flight:
+            delivery.status = OutboundMessage.Status.FAILED
+            delivery.error_message = "فيه إرسال شغال للتاسك دي دلوقتي — استنى لحد ما يخلص وراجع التاسك."
+            return False, delivery, delivery.error_message
+        delivery.status = OutboundMessage.Status.SENDING
+        delivery.save()
 
     try:
         if channel == Channel.WHATSAPP:
@@ -4655,18 +4704,38 @@ CALL_REDIAL_SECONDS = 60
 CALL_MAX_HOURS = 6
 
 
-def ice_servers():
+#: How long the relay's credentials handed to a browser stay good: a call is at most ``CALL_MAX_HOURS`` long, with an hour to spare.
+TURN_CREDENTIAL_SECONDS = (CALL_MAX_HOURS + 1) * 3600
+
+
+def ice_servers(user=None, now=None):
     """Where the browsers look for a path to each other.
 
     A public STUN server finds the way on most networks. Some offices and
-    mobile carriers need a TURN relay as well; set EAGLE_TURN_URL (and
-    EAGLE_TURN_USER / EAGLE_TURN_PASSWORD) and it is handed out too.
+    mobile carriers need a TURN relay as well; set EAGLE_TURN_URL and it is handed out too.
+
+    With ``EAGLE_TURN_SECRET`` (the relay's ``static-auth-secret``, with ``use-auth-secret`` on) the browser is given a username
+    that carries its own expiry and the person's id, and the password made from it with that secret (HMAC-SHA1): good for one
+    call's length, for that person, and worthless afterwards. Without it, the older ``EAGLE_TURN_USER`` / ``EAGLE_TURN_PASSWORD``
+    pair is handed out as it was - one password that every employee who places a call receives and that never expires.
     """
+    import base64
+    import hashlib
+    import hmac
     import os
+    import time
 
     servers = [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]
     turn = os.environ.get("EAGLE_TURN_URL", "").strip()
-    if turn:
+    if not turn:
+        return servers
+    secret = os.environ.get("EAGLE_TURN_SECRET", "").strip()
+    if secret and user is not None:
+        expires = int(now if now is not None else time.time()) + TURN_CREDENTIAL_SECONDS
+        username = f"{expires}:{user.pk}"
+        credential = base64.b64encode(hmac.new(secret.encode("utf-8"), username.encode("utf-8"), hashlib.sha1).digest()).decode("ascii")
+        servers.append({"urls": [turn], "username": username, "credential": credential})
+    else:
         servers.append({
             "urls": [turn],
             "username": os.environ.get("EAGLE_TURN_USER", ""),

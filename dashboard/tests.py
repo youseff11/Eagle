@@ -848,6 +848,69 @@ class AttendanceTests(TestCase):
             WorkDay.objects.filter(user=self.person).exclude(check_in=None).exists()
         )
 
+    def test_reject_policy_refuses_a_punch_that_shares_no_location_and_a_flag_policy_keeps_it_flagged(self):
+        from . import attendance
+        from .models import OffSitePolicy, PunchKind, WorkDay
+
+        self.roster(self.person, 0, self.morning, mode=self.WorkMode.OFFICE)
+        self.conf.off_site_policy = OffSitePolicy.REJECT
+        self.conf.save()
+        with self.assertRaises(attendance.PunchRefused) as refused:
+            attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertEqual(refused.exception.code, "no_location")
+        self.assertFalse(WorkDay.objects.filter(user=self.person).exclude(check_in=None).exists())
+        # The default policy only flags it.
+        self.conf.off_site_policy = OffSitePolicy.REVIEW
+        self.conf.save()
+        row, _event = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertTrue(row.needs_review)
+
+    def test_reject_policy_asks_nothing_of_a_remote_day_or_when_no_office_is_set_up(self):
+        from . import attendance
+        from .models import OfficeLocation, OffSitePolicy, PunchKind
+
+        self.conf.off_site_policy = OffSitePolicy.REJECT
+        self.conf.save()
+        self.roster(self.person, 0, self.morning)
+        row, _event = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertFalse(row.needs_review)
+        other = User.objects.create_user("office_no_map", password="x", role=Role.TRANSLATOR, work_mode=self.WorkMode.OFFICE)
+        self.roster(other, 0, self.morning, mode=self.WorkMode.OFFICE)
+        OfficeLocation.objects.update(is_active=False)
+        row, _event = attendance.punch(other, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertIsNotNone(row.check_in)
+
+    def test_reject_policy_refuses_a_browser_that_sends_no_identity_and_another_policy_lets_it_through(self):
+        from . import attendance
+        from .models import OffSitePolicy, PunchKind
+
+        self.conf.unknown_device_policy = OffSitePolicy.REJECT
+        self.conf.save()
+        self.roster(self.person, 0, self.morning)
+        with self.assertRaises(attendance.PunchRefused) as refused:
+            attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertEqual(refused.exception.code, "no_device")
+        row, _event = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3), fingerprint="aaaa1111")
+        self.assertIsNotNone(row.check_in)
+        # Under the other policies the punch goes through as it always did.
+        other = User.objects.create_user("no_identity", password="x", role=Role.TRANSLATOR, work_mode=self.WorkMode.REMOTE)
+        self.roster(other, 0, self.morning)
+        self.conf.unknown_device_policy = OffSitePolicy.REVIEW
+        self.conf.save()
+        row, _event = attendance.punch(other, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertIsNotNone(row.check_in)
+
+    def test_the_device_check_off_asks_for_no_identity(self):
+        from . import attendance
+        from .models import OffSitePolicy, PunchKind
+
+        self.conf.unknown_device_policy = OffSitePolicy.REJECT
+        self.conf.device_check_enabled = False
+        self.conf.save()
+        self.roster(self.person, 0, self.morning)
+        row, _event = attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(2026, 9, 21, 9, 3))
+        self.assertIsNotNone(row.check_in)
+
     def test_gps_error_is_added_to_the_radius(self):
         """A 250 m reading with a 100 m error bar is not proof of absence."""
         from . import attendance

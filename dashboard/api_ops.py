@@ -360,10 +360,10 @@ def task(request, code):
             "messages": [
                 {
                     "id": m.pk, "channel": m.channel, "at": _stamp(m.received_at, "%m-%d"),
-                    "body": services.clean_client_text(m.body)[:220],
+                    "body": identity.mask_client(services.clean_client_text(m.body), m.client, user)[:220],
                     "files": [_task_file_json(a) for a in m.attachments.all()],
                 }
-                for m in services.task_inbounds(task).prefetch_related("attachments").order_by("received_at", "id")
+                for m in services.task_inbounds(task).select_related("client").prefetch_related("attachments").order_by("received_at", "id")
                 if m.visible_to(user)
             ] if ops else [],
             "history": [
@@ -457,8 +457,9 @@ def _start_json(start, user):
         "client_code": message.client.code if message else (start.from_task.client.code if start.from_task else ""),
         "messages": [
             {
-                "id": m.pk, "channel": m.channel, "at": _stamp(m.received_at, "%d/%m"), "subject": m.subject,
-                "body": services.clean_client_text(m.body),
+                "id": m.pk, "channel": m.channel, "at": _stamp(m.received_at, "%d/%m"),
+                "subject": identity.mask_client(m.subject, m.client, user),
+                "body": identity.mask_client(services.clean_client_text(m.body), m.client, user),
                 "files": [_task_file_json(a) for a in m.attachments.all()],
             }
             for m in start.messages

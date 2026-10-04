@@ -34,6 +34,13 @@ def _snippet(text):
     return Truncator(strip_image_tags(text)).chars(SNIPPET)
 
 
+def _words(letter, text, user):
+    """What the client wrote, as ``user`` may read it: the client's name (the way it is spelled anywhere in the words) and every
+    address and number taken out for whoever may not know the client, the rest as written. The operation reads the letter to do
+    the work; a signature is not part of the work."""
+    return identity.mask_client(text, letter.client if letter.client_id else None, user)
+
+
 def _file_json(attachment):
     """A file of a letter: a link, a name, a size, and for a voice note how long it is."""
     return {
@@ -67,8 +74,8 @@ def _row_json(thread, user):
         "code": sender["code"],
         "count": thread.count,
         "at": _stamp(last.received_at, "%Y-%m-%d"),
-        "subject": thread.subject,
-        "snippet": _snippet(last.body),
+        "subject": _words(last, thread.subject, user),
+        "snippet": _snippet(_words(last, last.body, user)),
         "unread": thread.is_unread,
         "blocked": thread.is_blocked,
         "answered": thread.answered,
@@ -167,7 +174,7 @@ def thread(request, pk):
             "from": sender["label"],
             "code": sender["code"],
             "at": _stamp(item.received_at, "%Y-%m-%d"),
-            "snippet": _snippet(item.body),
+            "snippet": _snippet(_words(item, item.body, user)),
             "body": strip_image_tags(item.body),
             "unseen": item.pk not in seen,
             "blocked": item.is_rate_blocked,
@@ -186,7 +193,7 @@ def thread(request, pk):
         "ok": True,
         "thread": {
             "id": anchor.pk,
-            "subject": mail.subject,
+            "subject": identity.mask_client(mail.subject, mail.client, user),
             "count": mail.count,
             "client": mail.client.label_for(user) if mail.client else None,
             "can_reply": mail.client is not None,
