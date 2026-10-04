@@ -383,6 +383,8 @@ def test_whatsapp(request):
     target = _target(request)
     if target is None:
         return _error(400, "bad_body")
+    # That a test message went out, not to whom: the number is a person's.
+    services.log(request.user, "settings.test_send", "whatsapp", "with a target" if target else "credentials only")
     return JsonResponse(_clean(wa.check_connection(target), AppSettings.load()))
 
 
@@ -395,5 +397,6 @@ def test_email(request):
     target = _target(request)
     if target is None:
         return _error(400, "bad_body")
+    services.log(request.user, "settings.test_send", "email", "with a target" if target else "credentials only")
     conf = AppSettings.load()
     return JsonResponse(_clean(mailer.check_connection(conf, target), conf))

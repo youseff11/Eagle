@@ -1847,6 +1847,10 @@ class RecruitmentBotTests(TestCase):
         )
 
         self.conf = RecruitmentSettings.load()
+        # The bot answers on the recruitment line, and on no other: with no ID for it set it does not answer at all.
+        app = AppSettings.load()
+        app.recruit_phone_number_id = "222recruit"
+        app.save()
         ShiftTemplate.seed_defaults()
         Department.seed_defaults()
         self.department = Department.objects.get(name="Translation")
@@ -1895,6 +1899,13 @@ class RecruitmentBotTests(TestCase):
 
     def replies(self):
         return [call.args[1] for call in self.sent.call_args_list]
+
+    def test_with_no_recruitment_line_the_bot_does_not_answer_on_the_clients_number(self):
+        app = AppSettings.load()
+        app.recruit_phone_number_id = ""
+        app.save()
+        self.say("")
+        self.assertEqual(self.sent.call_count, 0)
 
     # -- the walk-through ---------------------------------------------------
     def test_a_full_application_lands_in_hr_screening(self):

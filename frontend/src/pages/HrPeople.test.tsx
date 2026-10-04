@@ -706,6 +706,24 @@ describe("HrSalaryRequestsPage", () => {
     expect(reads(served, "/api/v1/hr/salary-requests/")).toContain("/api/v1/hr/salary-requests/?user=11");
   });
 
+  it("does not carry what was typed for one person over to the next", async () => {
+    serve("hr", {
+      "/api/v1/hr/salary-requests/": (url) => {
+        const who = url.searchParams.get("user");
+        const people: Record<string, { id: number; name: string }> = { "11": { id: 11, name: "Sam" }, "12": { id: 12, name: "Nada" } };
+        return jsonResponse(who && people[who] ? requests({ person: people[who]!, current: "3000.00" }) : requests());
+      },
+    });
+    const user = userEvent.setup();
+    open("/hr/salary-requests?user=11");
+    await screen.findByText("اطلب تغيير");
+    await user.type(screen.getByLabelText("الراتب الجديد"), "9999");
+    await user.type(screen.getByLabelText("السبب"), "For Sam");
+    await user.selectOptions(screen.getByLabelText("الموظف"), "12");
+    await waitFor(() => expect(screen.getByLabelText("الراتب الجديد")).toHaveValue(null));
+    expect(screen.getByLabelText("السبب")).toHaveValue("");
+  });
+
   it("sends the request to the owner with what was typed and the person", async () => {
     const served = serve("hr", {
       "/api/v1/hr/salary-requests/create/": (url, init) => served.record(url, init, { ok: true, id: 9 }),

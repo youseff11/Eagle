@@ -112,6 +112,32 @@ def mask_name(name, client):
     return name
 
 
+def remask_names(client):
+    """Mask every stored file name of ``client`` against the identity they have now.
+
+    A name is masked when a file arrives, against what is known of the client then. A client who wrote with no profile name
+    ("Acme Holdings PO 2291.pdf") has nothing to mask against, so the name is stored as sent; when the admin later writes the
+    client's name down, the names already stored have to follow, or a translator reads the company in a file name the
+    download then calls by the code.
+    """
+    from .models import ChatAttachment, MessageAttachment, OutboundAttachment
+
+    changed = 0
+    for rows, start in (
+        (MessageAttachment.objects.filter(message__client=client), lambda a: a.raw_name or a.original_name),
+        (OutboundAttachment.objects.filter(message__client=client), lambda a: a.original_name),
+        (ChatAttachment.objects.filter(origin_client=client), lambda a: a.original_name),
+        (ChatAttachment.objects.filter(message__room__client=client, origin_client__isnull=True), lambda a: a.original_name),
+    ):
+        for attachment in rows:
+            masked = mask_name(start(attachment), client)[:250]
+            if masked != attachment.original_name:
+                attachment.original_name = masked
+                attachment.save(update_fields=["original_name"])
+                changed += 1
+    return changed
+
+
 # ---------------------------------------------------------------------------
 # 2. Who may open what
 # ---------------------------------------------------------------------------
@@ -219,7 +245,8 @@ def may_open(user, name):
             return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)
-        if kind == "test" and (user.can_recruit or user.can_review_tests):
+        if kind == "test" and (user.can_recruit or (user.can_review_tests and row.reviewer_id in (None, user.pk))):
+            # A reviewer opens their own tests and the ones nobody has taken: another reviewer's is not there for them.
             return True, (kind, row)
         if kind == "contract" and (
             user.is_admin_role or user.is_hr or row.pk == user.pk
@@ -247,6 +274,16 @@ def download_name(user, name, owner):
     if owner is None:
         return fallback
     kind, row = owner
+    if kind == "test" and not user.can_recruit:
+        # A reviewer is blind: the name a test file was uploaded under is the candidate's or HR's own.
+        return "test" + posixpath.splitext(fallback)[1][:9]
+    # Recruitment files are stored under a random name; the name they came with is on the row, for HR and the owner.
+    if kind == "cv":
+        return row.cv_name or fallback
+    if kind == "answer":
+        return row.file_name or fallback
+    if kind == "test":
+        return (row.submission_name if row.submission and row.submission.name == name else row.assignment_name) or fallback
     shown = getattr(row, "original_name", "") or fallback
     if kind == "inbound" and user.is_admin_role and getattr(row, "raw_name", ""):
         return row.raw_name

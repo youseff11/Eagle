@@ -81,13 +81,23 @@ STAGE_OFFSETS = (
 )
 
 
+def _on_probation(person):
+    """Probation reviews are for somebody who is on probation: not the owner, not a person already confirmed or gone."""
+    return bool(person.is_active and person.employment_status == EmploymentStatus.PROBATION and not person.is_admin_role)
+
+
+_NOT_ON_PROBATION = ("الشخص ده مش تحت الاختبار.", "This person is not on probation.")
+
+
 @transaction.atomic
 def open_probation(person, actor=None, start=None, end=None):
     """Create the three reviews for somebody who has just been hired.
 
     Idempotent: calling it twice does not produce six reviews, and it never
-    touches a review somebody has already decided.
+    touches a review somebody has already decided. Only for somebody on probation.
     """
+    if not _on_probation(person):
+        raise LifecycleError(*_NOT_ON_PROBATION)
     conf = RecruitmentSettings.load()
     start = start or person.probation_start or person.joining_date or timezone.localdate()
     end = end or person.probation_end or (start + timedelta(days=conf.probation_days or 90))
@@ -130,10 +140,22 @@ def decide_probation(review, actor, outcome, score=None, notes="", extend_days=0
     """
     if outcome not in ProbationOutcome.values or outcome == ProbationOutcome.PENDING:
         raise LifecycleError("النتيجة مش مظبوطة.", "That is not a decision.")
+    # Two decisions at once (two tabs, a retry) must not both pass the check below on a row read before either of them wrote.
+    ProbationReview.objects.select_for_update().filter(pk=review.pk).first()
+    review.refresh_from_db()
     if review.is_decided:
         raise LifecycleError(
             "المراجعة دي اتقرر فيها بالفعل.", "This review has already been decided."
         )
+    # Whoever may decide reviews (HR, the owner, anybody given the attendance flag) may not decide their own: a person on
+    # probation who holds that right would otherwise confirm themselves.
+    if review.user_id == actor.pk:
+        raise LifecycleError(
+            "مينفعش تقرر في مراجعتك أنت.", "Nobody decides their own probation review."
+        )
+    # A review that is left over from a probation that has ended must not end, or reopen, an account: "terminated" closes it.
+    if not _on_probation(review.user):
+        raise LifecycleError(*_NOT_ON_PROBATION)
 
     person = review.user
     review.outcome = outcome
@@ -345,6 +367,8 @@ def can_decide_leave(request_row, user):
 @transaction.atomic
 def decide_leave(request_row, actor, approve, note=""):
     """Move a request one step. Two steps exist only if the settings say so."""
+    LeaveRequest.objects.select_for_update().filter(pk=request_row.pk).first()
+    request_row.refresh_from_db()
     if not request_row.is_open:
         raise LifecycleError(
             "الطلب ده اتقرر فيه بالفعل.", "This request has already been decided."
@@ -528,6 +552,8 @@ def decide_salary_change(row, actor, approve, note=""):
         raise LifecycleError(
             "تغيير الرواتب للمالك بس.", "Only the owner decides a salary change."
         )
+    SalaryChangeRequest.objects.select_for_update().filter(pk=row.pk).first()
+    row.refresh_from_db()
     if not row.is_pending:
         raise LifecycleError(
             "الطلب ده اتقرر فيه بالفعل.", "This request has already been decided."

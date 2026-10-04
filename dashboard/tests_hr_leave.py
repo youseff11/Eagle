@@ -371,6 +371,9 @@ class SwitchAndHandOnTests(_Leave):
         self.assertFalse(newui.enabled(self.tr, "leave"))
 
     def test_a_person_is_handed_on_once_their_role_is_switched_on(self):
+        # A person whose shift is about to start is kept on the classic pages until they check in (the gate), so the answer
+        # would depend on the hour the suite runs at. Attendance is off for these accounts: the hand-on is what is tested.
+        User.objects.filter(pk__in=[self.tr.pk, self.hr.pk, self.ops.pk]).update(attendance_enabled=False)
         conf = AppSettings.load()
         conf.new_ui = {**(conf.new_ui or {}), "leave": {"roles": ["translator"], "users": [self.hr.pk]}}
         conf.save()

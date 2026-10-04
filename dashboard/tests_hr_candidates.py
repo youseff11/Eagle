@@ -660,6 +660,12 @@ class HireTests(_Cand):
         _body, as_owner = self.fields(who=self.admin)
         self.assertEqual({one["value"] for one in as_owner["role"]["choices"]}, {value for value, _label in Role.choices})
 
+    def test_the_roles_are_named_in_both_languages(self):
+        _body, fields = self.fields()
+        by_value = {one["value"]: one for one in fields["role"]["choices"]}
+        self.assertEqual((by_value["translator"]["label_ar"], by_value["translator"]["label_en"]), ("مترجم", "Translator"))
+        self.assertEqual(by_value["team_lead"]["label_ar"], "تيم ليدر")
+
     def test_a_password_is_never_in_an_answer(self):
         _body, fields = self.fields()
         self.assertEqual(fields["password"]["kind"], "password")

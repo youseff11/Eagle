@@ -1031,7 +1031,7 @@ def translator_payroll(request):
     first_day, last_day = payroll.month_bounds(year, month)
     line = PayrollLine.objects.filter(user=user, period__year=year, period__month=month).select_related("period").first()
     days = WorkDay.objects.filter(user=user, date__range=(first_day, last_day)).order_by("date")
-    violations = Violation.objects.filter(user=user, date__range=(first_day, last_day))
+    violations = Violation.objects.filter(user=user, date__range=(first_day, last_day)).select_related("task__client")
     return JsonResponse({
         "ok": True,
         "year": year,
@@ -1055,7 +1055,8 @@ def translator_payroll(request):
         "violations": [
             {
                 "date": row.date.isoformat(), "kind": _two(VIOLATION_KIND_MAP, row.kind),
-                "reason": row.reason, "status": row.status,
+                # Typed by a person: it may name the client of the task, and a translator reads the code.
+                "reason": payroll.shown_reason(row, user), "status": row.status,
             }
             for row in violations
         ],

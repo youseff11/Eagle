@@ -789,6 +789,11 @@ def raise_overtime(user, first_day, last_day, conf=None, day_value=Decimal("0.00
             continue
         amount = (rate * Decimal(day.overtime_minutes) / Decimal(60)).quantize(Decimal("0.01"))
         claims.append(_overtime_draft(user, day, rate, amount, conf))
+    # A claim still waiting for a day that no longer ran long (the day was corrected) is not a claim any more: approving it
+    # would pay for time the corrected record says was not worked.
+    OvertimeClaim.objects.filter(
+        user=user, date__range=(first_day, last_day), status=ApprovalStatus.PENDING,
+    ).exclude(pk__in=[claim.pk for claim in claims]).delete()
     return claims
 
 

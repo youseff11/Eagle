@@ -35,7 +35,7 @@ from .api_recruit import (
 from .api_v1 import BadBody, _error, _object, _stamp, _text, _two, endpoint
 from .forms import CandidateForm, CandidateTestForm, InterviewForm, InterviewScoreForm
 from .models import (
-    Candidate, CandidateStatus, CandidateTest, Interview, RecruitmentSettings, Vacancy,
+    AppSettings, Candidate, CandidateStatus, CandidateTest, Interview, RecruitmentSettings, Vacancy,
 )
 from .templatetags.eagle_tags import CANDIDATE_STATUS_MAP
 
@@ -341,6 +341,8 @@ def candidate_body(candidate, user):
         # Where this candidate may go from here: the pipeline's own table, minus nothing the engine would refuse.
         "next_statuses": [_badge(CANDIDATE_STATUS_MAP, value) for value in recruitment.ALLOWED_MOVES.get(candidate.status, ())],
         "privacy_armed": bool(conf.term_list),
+        # Whether a message can go out: with no recruitment line set it would leave on the client's number.
+        "line_ready": bool(AppSettings.load().recruit_phone_number_id),
         "interview_form": _interview_form(),
         "test_form": _test_form(),
         "can": {"hire": candidate.status == CandidateStatus.APPROVED, "mark": user.can_review_tests},
@@ -438,6 +440,8 @@ def candidate_message(request, code):
     if not ok:
         if error == "no phone":
             return _error(409, "no_phone")
+        if error == "no recruitment line":
+            return _error(409, "no_recruit_line")
         return JsonResponse({"ok": False, "error": "send_failed", "message": error}, status=502)
     services.log(request.user, "recruitment.message", row.code)
     return JsonResponse({"ok": True})

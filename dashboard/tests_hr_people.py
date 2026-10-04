@@ -227,6 +227,8 @@ class FileTests(_People):
         self.assertEqual((current["name"], current["overrides"]), ("Plan A", ["daily_target_words", "extra_word_rate"]))
 
     def test_probation_leave_salary_and_the_application_are_on_the_file_with_money_as_text(self):
+        User.objects.filter(pk=self.tr.pk).update(employment_status="probation")
+        self.tr.refresh_from_db()
         employees.open_probation(self.tr, actor=self.admin)
         LeaveRequest.objects.create(user=self.tr, kind="annual", start_date=self.today, end_date=self.today)
         SalaryRecord.objects.create(user=self.tr, amount=Decimal("3500.50"), effective_from=date(2025, 1, 1), created_by=self.admin)
@@ -570,6 +572,11 @@ class SalaryRequestTests(_People):
         waiting = _json(self.read(REQUESTS))["pending"][0]
         self.assertEqual((waiting["current_amount"], waiting["new_amount"], waiting["delta"], waiting["requested_by"]), ("3000.00", "3500.00", "500.00", self.hr.short_name))
 
+    def test_a_request_without_a_date_is_from_today_as_the_page_drew_it(self):
+        answer = self.ask({"new_amount": "3500"})
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(SalaryChangeRequest.objects.get().effective_from, self.today)
+
     def test_the_engines_rules_answer_in_its_words(self):
         same = self.ask({"new_amount": "3000", "effective_from": self.today.isoformat()})
         self.assertEqual((same.status_code, _json(same)["message_en"]), (409, "That is already the current salary."))
@@ -580,7 +587,7 @@ class SalaryRequestTests(_People):
 
     def test_the_forms_rules_are_the_rules(self):
         for values, field in (({"effective_from": self.today.isoformat()}, "new_amount"), ({"new_amount": "-5", "effective_from": self.today.isoformat()}, "new_amount"),
-                              ({"new_amount": "100"}, "effective_from"), ({"new_amount": "abc", "effective_from": "x"}, "new_amount")):
+                              ({"new_amount": "abc", "effective_from": "x"}, "new_amount"), ({"new_amount": "100", "effective_from": "x"}, "effective_from")):
             answer = self.ask(values)
             self.assertEqual((answer.status_code, field in _json(answer)["errors"]), (400, True), values)
         self.assertEqual(self.ask({"new_amount": "1", "effective_from": self.today.isoformat(), "status": "approved"}).status_code, 400)

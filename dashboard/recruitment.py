@@ -147,6 +147,10 @@ def send_to_candidate(candidate, text, conf=None):
     if not (candidate and candidate.phone):
         return False, "no phone"
     app = AppSettings.load()
+    if not app.recruit_phone_number_id:
+        # Without the recruitment line's own ID the send falls back to the client number, and the candidate would read the
+        # company's name in who the message comes from, whatever the text says.
+        return False, "no recruitment line"
     try:
         whatsapp.send_text(
             candidate.phone, body, from_id=app.recruit_phone_number_id
@@ -162,6 +166,9 @@ def _reply(contact, text, candidate=None, conf=None):
     conf = conf or RecruitmentSettings.load()
     body = outbound_text(candidate, text, conf=conf)
     app = AppSettings.load()
+    if not app.recruit_phone_number_id:
+        logger.warning("Recruitment bot has no line of its own to reply on; not replying to %s", contact)
+        return False
     try:
         whatsapp.send_text(contact, body, from_id=app.recruit_phone_number_id)
         return True
@@ -684,6 +691,8 @@ class PipelineError(Exception):
 @transaction.atomic
 def move_status(candidate, new_status, actor, reason=""):
     """Advance a candidate, refusing steps the pipeline does not allow."""
+    Candidate.objects.select_for_update().filter(pk=candidate.pk).first()
+    candidate.refresh_from_db()
     if new_status == candidate.status:
         return candidate
     allowed = ALLOWED_MOVES.get(candidate.status, ())
@@ -727,6 +736,8 @@ def decide_hiring(candidate, actor, approve, reason=""):
         raise PipelineError(
             "الموافقة على التعيين للمالك بس.", "Only the owner approves a hire."
         )
+    Candidate.objects.select_for_update().filter(pk=candidate.pk).first()
+    candidate.refresh_from_db()
     if candidate.status != CandidateStatus.OWNER_APPROVAL:
         raise PipelineError(
             "المرشح ده مش في مرحلة موافقة المالك.",
@@ -773,6 +784,9 @@ def hire(candidate, actor, *, role=Role.TRANSLATOR, job_title="", joining_date=N
     pointing at the person it became - so the application is still readable
     years later next to the employee it produced.
     """
+    # Two hires at once (a double click, a retry) must not both pass the checks below on a row read before either wrote.
+    Candidate.objects.select_for_update().filter(pk=candidate.pk).first()
+    candidate.refresh_from_db()
     if candidate.status != CandidateStatus.APPROVED:
         raise PipelineError(
             "لازم المالك يوافق الأول.", "The owner has to approve first."

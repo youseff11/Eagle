@@ -363,12 +363,20 @@ def upload_outbound(instance, filename):
     return storage_name("outbound", instance, filename)
 
 
+# A candidate's CV, an answer's file and a test's files are stored under a name that says nothing: the name people give
+# their own files is mostly their own name. The name it came with is kept on the row (``cv_name``, ``file_name``,
+# ``assignment_name``, ``submission_name``), and a name that tries to leave the folder never reaches the path at all.
+
 def upload_cv(instance, filename):
-    return f"recruitment/cv/{timezone.now():%Y/%m}/{filename}"
+    from .files import storage_name
+
+    return storage_name("recruitment/cv", instance, filename)
 
 
 def upload_test(instance, filename):
-    return f"recruitment/tests/{timezone.now():%Y/%m}/{filename}"
+    from .files import storage_name
+
+    return storage_name("recruitment/tests", instance, filename)
 
 
 def upload_hr_doc(instance, filename):

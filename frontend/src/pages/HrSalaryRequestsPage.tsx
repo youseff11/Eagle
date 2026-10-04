@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { formErrors } from "../api/adminActions";
 import { useAskSalaryChange, useDecideSalaryChange } from "../api/hrActions";
@@ -29,6 +29,14 @@ export function HrSalaryRequestsPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [problem, setProblem] = useState("");
   const [notes, setNotes] = useState<Record<number, string>>({});
+  // What was typed for one person must not be waiting in the boxes when the next one is picked: it is a money form.
+  const { reset } = edits;
+  const personId = data?.person?.id ?? null;
+  useEffect(() => {
+    reset();
+    setErrors({});
+    setProblem("");
+  }, [personId, reset]);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!data) return <Waiting failed={query.isError} />;

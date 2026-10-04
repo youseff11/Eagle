@@ -17,7 +17,7 @@ from django.utils import timezone
 from . import attendance, identity
 from .models import (
     ApprovalStatus, AppSettings, AuditLog, AuthorizedDevice, OfficeLocation, OvertimeClaim, PayrollSettings, ScheduleOverride,
-    Shift, ShiftTemplate, User, Vacancy,
+    Shift, ShiftTemplate, User, Vacancy, WorkDay,
 )
 from .tests_api_v1 import _json
 from .tests_hr_attendance import _Hr
@@ -569,6 +569,9 @@ class OvertimeTests(_Sched):
     def setUp(self):
         super().setUp()
         self.claim = OvertimeClaim.objects.create(user=self.tr, date=self.today, minutes=90, hourly_rate=Decimal("12.50"), amount=Decimal("18.75"))
+        # The claim is for time the day really holds: approving one for a day that no longer has it is refused.
+        self.day(self.tr, self.today, overtime_minutes=90)
+        self.day(self.tr, self.today - timedelta(days=1), overtime_minutes=30)
 
     def test_a_claim_is_listed_with_money_as_text(self):
         pending = _json(self.read(OVERTIME))["pending"][0]
@@ -584,6 +587,15 @@ class OvertimeTests(_Sched):
         self.assertEqual(AuditLog.objects.filter(action__startswith="attendance.overtime.").count(), 2)
         decided = {one["id"]: one for one in _json(self.read(OVERTIME))["decided"]}
         self.assertEqual(decided[self.claim.pk]["decided_by"], self.hr.short_name)
+
+    def test_a_claim_for_a_day_that_was_corrected_is_not_approved(self):
+        WorkDay.objects.filter(user=self.tr, date=self.today).update(overtime_minutes=0)
+        answer = self.post(self.hr, OVERTIME_DECIDE, {}, [self.claim.pk, "approve"])
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (409, "stale_claim"))
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.status, ApprovalStatus.PENDING)
+        # It can still be turned down.
+        self.assertEqual(self.post(self.hr, OVERTIME_DECIDE, {}, [self.claim.pk, "reject"]).status_code, 200)
 
     def test_a_claim_that_was_decided_is_not_decided_again(self):
         self.post(self.hr, OVERTIME_DECIDE, {}, [self.claim.pk, "approve"])

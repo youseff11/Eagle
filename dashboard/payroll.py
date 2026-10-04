@@ -169,6 +169,9 @@ def board_range(mode, raw):
         anchor = datetime.strptime(raw, "%Y-%m-%d").date() if raw else timezone.localdate()
     except ValueError:
         anchor = timezone.localdate()
+    # A year the calendar arithmetic below cannot hold (0001-01-01 walks off the start of it) is not a date anybody asked for.
+    if not 2000 <= anchor.year <= 2100:
+        anchor = timezone.localdate()
     if mode == "week":
         start = anchor - timedelta(days=(anchor.weekday() + 2) % 7)
         return mode, anchor, start, start + timedelta(days=6)
@@ -342,6 +345,15 @@ def raise_drafts(user, year, month, days, rules, actor=None):
             user=user, auto_key=f"target_miss:{stamp}", status=ApprovalStatus.PENDING
         ).delete()
 
+    # A draft the engine raised on an earlier run and no longer raises (the day was corrected to present, the leave was
+    # approved after all, the jobs were settled) is not a deduction any more. Left waiting it could still be approved, and
+    # the translator would pay for an absence that was never one. Decided rows are never touched, and neither are the ones a
+    # person proposed (they carry no auto_key).
+    raised = {d.auto_key for d in drafts if d is not None}
+    Violation.objects.filter(
+        user=user, status=ApprovalStatus.PENDING, date__range=(first_day, last_day),
+    ).exclude(auto_key="").exclude(auto_key__in=raised).delete()
+
     return [d for d in drafts if d is not None]
 
 
@@ -425,6 +437,9 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         amount = money(Decimal(row.penalty_days) * day_value + Decimal(row.penalty_amount))
         deductions += amount
         deduction_rows.append({
+            # Which deduction it was: a payslip is read years later by people who may not know the client the reason names,
+            # and the reason is masked against the client of this very row (``shown_breakdown``).
+            "violation": row.pk,
             "date": row.date.isoformat(),
             "kind": row.kind,
             "reason": row.reason,
@@ -434,6 +449,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
 
     pending_rows = [
         {
+            "violation": row.pk,
             "date": row.date.isoformat(),
             "kind": row.kind,
             "reason": row.reason,
@@ -625,3 +641,45 @@ def month_totals(period):
         "pending": sum((line.pending_bonus_for(conf) for line in lines), Decimal("0.00")),
         "alerts": lines.filter(below_alert_threshold=True).count(),
     }
+
+
+# ---------------------------------------------------------------------------
+# What a payslip says about a deduction, as the reader may read it
+# ---------------------------------------------------------------------------
+
+def shown_reason(violation, viewer):
+    """A deduction's reason as ``viewer`` may read it: typed by a person, so it may name the client of the task it is about."""
+    from . import identity
+
+    client = violation.task.client if violation.task_id else None
+    return identity.mask_client(violation.reason, client, viewer)
+
+
+def shown_breakdown(rows, owner, viewer):
+    """The deduction rows a line froze, each reason masked against the client of its own task, for ``viewer``.
+
+    The reason is frozen as typed; the client is looked up live by the deduction the row remembers (``violation``). A line frozen
+    before that was remembered is matched by what it froze (date, kind, reason) to the person's own deductions. A row that matches
+    nothing has no client to name and only loses its contact details. Whoever may know the client (the owner, a person granted
+    it) reads the words as they were.
+    """
+    from . import identity
+
+    rows = list(rows or [])
+    if identity.can_see(viewer):
+        return rows
+    known = {row.get("violation") for row in rows if row.get("violation")}
+    by_id = {
+        row.pk: row for row in Violation.objects.filter(pk__in=known).select_related("task__client")
+    } if known else {}
+    loose = [row for row in rows if not row.get("violation")]
+    by_text = {}
+    if loose:
+        for row in Violation.objects.filter(user=owner, date__in={row.get("date") for row in loose}).select_related("task__client"):
+            by_text[(row.date.isoformat(), row.kind, row.reason)] = row
+    out = []
+    for row in rows:
+        found = by_id.get(row.get("violation")) or by_text.get((row.get("date"), row.get("kind"), row.get("reason")))
+        client = found.task.client if found is not None and found.task_id else None
+        out.append({**row, "reason": identity.mask_client(row.get("reason", ""), client, viewer)})
+    return out

@@ -3796,6 +3796,10 @@ def reset_all_tasks(admin, password):
         tasks = list(Task.objects.all())
         deliveries = OutboundMessage.objects.filter(task__isnull=False)
         rooms = ChatRoom.objects.filter(task__isnull=False)
+        # The client's files shared into a work chat for a task. The link to the task is what limited them to the files
+        # operation ticked; once the task is gone the link is gone, and each would read as every file of its letter,
+        # the unticked ones (a contract, a purchase order) included. They go with the task.
+        shares = ChatMessage.objects.filter(task__isnull=False, inbound__isnull=False).exclude(room__kind=RoomKind.CLIENT)
         backup = serializers.serialize("json", [
             *tasks,
             *Assignment.objects.all(),
@@ -3804,8 +3808,10 @@ def reset_all_tasks(admin, password):
             *AICheckResult.objects.all(),
             *rooms,
             *ChatMessage.objects.filter(room__in=rooms),
+            *shares.exclude(room__in=rooms),
         ], indent=1, ensure_ascii=False)
         deleted = len(tasks)
+        shares.delete()
         Task.objects.all().delete()
     log(admin, "task.reset", f"{deleted} task(s)", "all tasks deleted; numbering restarts")
     return True, "", backup, deleted
@@ -4029,6 +4035,14 @@ def delete_clients(admin, client_ids):
                     *ChatAttachment.objects.filter(message__room__client_id__in=doomed_ids),
                 )
             ]
+            # What was forwarded out of their letters into other chats is their words too. Once the client is gone nothing says
+            # whose words they were, and the rule that hides a client's words from a team leader reads the owner: the copies go
+            # with the letters, and so do the files they carry.
+            copies = ChatMessage.objects.filter(origin_client_id__in=doomed_ids)
+            copied = ChatAttachment.objects.filter(Q(origin_client_id__in=doomed_ids) | Q(message__in=copies))
+            stored.extend((a.file.storage, a.file.name) for a in copied)
+            copied.delete()
+            copies.delete()
             codes = [c.code for c in doomed]
             letters.delete()
             Client.objects.filter(pk__in=doomed_ids).delete()

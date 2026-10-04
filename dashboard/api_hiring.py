@@ -35,7 +35,7 @@ from .api_v1 import BadBody, _error, _object, _stamp, _text, endpoint
 from .forms import HireForm, TestScoreForm
 from .models import Candidate, CandidateStatus, CandidateTest, RecruitmentSettings
 from .permissions import api_gate
-from .templatetags.eagle_tags import CANDIDATE_STATUS_MAP
+from .templatetags.eagle_tags import CANDIDATE_STATUS_MAP, ROLE_MAP
 
 can_mark = api_gate(lambda user: user.can_review_tests)
 
@@ -148,7 +148,10 @@ def _hire_kwargs(candidate, user):
 
 
 def _hire_form(candidate, user):
-    return named(api_forms.describe(HireForm(**_hire_kwargs(candidate, user))), HIRE_TEXT, HIRE_HINT)
+    return named(
+        api_forms.describe(HireForm(**_hire_kwargs(candidate, user))), HIRE_TEXT, HIRE_HINT,
+        choices={"role": {value: pair for value, pair in ROLE_MAP.items()}},
+    )
 
 
 def _hire_body(candidate, user):
@@ -279,7 +282,9 @@ def _test_body(row, user):
             "language_pair": row.language_pair,
             "word_count": row.word_count,
             "deadline": _stamp(row.deadline, "%Y-%m-%d"),
-            "assignment": _file_json(row.assignment, row.assignment_name),
+            # The name HR gave the file is often the candidate's: a blind reviewer reads a plain word and the extension.
+            "assignment": _file_json(row.assignment, ("assignment" + _extension(row.assignment.name)) if blind else row.assignment_name)
+            if row.assignment else None,
             "submission": submission,
             "submitted_at": _stamp(row.submitted_at, "%m-%d"),
             "marked": row.is_marked,

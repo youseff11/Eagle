@@ -146,7 +146,8 @@ def user_save(request, pk):
     if refused is not None:
         return refused
     form.save()
-    services.log(request.user, "user.update", person.username)
+    # Which boxes, not what is in them: an attendance flag, a team leader or a rating moves what a person may do or is paid.
+    services.log(request.user, "user.update", person.username, ", ".join(form.changed_data))
     if person.mail_alias != alias_before:
         # Whose inbox a client's letters land in is worth a line of its own.
         services.log(request.user, "user.mail_alias", person.username, f"{alias_before or '-'} -> {person.mail_alias or '-'}")

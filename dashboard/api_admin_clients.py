@@ -14,7 +14,7 @@ Only the admin is answered.
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
-from . import api_forms, identity, services
+from . import api_forms, files, identity, services
 from .api_v1 import BadBody, _error, _object, endpoint
 from .forms import ClientForm
 from .models import Client, Role
@@ -169,6 +169,8 @@ def client_save(request, code):
     if refused is not None:
         return refused
     form.save()
+    # The names of the files this client already sent were masked against what was known then.
+    files.remask_names(row)
     # Which boxes, not what is in them: a number added to a client changes where that client's messages land.
     services.log(request.user, "client.update", row.code, ", ".join(form.changed_data))
     return JsonResponse({"ok": True, "code": row.code})

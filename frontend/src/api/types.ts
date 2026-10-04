@@ -1977,6 +1977,8 @@ export interface HrCandidate {
   tests: HrExam[];
   next_statuses: DayStatusJson[];
   privacy_armed: boolean;
+  /** Whether a message can go out: with no recruitment line set it would leave on the client's number. */
+  line_ready: boolean;
   interview_form: FormField[];
   test_form: FormField[];
   can: { hire: boolean; mark: boolean };

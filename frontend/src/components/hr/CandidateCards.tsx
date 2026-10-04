@@ -215,7 +215,11 @@ export function MessageCard({ data }: Props) {
       onError: (error) => {
         const found = formErrors(error);
         if (found?.body) setProblem(found.body.join(" "));
-        else setProblem(refusal(error, t("مابعتتش.", "It was not sent.")));
+        else if (error instanceof ApiError && error.code === "no_recruit_line") {
+          setProblem(t("رقم التوظيف مش متسجل، فالرسالة ماتبعتتش.", "No recruitment number is set, so the message was not sent."));
+        } else if (error instanceof ApiError && error.code === "no_phone") {
+          setProblem(t("المرشح ده مالوش رقم موبايل.", "This candidate has no phone number."));
+        } else setProblem(refusal(error, t("مابعتتش.", "It was not sent.")));
       },
     });
   };
@@ -237,8 +241,19 @@ export function MessageCard({ data }: Props) {
             onChange={(event) => setBody(event.target.value)}
           />
         </div>
+        {!data.line_ready && (
+          <div className="note note--warn" data-note="no-line">
+            <Icon name="alert" />
+            <div>
+              {t(
+                "رقم التوظيف مش متسجل — الرسالة كانت هتروح من رقم العملاء، فمش هتتبعت. سجّله من إعدادات التوظيف.",
+                "No recruitment number is set: a message would go out on the client number, so it is not sent. Set it in the recruitment settings.",
+              )}
+            </div>
+          </div>
+        )}
         <Problem text={problem} />
-        <button className="btn btn--block" type="submit" disabled={send.isPending || !body.trim()}>
+        <button className="btn btn--block" type="submit" disabled={send.isPending || !body.trim() || !data.line_ready}>
           <Icon name="send" size="sm" />
           <span>{t("ابعت", "Send")}</span>
         </button>

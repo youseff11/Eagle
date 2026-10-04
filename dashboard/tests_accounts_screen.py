@@ -7,7 +7,7 @@ a client's name to people who may not know it, and the classic form decides what
 """
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -474,10 +474,20 @@ class RecordADayTests(_Accounts):
         day = WorkDay.objects.get(user=self.tr, date=self.today)
         self.assertEqual((day.words, day.note), (900, "Corrected"))
 
-    def test_the_whole_row_is_what_is_saved_a_box_left_out_empties_it_as_on_the_classic_sheet(self):
+    def test_a_box_left_out_keeps_what_the_day_already_holds(self):
         self.save(note="First")
         self.save(words="50")
-        self.assertEqual(WorkDay.objects.get(user=self.tr, date=self.today).note, "")
+        day = WorkDay.objects.get(user=self.tr, date=self.today)
+        self.assertEqual((day.note, day.words), ("First", 50))
+
+    def test_a_note_saved_on_a_day_with_real_punches_does_not_empty_them(self):
+        stamp = timezone.make_aware(datetime.combine(self.today, time(9, 0)))
+        WorkDay.objects.create(user=self.tr, date=self.today, status="present", check_in=stamp, check_out=stamp + timedelta(hours=8))
+        self.save(note="Only a note")
+        day = WorkDay.objects.get(user=self.tr, date=self.today)
+        self.assertEqual(day.note, "Only a note")
+        self.assertIsNotNone(day.check_in)
+        self.assertIsNotNone(day.check_out)
 
     def test_the_times_are_cairo_time_and_do_not_move_when_the_day_is_saved_again(self):
         self.save(check_in=f"{self.today.isoformat()}T09:00", check_out=f"{self.today.isoformat()}T17:00")

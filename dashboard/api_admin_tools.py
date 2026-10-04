@@ -25,7 +25,7 @@ from django.utils.text import Truncator
 from . import api_forms, identity, services
 from .api_v1 import BadBody, _error, _object, endpoint
 from .forms import SimulateMessageForm
-from .models import InboundMessage, Role
+from .models import AppSettings, InboundMessage, Role
 from .permissions import api_role_required
 
 log = logging.getLogger("dashboard")
@@ -35,6 +35,8 @@ MAX_RECENT = 20
 RECENT_BODY = 60
 #: The longest password the clear-outs read (a real one is far shorter; the rest is a body that wants memory).
 MAX_PASSWORD = 200
+#: One file of a simulated message: far above any real document, below what would be a way to fill the disk.
+MAX_SIMULATED_FILE_BYTES = 20 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +67,18 @@ def simulate(request):
 @api_role_required(Role.ADMIN)
 def simulate_send(request):
     """Make a message arrive as if a client sent it (multipart: the fields, and ``files``). The classic function does the rest."""
+    # The switch on the settings page ("Allow message simulation") is what turns this door off; it is read here, not just drawn.
+    if not AppSettings.load().simulation_enabled:
+        return JsonResponse({
+            "ok": False, "error": "simulation_off",
+            "message": "المحاكاة مقفولة من الإعدادات.", "message_en": "Simulation is switched off in the settings.",
+        }, status=409)
     form = SimulateMessageForm(request.POST, request.FILES)
     if not form.is_valid():
         return api_forms.invalid(form)
     uploads = request.FILES.getlist("files")
+    if any(upload.size > MAX_SIMULATED_FILE_BYTES for upload in uploads):
+        return _error(400, "file_too_big")
     message = services.ingest_message(
         channel=form.cleaned_data["channel"],
         body=form.cleaned_data["body"],
@@ -76,6 +86,8 @@ def simulate_send(request):
         sender_identity=form.cleaned_data["sender_identity"],
         attachments=[{"file": upload, "name": upload.name, "size": upload.size} for upload in uploads],
     )
+    # The code and the channel, never the words: the log is read by people who may not know the client.
+    services.log(request.user, "admin.simulate", message.client_code or "", form.cleaned_data["channel"])
     return JsonResponse({"ok": True, "id": message.pk, "code": message.client_code, "blocked": message.is_rate_blocked})
 
 

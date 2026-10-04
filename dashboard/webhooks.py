@@ -66,9 +66,19 @@ def _decode_files(items):
             raw = base64.b64decode(content)
         except Exception:
             continue
-        name = item.get("filename") or "attachment.bin"
+        name = clean_filename(item.get("filename"), "attachment.bin")
         files.append({"file": ContentFile(raw, name=name), "name": name, "size": len(raw)})
     return files
+
+
+def clean_filename(raw, fallback="file"):
+    """The last piece of a name a sender gave a file, never a way out of the folder it is stored in.
+
+    What a sender calls their file is theirs to say and nobody's to trust: a name like ``../x.pdf`` made the save raise, and the
+    hook answered 500 to a stranger (and Meta sent the same message again).
+    """
+    name = str(raw or "").replace("\\", "/").rsplit("/", 1)[-1].strip()[:200]
+    return name if name not in ("", ".", "..") else fallback
 
 
 def _pull_media(message):
@@ -87,7 +97,7 @@ def _pull_media(message):
         logger.warning("WhatsApp media %s could not be downloaded: %s", media_id, exc)
         return []
 
-    name = block.get("filename") or fallback_name
+    name = clean_filename(block.get("filename"), clean_filename(fallback_name))
     return [{
         "file": ContentFile(content, name=name),
         "name": name,

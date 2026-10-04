@@ -882,6 +882,15 @@ def overtime_decide(request, pk, action):
                 "ok": False, "error": "already_decided",
                 "message": "اتقرر في الطلب ده قبل كده.", "message_en": "This claim has already been decided.",
             }, status=409)
+        if action == "approve" and not WorkDay.objects.filter(
+            user=claim.user, date=claim.date, status=DayStatus.PRESENT, overtime_minutes__gte=claim.minutes,
+        ).exists():
+            # The day was corrected after the claim was drafted: there is no longer that much overtime to pay for.
+            return JsonResponse({
+                "ok": False, "error": "stale_claim",
+                "message": "اليوم اتعدّل ومبقاش فيه أوفرتايم بالمدة دي. ارفض الطلب أو سيبه يتحسب من جديد.",
+                "message_en": "The day was corrected and no longer has that much overtime. Reject the claim or let it be drafted again.",
+            }, status=409)
         if action == "approve":
             claim.approve(request.user)
         else:

@@ -151,6 +151,7 @@ function candidate(over: Partial<HrCandidate> = {}, who: Partial<HrCandidate["ca
     ],
     next_statuses: [badge("interview", "info", "مقابلة", "Interview"), badge("rejected", "dead", "مرفوض", "Rejected")],
     privacy_armed: true,
+    line_ready: true,
     interview_form: [field("scheduled_at", "الموعد", { kind: "datetime", required: true }), field("meeting_link", "لينك الاجتماع")],
     test_form: [field("title", "العنوان"), field("deadline_days", "يوم", { kind: "number", ltr: true })],
     can: { hire: false, mark: false },
@@ -327,6 +328,32 @@ describe("HrCandidatePage", () => {
     await user.click(within(card).getByRole("button", { name: /ابعت/ }));
     expect(await within(card).findByRole("alert")).toHaveTextContent("الرقم مش مسجل على واتساب.");
     expect(within(card).getByLabelText("الرسالة")).toHaveValue("Welcome");
+  });
+
+  it("will not send when there is no recruitment number, and says why", async () => {
+    const served = serve("hr", { ...page(candidate({ line_ready: false })), "/api/v1/hr/candidates/CAN-0007/message/": (url, init) => served.record(url, init, { ok: true }) });
+    const user = userEvent.setup();
+    const { container } = open("/hr/candidates/CAN-0007");
+    await screen.findByText("إجابات المرشح");
+    const card = container.querySelector('[data-card="message"]') as HTMLElement;
+    expect(card.querySelector('[data-note="no-line"]')).not.toBeNull();
+    await user.type(within(card).getByLabelText("الرسالة"), "Welcome");
+    expect(within(card).getByRole("button", { name: /ابعت/ })).toBeDisabled();
+    expect(served.sent).toHaveLength(0);
+  });
+
+  it("says so when the server refuses a message for want of the recruitment number", async () => {
+    serve("hr", {
+      ...page(),
+      "/api/v1/hr/candidates/CAN-0007/message/": () => jsonResponse({ ok: false, error: "no_recruit_line" }, 409),
+    });
+    const user = userEvent.setup();
+    const { container } = open("/hr/candidates/CAN-0007");
+    await screen.findByText("إجابات المرشح");
+    const card = container.querySelector('[data-card="message"]') as HTMLElement;
+    await user.type(within(card).getByLabelText("الرسالة"), "Welcome");
+    await user.click(within(card).getByRole("button", { name: /ابعت/ }));
+    expect(await within(card).findByRole("alert")).toHaveTextContent("رقم التوظيف مش متسجل");
   });
 
   it("books an interview with what was filled, and shows the form's refusal beside its box", async () => {

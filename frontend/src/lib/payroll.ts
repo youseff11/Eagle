@@ -12,5 +12,5 @@ export const periodText = (year: number, month: number) => `${year}-${month}`;
 /** The month as a person reads it: `2026-09`. */
 export const periodLabel = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-/** Money is text (`"1500.00"`); is there any in it? `"0.00"` is none. */
-export const hasMoney = (value: string) => Number(value) > 0;
+/** Money is text (`"1500.00"`); is there any in it? `"0.00"` is none. A negative amount is some: it must be seen, not hidden. */
+export const hasMoney = (value: string) => Number.isFinite(Number(value)) && Number(value) !== 0;

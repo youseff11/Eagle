@@ -19,6 +19,7 @@ Rules that matter on these pages:
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from . import api_forms, attendance, clock, identity, payroll, services
 from .api_v1 import BadBody, _day_status_json, _error, _object, _two, endpoint
@@ -174,7 +175,8 @@ def recalculate(request):
     except BadBody:
         return _error(400, "bad_body")
     parsed = payroll.parse_period(raw) if isinstance(raw, str) else None
-    if parsed is None:
+    today = timezone.localdate()
+    if parsed is None or parsed > (today.year, today.month):
         return _error(400, "bad_period")
     period = payroll.compute_period(*parsed, actor=request.user)
     if period.is_locked:
@@ -275,8 +277,8 @@ def line(request, pk):
             }
             for day in breakdown.get("days", [])
         ],
-        "deductions": _breakdown_rows(breakdown.get("deductions"), "applied")
-        + _breakdown_rows(breakdown.get("pending"), "pending"),
+        "deductions": _breakdown_rows(payroll.shown_breakdown(breakdown.get("deductions"), row.user, user), "applied")
+        + _breakdown_rows(payroll.shown_breakdown(breakdown.get("pending"), row.user, user), "pending"),
         "conf": {
             "monthly_leave_allowance": conf.monthly_leave_allowance,
             "discipline_bonus": _money(conf.discipline_bonus),
@@ -403,15 +405,19 @@ def attendance_save(request):
         who = body.get("user")
         if isinstance(who, bool) or not isinstance(who, int) or not 0 < who < 2 ** 63:
             raise BadBody
-        data = api_forms.form_data(WorkDayForm, body.get("values", {}))
-    except (BadBody, api_forms.BadValues):
+        values = body.get("values", {})
+        if not isinstance(values, dict):
+            raise BadBody
+        person = get_object_or_404(_translators(), pk=who)
+        # A day that is already there is what the boxes are laid over: a note saved on a day with real punches must not
+        # empty them. Only a new day starts blank.
+        raw_date = values.get("date")
+        day_at = parse_date(raw_date) if isinstance(raw_date, str) and len(raw_date) <= 10 else None
+        existing = WorkDay.objects.filter(user=person, date=day_at).first() if day_at else None
+        data = api_forms.form_data(WorkDayForm, values, instance=existing)
+    except (BadBody, api_forms.BadValues, ValueError):
         return _error(400, "bad_body")
-    person = get_object_or_404(_translators(), pk=who)
-    form = WorkDayForm(data)
-    if form.is_valid():
-        existing = WorkDay.objects.filter(user=person, date=form.cleaned_data["date"]).first()
-        if existing is not None:
-            form = WorkDayForm(data, instance=existing)
+    form = WorkDayForm(data, instance=existing) if existing is not None else WorkDayForm(data)
     if not form.is_valid():
         return api_forms.invalid(form)
     day = form.save(commit=False)
@@ -438,7 +444,7 @@ def violations(request):
         "ok": True,
         "pending": [
             _violation_json(row, user)
-            for row in Violation.objects.filter(status=ApprovalStatus.PENDING).select_related("user", "task__client")
+            for row in Violation.objects.filter(status=ApprovalStatus.PENDING).select_related("user", "task__client")[:MAX_PENDING]
         ],
         "decided": [
             _violation_json(row, user)

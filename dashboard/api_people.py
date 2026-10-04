@@ -336,7 +336,10 @@ def probation_decide(request, pk):
 def probation_open(request, pk):
     """Start the three reviews for somebody hired before this existed. Doing it twice makes no more."""
     person = get_object_or_404(User, pk=pk)
-    created = employees.open_probation(person, actor=request.user)
+    try:
+        created = employees.open_probation(person, actor=request.user)
+    except employees.LifecycleError as refusal_:
+        return JsonResponse({"ok": False, "error": "refused", "message": refusal_.ar, "message_en": refusal_.en}, status=409)
     return JsonResponse({"ok": True, "created": len(created)})
 
 
@@ -426,11 +429,13 @@ COMPLAINT_HINT = {
 
 
 def _complaint_json(row, viewer):
+    # The client box is optional and logging by task is the way the form tells people to: the words are about that task's client.
+    client = row.client or (row.task.client if row.task_id else None)
     return {
         "id": row.pk,
         "date": row.happened_on.isoformat() if row.happened_on else None,
-        "summary": identity.mask_client(row.summary, row.client, viewer),
-        "detail": identity.mask_client(row.detail, row.client, viewer),
+        "summary": identity.mask_client(row.summary, client, viewer),
+        "detail": identity.mask_client(row.detail, client, viewer),
         "translator": row.translator.short_name if row.translator_id else None,
         "task": row.task.code if row.task_id else None,
         "severity": _badge({key: pair for key, pair in SEVERITY_MAP.items()}, row.severity),
@@ -442,7 +447,7 @@ def _complaint_json(row, viewer):
 @can_recruit
 def complaints(request):
     """The complaints logged against translators' work, the form that logs one, and the translators to filter by (``?translator=<id>``)."""
-    rows = ClientComplaint.objects.select_related("client", "task", "translator")
+    rows = ClientComplaint.objects.select_related("client", "task__client", "translator")
     if request.GET.get("translator"):
         who = _digits(request.GET["translator"])
         if who is None:
@@ -552,7 +557,10 @@ def salary_request_create(request):
         values = body.get("values", {})
         if isinstance(who, bool) or not isinstance(who, int) or not 0 < who < 2 ** 63 or not isinstance(values, dict):
             raise BadBody
-        data = api_forms.form_data(SalaryChangeRequestForm, values)
+        # The page draws the date box as today and sends only what was typed: "from today" is a request that arrives without it.
+        data = api_forms.form_data(
+            SalaryChangeRequestForm, values, form_kwargs={"initial": {"effective_from": timezone.localdate()}},
+        )
     except (BadBody, api_forms.BadValues):
         return _error(400, "bad_body")
     person = get_object_or_404(User, pk=who, is_active=True)

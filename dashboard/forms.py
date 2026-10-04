@@ -72,6 +72,18 @@ class DateTimeLocalField(forms.DateTimeField):
         super().__init__(*args, **kwargs)
 
 
+def non_negative(form, names=None):
+    """No money, days, minutes or words below zero: a negative penalty pays, and a negative allowance takes."""
+    from django.core.validators import MinValueValidator
+
+    for name, field in form.fields.items():
+        if names is not None and name not in names:
+            continue
+        if isinstance(field, (forms.IntegerField, forms.DecimalField, forms.FloatField)):
+            field.validators.append(MinValueValidator(0))
+            field.widget.attrs.setdefault("min", 0)
+
+
 # ---------------------------------------------------------------------------
 # Deadlines
 # ---------------------------------------------------------------------------
@@ -625,6 +637,15 @@ class StaffEditForm(forms.ModelForm):
                 "client_identity_access",
                 "الصلاحية دي لـSales وAccounting بس. الأوبريشن والليدر والمترجم بيشتغلوا بالكود.",
             )
+        # The owner cannot close or demote the last owner's account: the panel, the settings and every other owner-only door
+        # would be gone, and the way back is a command on the server. (``self.instance`` still holds what is stored here:
+        # the form writes the posted values onto it after ``clean``.)
+        person = self.instance
+        if person.pk and person.is_admin_role and person.is_active:
+            leaving = data.get("role") != Role.ADMIN or not data.get("is_active")
+            others = User.objects.filter(role=Role.ADMIN, is_active=True).exclude(pk=person.pk).exists()
+            if leaving and not others:
+                self.add_error(None, "ده آخر أدمن شغال. مينفعش تقفله أو تغيّر دوره، وإلا مفيش حد يفتح اللوحة تاني.")
         alias = data.get("mail_alias") or ""
         if alias:
             if data.get("role") not in MAIL_ALIAS_ROLES:
@@ -772,7 +793,21 @@ class OfficeLocationForm(forms.ModelForm):
         radius = self.cleaned_data["radius_meters"]
         if radius < 20:
             raise forms.ValidationError("أقل من 20 متر هيرفض حضور سليم — دقة الـGPS نفسها أوسع من كده.")
+        if radius > 5000:
+            raise forms.ValidationError("أكتر من 5000 متر معناه إن النطاق مابقاش بيقيس حاجة.")
         return radius
+
+    def clean_latitude(self):
+        value = self.cleaned_data["latitude"]
+        if not -90 <= value <= 90:
+            raise forms.ValidationError("خط العرض من -90 لـ 90.")
+        return value
+
+    def clean_longitude(self):
+        value = self.cleaned_data["longitude"]
+        if not -180 <= value <= 180:
+            raise forms.ValidationError("خط الطول من -180 لـ 180.")
+        return value
 
 
 class AttendanceEditForm(forms.ModelForm):
@@ -962,7 +997,11 @@ class SettingsForm(forms.ModelForm):
             )
             if not self.is_bound:
                 self.initial[f"newui_{key}_roles"] = setting["roles"]
-                self.initial[f"newui_{key}_users"] = setting["users"]
+                # Only the people who can still be picked. A pilot who was deactivated, or moved to another role, is still in the
+                # stored list; sent back with every other save they failed the choice check, and the owner could not untick a
+                # box that is not drawn: no setting could be saved at all.
+                pickable = set(self.fields[f"newui_{key}_users"].queryset.values_list("pk", flat=True))
+                self.initial[f"newui_{key}_users"] = [pk for pk in setting["users"] if pk in pickable]
 
     @property
     def new_ui_rows(self):
@@ -1057,6 +1096,7 @@ class PayrollSettingsForm(forms.ModelForm):
             if isinstance(field.widget, (forms.TextInput, forms.NumberInput)):
                 field.widget.attrs.setdefault("class", "input")
                 field.widget.attrs.setdefault("dir", "ltr")
+        non_negative(self)
 
     def clean(self):
         data = super().clean()
@@ -1120,6 +1160,10 @@ class ProductionTierForm(forms.ModelForm):
             "bonus": forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        non_negative(self)
+
     def clean(self):
         data = super().clean()
         low, high = data.get("min_words"), data.get("max_words")
@@ -1137,6 +1181,10 @@ class SalaryRecordForm(forms.ModelForm):
             "effective_from": forms.DateInput(attrs={"class": "input", "type": "date"}),
             "note": forms.TextInput(attrs={"class": "input"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        non_negative(self)
 
 
 class WorkDayForm(forms.ModelForm):
@@ -1177,6 +1225,7 @@ class WorkDayForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["check_in"].input_formats = DATETIME_INPUT_FORMATS
         self.fields["check_out"].input_formats = DATETIME_INPUT_FORMATS
+        non_negative(self, ("late_minutes", "early_leave_minutes", "words"))
 
     def clean(self):
         data = super().clean()
@@ -1240,6 +1289,7 @@ class ViolationForm(forms.ModelForm):
         )
         self.fields["task"].required = False
         self.fields["task"].queryset = Task.objects.order_by("-created_at")
+        non_negative(self, ("penalty_days", "penalty_amount"))
 
     def clean(self):
         data = super().clean()
@@ -1536,7 +1586,7 @@ class HireForm(forms.Form):
         widget=forms.Select(attrs={"class": "input"}), label="الدور",
     )
     job_title = forms.CharField(
-        required=False, widget=forms.TextInput(attrs={"class": "input"}),
+        required=False, max_length=120, widget=forms.TextInput(attrs={"class": "input"}),
         label="المسمى الوظيفي",
     )
     joining_date = forms.DateField(
@@ -1544,7 +1594,7 @@ class HireForm(forms.Form):
         label="تاريخ الانضمام",
     )
     salary = forms.DecimalField(
-        required=False, max_digits=10, decimal_places=2,
+        required=False, max_digits=10, decimal_places=2, min_value=0,
         widget=forms.NumberInput(attrs={"class": "input", "dir": "ltr", "step": "0.01"}),
         label="الراتب الأساسي",
     )
@@ -1553,7 +1603,7 @@ class HireForm(forms.Form):
         widget=forms.Select(attrs={"class": "input"}), label="المدير المباشر",
     )
     username = forms.CharField(
-        required=False,
+        required=False, max_length=150,
         widget=forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
         label="اسم المستخدم", help_text="سيبه فاضي والنظام هيولّده.",
     )
@@ -1574,8 +1624,13 @@ class HireForm(forms.Form):
             ]
 
     def clean_username(self):
+        from django.contrib.auth.validators import UnicodeUsernameValidator
+
         name = (self.cleaned_data.get("username") or "").strip()
-        if name and User.objects.filter(username=name).exists():
+        if name:
+            UnicodeUsernameValidator()(name)
+        # "Admin" next to "admin" is a look-alike account, not another name.
+        if name and User.objects.filter(username__iexact=name).exists():
             raise forms.ValidationError("الاسم ده مستخدم بالفعل.")
         return name
 
@@ -1661,6 +1716,12 @@ class LeaveRequestForm(forms.ModelForm):
             self.add_error("end_date", "لازم يكون بعد تاريخ البداية.")
         else:
             data["end_date"] = end
+        # The balance and the sheet walk every day of the range, so a range of years is a request that breaks the page.
+        today = timezone.localdate()
+        if start and not today - timedelta(days=370) <= start <= today + timedelta(days=370):
+            self.add_error("start_date", "التاريخ بعيد أوي عن النهارده.")
+        elif start and end and (end - start).days > 120:
+            self.add_error("end_date", "أكتر من 120 يوم في طلب واحد؟ قسّمها.")
         return data
 
 
@@ -1756,6 +1817,7 @@ class SalaryPlanForm(forms.ModelForm):
                 field.widget.attrs.setdefault("dir", "ltr")
             if name not in ("name", "is_active", "fixed_allowance"):
                 field.required = False
+        non_negative(self)
 
     def clean(self):
         data = super().clean()
