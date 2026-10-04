@@ -14,6 +14,7 @@ Only the admin is answered.
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
+from . import api_admin_tools as tools
 from . import api_forms, files, identity, services
 from .api_v1 import BadBody, _error, _object, endpoint
 from .forms import ClientForm
@@ -121,17 +122,25 @@ def delete_plan(request):
 @endpoint("POST")
 @api_role_required(Role.ADMIN)
 def delete(request):
-    """Delete the named clients that nothing depends on. Nothing happens without ``confirm: true``."""
+    """Delete the named clients that nothing depends on: the owner's own password, the explicit yes, and the backup comes back.
+
+    Like the two clear-outs, and for the same reason: nothing else in the product is this final. The answer is the backup of
+    the rows that went, saved by the browser before anything else, because by then it is the only copy.
+    """
     try:
-        ids, body = _ids(request)
+        ids, _body = _ids(request)
     except BadBody:
         return _error(400, "bad_body")
-    if body.get("confirm") is not True:
-        return _error(400, "confirm_required")
-    ok, problem, deleted, blocked, removed = services.delete_clients(request.user, ids)
+    password, refused = tools._password_and_yes(request)
+    if refused is not None:
+        return refused
+    ok, problem, backup, deleted, blocked, removed = services.delete_clients_safely(request.user, ids, password)
     if not ok:
+        if problem in (services.RESET_LOCKED_MESSAGE, "الباسورد غلط."):
+            return tools._refusal(problem)
         return JsonResponse({"ok": False, "error": "refused", "message": problem, "blocked": blocked}, status=409)
-    return JsonResponse({"ok": True, "deleted": deleted, "blocked": blocked, "files_removed": removed})
+    tools._record_export(request, "clients-backup", len(deleted))
+    return tools._backup(backup, "clients", {"X-Eagle-Deleted": len(deleted), "X-Eagle-Blocked": len(blocked), "X-Eagle-Files": removed})
 
 
 @endpoint("GET")

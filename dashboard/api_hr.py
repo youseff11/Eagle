@@ -278,7 +278,10 @@ def day_clear(request, pk):
         return _error(400, "bad_body")
     if not isinstance(reason, str) or len(reason) > 250 or "\x00" in reason:
         return _error(400, "bad_body")
-    attendance.clear_review(row, request.user, reason)
+    try:
+        attendance.clear_review(row, request.user, reason)
+    except attendance.PunchRefused as refused:
+        return JsonResponse({"ok": False, "error": refused.code, "message": refused.ar, "message_en": refused.en}, status=409)
     return JsonResponse({"ok": True})
 
 
@@ -821,6 +824,15 @@ def devices(request):
     })
 
 
+def _own_refusal():
+    """Whoever holds the attendance right does not decide their own overtime or browser: the owner does."""
+    return JsonResponse({
+        "ok": False, "error": "own_record",
+        "message": "مينفعش تقرر في حاجة بتاعتك أنت. المالك هو اللي بيقرر.",
+        "message_en": "Nobody decides their own record except the owner.",
+    }, status=409)
+
+
 @endpoint("POST")
 @can_manage
 def device_decide(request, pk, action):
@@ -828,6 +840,8 @@ def device_decide(request, pk, action):
     if action not in ("approve", "reject"):
         return _error(404, "not_found")
     device = get_object_or_404(AuthorizedDevice.objects.select_related("user"), pk=pk)
+    if device.user_id == request.user.pk and not request.user.is_admin_role:
+        return _own_refusal()
     if action == "approve":
         device.approve(request.user)
     else:
@@ -877,6 +891,8 @@ def overtime_decide(request, pk, action):
         return _error(404, "not_found")
     with transaction.atomic():
         claim = get_object_or_404(OvertimeClaim.objects.select_for_update().select_related("user"), pk=pk)
+        if claim.user_id == request.user.pk and not request.user.is_admin_role:
+            return _own_refusal()
         if claim.status != ApprovalStatus.PENDING:
             return JsonResponse({
                 "ok": False, "error": "already_decided",

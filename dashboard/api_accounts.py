@@ -519,15 +519,19 @@ def salary(request, pk):
             {"id": line.pk, "label": line.period.label, "base_salary": _money(line.base_salary), "words": line.total_words, "net": _money(line.net)}
             for line in person.payroll_lines.select_related("period")[:MAX_SALARY_MONTHS]
         ],
-        "can": {"line": request.user.is_admin_role},
+        "can": {"line": request.user.is_admin_role, "set": request.user.is_admin_role},
         "form": api_forms.describe(SalaryRecordForm()),
     })
 
 
 @endpoint("POST")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ADMIN)
 def salary_save(request, pk):
-    """Add a salary. History is append-only: an old month keeps the salary it was paid on."""
+    """Add a salary. History is append-only: an old month keeps the salary it was paid on.
+
+    The owner's alone, like every other salary change (``employees.decide_salary_change``): accounting reads a salary and pays
+    it, HR asks for a change, and the owner decides. A salary typed here moves the next run of every month that is not locked.
+    """
     person = get_object_or_404(User, pk=pk)
     form, refused = api_forms.filled(request, SalaryRecordForm)
     if refused is not None:

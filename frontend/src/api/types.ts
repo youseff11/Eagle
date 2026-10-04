@@ -981,6 +981,8 @@ export type AuditFilter = "" | "security" | "denied";
 export interface AdminAudit {
   ok: true;
   only: AuditFilter;
+  /** Older rows exist: ask again with `before` set to the id of the last row shown. */
+  more: boolean;
   rows: {
     id: number;
     at: Stamp | null;
@@ -1124,12 +1126,15 @@ export interface ClientDeletePlan {
   blocked: ClientPlanRow[];
 }
 
-/** POST /api/v1/admin/clients/delete/. */
+/**
+ * What deleting clients did, read off the headers of the backup the server answered with: how many went, how many stayed
+ * because tasks stand on them, how many stored files went, and the name the backup was saved under.
+ */
 export interface ClientsDeleted {
-  ok: true;
-  deleted: string[];
-  blocked: string[];
-  files_removed: number;
+  deleted: number;
+  blocked: number;
+  files: number;
+  filename: string;
 }
 
 /** GET /api/v1/admin/simulate/: the choices of the simulator and the latest messages. */
@@ -1347,7 +1352,7 @@ export interface AccountsSalary {
   person: { id: number; name: string; username: string; initials: string };
   records: { id: number; effective_from: string; amount: string; note: string; by: string | null }[];
   lines: { id: number; label: string; base_salary: string; words: number; net: string }[];
-  can: { line: boolean };
+  can: { line: boolean; set: boolean };
   form: FormField[];
 }
 
@@ -1893,6 +1898,8 @@ export interface HrQuestions {
 export interface HrRecruitSettings {
   ok: true;
   form: FormField[];
+  /** `redact` is whether the signed-in person may change the words that hide the company from a candidate: the owner only. */
+  can: { redact: boolean };
   privacy_armed: boolean;
   sample: string;
   line: { number: string; phone_number_id: boolean };

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { download } from "../lib/download";
 import { ApiError, api, apiDownload } from "./client";
 import { qk } from "./keys";
-import type { ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced } from "./types";
+import type { AdminAudit, ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced } from "./types";
 
 /**
  * What the admin does on the panel's pages. Every write is a door of its own (`/api/v1/admin/...`) that gives the
@@ -119,14 +119,42 @@ export function useClientDeletePlan() {
   });
 }
 
-/** Step two: the yes. The server works the blockers out again. */
+/**
+ * Step two: the yes, with the admin's own password. The server works the blockers out again and answers with the backup of
+ * what went, which is saved as a file before anything else happens because by then it is the only copy. The password is in
+ * this one request and is not kept anywhere here.
+ */
 export function useDeleteClients() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (ids: number[]) => api<ClientsDeleted>("/api/v1/admin/clients/delete/", { json: { ids, confirm: true } }),
+    mutationFn: async ({ ids, password }: { ids: number[]; password: string }): Promise<ClientsDeleted> => {
+      const answer = await apiDownload("/api/v1/admin/clients/delete/", { ids, password, confirm: true }, "eagle-clients-backup.json");
+      download.save(answer.blob, answer.filename);
+      return {
+        deleted: Number(answer.headers.get("X-Eagle-Deleted") ?? 0),
+        blocked: Number(answer.headers.get("X-Eagle-Blocked") ?? 0),
+        files: Number(answer.headers.get("X-Eagle-Files") ?? 0),
+        filename: answer.filename,
+      };
+    },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: qk.adminClientsAll });
       void client.invalidateQueries({ queryKey: qk.boards });
+    },
+  });
+}
+
+/**
+ * The next page of the audit log, older than the row with id `before`. Kept out of the query cache on purpose: the first page
+ * is what the refresh button asks again, and older pages are only ever added under it.
+ */
+export function useOlderAudit(only: string) {
+  return useMutation({
+    mutationFn: (before: number) => {
+      const query = new URLSearchParams();
+      if (only) query.set("only", only);
+      query.set("before", String(before));
+      return api<AdminAudit>(`/api/v1/admin/audit/?${query.toString()}`);
     },
   });
 }

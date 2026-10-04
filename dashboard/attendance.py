@@ -671,7 +671,7 @@ def recompute(row, conf=None, save=True, keep_break=False):
         # so it is not a shortfall. Without this line a granted permission
         # still reads as short hours and can price a deduction, which is the
         # fastest way to make people stop asking for one.
-        owed = max(0, row.scheduled_minutes - row.excused_minutes)
+        owed = max(0, row.scheduled_minutes - max(row.excused_minutes, approved_permission_minutes(row.user_id, row.date)))
         # The extra hour is paid as extra; it does not also fill a late start.
         regular = row.work_minutes - extra
         if regular < owed:
@@ -701,12 +701,34 @@ def _readable(value):
 
 
 @transaction.atomic
+def approved_permission_minutes(user_id, day):
+    """Minutes of permission HR approved for this person on this date: the day may not have a row when it is approved."""
+    from .models import LeaveKind, LeaveRequest, LeaveStatus
+
+    total = sum(
+        request.minutes
+        for request in LeaveRequest.objects.filter(
+            user_id=user_id, kind=LeaveKind.PERMISSION, status=LeaveStatus.APPROVED, start_date=day,
+        )
+    )
+    return min(total, 32000)
+
+
+def _own_record(row, actor):
+    """Whoever corrects attendance does not correct their own: the owner does."""
+    if actor is not None and row.user_id == getattr(actor, "pk", None) and not actor.is_admin_role:
+        raise PunchRefused(
+            "own_day", "مينفعش تعدّل يومك أنت. المالك هو اللي بيعدّل.", "Nobody corrects their own day except the owner.",
+        )
+
+
 def apply_edit(row, actor, changes, reason):
     """Write HR's corrections and the trail that explains them.
 
     Refuses without a reason, because section 9 does: an attendance figure
     that can be changed without saying why is not evidence of anything.
     """
+    _own_record(row, actor)
     reason = (reason or "").strip()
     if not reason:
         raise PunchRefused(
@@ -750,6 +772,7 @@ def apply_edit(row, actor, changes, reason):
 
 def clear_review(row, actor, reason=""):
     """HR has looked at a flagged day and is satisfied with it."""
+    _own_record(row, actor)
     if not row.needs_review:
         return row
     row.needs_review = False

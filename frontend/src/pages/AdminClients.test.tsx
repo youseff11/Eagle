@@ -3,11 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdminClientForm, AdminClients, ClientDeletePlan, FormField, Role } from "../api/types";
+import { ToastProvider } from "../components/Toasts";
+import { download } from "../lib/download";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { AdminClientFormPage } from "./AdminClientFormPage";
 import { AdminClientsPage } from "./AdminClientsPage";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const row = (id: number, code: string, over: Partial<AdminClients["clients"][number]> = {}): AdminClients["clients"][number] => ({
   id,
@@ -72,7 +77,19 @@ function serve(who: Role, over: Record<string, Handler> = {}) {
   const defaults: Record<string, Handler> = {
     "/api/v1/me/": () => jsonResponse(me({ role: who, is_admin: who === "admin" })),
     "/api/v1/admin/clients/delete-plan/": (url, init) => record(url, init, plan()),
-    "/api/v1/admin/clients/delete/": (url, init) => record(url, init, { ok: true, deleted: ["CL-0002"], blocked: [], files_removed: 2 }),
+    "/api/v1/admin/clients/delete/": (url, init) => {
+      posts.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
+      return new Response('[{"model":"dashboard.client"}]', {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Disposition": 'attachment; filename="eagle-clients-backup-20261004-1200.json"',
+          "X-Eagle-Deleted": "1",
+          "X-Eagle-Blocked": "1",
+          "X-Eagle-Files": "2",
+        },
+      });
+    },
     "/api/v1/admin/clients/create/": (url, init) => record(url, init, { ok: true, code: "CL-0044" }),
     "/api/v1/admin/clients/new/": () => jsonResponse(clientForm("")),
     "/api/v1/admin/clients/CL-0001/save/": (url, init) => record(url, init, { ok: true, code: "CL-0001" }),
@@ -93,7 +110,7 @@ function Where() {
 
 function open(route: string) {
   return renderWithProviders(
-    <>
+    <ToastProvider>
       <Routes>
         <Route path="/admin/clients" element={<AdminClientsPage />} />
         <Route path="/admin/clients/new" element={<AdminClientFormPage />} />
@@ -102,7 +119,7 @@ function open(route: string) {
         <Route path="/" element={<div>home page</div>} />
       </Routes>
       <Where />
-    </>,
+    </ToastProvider>,
     { route },
   );
 }
@@ -252,7 +269,7 @@ describe("AdminClientsPage: deleting", () => {
     expect(within(blocked).getByText("عليه تاسكات.")).toBeInTheDocument();
   });
 
-  it("keeps the delete button off until the box that says it is for good is ticked", async () => {
+  it("keeps the delete button off until the box that says it is for good is ticked and the password is typed", async () => {
     const served = serve("admin");
     const user = await tick("CL-0002");
     await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
@@ -262,20 +279,88 @@ describe("AdminClientsPage: deleting", () => {
     await user.click(button);
     expect(served.posts.some((post) => post.url === "/api/v1/admin/clients/delete/")).toBe(false);
     await user.click(within(dialog).getByRole("checkbox"));
+    expect(button).toBeDisabled();
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
     expect(button).toBeEnabled();
+    await user.clear(within(dialog).getByLabelText("باسورد الأدمن بتاعك"));
+    expect(button).toBeDisabled();
+    expect(served.posts.some((post) => post.url === "/api/v1/admin/clients/delete/")).toBe(false);
   });
 
-  it("deletes only the ones that can go, with the explicit yes, then reads the list again", async () => {
+  it("deletes only the ones that can go, with the password and the explicit yes, saves the backup, then reads the list again", async () => {
     const served = serve("admin");
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
     const user = await tick("CL-0001", "CL-0002");
     await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
     await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
     await waitFor(() => expect(served.posts.some((post) => post.url === "/api/v1/admin/clients/delete/")).toBe(true));
-    expect(served.posts.find((post) => post.url === "/api/v1/admin/clients/delete/")!.body).toEqual({ ids: [2], confirm: true });
+    expect(served.posts.find((post) => post.url === "/api/v1/admin/clients/delete/")!.body).toEqual({ ids: [2], password: "my-admin-password", confirm: true });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1]).toBe("eagle-clients-backup-20261004-1200.json");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(asked(served).length).toBe(2));
+    expect(document.body.textContent).not.toContain("my-admin-password");
+  });
+
+  it("tells what went and what stayed, off the backup's headers", async () => {
+    serve("admin");
+    vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = await tick("CL-0001", "CL-0002");
+    await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
+    await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
+    expect(await screen.findByText(/اتمسح 1 عميل و2 ملف متخزّن/)).toBeInTheDocument();
+    expect(screen.getByText(/ومااتمسحش 1 لأن عليهم تاسكات/)).toBeInTheDocument();
+  });
+
+  it("shows the server's reason for a wrong password, empties the box, saves nothing and leaves the box open", async () => {
+    serve("admin", {
+      "/api/v1/admin/clients/delete/": () => jsonResponse({ ok: false, error: "refused", message: "الباسورد غلط." }, 400),
+    });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = await tick("CL-0002");
+    await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "wrong-guess");
+    await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("الباسورد غلط.");
+    expect(within(dialog).getByLabelText("باسورد الأدمن بتاعك")).toHaveValue("");
+    expect(save).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("wrong-guess");
+  });
+
+  it("says it is shut after too many wrong passwords", async () => {
+    serve("admin", {
+      "/api/v1/admin/clients/delete/": () => jsonResponse({ ok: false, error: "too_many_attempts", message: "محاولات باسورد غلط كتير. المسح اتقفل 15 دقيقة." }, 429),
+    });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = await tick("CL-0002");
+    await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
+    await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("اتقفل 15 دقيقة");
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("says it does not know the result when the server broke after it may have deleted", async () => {
+    serve("admin", { "/api/v1/admin/clients/delete/": () => jsonResponse({ ok: false, error: "server" }, 500) });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = await tick("CL-0002");
+    await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
+    await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("ماعرفناش النتيجة");
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("shows the server's reason in the box when it refuses, and leaves the box open", async () => {
@@ -286,6 +371,7 @@ describe("AdminClientsPage: deleting", () => {
     await user.click(screen.getByRole("button", { name: /امسح المحدّد/ }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(within(dialog).getByLabelText("باسورد الأدمن بتاعك"), "my-admin-password");
     await user.click(within(dialog).getByRole("button", { name: /امسح العملاء دول/ }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("فيه تاسك لسه ماسك واحد من العملاء دول");
   });

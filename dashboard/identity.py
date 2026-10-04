@@ -148,13 +148,41 @@ def record_identity_list(request, codes, query=""):
     return audit(request, request.user, IDENTITY_LIST, ",".join(codes[:20]), detail)
 
 
+#: A refusal that repeats inside this many seconds (same person, same address, same page, same reason) is one row with a
+#: count, not one row per try: a page left open that asks again every few seconds, or a loop on purpose, must not be able to
+#: push the rest of the log out of the two hundred rows the admin reads.
+DENIED_REPEAT_SECONDS = 60
+_REPEAT_MARK = re.compile(r"^(.*) \(x(\d+)\)$", re.DOTALL)
+
+
 def record_denied(request, reason=""):
     """A signed-in person was refused something. Anonymous refusals are the
-    login page's business, not the audit log's."""
+    login page's business, not the audit log's.
+
+    The same refusal again within ``DENIED_REPEAT_SECONDS`` is not another row: the first one carries ``(xN)`` in its detail,
+    so the count is still there for whoever reads the log.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return None
-    return audit(request, user, ACCESS_DENIED, getattr(user, "role", ""), reason[:300])
+    reason = reason[:300]
+    role = getattr(user, "role", "")
+    path = (request.get_full_path() if request is not None else "")[:250]
+    recent = AuditLog.objects.filter(
+        actor=user, action=ACCESS_DENIED, ip=client_ip(request), path=path,
+        created_at__gte=timezone.now() - timedelta(seconds=DENIED_REPEAT_SECONDS),
+    ).order_by("-pk")
+    for row in recent[:5]:
+        marked = _REPEAT_MARK.match(row.detail)
+        base, times = (marked.group(1), int(marked.group(2))) if marked else (row.detail, 1)
+        if base == reason:
+            AuditLog.objects.filter(pk=row.pk).update(detail=f"{reason} (x{times + 1})")
+            return row
+    return audit(request, user, ACCESS_DENIED, role, reason)
 
 
 def hidden(request, what=""):

@@ -14,20 +14,38 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
   const { t } = usePreferences();
   const remove = useDeleteClients();
   const [understood, setUnderstood] = useState(false);
+  const [password, setPassword] = useState("");
   const [problem, setProblem] = useState("");
 
-  const confirm = () => {
+  const confirm = (event: FormEvent) => {
+    event.preventDefault();
     setProblem("");
     remove.mutate(
-      plan.deletable.map((row) => row.id),
+      { ids: plan.deletable.map((row) => row.id), password },
       {
         onSuccess: (answer) => {
-          const base = t(`اتمسح ${answer.deleted.length} عميل و${answer.files_removed} ملف متخزّن.`, `Deleted ${answer.deleted.length} client(s) and ${answer.files_removed} stored file(s).`);
-          onDone(answer.blocked.length > 0 ? `${base} ${t(`ومااتمسحش ${answer.blocked.length} لأن عليهم تاسكات.`, `${answer.blocked.length} stayed: they have tasks.`)}` : base);
+          setPassword("");
+          // The password the request carried is not kept in its state once it is over.
+          remove.reset();
+          const base = t(`اتمسح ${answer.deleted} عميل و${answer.files} ملف متخزّن. النسخة الاحتياطية اتنزّلت.`, `Deleted ${answer.deleted} client(s) and ${answer.files} stored file(s). The backup was saved.`);
+          onDone(answer.blocked > 0 ? `${base} ${t(`ومااتمسحش ${answer.blocked} لأن عليهم تاسكات.`, `${answer.blocked} stayed: they have tasks.`)}` : base);
         },
         onError: (error) => {
+          setPassword("");
           const detail = error instanceof ApiError ? error.detail : "";
-          setProblem(detail || t("حصلت مشكلة، محدش اتمسح.", "Something went wrong, nobody was deleted."));
+          // A "no" from the server (4xx) came before it did anything. Anything else - a server error, a dropped connection - may
+          // have come after: the clients can be gone with the backup lost on the way, so the page says it does not know.
+          const refused = error instanceof ApiError && error.status >= 400 && error.status < 500;
+          setProblem(
+            detail ||
+              (refused
+                ? t("حصلت مشكلة، محدش اتمسح.", "Something went wrong, nobody was deleted.")
+                : t(
+                    "حصلت مشكلة وماعرفناش النتيجة. ممكن يكون اتمسح: حدّث الصفحة وراجع القايمة قبل ما تحاول تاني.",
+                    "Something went wrong and the result is not known. They may be deleted: reload the page and check the list before trying again.",
+                  )),
+          );
+          remove.reset();
         },
       },
     );
@@ -35,9 +53,9 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
 
   return (
     <Modal title={t("مسح عملاء", "Delete clients")} icon="alert" count={plan.deletable.length} busy={remove.isPending} onClose={onClose}>
-      <p className="muted">{t("راجع اللي هيتمسح. مفيش رجوع.", "Check what goes. There is no undo.")}</p>
+      <p className="muted">{t("راجع اللي هيتمسح. مفيش رجوع، بس هتنزل نسخة احتياطية.", "Check what goes. There is no undo, but a backup is saved.")}</p>
       {plan.deletable.length > 0 ? (
-        <>
+        <form id="delete-clients-form" autoComplete="off" onSubmit={confirm}>
           <div className="table-wrap">
             <table className="table" data-plan="deletable">
               <thead>
@@ -81,7 +99,19 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
             <input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.target.checked)} />
             <span>{t("فاهم إن ده مسح نهائي للعملاء دول ولكل اللي معاهم.", "I understand these clients and everything with them are deleted for good.")}</span>
           </label>
-        </>
+          <div className="field mt">
+            <label htmlFor="delete-clients-password">{t("باسورد الأدمن بتاعك", "Your admin password")}</label>
+            <input
+              id="delete-clients-password"
+              className="input"
+              type="password"
+              autoComplete="current-password"
+              style={{ maxWidth: 320 }}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </div>
+        </form>
       ) : (
         <div className="empty">
           <Icon name="archive" size="xl" />
@@ -117,7 +147,7 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
       )}
       <div className="row mt">
         {plan.deletable.length > 0 && (
-          <button className="btn btn--danger" type="button" disabled={!understood || remove.isPending} onClick={confirm}>
+          <button className="btn btn--danger" type="submit" form="delete-clients-form" disabled={!understood || password === "" || remove.isPending}>
             <Icon name="trash" size="sm" />
             <span>{t("امسح العملاء دول", "Delete these clients")}</span>
           </button>

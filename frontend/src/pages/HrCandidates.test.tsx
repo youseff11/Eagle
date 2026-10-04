@@ -562,6 +562,21 @@ describe("HrHirePage", () => {
     expect(container.querySelector('[data-note="probation"]')).toHaveTextContent("90");
   });
 
+  it("tells HR the starting salary is the owner's to set and where to ask for it, and says nothing when the box is there", async () => {
+    serve("hr", page());
+    const view = open("/hr/candidates/CAN-0007/hire");
+    await screen.findByText("بيانات التعاقد");
+    expect(view.container.querySelector('[data-note="salary-later"]')).not.toBeNull();
+    expect(screen.getByRole("link", { name: "طلبات تغيير الراتب" })).toHaveAttribute("href", "/hr/salary-requests");
+    view.unmount();
+    const withSalary = hire();
+    serve("admin", page({ ...withSalary, form: [...withSalary.form, field("salary", "الراتب الأساسي", { kind: "number" })] }));
+    const owner = open("/hr/candidates/CAN-0007/hire");
+    await screen.findByText("بيانات التعاقد");
+    expect(owner.container.querySelector('[data-note="salary-later"]')).toBeNull();
+    expect(screen.getByLabelText("الراتب الأساسي")).toBeInTheDocument();
+  });
+
   it("offers only the roles the server sent and a password box that starts empty", async () => {
     serve("hr", page());
     open("/hr/candidates/CAN-0007/hire");

@@ -450,17 +450,76 @@ class SettingsTests(_Recruit):
         self.assertFalse(body["privacy_armed"])
 
     def test_a_save_changes_the_boxes_sent_and_writes_a_trail(self):
-        answer = self.post(self.hr, SETTINGS_SAVE, {"values": {"probation_days": "60", "redact_terms": "Acme\nAcme Ltd"}})
+        words = list(RecruitmentSettings.load().term_list)
+        answer = self.post(self.hr, SETTINGS_SAVE, {"values": {"probation_days": "60", "bot_name_ar": "فريق جديد"}})
         self.assertEqual(answer.status_code, 200)
         conf = RecruitmentSettings.load()
-        self.assertEqual((conf.probation_days, conf.term_list, conf.bot_name_ar), (60, ["Acme", "Acme Ltd"], "فريق التوظيف"))
+        self.assertEqual((conf.probation_days, conf.bot_name_ar, conf.term_list), (60, "فريق جديد", words))
         self.assertTrue(AuditLog.objects.filter(action="recruitment.settings.update", actor=self.hr).exists())
+        self.assertFalse(AuditLog.objects.filter(action="recruitment.redact.update").exists())
 
     def test_the_new_rule_is_what_the_filter_uses_at_once(self):
         from . import recruitment
 
-        self.post(self.hr, SETTINGS_SAVE, {"values": {"redact_terms": "Acme", "redact_placeholder": "[hidden]"}})
+        self.post(self.admin, SETTINGS_SAVE, {"values": {"redact_terms": "Acme", "redact_placeholder": "[hidden]"}})
         self.assertEqual(recruitment.outbound_text(None, "Hello from Acme"), "Hello from [hidden]")
+
+    def test_hr_sees_the_words_locked_and_the_owner_sees_them_open(self):
+        for who, can in ((self.hr, False), (self.admin, True)):
+            body = _json(self.read(SETTINGS, who))
+            fields = {one["name"]: one for one in body["form"]}
+            self.assertEqual(body["can"], {"redact": can})
+            self.assertEqual((fields["redact_terms"]["disabled"], fields["redact_placeholder"]["disabled"]), (not can, not can), who.username)
+            self.assertFalse(fields["probation_days"]["disabled"])
+            self.assertIn("EagleLingua", fields["redact_terms"]["value"])
+
+    def test_hr_cannot_change_the_words_even_by_sending_the_same_ones_and_the_refusal_is_written_down(self):
+        words = list(RecruitmentSettings.load().term_list)
+        stand_in = RecruitmentSettings.load().redact_placeholder
+        for values in (
+            {"redact_terms": ""}, {"redact_terms": "Acme"}, {"redact_terms": "\n".join(words)},
+            {"redact_placeholder": "x"}, {"redact_placeholder": stand_in}, {"probation_days": "70", "redact_terms": "Acme"},
+        ):
+            answer = self.post(self.hr, SETTINGS_SAVE, {"values": values})
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "owner_only"), values)
+        conf = RecruitmentSettings.load()
+        self.assertEqual((conf.term_list, conf.redact_placeholder, conf.probation_days), (words, stand_in, 90))
+        self.assertEqual(AuditLog.objects.filter(action="security.denied", actor=self.hr).count(), 1)
+        self.assertTrue(_json(self.read(SETTINGS))["privacy_armed"])
+
+    def test_nobody_but_the_owner_and_hr_is_answered_and_a_flagged_person_cannot_change_the_words(self):
+        for who in (self.flagged, self.ops, self.tr):
+            answer = self.post(who, SETTINGS_SAVE, {"values": {"redact_terms": ""}})
+            self.assertEqual(answer.status_code, 403, who.username)
+        self.assertTrue(RecruitmentSettings.load().term_list)
+
+    def test_the_owner_changes_them_and_the_log_carries_the_words_that_went_and_came(self):
+        before = list(RecruitmentSettings.load().term_list)
+        answer = self.post(self.admin, SETTINGS_SAVE, {"values": {"redact_terms": "Acme\nAcme Ltd", "redact_placeholder": "[hidden]"}})
+        self.assertEqual(answer.status_code, 200)
+        conf = RecruitmentSettings.load()
+        self.assertEqual((conf.term_list, conf.redact_placeholder), (["Acme", "Acme Ltd"], "[hidden]"))
+        row = AuditLog.objects.get(action="recruitment.redact.update")
+        self.assertEqual(row.actor, self.admin)
+        for word in before:
+            self.assertIn(word, row.detail)
+        self.assertIn("Acme Ltd", row.detail)
+        self.assertIn("[hidden]", row.detail)
+        self.assertIn("armed: True", row.detail)
+
+    def test_the_owner_emptying_the_list_is_written_down_as_disarmed(self):
+        self.post(self.admin, SETTINGS_SAVE, {"values": {"redact_terms": ""}})
+        row = AuditLog.objects.get(action="recruitment.redact.update")
+        self.assertIn("armed: False", row.detail)
+        self.assertFalse(_json(self.read(SETTINGS))["privacy_armed"])
+
+    def test_the_owner_saving_something_else_writes_no_redact_row(self):
+        self.post(self.admin, SETTINGS_SAVE, {"values": {"probation_days": "75"}})
+        self.assertFalse(AuditLog.objects.filter(action="recruitment.redact.update").exists())
+
+    def test_a_values_that_is_not_a_dict_is_a_400(self):
+        for body in ({"values": []}, {"values": "x"}, {"values": None}):
+            self.assertEqual(self.post(self.hr, SETTINGS_SAVE, body).status_code, 400, body)
 
     def test_the_forms_rules_are_the_rules(self):
         answer = self.post(self.hr, SETTINGS_SAVE, {"values": {"probation_days": "-5"}})

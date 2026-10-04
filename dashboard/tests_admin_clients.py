@@ -201,35 +201,67 @@ class PlanTests(_Records):
 
 
 class DeleteTests(_Records):
+    """Deleting clients asks what the two clear-outs ask: the owner's own password, the explicit yes, and a backup comes back."""
+
+    def delete(self, ids, **over):
+        body = {"ids": ids, "confirm": True, "password": "pw"}
+        body.update(over)
+        return self.post(self.admin, DELETE, body)
+
     def test_without_the_explicit_yes_nothing_is_deleted(self):
         free = self.plain()
         for body in ({"ids": [free.pk]}, {"ids": [free.pk], "confirm": False}, {"ids": [free.pk], "confirm": "1"}, {"ids": [free.pk], "confirm": 1}, {"ids": [free.pk], "confirm": "true"}):
-            answer = self.post(self.admin, DELETE, body)
+            answer = self.post(self.admin, DELETE, {**body, "password": "pw"})
             self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "confirm_required"), body)
         self.assertTrue(Client.objects.filter(pk=free.pk).exists())
 
-    def test_with_the_yes_the_client_goes_with_its_letters_files_and_replies(self):
+    def test_a_wrong_or_missing_password_deletes_nothing_and_is_written_down(self):
+        free = self.plain()
+        for password in ("not-the-password", ""):
+            answer = self.delete([free.pk], password=password)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "refused"), password)
+        self.assertEqual(self.post(self.admin, DELETE, {"ids": [free.pk], "confirm": True}).status_code, 400)
+        self.assertTrue(Client.objects.filter(pk=free.pk).exists())
+        self.assertEqual(AuditLog.objects.filter(action="client.reset_refused", actor=self.admin).count(), 3)
+
+    def test_too_many_wrong_passwords_shut_it_even_to_the_right_one(self):
+        free = self.plain()
+        for _ in range(services.RESET_WRONG_LIMIT):
+            self.delete([free.pk], password="wrong")
+        answer = self.delete([free.pk])
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (429, "too_many_attempts"))
+        self.assertTrue(Client.objects.filter(pk=free.pk).exists())
+
+    def test_with_the_password_and_the_yes_the_client_goes_with_its_letters_files_and_replies_and_the_backup_comes_back(self):
         free = self.plain()
         letter = InboundMessage.objects.create(client=free, channel=Channel.EMAIL, sender_identity="a@x.example", body="Hello")
         MessageAttachment.objects.create(message=letter, file=ContentFile(b"x", name="gone.pdf"), original_name="gone.pdf", size=1)
         OutboundMessage.objects.create(client=free, channel=Channel.EMAIL, body="Reply", created_by=self.ops)
-        answer = self.post(self.admin, DELETE, {"ids": [free.pk], "confirm": True})
-        body = _json(answer)
-        self.assertEqual((answer.status_code, body["ok"], body["deleted"], body["blocked"]), (200, True, [free.code], []))
-        self.assertEqual(body["files_removed"], 1)
+        answer = self.delete([free.pk])
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual((answer["X-Eagle-Deleted"], answer["X-Eagle-Blocked"], answer["X-Eagle-Files"]), ("1", "0", "1"))
+        self.assertIn("eagle-clients-backup", answer["Content-Disposition"])
+        self.assertIn("no-store", answer["Cache-Control"])
+        rows = json.loads(answer.content)
+        models = {row["model"] for row in rows}
+        self.assertTrue({"dashboard.client", "dashboard.inboundmessage", "dashboard.messageattachment", "dashboard.outboundmessage"} <= models, models)
+        self.assertEqual([row["pk"] for row in rows if row["model"] == "dashboard.client"], [free.pk])
         self.assertFalse(Client.objects.filter(pk=free.pk).exists())
         self.assertFalse(InboundMessage.objects.filter(pk=letter.pk).exists())
         self.assertFalse(OutboundMessage.objects.filter(client_id=free.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action=identity.DATA_EXPORT, actor=self.admin).exists())
 
-    def test_a_client_with_a_task_stays_even_when_asked_for_with_the_yes(self):
+    def test_the_backup_holds_only_what_went(self):
         free = self.plain()
-        body = _json(self.post(self.admin, DELETE, {"ids": [self.client_obj.pk, free.pk], "confirm": True}))
-        self.assertEqual((body["deleted"], body["blocked"]), ([free.code], [self.client_obj.code]))
+        answer = self.delete([self.client_obj.pk, free.pk])
+        rows = json.loads(answer.content)
+        self.assertEqual([row["pk"] for row in rows if row["model"] == "dashboard.client"], [free.pk])
+        self.assertEqual((answer["X-Eagle-Deleted"], answer["X-Eagle-Blocked"]), ("1", "1"))
         self.assertTrue(Client.objects.filter(pk=self.client_obj.pk).exists())
         self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
 
     def test_when_nothing_can_go_it_is_a_409_with_the_reason_in_words(self):
-        answer = self.post(self.admin, DELETE, {"ids": [self.client_obj.pk], "confirm": True})
+        answer = self.delete([self.client_obj.pk])
         body = _json(answer)
         self.assertEqual((answer.status_code, body["error"], body["blocked"]), (409, "refused", [self.client_obj.code]))
         self.assertTrue(body["message"])
@@ -239,34 +271,35 @@ class DeleteTests(_Records):
         late = self.plain()
         self.post(self.admin, PLAN, {"ids": [late.pk]})
         Task.objects.create(client=late, title="Made after the plan", created_by=self.ops, status=TaskStatus.NEW)
-        answer = self.post(self.admin, DELETE, {"ids": [late.pk], "confirm": True})
+        answer = self.delete([late.pk])
         self.assertEqual(answer.status_code, 409)
         self.assertTrue(Client.objects.filter(pk=late.pk).exists())
 
-    def test_the_log_carries_codes_and_never_a_name(self):
+    def test_the_log_carries_codes_and_never_a_name_or_the_password(self):
         free = self.plain(name="Secret Buyer Name")
-        self.post(self.admin, DELETE, {"ids": [free.pk], "confirm": True})
+        self.delete([free.pk])
         row = AuditLog.objects.filter(action="client.delete").latest("pk")
         self.assertIn(free.code, row.detail)
         everything = json.dumps(list(AuditLog.objects.values()), default=str)
         self.assertNotIn("Secret Buyer Name", everything)
+        self.assertNotIn('"pw"', everything)
 
     def test_ids_that_are_not_the_shape_delete_nothing(self):
         free = self.plain()
         for body in ({"confirm": True}, {"ids": [], "confirm": True}, {"ids": ["x"], "confirm": True}, {"ids": [free.pk, "x"], "confirm": True}):
-            answer = self.post(self.admin, DELETE, body)
+            answer = self.post(self.admin, DELETE, {**body, "password": "pw"})
             self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_body"), body)
         self.assertTrue(Client.objects.filter(pk=free.pk).exists())
 
     def test_the_same_request_twice_is_a_refusal_the_second_time_and_not_a_crash(self):
         free = self.plain()
-        self.assertEqual(self.post(self.admin, DELETE, {"ids": [free.pk], "confirm": True}).status_code, 200)
-        self.assertEqual(self.post(self.admin, DELETE, {"ids": [free.pk], "confirm": True}).status_code, 409)
+        self.assertEqual(self.delete([free.pk]).status_code, 200)
+        self.assertEqual(self.delete([free.pk]).status_code, 409)
 
     def test_robots_can_be_cleared_the_way_the_page_says(self):
         robots = [self.junk(f"no-reply{index}@service.example") for index in range(3)]
-        body = _json(self.post(self.admin, DELETE, {"ids": [row.pk for row in robots], "confirm": True}))
-        self.assertEqual(sorted(body["deleted"]), sorted(row.code for row in robots))
+        answer = self.delete([row.pk for row in robots])
+        self.assertEqual(answer["X-Eagle-Deleted"], "3")
         self.assertEqual(_json(self.get(self.admin, LIST, show="robots"))["clients"], [])
 
 

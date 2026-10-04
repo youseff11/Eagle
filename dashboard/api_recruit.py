@@ -18,7 +18,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import api_forms, recruitment, services
+from . import api_forms, identity, recruitment, services
 from .api_forms import named
 from .api_hr import _digits
 from .api_people import can_recruit
@@ -519,12 +519,14 @@ SETTINGS_HINT = {
 }
 
 
-def _settings_body(conf):
+def _settings_body(conf, user):
     app = AppSettings.load()
     terms = conf.term_list
     return {
         "ok": True,
-        "form": named(api_forms.describe(RecruitmentSettingsForm(instance=conf)), SETTINGS_TEXT, SETTINGS_HINT),
+        "form": named(api_forms.describe(RecruitmentSettingsForm(instance=conf, actor=user)), SETTINGS_TEXT, SETTINGS_HINT),
+        # The words that hide the company from a candidate are the owner's to change; HR sees them and cannot.
+        "can": {"redact": user.can_approve_hiring},
         "privacy_armed": bool(terms),
         # What the filter makes of a message that names the company: the proof it works, shown beside the list.
         "sample": recruitment.outbound_text(None, "مرحبًا من " + (terms[0] if terms else "—"), conf=conf),
@@ -536,17 +538,49 @@ def _settings_body(conf):
 @can_recruit
 def recruitment_settings(request):
     """The recruitment rules, whether the identity rule is armed, and the recruitment line (its number; whether its ID is set)."""
-    return JsonResponse(_settings_body(RecruitmentSettings.load()))
+    return JsonResponse(_settings_body(RecruitmentSettings.load(), request.user))
+
+
+def _words(items):
+    return ", ".join(items)[:240]
 
 
 @endpoint("POST")
 @can_recruit
 def recruitment_settings_save(request):
-    """Save the rules (``{"values": {...}}``, only the boxes that changed)."""
+    """Save the rules (``{"values": {...}}``, only the boxes that changed).
+
+    The words and the stand-in that hide the company from a candidate are the owner's: anybody else who sends either is refused
+    (and the refusal is written down, as every refusal is), even with the same value. When the owner changes them, the log
+    carries the words that went and the words that came.
+    """
     conf = RecruitmentSettings.load()
-    form, refused = api_forms.filled(request, RecruitmentSettingsForm, instance=conf)
-    if refused:
-        return refused
+    try:
+        values = _object(request).get("values", {})
+        if not isinstance(values, dict):
+            raise BadBody
+    except BadBody:
+        return _error(400, "bad_body")
+    owner = request.user.can_approve_hiring
+    if not owner and any(name in values for name in RecruitmentSettingsForm.OWNER_ONLY):
+        identity.record_denied(request, "recruitment redact rules are the owner's")
+        return _error(403, "owner_only")
+    try:
+        data = api_forms.form_data(RecruitmentSettingsForm, values, instance=conf, form_kwargs={"actor": request.user})
+    except api_forms.BadValues:
+        return _error(400, "bad_body")
+    before_terms, before_stand_in = conf.term_list, conf.redact_placeholder
+    form = RecruitmentSettingsForm(data, instance=conf, actor=request.user)
+    if not form.is_valid():
+        return api_forms.invalid(form)
     form.save()
     services.log(request.user, "recruitment.settings.update")
-    return JsonResponse(_settings_body(RecruitmentSettings.load()))
+    conf = RecruitmentSettings.load()
+    gone = [word for word in before_terms if word not in conf.term_list]
+    came = [word for word in conf.term_list if word not in before_terms]
+    if gone or came or conf.redact_placeholder != before_stand_in:
+        services.log(
+            request.user, "recruitment.redact.update", "",
+            f"removed: {_words(gone) or '-'} | added: {_words(came) or '-'} | stand-in: {before_stand_in} -> {conf.redact_placeholder} | armed: {bool(conf.term_list)}",
+        )
+    return JsonResponse(_settings_body(conf, request.user))

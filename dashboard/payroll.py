@@ -473,7 +473,9 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
     discipline_earned = not unexcused_days and extra_leave == 0 and not blocking
     target_earned = total_words >= rules.monthly_target_words
 
-    approved_bonuses = not conf.bonuses_need_approval
+    # A release is the owner's decision: running the month again re-reads what was earned, it does not take the release back.
+    released = save_to is not None and PayrollLine.objects.filter(period=save_to, user=user, bonuses_approved=True).exists()
+    approved_bonuses = (not conf.bonuses_need_approval) or released
     discipline_bonus = rules.discipline_bonus if (discipline_earned and approved_bonuses) else Decimal("0.00")
     target_bonus = rules.target_bonus if (target_earned and approved_bonuses) else Decimal("0.00")
 

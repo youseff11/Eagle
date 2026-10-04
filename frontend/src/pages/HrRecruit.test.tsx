@@ -486,6 +486,7 @@ function recruitSettings(over: Partial<HrRecruitSettings> = {}): HrRecruitSettin
   return {
     ok: true,
     form: [field("redact_terms", "الكلمات (واحدة في كل سطر)", { kind: "textarea", value: "Acme" }), field("probation_days", "مدة فترة الاختبار (يوم)", { kind: "number", value: 90 })],
+    can: { redact: true },
     privacy_armed: true,
     sample: "مرحبًا من [الشركة]",
     line: { number: "+20 100 000 0000", phone_number_id: true },
@@ -503,6 +504,27 @@ describe("HrRecruitmentSettingsPage", () => {
     expect(container.querySelector('[data-note="sample"]')).toHaveTextContent("مرحبًا من [الشركة]");
     expect(container.querySelector('[data-note="privacy"]')).toBeNull();
     expect(screen.getByLabelText("الكلمات (واحدة في كل سطر)")).toHaveValue("Acme");
+  });
+
+  it("tells HR the words are the owner's, and shows them locked", async () => {
+    const locked = recruitSettings({
+      can: { redact: false },
+      form: recruitSettings().form.map((one) => (one.name === "redact_terms" ? { ...one, disabled: true } : one)),
+    });
+    serve("hr", page(locked));
+    const { container } = open("/hr/recruitment/settings");
+    await screen.findByText("إعدادات التوظيف", { selector: "h1" });
+    expect(container.querySelector('[data-note="owner-words"]')).not.toBeNull();
+    expect(screen.getByLabelText("الكلمات (واحدة في كل سطر)")).toBeDisabled();
+    expect(screen.getByLabelText("الكلمات (واحدة في كل سطر)")).toHaveValue("Acme");
+  });
+
+  it("says nothing about it to the owner, whose boxes are open", async () => {
+    serve("admin", page());
+    const { container } = open("/hr/recruitment/settings");
+    await screen.findByText("إعدادات التوظيف", { selector: "h1" });
+    expect(container.querySelector('[data-note="owner-words"]')).toBeNull();
+    expect(screen.getByLabelText("الكلمات (واحدة في كل سطر)")).toBeEnabled();
   });
 
   it("warns, and shows no sample, when nothing is configured to redact", async () => {

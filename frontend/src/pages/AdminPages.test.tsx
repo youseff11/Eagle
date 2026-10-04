@@ -46,6 +46,7 @@ function audit(over: Partial<AdminAudit> = {}): AdminAudit {
   return {
     ok: true,
     only: "",
+    more: false,
     rows: [
       { id: 12, at: stamp("2026-10-02 4:10"), actor: "Mona", action: "client.identity.view", target: "CL-0001", detail: "client_detail", ip: "203.0.113.7", path: "/clients/CL-0001/" },
       { id: 11, at: stamp("2026-10-02 4:00"), actor: null, action: "system.sweep", target: "", detail: "", ip: "", path: "" },
@@ -57,12 +58,12 @@ function audit(over: Partial<AdminAudit> = {}): AdminAudit {
 function serve(
   who: Role,
   body: () => AdminOverview | Response,
-  auditBody: (only: string) => AdminAudit | Response = (only) => audit({ only: only as AdminAudit["only"] }),
+  auditBody: (only: string, before: string) => AdminAudit | Response = (only) => audit({ only: only as AdminAudit["only"] }),
 ) {
   const mocked = mockFetch({
     "/api/v1/me/": () => jsonResponse(me({ role: who, is_admin: who === "admin" })),
     "/api/v1/admin/audit/": (url) => {
-      const answer = auditBody(url.searchParams.get("only") ?? "");
+      const answer = auditBody(url.searchParams.get("only") ?? "", url.searchParams.get("before") ?? "");
       return answer instanceof Response ? answer : jsonResponse(answer);
     },
     "/api/v1/admin/overview/": () => {
@@ -261,6 +262,69 @@ describe("AdminAuditPage", () => {
     await screen.findByText("client.identity.view");
     await user.click(screen.getByRole("button", { name: "حدّث" }));
     await vi.waitFor(() => expect(mocked.calls.filter((call) => call.url.startsWith("/api/v1/admin/audit/"))).toHaveLength(2));
+  });
+
+  it("offers no older button when there is nothing older", async () => {
+    serve("admin", () => overview());
+    const { container } = open("/admin/audit");
+    await screen.findByText("client.identity.view");
+    expect(container.querySelector("[data-older]")).toBeNull();
+  });
+
+  it("loads the older entries under the first page, from the last row shown, until there are none", async () => {
+    const entry = (id: number) => ({ id, at: stamp("2026-10-01 4:00"), actor: "Mona", action: `old.entry.${id}`, target: "", detail: "", ip: "", path: "" });
+    const mocked = serve(
+      "admin",
+      () => overview(),
+      (only, before) => {
+        if (before === "11") return audit({ only: only as AdminAudit["only"], more: true, rows: [entry(10), entry(9)] });
+        if (before === "9") return audit({ only: only as AdminAudit["only"], more: false, rows: [entry(8)] });
+        return audit({ only: only as AdminAudit["only"], more: true });
+      },
+    );
+    const user = userEvent.setup();
+    const { container } = open("/admin/audit?only=denied");
+    await screen.findByText("client.identity.view");
+    await user.click(container.querySelector("[data-older]") as HTMLElement);
+    expect(await screen.findByText("old.entry.9")).toBeInTheDocument();
+    expect(screen.getByText("client.identity.view")).toBeInTheDocument();
+    expect(mocked.calls.map((call) => call.url)).toContain("/api/v1/admin/audit/?only=denied&before=11");
+    await user.click(container.querySelector("[data-older]") as HTMLElement);
+    expect(await screen.findByText("old.entry.8")).toBeInTheDocument();
+    expect(mocked.calls.map((call) => call.url)).toContain("/api/v1/admin/audit/?only=denied&before=9");
+    expect(container.querySelector("[data-older]")).toBeNull();
+    expect(container.querySelectorAll("[data-entry]")).toHaveLength(5);
+  });
+
+  it("starts from the newest again on the refresh button", async () => {
+    const entry = { id: 10, at: stamp("2026-10-01 4:00"), actor: "Mona", action: "old.entry.10", target: "", detail: "", ip: "", path: "" };
+    serve(
+      "admin",
+      () => overview(),
+      (only, before) => (before ? audit({ only: only as AdminAudit["only"], rows: [entry] }) : audit({ only: only as AdminAudit["only"], more: true })),
+    );
+    const user = userEvent.setup();
+    const { container } = open("/admin/audit");
+    await screen.findByText("client.identity.view");
+    await user.click(container.querySelector("[data-older]") as HTMLElement);
+    await screen.findByText("old.entry.10");
+    await user.click(screen.getByRole("button", { name: "حدّث" }));
+    await vi.waitFor(() => expect(screen.queryByText("old.entry.10")).toBeNull());
+    expect(container.querySelector("[data-older]")).not.toBeNull();
+  });
+
+  it("says so when the older ones cannot be loaded, and keeps what is shown", async () => {
+    serve(
+      "admin",
+      () => overview(),
+      (only, before) => (before ? jsonResponse({ ok: false, error: "server" }, 500) : audit({ only: only as AdminAudit["only"], more: true })),
+    );
+    const user = userEvent.setup();
+    const { container } = open("/admin/audit");
+    await screen.findByText("client.identity.view");
+    await user.click(container.querySelector("[data-older]") as HTMLElement);
+    expect(await screen.findByRole("alert")).toHaveTextContent("ماقدرناش نحمّل الأقدم.");
+    expect(screen.getByText("client.identity.view")).toBeInTheDocument();
   });
 
   it("says when the log is empty", async () => {

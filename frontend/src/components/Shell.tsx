@@ -161,6 +161,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/lead/translators", icon: "users", label: ["حالة المترجمين", "Translator status"] },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
+      // A team leader marks the candidate tests assigned to them (and the ones nobody has taken): the reviewer's pages.
+      { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"] },
     ],
   },
   // A Sales person's own line, in the classic menu's words: their mail, their number and address, the client codes.

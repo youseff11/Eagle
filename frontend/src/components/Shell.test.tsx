@@ -459,6 +459,7 @@ describe("Shell: the team leader's screen", () => {
           <Route path="tasks/:code" element={<div>task</div>} />
           <Route path="clients" element={<div>clients</div>} />
           <Route path="clients/:code" element={<div>client</div>} />
+          <Route path="reviewer/*" element={<div>tests</div>} />
         </Route>
       </Routes>,
       { route },
@@ -469,7 +470,7 @@ describe("Shell: the team leader's screen", () => {
   it("lists their tasks, who is free and the client codes in the classic menu's words, then the chats", async () => {
     const view = at("/lead", ["lead", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 5)).toEqual(["/", "/lead", "/lead/translators", "/clients", "/chats"]);
+    expect(links(view.container).slice(0, 6)).toEqual(["/", "/lead", "/lead/translators", "/clients", "/reviewer/tests", "/chats"]);
     expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
   });
@@ -488,6 +489,8 @@ describe("Shell: the team leader's screen", () => {
       ["/tasks/TSK-00001", "تاسكاتي", "/lead"],
       ["/clients", "أكواد العملاء", "/clients"],
       ["/clients/CL-0001", "أكواد العملاء", "/clients"],
+      ["/reviewer/tests", "اختبارات المرشحين", "/reviewer/tests"],
+      ["/reviewer/tests/5", "اختبارات المرشحين", "/reviewer/tests"],
     ];
     for (const [route, title, lit] of pages) {
       const view = at(route, ["lead"]);
@@ -501,7 +504,7 @@ describe("Shell: the team leader's screen", () => {
   it("draws none of it for a leader whose screen is not switched on", async () => {
     const view = at("/lead", ["chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
-    for (const href of ["/lead", "/lead/translators", "/clients"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+    for (const href of ["/lead", "/lead/translators", "/clients", "/reviewer/tests"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
   });
 });
 

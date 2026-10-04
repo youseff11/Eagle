@@ -204,7 +204,7 @@ def hire(request, code):
     try:
         person = recruitment.hire(
             row, request.user, role=done["role"], job_title=done["job_title"], joining_date=done["joining_date"],
-            salary=done["salary"], team_lead=done["team_lead"], username=done["username"], password=done["password"],
+            salary=done.get("salary"), team_lead=done["team_lead"], username=done["username"], password=done["password"],
         )
     except recruitment.PipelineError as refused:
         return refusal(refused)

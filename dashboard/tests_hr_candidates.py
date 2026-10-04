@@ -675,14 +675,26 @@ class HireTests(_Cand):
         self.assertNotIn(STRONG.encode(), answer.content)
         self.assertFalse(AuditLog.objects.filter(detail__contains=STRONG).exists())
 
+    def test_a_starting_salary_is_the_owners_to_write_and_hr_is_not_offered_the_box(self):
+        _body, as_hr = self.fields()
+        self.assertNotIn("salary", as_hr)
+        _body, as_owner = self.fields(who=self.admin)
+        self.assertIn("salary", as_owner)
+        refused = self.hire({"salary": "999999"})
+        self.assertEqual((refused.status_code, _json(refused)["error"]), (400, "bad_body"))
+        self.assertFalse(SalaryRecord.objects.exists())
+        done = self.hire({"salary": "5500.00", "username": "mona.owner"}, who=self.admin)
+        self.assertEqual(done.status_code, 200, done.content)
+        self.assertEqual(SalaryRecord.objects.get().amount, 5500)
+
     def test_the_application_becomes_the_employee_once(self):
-        answer = self.hire({"job_title": "Arabic Translator", "joining_date": "2026-10-11", "salary": "5500.00", "username": "mona.new", "password": STRONG})
+        answer = self.hire({"job_title": "Arabic Translator", "joining_date": "2026-10-11", "username": "mona.new", "password": STRONG})
         self.assertEqual(answer.status_code, 200, answer.content)
         person = User.objects.get(pk=_json(answer)["id"])
         self.assertEqual((person.username, person.role, person.email, person.phone, person.department), ("mona.new", "translator", EMAIL, PHONE, self.vac.department))
         self.assertEqual((person.employment_status, str(person.probation_start)), ("probation", "2026-10-11"))
         self.assertTrue(person.check_password(STRONG))
-        self.assertEqual(SalaryRecord.objects.get(user=person).amount, 5500)
+        self.assertFalse(SalaryRecord.objects.filter(user=person).exists())
         self.person.refresh_from_db()
         self.assertEqual((self.person.status, self.person.hired_user), ("hired", person))
         again = self.hire({"username": "mona.two"})

@@ -82,6 +82,17 @@ export function HrRecruitmentSettingsPage() {
                 )}
               </div>
             </div>
+            {!data.can.redact && (
+              <div className="note note--warn" data-note="owner-words">
+                <Icon name="shield" />
+                <div>
+                  {t(
+                    "الكلمات والبديل بيغيّرهم المالك بس. تقدر تشوفهم، ولو محتاج تضيف اسم كلّم المالك.",
+                    "Only the owner changes the words and the replacement. You can read them; ask the owner to add a name.",
+                  )}
+                </div>
+              </div>
+            )}
             <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="recruit" />
             {data.privacy_armed && (
               <div className="note note--ok" data-note="sample">

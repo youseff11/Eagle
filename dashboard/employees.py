@@ -373,6 +373,11 @@ def decide_leave(request_row, actor, approve, note=""):
         raise LifecycleError(
             "الطلب ده اتقرر فيه بالفعل.", "This request has already been decided."
         )
+    # Whoever holds the attendance right does not approve their own time off: the owner does. (The owner has nobody above.)
+    if request_row.user_id == actor.pk and not actor.is_admin_role:
+        raise LifecycleError(
+            "مينفعش تقرر في إجازتك أنت. المالك هو اللي بيقرر.", "Nobody decides their own leave except the owner.",
+        )
     if not can_decide_leave(request_row, actor):
         raise LifecycleError(
             "مش من صلاحيتك تقرر في الطلب ده.", "You cannot decide this request."
@@ -471,14 +476,14 @@ def apply_leave(request_row, actor=None):
     if request_row.is_permission:
         # A permission is minutes off one day, not a day off. It lands on the
         # day itself so the shortfall it causes stops being a shortfall.
-        day, _ = WorkDay.objects.get_or_create(
-            user=person, date=request_row.start_date,
-            defaults={"status": DayStatus.PRESENT},
-        )
-        day.excused_minutes = min(32000, day.excused_minutes + request_row.minutes)
-        day.note = (day.note or "")[:200]
-        attendance.recompute(day)
-        written = 1
+        # A day that has no row yet is not made one: a row with no punch reads as a day worked. The minutes are not lost,
+        # ``attendance.recompute`` reads the approved permissions of a date when the day is there to be computed.
+        day = WorkDay.objects.filter(user=person, date=request_row.start_date).first()
+        if day is not None:
+            day.excused_minutes = min(32000, day.excused_minutes + request_row.minutes)
+            day.note = (day.note or "")[:200]
+            attendance.recompute(day)
+            written = 1
     else:
         status = request_row.day_status
         for date in request_row.dates():

@@ -696,7 +696,7 @@ function salary(over: Partial<AccountsSalary> = {}): AccountsSalary {
       { id: 1, effective_from: "2020-01-01", amount: "3000.00", note: "", by: null },
     ],
     lines: [{ id: 9, label: "2026-09", base_salary: "3500.00", words: 25000, net: "3650.00" }],
-    can: { line: true },
+    can: { line: true, set: true },
     form: [field("amount", "Salary", { kind: "number" }), field("effective_from", "Effective from", { kind: "date" }), field("note", "Note")],
     ...over,
   };
@@ -704,7 +704,7 @@ function salary(over: Partial<AccountsSalary> = {}): AccountsSalary {
 
 describe("AccountsSalaryPage", () => {
   it("lists the salaries newest first and the months computed on them", async () => {
-    serve("accounting", { "/api/v1/accounts/salary/11/": () => jsonResponse(salary({ can: { line: false } })) });
+    serve("accounting", { "/api/v1/accounts/salary/11/": () => jsonResponse(salary({ can: { line: false, set: false } })) });
     const { container } = open("/accounts/salary/11");
     await screen.findByText("Raise");
     const rows = Array.from((container.querySelector('[data-table="salaries"]') as HTMLElement).querySelectorAll("tbody tr")).map((row) => row.textContent);
@@ -726,8 +726,17 @@ describe("AccountsSalaryPage", () => {
     expect(screen.getByText("لسه مفيش شهور محسوبة.")).toBeInTheDocument();
   });
 
+  it("gives accounting the history and no form: the owner alone sets a salary", async () => {
+    serve("accounting", { "/api/v1/accounts/salary/11/": () => jsonResponse(salary({ can: { line: false, set: false } })) });
+    const { container } = open("/accounts/salary/11");
+    await screen.findByText("Raise");
+    expect(container.querySelector('[data-card="new-salary"]')).toBeNull();
+    expect(screen.queryByLabelText("Salary")).toBeNull();
+    expect(container.querySelector('[data-note="owner-sets"]')).not.toBeNull();
+  });
+
   it("adds a salary and starts the form clean again", async () => {
-    const served = serve("accounting", {
+    const served = serve("admin", {
       "/api/v1/accounts/salary/11/save/": (url, init) => served.record(url, init, { ok: true, id: 3 }),
       "/api/v1/accounts/salary/11/": () => jsonResponse(salary()),
     });
@@ -745,7 +754,7 @@ describe("AccountsSalaryPage", () => {
   });
 
   it("shows the form's refusal beside its box", async () => {
-    serve("accounting", {
+    serve("admin", {
       "/api/v1/accounts/salary/11/save/": () => jsonResponse({ ok: false, error: "invalid", errors: { amount: ["Enter a number."] } }, 400),
       "/api/v1/accounts/salary/11/": () => jsonResponse(salary()),
     });

@@ -148,25 +148,32 @@ export function AccountsSalaryPage() {
         </div>
 
         <div className="sticky-side">
-          <div className="card">
-            <div className="card__head">
-              <Icon name="plus" />
-              <h3>{t("راتب جديد", "New salary")}</h3>
+          {data.can.set ? (
+            <div className="card" data-card="new-salary">
+              <div className="card__head">
+                <Icon name="plus" />
+                <h3>{t("راتب جديد", "New salary")}</h3>
+              </div>
+              <form onSubmit={submit}>
+                <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="salary" />
+                {failed && (
+                  <div className="note note--high" role="alert">
+                    <Icon name="alert" />
+                    <div>{t("حصلت مشكلة، ماتسجلش.", "Something went wrong, nothing was recorded.")}</div>
+                  </div>
+                )}
+                <button className="btn btn--primary btn--block" type="submit" disabled={save.isPending || !edits.dirty}>
+                  <Icon name="check" size="sm" />
+                  <span>{t("سجل", "Record")}</span>
+                </button>
+              </form>
             </div>
-            <form onSubmit={submit}>
-              <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="salary" />
-              {failed && (
-                <div className="note note--high" role="alert">
-                  <Icon name="alert" />
-                  <div>{t("حصلت مشكلة، ماتسجلش.", "Something went wrong, nothing was recorded.")}</div>
-                </div>
-              )}
-              <button className="btn btn--primary btn--block" type="submit" disabled={save.isPending || !edits.dirty}>
-                <Icon name="check" size="sm" />
-                <span>{t("سجل", "Record")}</span>
-              </button>
-            </form>
-          </div>
+          ) : (
+            <div className="note note--info" data-note="owner-sets">
+              <Icon name="shield" />
+              <div>{t("الراتب بيحدده المالك بس. الحسابات بتقراه وبتصرفه. أي تغيير بيتطلب من الموارد البشرية والمالك بيوافق.", "Only the owner sets a salary. Accounting reads and pays it. A change is asked for by HR and approved by the owner.")}</div>
+            </div>
+          )}
           <div className="note note--info">
             <Icon name="shield" />
             <div>{t("الراتب القديم مابيتمسحش. أي شهر بيتحسب بالراتب اللي كان ساري فيه.", "An old salary is never overwritten. Each month is computed on the salary that was in force then.")}</div>

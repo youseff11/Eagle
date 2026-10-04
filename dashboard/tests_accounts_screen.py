@@ -90,14 +90,14 @@ class DoorMatrixTests(_Accounts):
             ("GET", OVERVIEW, None), ("POST", RECALC, None), ("POST", APPROVE, [self.line.period_id]),
             ("GET", SHEET, None), ("POST", REFRESH, None), ("POST", DAY_SAVE, None),
             ("GET", VIOLATIONS, None), ("POST", VIOLATION_NEW, None), ("POST", DECIDE, [self.violation_row.pk, "approve"]),
-            ("GET", SALARY, [self.tr.pk]), ("POST", SALARY_SAVE, [self.tr.pk]),
+            ("GET", SALARY, [self.tr.pk]),
         ]
 
     def admin_doors(self):
         """The admin's alone."""
         return [
             ("POST", BONUS, [self.line.pk]), ("GET", RULES, None), ("POST", RULES_SAVE, None), ("POST", TIER_ADD, None),
-            ("POST", TIER_DELETE, [999999]),
+            ("POST", TIER_DELETE, [999999]), ("POST", SALARY_SAVE, [self.tr.pk]),
         ]
 
     def call(self, user, method, name, args):
@@ -641,30 +641,36 @@ class SalaryTests(_Accounts):
         self.assertEqual([(row["amount"], row["effective_from"]) for row in body["records"]], [("3000.00", "2020-01-01")])
         self.assertEqual(body["records"][0]["by"], self.admin.short_name)
         self.assertEqual(len(body["lines"]), 1)
-        self.assertEqual(body["can"], {"line": False})
-        self.assertEqual(_json(self.get(self.admin, SALARY, [self.tr.pk]))["can"], {"line": True})
+        self.assertEqual(body["can"], {"line": False, "set": False})
+        self.assertEqual(_json(self.get(self.admin, SALARY, [self.tr.pk]))["can"], {"line": True, "set": True})
 
     def test_a_salary_is_added_and_the_old_one_stays(self):
-        answer = self.post(self.accounting, SALARY_SAVE, {"values": {"amount": "3500", "effective_from": "2026-01-01", "note": "Raise"}}, [self.tr.pk])
+        answer = self.post(self.admin, SALARY_SAVE, {"values": {"amount": "3500", "effective_from": "2026-01-01", "note": "Raise"}}, [self.tr.pk])
         self.assertEqual((answer.status_code, _json(answer)["ok"]), (200, True))
         self.assertEqual(SalaryRecord.objects.filter(user=self.tr).count(), 2)
         self.assertEqual(SalaryRecord.amount_on(self.tr, date(2025, 6, 1)), Decimal("3000.00"))
         self.assertEqual(SalaryRecord.amount_on(self.tr, date(2026, 6, 1)), Decimal("3500.00"))
         row = AuditLog.objects.filter(action="salary.set").latest("pk")
-        self.assertEqual((row.actor_id, row.target, row.detail), (self.accounting.pk, self.tr.username, "3500"))
+        self.assertEqual((row.actor_id, row.target, row.detail), (self.admin.pk, self.tr.username, "3500"))
+
+    def test_accounting_reads_a_salary_and_the_owner_alone_sets_it(self):
+        answer = self.post(self.accounting, SALARY_SAVE, {"values": {"amount": "9999", "effective_from": "2026-01-01"}}, [self.tr.pk])
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "forbidden"))
+        self.assertEqual(SalaryRecord.objects.filter(user=self.tr).count(), 1)
+        self.assertEqual(self.get(self.accounting, SALARY, [self.tr.pk]).status_code, 200)
 
     def test_a_salary_that_is_not_one_is_refused(self):
         for values in ({"amount": "abc", "effective_from": "2026-01-01"}, {"amount": "100", "effective_from": ""}, {"amount": "99999999999", "effective_from": "2026-01-01"}):
-            self.assertEqual(self.post(self.accounting, SALARY_SAVE, {"values": values}, [self.tr.pk]).status_code, 400, values)
+            self.assertEqual(self.post(self.admin, SALARY_SAVE, {"values": values}, [self.tr.pk]).status_code, 400, values)
         self.assertEqual(SalaryRecord.objects.filter(user=self.tr).count(), 1)
 
     def test_a_field_the_form_does_not_have_is_refused(self):
-        answer = self.post(self.accounting, SALARY_SAVE, {"values": {"amount": "1", "effective_from": "2026-01-01", "user": self.ops.pk}}, [self.tr.pk])
+        answer = self.post(self.admin, SALARY_SAVE, {"values": {"amount": "1", "effective_from": "2026-01-01", "user": self.ops.pk}}, [self.tr.pk])
         self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_body"))
 
     def test_a_person_that_does_not_exist_is_a_404(self):
         self.assertEqual(self.get(self.accounting, SALARY, [999999]).status_code, 404)
-        self.assertEqual(self.post(self.accounting, SALARY_SAVE, {"values": {}}, [999999]).status_code, 404)
+        self.assertEqual(self.post(self.admin, SALARY_SAVE, {"values": {}}, [999999]).status_code, 404)
 
 
 class RulesTests(_Accounts):

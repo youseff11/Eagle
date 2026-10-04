@@ -86,6 +86,18 @@ export function HrHirePage() {
             </div>
             <form onSubmit={submit} autoComplete="off">
               <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="hire" />
+              {!data.form.some((one) => one.name === "salary") && (
+                <div className="note note--info mt" data-note="salary-later">
+                  <Icon name="info" />
+                  <div>
+                    {t(
+                      "الراتب الأساسي بيحدده المالك. بعد التعيين اطلبه من «طلبات تغيير الراتب».",
+                      "The owner sets the starting salary. After the hire, ask for it on the salary requests page.",
+                    )}{" "}
+                    <Link to="/hr/salary-requests">{t("طلبات تغيير الراتب", "Salary requests")}</Link>
+                  </div>
+                </div>
+              )}
               {problem && (
                 <div className="note note--high" role="alert">
                   <Icon name="alert" />

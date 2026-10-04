@@ -1622,6 +1622,9 @@ class HireForm(forms.Form):
             self.fields["role"].choices = [
                 (value, label) for value, label in Role.choices if value in HR_CAN_HIRE_INTO
             ]
+            # A salary moves only when the owner decides it. HR hires; the starting salary is asked for afterwards, on the
+            # salary requests page, like any other change.
+            del self.fields["salary"]
 
     def clean_username(self):
         from django.contrib.auth.validators import UnicodeUsernameValidator
@@ -1644,6 +1647,18 @@ class HireForm(forms.Form):
 
 
 class RecruitmentSettingsForm(forms.ModelForm):
+    """The recruitment rules. With an ``actor`` who is not the owner, the words and the stand-in that hide the company from a
+    candidate are shown and cannot be changed: they are what keeps the company's name out of an anonymous candidate's hands, so
+    changing them is the owner's (a disabled field ignores whatever is sent for it)."""
+
+    OWNER_ONLY = ("redact_terms", "redact_placeholder")
+
+    def __init__(self, *args, actor=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if actor is not None and not actor.can_approve_hiring:
+            for name in self.OWNER_ONLY:
+                self.fields[name].disabled = True
+
     class Meta:
         model = RecruitmentSettings
         fields = (

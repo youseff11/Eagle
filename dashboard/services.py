@@ -3739,7 +3739,7 @@ def task_reset_counts():
 RESET_WRONG_LIMIT = 5
 RESET_LOCK_MINUTES = 15
 RESET_LOCKED_MESSAGE = "محاولات باسورد غلط كتير. المسح اتقفل 15 دقيقة."
-_RESET_WRONG_ACTIONS = ("task.reset_refused", "mail.reset_refused")
+_RESET_WRONG_ACTIONS = ("task.reset_refused", "mail.reset_refused", "client.reset_refused")
 
 
 def reset_password_problem(admin, password, kind):
@@ -4053,6 +4053,52 @@ def delete_clients(admin, client_ids):
     # Codes, not names: the log is read by people who may not see a client's identity.
     log(admin, "client.delete", f"{len(codes)} client(s)", ", ".join(codes))
     return True, "", codes, blocked, removed
+
+
+def delete_clients_safely(admin, client_ids, password):
+    """``delete_clients``, behind what the two clear-outs ask: the owner's own password, and a backup of what goes.
+
+    Returns ``(ok, error_ar, backup_json, deleted_codes, blocked_codes, files_removed)``. Deleting a client takes their
+    letters, our replies and the chats built on them; a session left open on a desk is not consent, and there is no undo, so
+    the password is typed again (the same lockout counts the wrong ones) and the rows are handed back as a fixture before they
+    go. The backup holds rows, not the stored files: those are removed with the client.
+    """
+    from django.core import serializers
+
+    from .models import (
+        ChatAttachment, MessageAttachment, OutboundAttachment, OutboundMessage,
+    )
+
+    if admin is None or not admin.is_admin_role:
+        return False, "الخطوة دي للأدمن بس.", "", [], [], 0
+    problem = reset_password_problem(admin, password, "client")
+    if problem:
+        return False, problem, "", [], [], 0
+
+    ids = [int(x) for x in client_ids if str(x).isdecimal()]
+    plan = client_delete_plan(Client.objects.filter(pk__in=ids))
+    doomed_ids = [row["client"].pk for row in plan if not row["blocked"]]
+    letters = InboundMessage.objects.filter(client_id__in=doomed_ids)
+    deliveries = OutboundMessage.objects.filter(client_id__in=doomed_ids)
+    rooms = ChatRoom.objects.filter(client_id__in=doomed_ids)
+    copies = ChatMessage.objects.filter(origin_client_id__in=doomed_ids)
+    room_messages = ChatMessage.objects.filter(room__in=rooms)
+    backup = serializers.serialize("json", [
+        *Client.objects.filter(pk__in=doomed_ids),
+        *letters,
+        *MessageAttachment.objects.filter(message__in=letters),
+        *deliveries,
+        *OutboundAttachment.objects.filter(message__in=deliveries),
+        *rooms,
+        *room_messages,
+        *copies.exclude(pk__in=room_messages.values("pk")),
+        *ChatAttachment.objects.filter(Q(message__in=room_messages) | Q(message__in=copies) | Q(origin_client_id__in=doomed_ids)),
+    ], indent=1, ensure_ascii=False)
+
+    ok, error, codes, blocked, removed = delete_clients(admin, client_ids)
+    if not ok:
+        return False, error, "", [], blocked, 0
+    return True, "", backup, codes, blocked, removed
 
 
 # ---------------------------------------------------------------------------

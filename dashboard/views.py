@@ -3025,7 +3025,7 @@ def hr_hire(request, code):
                 role=form.cleaned_data["role"],
                 job_title=form.cleaned_data["job_title"],
                 joining_date=form.cleaned_data["joining_date"],
-                salary=form.cleaned_data["salary"],
+                salary=form.cleaned_data.get("salary"),
                 team_lead=form.cleaned_data["team_lead"],
                 username=form.cleaned_data["username"],
                 password=form.cleaned_data["password"],

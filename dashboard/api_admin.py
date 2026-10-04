@@ -116,18 +116,28 @@ def overview(request):
 @endpoint("GET")
 @api_role_required(Role.ADMIN)
 def audit(request):
-    """The log, newest first: ``?only=security`` (who saw an identity, was refused, was given access) or ``?only=denied``."""
+    """The log, newest first: ``?only=security`` (who saw an identity, was refused, was given access) or ``?only=denied``.
+
+    Two hundred rows a time: ``more`` says there are older ones, and ``?before=<id of the oldest row shown>`` is the next page.
+    """
     only = request.GET.get("only", "")
     if only not in AUDIT_FILTERS:
         return _error(400, "bad_filter")
-    rows = AuditLog.objects.select_related("actor")
+    rows = AuditLog.objects.select_related("actor").order_by("-pk")
+    before = request.GET.get("before", "")
+    if before:
+        if not before.isdecimal() or len(before) > 12:
+            return _error(400, "bad_cursor")
+        rows = rows
     if only == "security":
         rows = rows.filter(action__in=identity.SECURITY_ACTIONS)
     elif only == "denied":
         rows = rows.filter(action=identity.ACCESS_DENIED)
+    page = list(rows[:MAX_AUDIT + 1])
     return JsonResponse({
         "ok": True,
         "only": only,
+        "more": len(page) > MAX_AUDIT,
         "rows": [
             {
                 "id": entry.pk,
@@ -139,6 +149,6 @@ def audit(request):
                 "ip": entry.ip or "",
                 "path": entry.path,
             }
-            for entry in rows[:MAX_AUDIT]
+            for entry in page[:MAX_AUDIT]
         ],
     })

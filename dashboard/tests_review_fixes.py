@@ -327,7 +327,7 @@ class MoneyBelowZeroTests(_Accounts):
             (PayrollSettingsForm({"unexcused_penalty_days": "-1"}), "unexcused_penalty_days"),
             (ProductionTierForm({"bonus": "-1"}), "bonus"),
             (WorkDayForm({"late_minutes": "-3"}), "late_minutes"),
-            (HireForm({"salary": "-1"}), "salary"),
+            (HireForm({"salary": "-1"}, actor=User(role="admin")), "salary"),
         ):
             self.assertIn(field, form.errors, type(form).__name__)
 
@@ -344,7 +344,7 @@ class MoneyBelowZeroTests(_Accounts):
         self.assertFalse(Violation.objects.exists())
 
     def test_a_negative_salary_is_refused_by_the_door(self):
-        answer = self.post(self.accounting, SALARY_SAVE, {"values": {"amount": "-5000", "effective_from": self.today.isoformat()}}, [self.tr.pk])
+        answer = self.post(self.admin, SALARY_SAVE, {"values": {"amount": "-5000", "effective_from": self.today.isoformat()}}, [self.tr.pk])
         self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "invalid"))
 
 
