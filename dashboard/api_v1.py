@@ -507,11 +507,11 @@ def _sent_to_room(request, room):
     })
 
 
-def _file_tasks_answer(tasks):
+def _file_tasks_answer(tasks, user):
     """The tasks files could be for, as the picker above the box lists them. One is preselected, several must be chosen."""
     return JsonResponse({
         "ok": True,
-        "tasks": [{"code": task.code, "title": task.title} for task in tasks],
+        "tasks": [{"code": task.code, "title": task.title_for(user)} for task in tasks],
     })
 
 
@@ -519,7 +519,7 @@ def _file_tasks_answer(tasks):
 def group_file_tasks(request, room_id):
     """Which task the files sent in this work group or colleague's room could be for (``services.file_task_choices``)."""
     room = api._group_or_404(request, room_id)
-    return _file_tasks_answer(services.file_task_choices(request.user, room))
+    return _file_tasks_answer(services.file_task_choices(request.user, room), request.user)
 
 
 @endpoint("GET")
@@ -528,7 +528,7 @@ def staff_file_tasks(request, user_id):
     other = User.objects.filter(pk=user_id, is_active=True).exclude(pk=request.user.pk).first()
     if other is None:
         raise Http404
-    return _file_tasks_answer(services.file_task_choices_with(request.user, other))
+    return _file_tasks_answer(services.file_task_choices_with(request.user, other), request.user)
 
 
 @endpoint("POST")
@@ -865,7 +865,7 @@ def group_handin_tasks(request, room_id):
     """The tasks this person could hand files in to from this group; empty for anybody but a translator in a work group."""
     room = api._group_or_404(request, room_id)
     tasks = services.handin_tasks_for(request.user, room)
-    return JsonResponse({"ok": True, "tasks": [{"code": task.code, "title": task.title} for task in tasks]})
+    return JsonResponse({"ok": True, "tasks": [{"code": task.code, "title": task.title_for(request.user)} for task in tasks]})
 
 
 @endpoint("POST")
@@ -947,7 +947,7 @@ def _desk_task_json(task, user, warning_minutes):
     origin = ORIGIN_MAP.get(task.origin)
     return {
         "code": task.code,
-        "title": task.title,
+        "title": task.title_for(user),
         "status": _status_json(task.status),
         "priority": _two(PRIORITY_MAP, task.priority),
         "origin": {"value": task.origin, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None,
@@ -1096,6 +1096,9 @@ def assignment(request, pk):
     if assignment.assignee_id != user.pk and not user.is_admin_role:
         identity.hidden(request, "assignment")
     task = assignment.task
+    # An offer that was declined, timed out or replaced still says so, and nothing of the job: its brief and files are for
+    # whoever holds it or may still answer it (the admin reads it as it was).
+    open_job = assignment.status == AssignmentStatus.PENDING or user.is_admin_role
 
     def brief(text):
         return identity.mask_client(text, task.client, user)
@@ -1117,15 +1120,15 @@ def assignment(request, pk):
         },
         "task": {
             "code": task.code,
-            "title": task.title,
+            "title": task.title_for(user) if open_job else "",
             "origin": _origin_json(task.origin),
             "client": task.client.label_for(user) if task.client_id else "-",
             "source_lang": task.source_lang,
             "target_lang": task.target_lang,
             "due": _stamp(due, "%Y-%m-%d"),
             "due_iso": due.isoformat() if due else "",
-            "description": brief(services.clean_client_text(task.description)),
-            "files": [_task_file_json(a) for a in services.task_source_files(task)],
+            "description": brief(services.clean_client_text(task.description)) if open_job else "",
+            "files": [_task_file_json(a) for a in services.task_source_files(task)] if open_job else [],
         },
     })
 
@@ -1166,7 +1169,7 @@ def translator_task(request, code):
         "ok": True,
         "task": {
             "code": task.code,
-            "title": task.title,
+            "title": task.title_for(user),
             "status": _status_json(task.status),
             "priority": _two(PRIORITY_MAP, task.priority),
             "origin": _origin_json(task.origin),
@@ -1219,7 +1222,7 @@ def translator_task(request, code):
                 "checks": [
                     {
                         "id": c.pk, "status": c.status, "count": c.issue_count, "automatic": c.requested_by_id is None,
-                        "summary": words(c.summary or c.error_message), "at": _stamp(c.created_at, "%m-%d"),
+                        "summary": brief(c.summary or c.error_message), "at": _stamp(c.created_at, "%m-%d"),
                     }
                     for c in task.ai_checks.all()[:5]
                 ] if mine else [],

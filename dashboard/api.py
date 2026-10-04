@@ -66,7 +66,7 @@ def _pending_json(assignment, viewer):
     return {
         "id": assignment.id,
         "task_code": task.code,
-        "task_title": task.title,
+        "task_title": task.title_for(viewer),
         "task_url": f"/tasks/{task.code}/",
         "client": task.client.label_for(viewer),
         "role": assignment.target_role,
@@ -280,6 +280,8 @@ def set_prefs(request):
 @require_POST
 def accept_assignment(request, pk):
     assignment = get_object_or_404(Assignment, pk=pk)
+    if assignment.assignee_id != request.user.pk and not request.user.is_admin_role:
+        identity.hidden(request, "assignment")
     ok, reason = services.accept_assignment(assignment, request.user)
     return JsonResponse({"ok": ok, "reason": reason, "task": assignment.task.code})
 
@@ -289,6 +291,8 @@ def accept_assignment(request, pk):
 def decline_assignment(request, pk):
     """Refuse a hand-off. The reason is not optional - see the service."""
     assignment = get_object_or_404(Assignment, pk=pk)
+    if assignment.assignee_id != request.user.pk and not request.user.is_admin_role:
+        identity.hidden(request, "assignment")
     ok, error = services.decline_assignment(
         assignment, request.user, reason=request.POST.get("reason", "")
     )
@@ -320,7 +324,11 @@ def open_assignment_files(request, pk):
 @require_POST
 def assign_lead(request, code):
     task = get_object_or_404(Task, code=code)
-    lead = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TEAM_LEAD)
+    lead = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TEAM_LEAD, is_active=True)
+    # Handing a job to a leader is the first step of its way: a job already with a leader, being worked, delivered or cancelled
+    # is not handed out again from here.
+    if task.status not in (TaskStatus.NEW, TaskStatus.AWAITING_LEAD):
+        return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
     assignment = services.assign_to_lead(
         task, lead, request.user, note=request.POST.get("note", "")[:250]
     )
@@ -333,8 +341,9 @@ def assign_translator(request, code):
     task = get_object_or_404(Task, code=code)
     user = request.user
     if not user.is_admin_role and task.team_lead_id != user.id:
-        return JsonResponse({"ok": False, "error": "not_your_task"}, status=403)
-    translator = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TRANSLATOR)
+        # Another leader's job is not found (a 403 would say the code exists), and the try is written down.
+        identity.hidden(request, "task")
+    translator = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TRANSLATOR, is_active=True)
     if not user.is_admin_role and translator.team_lead_id != user.id:
         return JsonResponse({"ok": False, "error": "not_in_your_team"}, status=403)
     if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR):
@@ -721,7 +730,7 @@ def mail_thread_feed(request, pk):
 
     anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
     if not anchor.visible_to(request.user):
-        raise Http404
+        identity.hidden(request, "mail")
     after = _int(request.GET.get("after"), 0)
     after_out = _int(request.GET.get("after_out"), 0)
 
@@ -753,7 +762,7 @@ def mail_thread_feed(request, pk):
                 "ops/_reply_item.html", {"reply": reply, "open": True}, request=request,
             ),
         }
-        for reply in services.thread_replies(anchor.thread_key)
+        for reply in services.thread_replies(anchor.thread_key, request.user)
         if reply.pk > after_out
     ]
     return JsonResponse({"ok": True, "items": items})
@@ -774,7 +783,7 @@ def mail_reply(request, pk):
         InboundMessage.objects.select_related("client"), pk=pk, channel=Channel.EMAIL
     )
     if not anchor.visible_to(request.user):
-        raise Http404
+        identity.hidden(request, "mail")
     ok, outbound, error = services.reply_to_thread(
         anchor, request.user,
         body=request.POST.get("body", ""),
@@ -795,7 +804,7 @@ def claim_message(request, pk):
     message = get_object_or_404(InboundMessage, pk=pk)
     # The rate block and the line (a Sales person's own, or the company's).
     if not message.visible_to(request.user):
-        raise Http404
+        identity.hidden(request, "mail")
     ok = services.claim_message(message, request.user)
     return JsonResponse({
         "ok": ok,
@@ -816,7 +825,7 @@ def confirm_message(request, pk):
         InboundMessage.objects.select_related("client"), pk=pk
     )
     if not message.visible_to(request.user):
-        raise Http404
+        identity.hidden(request, "mail")
     ok, error = services.confirm_receipt(message, request.user)
     return JsonResponse(
         {
@@ -1297,7 +1306,7 @@ def call_start(request):
 def call_answer(request, pk):
     call = services.call_for(request.user, pk)
     if call is None:
-        raise Http404
+        identity.hidden(request, "call")
     ok = services.answer_call(call, request.user)
     return JsonResponse({
         "ok": ok, "call": _call_json(call, request.user), "ice": services.ice_servers(),
@@ -1310,7 +1319,7 @@ def call_answer(request, pk):
 def call_end(request, pk):
     call = services.call_for(request.user, pk)
     if call is None:
-        raise Http404
+        identity.hidden(request, "call")
     services.end_call(call, request.user, reason=request.POST.get("reason", "ended"))
     return JsonResponse({"ok": True, "call": _call_json(call, request.user)})
 
@@ -1321,7 +1330,7 @@ def call_signals(request, pk):
     POST: one offer / answer / network candidate for the other end."""
     call = services.call_for(request.user, pk)
     if call is None:
-        raise Http404
+        identity.hidden(request, "call")
     if request.method == "POST":
         row = services.post_signal(
             call, request.user, request.POST.get("kind", ""), request.POST.get("payload", "")
@@ -1787,12 +1796,23 @@ def ai_check(request, code):
         task, user, source_text, translated_text, requirements,
         source_docs, translated_docs,
     )
+    # The words come from reading the client's files and quote them: for whoever may not know the client the name and number
+    # are taken out, as they are on every other page that shows a check.
+    def masked(value):
+        if isinstance(value, str):
+            return identity.mask_client(value, task.client, user)
+        if isinstance(value, list):
+            return [masked(one) for one in value]
+        if isinstance(value, dict):
+            return {key: masked(one) for key, one in value.items()}
+        return value
+
     return JsonResponse({
         "ok": result.status != result.Status.ERROR,
         "status": result.status,
-        "summary": result.summary,
-        "issues": result.issues,
-        "error": result.error_message,
+        "summary": masked(result.summary),
+        "issues": masked(result.issues),
+        "error": masked(result.error_message),
         "count": result.issue_count,
     })
 
@@ -1893,7 +1913,9 @@ def attendance_punch(request):
             request.user, kind,
             latitude=_decimal(request.POST.get("lat")),
             longitude=_decimal(request.POST.get("lng")),
-            accuracy_m=_int(request.POST.get("accuracy"), 0) or None,
+            # A fix worse than this is no fix: the allowance adds the accuracy to the office's radius, so an enormous one
+            # would put any position inside.
+            accuracy_m=min(max(_int(request.POST.get("accuracy"), 0), 0), attendance.MAX_ACCURACY_M) or None,
             fingerprint=(request.POST.get("device") or "").strip()[:64],
             ip=_client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),

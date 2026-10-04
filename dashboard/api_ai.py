@@ -84,7 +84,7 @@ def task_notes(request, code):
     running = check is not None and check.status == check.Status.RUNNING
     return JsonResponse({
         "ok": True,
-        "task": {"code": task.code, "title": task.title},
+        "task": {"code": task.code, "title": task.title_for(user)},
         # Can a check be asked for again: the switch is on and the key is there (the classic endpoint says so itself
         # when it is not), and one is not already running.
         "can_recheck": bool(conf.ai_check_enabled and conf.claude_api_key) and not running,
@@ -112,7 +112,7 @@ def _panel_json(notes, user):
     return {
         "ok": True,
         "notes": {
-            "task": {"code": task.code, "title": task.title},
+            "task": {"code": task.code, "title": task.title_for(user)},
             "count": check.issue_count,
             "issues": _issues_json(check, task, user),
         },

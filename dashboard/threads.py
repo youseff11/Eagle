@@ -77,8 +77,12 @@ def new_key():
     return uuid.uuid4().hex
 
 
+#: ``owner_id`` left out: do not look at the line a letter came in on (the backfill of letters from before there were lines).
+ANY_LINE = object()
+
+
 def find_thread_key(model, *, channel, client_id=None, sender="", subject="",
-                    refs=(), when=None, exclude_pk=None, outbound_model=None):
+                    refs=(), when=None, exclude_pk=None, outbound_model=None, owner_id=ANY_LINE):
     """The conversation a new letter belongs to, or ``""`` for a new one.
 
     ``model`` is ``InboundMessage`` — the live one, or the historical one a
@@ -90,6 +94,10 @@ def find_thread_key(model, *, channel, client_id=None, sender="", subject="",
     their ``In-Reply-To`` names it.
     """
     candidates = model.objects.filter(channel=channel).exclude(thread_key="")
+    # A conversation belongs to one line: a letter to a Sales person's address joins only that person's conversations, and a
+    # letter to the company address only the company's. Otherwise the replies of one line would sit in the other's thread.
+    if owner_id is not ANY_LINE:
+        candidates = candidates.filter(owner_id=owner_id)
     if exclude_pk:
         candidates = candidates.exclude(pk=exclude_pk)
 
@@ -106,6 +114,7 @@ def find_thread_key(model, *, channel, client_id=None, sender="", subject="",
         if outbound_model is not None:
             ours = (
                 outbound_model.objects.filter(provider_id__in=refs)
+                .filter(**({} if owner_id is ANY_LINE else {"owner_id": owner_id}))
                 .exclude(thread_key="")
                 .order_by("-created_at")
                 .values_list("thread_key", flat=True)

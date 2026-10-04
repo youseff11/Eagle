@@ -319,6 +319,11 @@ def nearest_office(latitude, longitude):
     return best, best_distance
 
 
+#: The most a phone's own error may add to the office's radius. A browser reports 5 to 50 metres from GPS and a few hundred from
+#: a network fix; a figure above this is a guess or a lie, and it is not allowed to widen the circle.
+MAX_ACCURACY_M = 150
+
+
 def check_location(conf, latitude, longitude, accuracy_m=None):
     """Return ``(office, distance_m, inside)`` for a punch's coordinates.
 
@@ -334,7 +339,7 @@ def check_location(conf, latitude, longitude, accuracy_m=None):
     # The radius is generous already; the phone's own error is added on top so
     # a poor fix is not scored as absence.
     allowance = office.radius_meters or conf.geofence_radius_m
-    return office, distance, distance <= allowance + int(accuracy_m or 0)
+    return office, distance, distance <= allowance + min(int(accuracy_m or 0), MAX_ACCURACY_M)
 
 
 def touch_device(user, conf, fingerprint, user_agent=""):

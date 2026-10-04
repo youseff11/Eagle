@@ -128,7 +128,7 @@ def audit(request):
     if before:
         if not before.isdecimal() or len(before) > 12:
             return _error(400, "bad_cursor")
-        rows = rows
+        rows = rows.filter(pk__lt=int(before))
     if only == "security":
         rows = rows.filter(action__in=identity.SECURITY_ACTIONS)
     elif only == "denied":

@@ -28,8 +28,9 @@ from .models import AuditLog
 
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-#: A number with a plus, or a long run of digits: a phone number, not a date, a time or an error code.
-_PHONE = re.compile(r"\+\d[\d\s().-]{6,}\d|\b\d{9,}\b")
+#: A number with a plus, a long run of digits, or a local number written in groups (0100 123 4567, 010-0123-4567,
+#: (010) 012 34567): a phone number, not a date, a time or an error code.
+_PHONE = re.compile(r"\+\d[\d\s().-]{6,}\d|\b\d{9,}\b|\(?\b0\d{1,3}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,5}\b")
 MASKED = "[...]"
 
 
@@ -65,12 +66,18 @@ def mask_client(text, client, viewer):
     """
     if viewer is not None and getattr(viewer, "can_see_client_identity", False):
         return text or ""
-    text = text or ""
+    # The contacts first, whole (a number written in groups would be half eaten by the name rules below), then the name.
+    text = scrub_contacts(text)
     if client is not None:
         for name in {(getattr(client, "name", "") or "").strip(), (getattr(client, "company", "") or "").strip()}:
             if len(name) >= 3:
                 text = re.sub(re.escape(name), client.code, text, flags=re.IGNORECASE)
-    return scrub_contacts(text)
+        # The ways the same name is written when it is not copied from the record: other separators, the domain's name, the
+        # name in the mailbox, the last digits of a number however they are spaced. The file-name rules already know them.
+        from . import files
+
+        text = files.mask_name(text, client, for_text=True)
+    return text
 
 
 # The audit actions this module writes. Named once so the audit page and the

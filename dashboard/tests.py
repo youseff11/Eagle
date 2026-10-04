@@ -99,6 +99,9 @@ class WorkflowTests(TestCase):
         services.mark_reviewed(task, self.lead)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.REVIEWED)
+        # Nothing is closed before the operation has taken the job over.
+        self.assertFalse(services.mark_delivered(task, self.ops))
+        services.acknowledge_handover(task, self.ops)
         services.mark_delivered(task, self.ops)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.DELIVERED)
@@ -569,6 +572,8 @@ class TaskWordCountTests(TestCase):
         )
         self.task.translator = self.tr
         self.task.team_lead = self.lead
+        # Being worked: only a job in progress can be handed in.
+        self.task.status = TaskStatus.IN_PROGRESS
         self.task.save()
         self.ContentFile = ContentFile
         self.MessageAttachment = MessageAttachment

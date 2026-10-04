@@ -133,7 +133,7 @@ def thread(request, pk):
     user = request.user
     anchor, letters = _anchor(request, pk)
     seen = services.seen_letter_ids(user, letters)
-    mail = services.MailThread(anchor.thread_key or f"m{anchor.pk}", letters, services.thread_replies(anchor.thread_key), seen)
+    mail = services.MailThread(anchor.thread_key or f"m{anchor.pk}", letters, services.thread_replies(anchor.thread_key, user), seen)
     entries = mail.entries
     out = []
     for index, entry in enumerate(entries):

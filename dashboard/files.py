@@ -76,8 +76,12 @@ def _phrase_pattern(text):
     return _GAP.join(re.escape(word) for word in words)
 
 
-def identity_terms(client):
-    """The regex pieces that identify this client in a file name."""
+def identity_terms(client, for_text=False):
+    """The regex pieces that identify this client in a file name (or, with ``for_text``, in free words).
+
+    In free words the part of an address before the ``@`` is taken only when it looks like a person's name (``john.smith``) or is
+    long: ``info`` or ``sales`` would eat ordinary words.
+    """
     if client is None:
         return []
     patterns = []
@@ -89,7 +93,7 @@ def identity_terms(client):
     for address in client.all_emails:
         local, _, domain = address.partition("@")
         stem = domain.split(".")[0] if domain else ""
-        if len(local) >= 3:
+        if len(local) >= 3 and (not for_text or len(local) >= 6 or re.search(r"[._-]", local)):
             patterns.append(_phrase_pattern(local))
         if len(stem) >= 3 and stem.lower() not in _PUBLIC_MAIL:
             patterns.append(_phrase_pattern(stem))
@@ -102,12 +106,12 @@ def identity_terms(client):
     return sorted({p for p in patterns if p}, key=len, reverse=True)
 
 
-def mask_name(name, client):
+def mask_name(name, client, for_text=False):
     """``name`` with the client's identity replaced by their code."""
     name = str(name or "")
     if client is None or not name:
         return name
-    for pattern in identity_terms(client):
+    for pattern in identity_terms(client, for_text=for_text):
         name = re.sub(pattern, client.code, name, flags=re.IGNORECASE)
     return name
 
@@ -153,7 +157,17 @@ def _task_open_to(user, task):
         return False
     if task.can_view(user):
         return True
-    return task.assignments.filter(assignee=user).exists()
+    # Only an offer still waiting for an answer: one that was declined, timed out or replaced is not a key to the job.
+    from .models import AssignmentStatus
+
+    return task.assignments.filter(assignee=user, status=AssignmentStatus.PENDING).exists()
+
+
+def _ticked_for(task, attachment):
+    """Is this attachment one of the files picked for the task? A task with none picked leaves the letter's files open to it
+    (the older tasks, made before the operation chose)."""
+    picked = {one.pk for one in task.source_files.all()}
+    return not picked or attachment.pk in picked
 
 
 def _inbound_open_to(user, attachment):
@@ -169,7 +183,8 @@ def _inbound_open_to(user, attachment):
             return False
     tasks = [message.task] if message.task_id else []
     tasks += list(attachment.tasks.all())
-    if any(_task_open_to(user, task) for task in tasks):
+    # The files the operation ticked for a job are the job's; the rest of the client's letter is not, whoever works the job.
+    if any(_task_open_to(user, task) and _ticked_for(task, attachment) for task in tasks):
         return True
     # Relayed into a room the person is in (``ChatMessage.inbound``).
     for mirror in message.mirrors.select_related("room", "room__task"):

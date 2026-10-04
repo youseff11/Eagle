@@ -187,6 +187,8 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             refs=threads.message_ids(reply_to_external, references),
             when=received_at,
             outbound_model=OutboundMessage,
+            # A letter joins the conversations of its own line only.
+            owner_id=owner.pk if owner is not None else None,
         ) or threads.new_key()
 
     message = InboundMessage.objects.create(
@@ -471,11 +473,13 @@ def _build_threads(user, idents):
 
     replies = {}
     if keys:
+        from . import lines
         from .models import OutboundMessage
 
+        # The replies of the lines this person works: one question, not one per reply.
         for reply in OutboundMessage.objects.filter(
             channel=Channel.EMAIL, thread_key__in=keys
-        ).select_related("created_by").prefetch_related("uploads").order_by("created_at", "id"):
+        ).filter(lines.line_q(user)).select_related("created_by").prefetch_related("uploads").order_by("created_at", "id"):
             replies.setdefault(reply.thread_key, []).append(reply)
 
     # One query for the whole page: which of these letters this person has
@@ -608,17 +612,21 @@ def thread_messages(user, message):
     )
 
 
-def thread_replies(thread_key):
-    """What we sent into this mail conversation, oldest first."""
+def thread_replies(thread_key, user=None):
+    """What we sent into this mail conversation, oldest first.
+
+    With ``user``, only what that person's line may read (``lines.sees``): a conversation can span the company address and a
+    Sales address (a client replies "Re:" to the other one), and the replies of one line are not the other's to read.
+    """
+    from . import lines
     from .models import OutboundMessage
 
     if not thread_key:
         return []
-    return list(
-        OutboundMessage.objects.filter(channel=Channel.EMAIL, thread_key=thread_key)
-        .select_related("created_by").prefetch_related("uploads")
-        .order_by("created_at", "id")
-    )
+    replies = OutboundMessage.objects.filter(channel=Channel.EMAIL, thread_key=thread_key)
+    if user is not None:
+        replies = replies.filter(lines.line_q(user))
+    return list(replies.select_related("created_by").prefetch_related("uploads").order_by("created_at", "id"))
 
 
 def thread_references(thread_key):
@@ -695,6 +703,7 @@ def reply_to_thread(anchor, user, body="", uploads=None):
         in_reply_to=latest.external_id,
         references=thread_references(anchor.thread_key),
         thread_key=anchor.thread_key,
+        line_owner=latest.owner,
     )
     if ok:
         for letter in letters:
@@ -743,6 +752,7 @@ def confirm_receipt(message, user):
         in_reply_to=message.external_id if is_mail else "",
         references=thread_references(message.thread_key) if is_mail else (),
         thread_key=message.thread_key if is_mail else "",
+        line_owner=message.owner if is_mail else LINE_FROM_CLIENT,
     )
     if not ok:
         return False, error
@@ -2147,13 +2157,27 @@ def assign_to_translator(task, translator, by_user, note="", deadline=None):
     return assignment
 
 
+def _lock_assignment(assignment):
+    """Read the assignment's state under a row lock, so two answers (an accept and a sweep that expires it, two sweeps) are
+    taken one at a time and the second sees what the first did."""
+    row = Assignment.objects.select_for_update().filter(pk=assignment.pk).values("status", "penalty_applied").first()
+    if row is not None:
+        assignment.status = row["status"]
+        assignment.penalty_applied = row["penalty_applied"]
+
+
 @transaction.atomic
 def accept_assignment(assignment, user):
     """Confirm an assignment. Returns ``(ok, reason)``."""
     if assignment.assignee_id != user.id:
         return False, "forbidden"
+    _lock_assignment(assignment)
     if assignment.status != AssignmentStatus.PENDING:
         return False, assignment.status
+    # An offer the task has moved on from (it was handed to somebody else since) is not a job to accept.
+    held = assignment.task.team_lead_id if assignment.target_role == Role.TEAM_LEAD else assignment.task.translator_id
+    if held is not None and held != assignment.assignee_id:
+        return False, AssignmentStatus.CANCELLED
     if timezone.now() >= assignment.expires_at:
         expire_assignment(assignment)
         return False, "expired"
@@ -2239,6 +2263,7 @@ def accept_assignment(assignment, user):
 @transaction.atomic
 def expire_assignment(assignment):
     """Mark a pending assignment as expired, apply the penalty and alert."""
+    _lock_assignment(assignment)
     if assignment.status != AssignmentStatus.PENDING:
         return assignment
     conf = AppSettings.load()
@@ -2319,7 +2344,10 @@ def decline_assignment(assignment, user, reason=""):
     ask before they can do anything about it. The reason is what turns a
     refusal into something the next person can act on.
     """
-    if assignment.assignee_id != user.id or assignment.status != AssignmentStatus.PENDING:
+    if assignment.assignee_id != user.id:
+        return False, "التسليمة دي مش مستنية ردك."
+    _lock_assignment(assignment)
+    if assignment.status != AssignmentStatus.PENDING:
         return False, "التسليمة دي مش مستنية ردك."
     reason = (reason or "").strip()[:250]
     if not reason:
@@ -2394,6 +2422,10 @@ def create_task(*, client, title, created_by, description="", deadline=None,
 
 def mark_translated(task, user):
     if task.translator_id != user.id and not user.is_admin_role:
+        return False
+    # Only a job being worked can be handed in. A delivered or cancelled one handed in again would come back to life, and its
+    # words (counted by the day they were translated) would move into another month's pay.
+    if task.status != TaskStatus.IN_PROGRESS:
         return False
     # "Finished" with nothing handed in used to go through. It does not any
     # more: the translator's file is what the review, the AI check, the word
@@ -2526,6 +2558,10 @@ def share_reviewed_files(task, lead):
 
 def mark_reviewed(task, user):
     if task.team_lead_id != user.id and not user.is_admin_role:
+        return False
+    # A review closes a translation that is waiting for one. A press on a job still being worked, delivered or cancelled is
+    # refused (a second press on a reviewed one is the idempotent case below).
+    if task.status not in (TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED):
         return False
     # A second press on a reviewed task must not post the files again.
     already = task.status == TaskStatus.REVIEWED
@@ -2844,6 +2880,12 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
 def mark_delivered(task, user, delivery=None):
     if not (user.is_operation or user.is_admin_role):
         return False
+    # A finished job is not delivered twice. The operation closes a job it has taken over (reviewed, and acknowledged: nothing
+    # reaches the client before that); the owner may close any job still open.
+    if task.status in (TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+        return False
+    if not user.is_admin_role and (task.status != TaskStatus.REVIEWED or not task.handover_ack_at):
+        return False
     task.status = TaskStatus.DELIVERED
     task.delivered_at = timezone.now()
     task.save(update_fields=["status", "delivered_at", "updated_at"])
@@ -2872,6 +2914,9 @@ def mark_delivered(task, user, delivery=None):
 
 
 def cancel_task(task, user, reason=""):
+    # What was delivered stays delivered (its words are in somebody's pay) and a cancelled job is already cancelled.
+    if task.status in (TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+        return False
     task.status = TaskStatus.CANCELLED
     task.save(update_fields=["status", "updated_at"])
     _cancel_pending(task)
@@ -4597,6 +4642,17 @@ def toggle_reaction(user, source_code, uid, kind):
 
 #: How long a call rings before it is a missed call.
 CALL_RING_SECONDS = 45
+#: A call keeps at most this many signals (an offer, an answer and the network candidates are a few dozen) of at most this
+#: many characters each, and one read returns at most a page of them. The rows go with the call.
+CALL_MAX_SIGNALS = 200
+CALL_MAX_SIGNAL_BYTES = 65536
+CALL_SIGNALS_PAGE = 100
+#: Ringing the same colleague more than this many times a minute is refused: each ring is a missed-call note, a chat line
+#: and a ping on the other side.
+CALL_REDIAL_LIMIT = 6
+CALL_REDIAL_SECONDS = 60
+#: A call nobody hung up (a tab closed, a computer asleep) stops keeping two people busy after this long.
+CALL_MAX_HOURS = 6
 
 
 def ice_servers():
@@ -4630,6 +4686,17 @@ def _expire_ringing():
         end_call(call, call.caller, reason="missed")
 
 
+def _expire_stale_active():
+    """Calls answered long ago that nobody ended are ended, so two people are not busy for ever."""
+    from .models import CallSession
+
+    cutoff = timezone.now() - timedelta(hours=CALL_MAX_HOURS)
+    for call in CallSession.objects.filter(
+        status=CallSession.Status.ACTIVE, answered_at__lt=cutoff
+    ).select_related("caller", "callee", "room"):
+        end_call(call, call.caller, reason="ended")
+
+
 def start_call(caller, callee, video=False):
     """Ring a colleague. Returns ``(call, error_ar)``."""
     from .models import CallSession
@@ -4637,6 +4704,12 @@ def start_call(caller, callee, video=False):
     if callee is None or not callee.is_active or callee.pk == caller.pk:
         return None, "مينفعش تكلم الشخص ده."
     _expire_ringing()
+    _expire_stale_active()
+    recent = CallSession.objects.filter(
+        caller=caller, callee=callee, created_at__gte=timezone.now() - timedelta(seconds=CALL_REDIAL_SECONDS),
+    ).count()
+    if recent >= CALL_REDIAL_LIMIT:
+        return None, "كلمته كتير في وقت قصير. استنى شوية."
     busy = CallSession.objects.filter(
         Q(caller__in=[caller, callee]) | Q(callee__in=[caller, callee]),
         status__in=[CallSession.Status.RINGING, CallSession.Status.ACTIVE],
@@ -4669,9 +4742,16 @@ def answer_call(call, user):
 
     if call.callee_id != user.pk or call.status != CallSession.Status.RINGING:
         return False
+    # One conditional write: a call that was hung up or timed out while this answer was on its way stays as it ended, and a
+    # call that rang past its time is not answered (the ringing is only closed when the next call starts).
+    now = timezone.now()
+    moved = CallSession.objects.filter(
+        pk=call.pk, status=CallSession.Status.RINGING, created_at__gte=now - timedelta(seconds=CALL_RING_SECONDS),
+    ).update(status=CallSession.Status.ACTIVE, answered_at=now)
+    if not moved:
+        return False
     call.status = CallSession.Status.ACTIVE
-    call.answered_at = timezone.now()
-    call.save(update_fields=["status", "answered_at"])
+    call.answered_at = now
     return True
 
 
@@ -4703,6 +4783,8 @@ def end_call(call, user, reason="ended"):
     if not moved:
         return False
     call.status, call.ended_at = status, now
+    # What the two browsers passed each other to set the call up is of no use once it is over, and holds their addresses.
+    call.signals.all().delete()
 
     kind_ar = "مكالمة فيديو" if call.video else "مكالمة صوتية"
     kind_en = "Video call" if call.video else "Voice call"
@@ -4749,7 +4831,10 @@ def post_signal(call, user, kind, payload):
 
     if kind not in CallSignal.Kind.values or not call.is_open:
         return None
-    payload = (payload or "")[:65536]
+    payload = payload or ""
+    # Refused, not cut: half an SDP is not a description of anything. And a call has only so many.
+    if len(payload) > CALL_MAX_SIGNAL_BYTES or call.signals.count() >= CALL_MAX_SIGNALS:
+        return None
     return CallSignal.objects.create(call=call, sender=user, kind=kind, payload=payload)
 
 
@@ -4757,15 +4842,19 @@ def signals_for(call, user, after=0):
     """What the other end has sent since ``after``, oldest first."""
     return list(
         call.signals.filter(id__gt=after).exclude(sender=user)
-        .values("id", "kind", "payload")
+        .order_by("id").values("id", "kind", "payload")[:CALL_SIGNALS_PAGE]
     )
+
+
+#: ``send_client_message(line_owner=...)`` left out: the line is worked out from the client's last message (``lines.reply_line``).
+LINE_FROM_CLIENT = object()
 
 
 def send_client_message(client, user, body="", uploads=None, voice=None,
                         voice_seconds=0, extra_files=None, reply_to_wamid="",
                         reply_preview="", force_channel="", subject="",
                         in_reply_to="", references=(), thread_key="",
-                        reuse_files=None, caption_files=False):
+                        reuse_files=None, caption_files=False, line_owner=LINE_FROM_CLIENT):
     """Free-form reply to a client on whichever channel they used last.
 
     ``force_channel`` names the line instead of guessing it. The two pages are
@@ -4823,7 +4912,9 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     target = client.reply_target(channel)
     # Which of our lines it leaves from: a Sales person's own, or the
     # company's (``owner`` None). Answers go back the way the client came.
-    owner = lines.reply_line(client, user, channel)
+    # An answer to one particular letter leaves from the line that letter came to (``line_owner``: the Sales person, or ``None``
+    # for the company); otherwise from the line the client wrote to last.
+    owner = lines.reply_line(client, user, channel) if line_owner is LINE_FROM_CLIENT else line_owner
     from_number = (owner.wa_phone_number_id or "").strip() if owner else ""
     from_address = (owner.mail_alias or "").strip() if owner else ""
     line_missing = ""

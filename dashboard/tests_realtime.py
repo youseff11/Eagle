@@ -508,6 +508,33 @@ class SocketLimitsTests(_World):
             for sock in sockets:
                 await sock.__aexit__()
 
+    async def test_a_burst_of_handshakes_cannot_pass_the_limit(self):
+        # With a real layer the join is a network round trip; here it is made slow, so every handshake of the burst is past the
+        # check before the first one has joined.
+        layer = get_channel_layer()
+        real = layer.__class__.group_add
+
+        async def slow(layer_self, group, channel):
+            await asyncio.sleep(0.05)
+            return await real(layer_self, group, channel)
+
+        sockets = []
+        try:
+            with mock.patch.object(layer.__class__, "group_add", slow):
+                sockets = await asyncio.gather(*[_Socket(self.ops).__aenter__() for _ in range(consumers.MAX_SOCKETS_PER_USER + 4)])
+            self.assertEqual(sum(1 for sock in sockets if sock.connected), consumers.MAX_SOCKETS_PER_USER)
+        finally:
+            for sock in sockets:
+                await sock.__aexit__()
+
+    async def test_a_join_that_fails_gives_its_place_back(self):
+        with mock.patch.object(get_channel_layer().__class__, "group_add", side_effect=RuntimeError("redis down")):
+            for _ in range(consumers.MAX_SOCKETS_PER_USER + 2):
+                async with _Socket(self.ops) as sock:
+                    self.assertFalse(sock.connected)
+                    self.assertEqual(sock.code, CLOSE_UNAVAILABLE)
+        self.assertEqual(consumers._open.get(self.ops.pk, 0), 0)
+
     async def test_a_binary_frame_closes_the_socket_without_a_traceback(self):
         async with _Socket(self.ops) as sock:
             await sock.comm.send_to(bytes_data=b"\x00\x01")

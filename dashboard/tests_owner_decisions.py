@@ -190,6 +190,19 @@ class AuditFloodTests(_Admin):
         identity.record_denied(request, "a different reason")
         self.assertEqual(len(self.denied()), 4)
 
+    def test_the_same_reason_on_another_page_or_from_another_address_is_its_own_row(self):
+        def refuse(path, ip="203.0.113.7"):
+            request = type("R", (), {"user": self.ops, "META": {"REMOTE_ADDR": ip}, "get_full_path": lambda self: path})()
+            identity.record_denied(request, "same reason")
+
+        refuse("/one/")
+        refuse("/one/")
+        refuse("/two/")
+        refuse("/one/", ip="203.0.113.99")
+        rows = self.denied()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row.detail for row in rows], ["same reason (x2)", "same reason", "same reason"])
+
     def test_after_the_window_the_same_refusal_is_a_new_row(self):
         self.get(self.ops, AUDIT)
         AuditLog.objects.update(created_at=timezone.now() - timedelta(seconds=identity.DENIED_REPEAT_SECONDS + 5))
@@ -224,7 +237,8 @@ class AuditPagingTests(_Admin):
 
     def test_the_log_pages_back_with_no_gap_and_no_repeat(self):
         seen, before, pages = [], None, 0
-        while True:
+        # Bounded: a cursor that is ignored must fail this test, not loop on the first page for ever.
+        while pages < 6:
             body = self.page(before=before) if before else self.page()
             ids = [row["id"] for row in body["rows"]]
             seen += ids

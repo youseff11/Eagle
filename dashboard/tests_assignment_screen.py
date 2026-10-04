@@ -232,8 +232,12 @@ class AcceptAndDeclineAreTheClassicEndpoints(_Handoff):
         self.assertEqual((_json(answer)["ok"], _json(answer)["reason"]), (False, "accepted"))
 
     def test_somebody_else_cannot_accept_it(self):
+        # Not found, written down, and nothing of the task in the answer (it used to say "forbidden" with the task's code).
+        before = AuditLog.objects.filter(actor=self.lead, action="security.denied").count()
         answer = self.post("dashboard:api_accept", self.lead)
-        self.assertEqual((_json(answer)["ok"], _json(answer)["reason"]), (False, "forbidden"))
+        self.assertEqual(answer.status_code, 404)
+        self.assertNotIn(self.job.code.encode(), answer.content)
+        self.assertEqual(AuditLog.objects.filter(actor=self.lead, action="security.denied").count(), before + 1)
         self.job.refresh_from_db()
         self.assertEqual(self.job.status, TaskStatus.AWAITING_TRANSLATOR)
 

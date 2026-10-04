@@ -54,7 +54,7 @@ def _list_row(task, user, warning_minutes):
     due = task.deadline_for(user)
     return {
         "code": task.code,
-        "title": task.title,
+        "title": task.title_for(user),
         "origin": _origin_json(task.origin),
         "priority": _two(PRIORITY_MAP, task.priority),
         "client": task.client.label_for(user) if task.client_id else "-",
@@ -284,7 +284,7 @@ def task(request, code):
         "ok": True,
         "task": {
             "code": task.code,
-            "title": task.title,
+            "title": task.title_for(user),
             "status": _status_json(task.status),
             "priority": _two(PRIORITY_MAP, task.priority),
             "origin": _origin_json(task.origin),
@@ -453,7 +453,7 @@ def _start_json(start, user):
     message = start.message
     client = message.client if message else start.from_task.client if start.from_task else None
     return {
-        "from_task": {"code": start.from_task.code, "title": start.from_task.title} if start.from_task else None,
+        "from_task": {"code": start.from_task.code, "title": start.from_task.title_for(user)} if start.from_task else None,
         "client_code": message.client.code if message else (start.from_task.client.code if start.from_task else ""),
         "messages": [
             {
@@ -466,8 +466,10 @@ def _start_json(start, user):
         "picked": [_task_file_json(a) for a in start.picked],
         "initial": {
             "client": start.initial.get("client"),
-            "title": start.initial.get("title", ""),
-            "description": start.initial.get("description", ""),
+            # Typed by the client first (their subject, their opening words) or by a colleague who knew their name: the same
+            # words the task page shows, masked the same way, so the form does not hand over what the page keeps back.
+            "title": identity.mask_client(start.initial.get("title", ""), client, user),
+            "description": identity.mask_client(start.initial.get("description", ""), client, user),
             "source_lang": start.initial.get("source_lang", ""),
         },
         "requirements": [

@@ -78,15 +78,20 @@ class EventsConsumer(AsyncJsonWebsocketConsumer):
         if _open[user.pk] >= MAX_SOCKETS_PER_USER:
             await self.close(code=CLOSE_TOO_MANY)
             return
+        # Counted before the first await: with a real layer the join is a network round trip, and a burst of handshakes that all
+        # checked the count before any of them added to it would all be let in.
+        _open[user.pk] += 1
         group = realtime.user_group(user.pk)
         try:
             await self.channel_layer.group_add(group, self.channel_name)
         except Exception:  # noqa: BLE001 - the layer being down must not be a traceback
             log.exception("realtime: could not join %s", group)
+            _open[user.pk] -= 1
+            if _open[user.pk] <= 0:
+                del _open[user.pk]
             await self.close(code=CLOSE_UNAVAILABLE)
             return
         self.group, self.user_pk = group, user.pk
-        _open[user.pk] += 1
         await self.accept()
 
     async def disconnect(self, code):

@@ -14,7 +14,7 @@ tasks - and writes nothing: requirements are the work-doers' (``_may_edit``: the
 A team leader reads the code only, like the operation.
 """
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -44,7 +44,9 @@ def clients(request):
     rows = Client.objects.all()
     if query:
         rows = rows.filter(identity.client_search(user, query))
-    rows = list(rows.annotate(task_count=Count("tasks", distinct=True), requirement_count=Count("requirements", distinct=True))[:MAX_CLIENTS])
+    # A team leader counts their own tasks of a client, as the client page lists them: not another leader's.
+    own = Q(tasks__team_lead=user) if user.is_team_lead and not user.is_admin_role else Q()
+    rows = list(rows.annotate(task_count=Count("tasks", filter=own, distinct=True), requirement_count=Count("requirements", distinct=True))[:MAX_CLIENTS])
     sees = identity.can_see(user)
     if sees:
         identity.record_identity_list(request, [row.code for row in rows], query)
@@ -80,6 +82,9 @@ def client(request, code):
     if sees:
         identity.record_identity_view(request, row, "client_detail")
     tasks = row.tasks.all()
+    # A team leader follows the client through their own tasks, as on the task pages: not another leader's.
+    if user.is_team_lead and not user.is_admin_role:
+        tasks = tasks.filter(team_lead=user)
     # Counts and dates only, for the people who follow a client without running it: after a client is won Sales
     # follows them and does not run them - no files, no conversation, no money (the admin sees it on this page too).
     activity = None
@@ -103,7 +108,7 @@ def client(request, code):
         "tasks": [
             {
                 "code": task.code,
-                "title": task.title,
+                "title": task.title_for(user),
                 "origin": _origin_json(task.origin),
                 "status": _status_json(task.status),
             }
@@ -132,6 +137,10 @@ def client_requirement(request, code):
     row = get_object_or_404(Client, code=code)
     if not _may_edit(request.user):
         return _error(403, "forbidden")
+    # A team leader adds to the clients whose jobs they are running, not to anybody's: what is written here reaches the
+    # requirements every task of that client shows.
+    if request.user.is_team_lead and not request.user.is_admin_role and not row.tasks.filter(team_lead=request.user).exists():
+        identity.hidden(request, "client")
     try:
         body = _object(request)
         kind, text = _text(body, "kind", 20), _text(body, "text", MAX_REQUIREMENT)

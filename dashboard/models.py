@@ -1436,6 +1436,13 @@ class Task(models.Model):
         """
         return self.translator_deadline or self.deadline
 
+    def title_for(self, user):
+        """The title as ``user`` may read it. It is free words, and by default the client's own (the subject of their letter, or
+        the first words of their message), so for whoever may not know the client the name and number are taken out."""
+        from . import identity
+
+        return identity.mask_client(self.title, self.client if self.client_id else None, user)
+
     def deadline_for(self, user):
         """The deadline that governs this person.
 
