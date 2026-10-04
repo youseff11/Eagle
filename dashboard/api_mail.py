@@ -175,7 +175,7 @@ def thread(request, pk):
             "code": sender["code"],
             "at": _stamp(item.received_at, "%Y-%m-%d"),
             "snippet": _snippet(_words(item, item.body, user)),
-            "body": strip_image_tags(item.body),
+            "body": strip_image_tags(_words(item, item.body, user)),
             "unseen": item.pk not in seen,
             "blocked": item.is_rate_blocked,
             "task": item.task.code if item.task_id else None,

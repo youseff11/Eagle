@@ -956,3 +956,11 @@ class WhatTheClientWroteIsMaskedForTheOperationTests(_Site):
         self.assertIn(self.letter.pk, found(self.ops, "quote the lease"))
         self.assertIn(self.letter.pk, found(self.ops, self.client_obj.code))
         self.assertIn(self.letter.pk, found(self.ops, "Regards"))
+
+    def test_a_letter_that_never_names_the_client_is_found_by_the_clients_code(self):
+        plain = InboundMessage.objects.create(
+            client=self.client_obj, channel=Channel.EMAIL, sender_identity=CLIENT_EMAIL, subject="Delivery question", body="When will it be ready?",
+            thread_key="t-plain",
+        )
+        rows = _json(_get(self.ops, "dashboard:v1_mail_threads", q=self.client_obj.code))["threads"]
+        self.assertIn(plain.pk, [one["id"] for one in rows])
