@@ -904,24 +904,19 @@ class HandOnTests(_Cand):
             self.assertEqual(answer.status_code, 302, name)
             self.assertTrue(answer["Location"].startswith(path), answer["Location"])
             self.assertIn(kept, answer["Location"])
-        answer = self.classic("hr_approvals", who=self.admin)
-        self.assertEqual(answer.status_code, 200)
-        self.switch(roles=["hr", "admin"])
         self.assertTrue(self.classic("hr_approvals", who=self.admin)["Location"].startswith("/app/hr/approvals"))
 
-    def test_the_reviewers_pages_follow_the_reviewers_own_switch(self):
-        self.assertEqual(self.classic("reviewer_tests", who=self.reviewer).status_code, 200)
-        self.assertEqual(self.classic("hr_test_score", [self.exam.pk], who=self.reviewer).status_code, 200)
-        self.reviewer_switch(roles=["reviewer"])
+    def test_the_reviewers_pages_are_handed_on(self):
         answer = self.classic("reviewer_tests", who=self.reviewer)
         self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/reviewer/tests"))
         answer = self.classic("hr_test_score", [self.exam.pk], who=self.reviewer)
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/reviewer/tests/{self.exam.pk}"))
-        self.assertEqual(self.classic("reviewer_tests", who=self.reviewer, classic=1).status_code, 200)
+        # The old way back to the classic page is not a thing any more.
+        self.assertEqual(self.classic("reviewer_tests", who=self.reviewer, classic=1)["Location"], "/app/reviewer/tests")
 
-    def test_a_team_leader_marking_stays_on_the_classic_page(self):
-        self.reviewer_switch(roles=["reviewer"])
-        self.assertEqual(self.classic("hr_test_score", [self.exam.pk], who=self.lead).status_code, 200)
+    def test_a_team_leader_marking_is_handed_on_too(self):
+        answer = self.classic("hr_test_score", [self.exam.pk], who=self.lead)
+        self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/reviewer/tests/{self.exam.pk}"))
 
     def test_a_candidate_that_is_not_there_is_a_404_even_when_handed_on(self):
         for name, args in (("hr_candidate", ["CAN-9999"]), ("hr_hire", ["CAN-9999"]), ("hr_interview_score", [99999])):
@@ -953,26 +948,3 @@ class HandOnTests(_Cand):
         browser.post(reverse("dashboard:hr_candidate", args=[self.person.code]), {"action": "status", "status": "hired"})
         self.person.refresh_from_db()
         self.assertEqual((self.person.status, self.person.hired_user_id), ("approved", None))
-
-    def test_the_classic_hire_page_does_not_offer_the_owners_role_to_hr(self):
-        self.person.status = "approved"
-        self.person.save()
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        page = browser.get(reverse("dashboard:hr_hire", args=[self.person.code]), {"classic": "1"}).content.decode()
-        self.assertIn('value="translator"', page)
-        self.assertNotIn('value="admin"', page)
-        self.assertNotIn('value="sales"', page)
-        browser.force_login(self.admin)
-        owner_page = browser.get(reverse("dashboard:hr_hire", args=[self.person.code]), {"classic": "1"}).content.decode()
-        self.assertIn('value="sales"', owner_page)
-
-
-class ScreenTests(_Cand):
-    def test_the_reviewer_has_a_switch_of_their_own_that_the_owner_is_not_on_by_default(self):
-        from . import newui
-
-        screen = newui.SCREENS["reviewer"]
-        self.assertEqual((screen.classic, screen.path, screen.roles, screen.admin_default), ("reviewer_tests", "/reviewer/tests", (Role.REVIEWER,), False))
-        self.assertFalse(newui.enabled(self.reviewer, "reviewer"))
-        self.assertFalse(newui.enabled(self.admin, "reviewer"))

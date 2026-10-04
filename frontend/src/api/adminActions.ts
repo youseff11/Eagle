@@ -212,8 +212,6 @@ export function useRunReset(kind: "tasks" | "mail") {
 
 /**
  * Save the settings that were changed (a secret only when it was typed or explicitly cleared). The form decides what is valid.
- * The rollout switches are among them: a save that moves them changes which people are sent to which interface, so the
- * signed-in person's own menu is asked for again.
  */
 export function useSaveSettings() {
   const client = useQueryClient();

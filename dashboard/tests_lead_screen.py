@@ -68,23 +68,6 @@ class _Lead(_Site):
 
 
 class ScreenSwitchTests(_Lead):
-    def test_the_screen_is_the_team_leaders_and_the_admin_is_not_on_by_default(self):
-        screen = newui.SCREENS["lead"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects, screen.admin_default), ("lead_home", "/lead", True, False))
-        self.assertEqual(set(screen.roles), {Role.TEAM_LEAD})
-        self.assertFalse(newui.enabled(self.admin, "lead"))
-        self.assertFalse(newui.enabled(self.lead, "lead"))
-        self.turn_on(roles=["team_lead"])
-        self.assertTrue(newui.enabled(self.lead, "lead"))
-        self.assertTrue(newui.enabled(self.other_lead, "lead"))
-        for user in (self.ops, self.tr, self.sales, self.admin):
-            self.assertFalse(newui.enabled(user, "lead"), user.username)
-
-    def test_one_leader_can_be_tried_before_the_role(self):
-        self.turn_on(users=[self.lead.pk])
-        self.assertTrue(newui.enabled(self.lead, "lead"))
-        self.assertFalse(newui.enabled(self.other_lead, "lead"))
-
     def test_the_menu_lists_it_only_for_who_is_switched_on_and_the_badge_is_their_open_tasks(self):
         self.turn_on(roles=["team_lead"])
         mine = _json(self.get(self.lead, "dashboard:v1_me"))
@@ -481,49 +464,20 @@ class HandOnTests(_Lead):
         self.assertEqual(self.get(self.lead, "dashboard:client_list")["Location"], "/app/clients")
         self.assertEqual(self.get(self.lead, "dashboard:client_detail", [code])["Location"], f"/app/clients/{code}")
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        for name in ("dashboard:lead_home", "dashboard:lead_translators"):
-            self.assertEqual(self.get(self.lead, name).status_code, 200, name)
-        self.assertEqual(self.get(self.lead, "dashboard:task_detail", [self.task.code]).status_code, 200)
-        self.turn_on(roles=["team_lead"])
-        for name in ("dashboard:lead_home", "dashboard:lead_translators"):
-            self.assertEqual(self.get(self.lead, name, classic=1).status_code, 200, name)
-        self.assertEqual(self.get(self.lead, "dashboard:task_detail", [self.task.code], classic=1).status_code, 200)
-
     def test_a_code_that_is_not_one_is_never_carried_into_the_address(self):
         self.turn_on(roles=["team_lead"])
         self.assertEqual(self.get(self.lead, "dashboard:task_detail", ["we.ird"]).status_code, 404)
 
-    def test_another_leaders_task_is_not_opened_in_either_interface(self):
+    def test_another_leaders_task_is_not_opened(self):
         self.turn_on(roles=["team_lead"])
         # The address is only an address: the new page asks the door, which answers 404 for it.
         self.assertEqual(self.get(self.lead, "dashboard:task_detail", [self.other_task.code])["Location"], f"/app/tasks/{self.other_task.code}")
         self.assertEqual(self.get(self.lead, TASK, [self.other_task.code]).status_code, 404)
-        self.assertEqual(self.get(self.lead, "dashboard:task_detail", [self.other_task.code], classic=1).status_code, 404)
-
-    def test_the_operations_switch_does_not_move_a_leader_and_the_leaders_does_not_move_the_operation(self):
-        self.turn_on("operation", roles=["operation", "team_lead"])
-        self.assertEqual(self.get(self.lead, "dashboard:lead_home").status_code, 200)
-        self.assertEqual(self.get(self.lead, "dashboard:task_detail", [self.task.code]).status_code, 200)
-        self.turn_on("operation", roles=[])
-        self.turn_on("lead", roles=["team_lead", "operation"])
-        self.assertEqual(self.get(self.ops, "dashboard:ops_tasks").status_code, 200)
-        self.assertEqual(self.get(self.ops, "dashboard:task_detail", [self.task.code]).status_code, 200)
-
-    def test_the_admin_is_not_handed_on_to_the_leaders_pages_and_keeps_the_classic_task_page(self):
-        self.turn_on(roles=["team_lead"])
-        self.assertEqual(self.get(self.admin, "dashboard:lead_home").status_code, 200)
-        self.assertEqual(self.get(self.admin, "dashboard:task_detail", [self.task.code]).status_code, 200)
 
     def test_a_translators_own_page_still_goes_by_its_own_switch(self):
         self.turn_on("translator_home", roles=["translator"])
         self.turn_on(roles=["team_lead"])
         self.assertEqual(self.get(self.tr, "dashboard:task_detail", [self.task.code])["Location"], f"/app/tasks/{self.task.code}")
-
-    def test_one_leader_can_be_tried_before_the_role(self):
-        self.turn_on(roles=[], users=[self.lead.pk])
-        self.assertEqual(self.get(self.lead, "dashboard:lead_home")["Location"], "/app/lead")
-        self.assertEqual(self.get(self.other_lead, "dashboard:lead_home").status_code, 200)
 
     def test_a_build_that_does_not_exist_hands_nobody_on(self):
         self.turn_on(roles=["team_lead"])

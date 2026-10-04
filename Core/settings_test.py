@@ -89,3 +89,7 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 import logging  # noqa: E402
 
 logging.disable(logging.CRITICAL)
+
+# The app counts as not built whatever is on disk: a test of a classic page must not depend on whether the checkout ran
+# ``npm run build`` (a built app hands every classic page on). A test of the app's side patches ``spa.built_assets``.
+SPA_ASSETS_OFF = True

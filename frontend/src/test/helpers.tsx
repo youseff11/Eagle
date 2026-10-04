@@ -38,6 +38,13 @@ export function me(
       voice: { seconds: 300, bytes: 15 * 1024 * 1024 },
     },
     screens,
+    // What the menu's lines answer to: HR and the owner manage attendance and recruit; the owner decides a hire.
+    can: {
+      manage_attendance: ["hr", "admin"].includes(overrides.role ?? "operation"),
+      recruit: ["hr", "admin"].includes(overrides.role ?? "operation"),
+      review_tests: ["reviewer", "team_lead", "admin"].includes(overrides.role ?? "operation"),
+      approve_hiring: (overrides.role ?? "operation") === "admin",
+    },
     unread_notifications: unread,
     unread_chats: 0,
     mail_unseen: 0,

@@ -555,9 +555,9 @@ class HandOnTests(_Recruit):
     def test_a_vacancy_that_is_not_there_is_a_404_even_when_handed_on(self):
         self.assertEqual(self.classic("hr_vacancy", ["VAC-9999"]).status_code, 404)
 
-    def test_the_classic_page_stays_reachable_and_the_flag_holder_is_not_let_in(self):
+    def test_the_old_way_back_is_gone_and_the_flag_holder_is_not_let_in(self):
         for name in ("hr_recruitment", "hr_vacancies", "hr_questions", "hr_recruitment_settings"):
-            self.assertEqual(self.classic(name, classic=1).status_code, 200, name)
+            self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
             self.assertEqual(self.classic(name, who=self.flagged).status_code, 403, name)
 
     def test_the_classic_department_box_adds_a_department_that_is_open(self):

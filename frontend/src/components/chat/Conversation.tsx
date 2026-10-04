@@ -435,7 +435,6 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: setConverting } : {}),
   };
 
-  const classicUrl = row ? safeInternalPath(row.url) : "";
   const refused = !known || (thread.error instanceof ApiError && [401, 403, 404].includes(thread.error.status));
 
   return (
@@ -662,16 +661,6 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               onDone={forwarded}
             />
           )}
-          <div className="cchat__hint muted">
-            <Icon name="info" size="sm" />
-            <span>
-              {t(
-                "لو محتاج حاجة مش هنا، المحادثة نفسها في الواجهة الحالية.",
-                "If you need something that is not here, the same conversation is in the classic interface.",
-              )}{" "}
-              {classicUrl && <a href={classicUrl}>{t("افتح المحادثة هناك", "Open it there")}</a>}
-            </span>
-          </div>
         </>
       )}
     </section>

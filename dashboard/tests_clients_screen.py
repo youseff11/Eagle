@@ -357,19 +357,6 @@ class ClientsHandOnTests(_Clients):
         self.turn_on(roles=["operation"])
         self.assertEqual(self.page(self.ops, "dashboard:client_list", q="x" * 201)["Location"], "/app/clients")
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        self.assertEqual(self.page(self.ops, "dashboard:client_list").status_code, 200)
-        self.assertEqual(self.page(self.ops, "dashboard:client_detail", [self.client_obj.code]).status_code, 200)
-        self.turn_on(roles=["operation"])
-        self.assertEqual(self.page(self.ops, "dashboard:client_list", classic=1).status_code, 200)
-        self.assertEqual(self.page(self.ops, "dashboard:client_detail", [self.client_obj.code], classic=1).status_code, 200)
-
-    def test_the_other_roles_that_open_the_pages_stay_on_the_classic_ones(self):
-        self.turn_on(roles=["operation"])
-        for user in (self.lead, self.sales, self.accounting):
-            self.assertEqual(self.page(user, "dashboard:client_list").status_code, 200, user.username)
-            self.assertEqual(self.page(user, "dashboard:client_detail", [self.client_obj.code]).status_code, 200, user.username)
-
     def test_the_admin_is_on_by_default(self):
         self.assertEqual(self.page(self.admin, "dashboard:client_list")["Location"], "/app/clients")
 

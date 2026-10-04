@@ -4,7 +4,6 @@ import { csrfToken } from "../api/client";
 import { useMe } from "../api/queries";
 import type { Role, ScreenKey } from "../api/types";
 import { usePreferences } from "../i18n/Preferences";
-import { CLASSIC_HOME } from "../lib/navigation";
 import { useOutboxProblems } from "../lib/outbox";
 import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { AssignmentModal } from "./AssignmentModal";
@@ -32,17 +31,19 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
  *
  * A screen can be more than one page. `also` are other addresses that belong to it (the task page is "my work"),
  * so the menu and the title know where the person is; `extra` are the other pages of the screen that get their own
- * line in the menu (the payslip). One switch for all of them: a person never has half a screen.
+ * line in the menu (the payslip). A person has all of a screen or none of it.
  */
 export interface ScreenEntry {
   path: string;
   icon: string;
   label: [string, string];
+  /** The menu section the screen's first line is in; its other lines are in it too unless they say otherwise. */
+  section: Section;
+  /** What the first line answers to, for a person who was given only a capability of another role. */
+  needs?: Need;
   also?: string[];
   /** The number the menu shows beside the line, from `/me/` (the mail not opened, the tasks nobody has). */
   badge?: Badge;
-  /** A heading drawn above the screen's first line (the HR menu opens with the recruitment group). */
-  group?: [string, string];
   extra?: {
     path: string;
     icon: string;
@@ -52,38 +53,61 @@ export interface ScreenEntry {
     badge?: Badge;
     danger?: boolean;
     adminOnly?: boolean;
-    /** A heading drawn above this line when it opens a new group of lines (the HR menu has three). */
-    group?: [string, string];
+    needs?: Need;
+    section?: Section;
   }[];
 }
+
+/**
+ * The menu is drawn in sections, each under its own heading, in this order: the role's own work first, then the chats and the person's
+ * own attendance and leave, and the two that delete for good last of all. A person has the lines of their screens, and a section with
+ * none of their lines is not drawn: a translator's menu is three short sections, the admin's all of them.
+ */
+export type Section = "work" | "talk" | "me" | "accounts" | "recruit" | "people" | "hrsettings" | "admin" | "danger";
+
+export const SECTIONS: { key: Section; label: [string, string] }[] = [
+  { key: "admin", label: ["لوحة الأدمن", "Admin panel"] },
+  { key: "work", label: ["الشغل", "Work"] },
+  { key: "accounts", label: ["الحسابات", "Accounts"] },
+  { key: "recruit", label: ["التوظيف", "Recruitment"] },
+  { key: "people", label: ["الموظفين والحضور", "People & attendance"] },
+  { key: "hrsettings", label: ["إعدادات الموارد البشرية", "HR settings"] },
+  { key: "talk", label: ["التواصل", "Communication"] },
+  { key: "me", label: ["أنا", "Me"] },
+  { key: "danger", label: ["منطقة الخطر", "Danger zone"] },
+];
+
+/** A line some people see only because of what they were given: the recruitment pages are HR's, the attendance pages are anybody's who manages it. */
+type Need = "recruit" | "manage";
 
 /** The counters `/me/` carries for the menu. */
 type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
-  // The admin's panel, a page at a time: the overview and the audit log are here, the rest of the panel is still the
-  // classic one ("the classic interface" in this menu is the way to it).
+  // The admin's panel: the overview first, then the records, the people, the settings and the log. The two that delete for good
+  // are last of all, in red, in a section of their own: out of the way of everyday clicking.
   admin: {
     path: "/admin",
     icon: "chart",
     label: ["نظرة عامة", "Overview"],
+    section: "admin",
     extra: [
       { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"] },
       { path: "/admin/users", icon: "lock", label: ["المستخدمين والشيفتات", "Users & shifts"] },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"] },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"] },
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"] },
-      // The two that delete for good, last of all and in red: out of the way of everyday clicking.
-      { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true },
-      { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true },
+      { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true, section: "danger" },
+      { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true, section: "danger" },
     ],
   },
-  // The money screens: the month's sheet, the deductions, and (the admin's only, as in the classic menu) attendance and output
-  // and the payroll rules. A payslip and a salary history open from the sheet.
+  // The money screens: the month's sheet, the deductions, and (the admin's only) attendance and output and the payroll rules.
+  // A payslip and a salary history open from the sheet.
   accounts: {
     path: "/accounts",
     icon: "calendar",
     label: ["كشف الشهر", "Monthly payroll"],
+    section: "accounts",
     also: ["/accounts/lines", "/accounts/salary"],
     extra: [
       { path: "/accounts/attendance", icon: "timer", label: ["الحضور والإنتاج", "Attendance & output"], adminOnly: true },
@@ -91,37 +115,38 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/accounts/rules", icon: "list-checks", label: ["قواعد الحساب", "Payroll rules"], adminOnly: true },
     ],
   },
-  // Human resources. The classic menu's three groups, in its order: recruitment (where HR starts), the people and their
-  // attendance, and the places and rules HR sets once. The owner's own lines (the hiring decisions, the tests, the pay plans)
-  // are drawn for the owner only.
+  // Human resources, in three sections: recruitment (where HR starts), the people and their attendance, and the places and
+  // rules HR sets once. The owner's own lines (the hiring decisions, the tests, the pay plans) are drawn for the owner only.
+  // The lines that answer to a capability (`needs`) are also drawn for a person of another role who was given it.
   hr: {
     path: "/hr/recruitment",
     icon: "contact",
     label: ["لوحة التوظيف", "Recruitment board"],
-    group: ["التوظيف", "Recruitment"],
+    section: "recruit",
+    needs: "recruit",
     extra: [
-      { path: "/hr/candidates", icon: "users", label: ["المرشحين", "Candidates"], also: ["/hr/interviews"] },
-      { path: "/hr/vacancies", icon: "layers", label: ["الوظائف", "Vacancies"] },
+      { path: "/hr/candidates", icon: "users", label: ["المرشحين", "Candidates"], also: ["/hr/interviews"], needs: "recruit" },
+      { path: "/hr/vacancies", icon: "layers", label: ["الوظائف", "Vacancies"], needs: "recruit" },
       // The owner decides a hire; HR does not see the queue (it is the owner's page).
       { path: "/hr/approvals", icon: "user-check", label: ["موافقات التعيين", "Hiring approvals"], adminOnly: true },
       // The owner marks tests too, from the candidate's file: the reviewer's pages, under the owner's own line.
       { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"], adminOnly: true },
-      { path: "/hr/employees", icon: "users", label: ["ملفات الموظفين", "Employee files"], group: ["الموظفين", "People"] },
-      { path: "/hr/attendance", icon: "users", label: ["لوحة الحضور", "Attendance board"] },
-      { path: "/hr/schedules", icon: "calendar", label: ["جداول العمل", "Schedules"] },
-      { path: "/hr/shifts", icon: "clock", label: ["الشيفتات", "Shifts"] },
-      { path: "/hr/leave", icon: "hand", label: ["طلبات الإجازة", "Leave requests"] },
-      { path: "/hr/overtime", icon: "clock", label: ["الأوفرتايم", "Overtime"] },
-      { path: "/hr/report", icon: "chart", label: ["التقرير الشهري", "Monthly report"] },
-      { path: "/hr/probation", icon: "eye", label: ["فترة الاختبار", "Probation"] },
-      { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"] },
-      { path: "/hr/complaints", icon: "thumbs-down", label: ["شكاوى العملاء", "Complaints"] },
-      { path: "/hr/salary-requests", icon: "refresh", label: ["طلبات تغيير الراتب", "Salary requests"] },
-      { path: "/hr/offices", icon: "map-pin", label: ["مواقع المكاتب", "Offices"], group: ["الإعدادات", "Settings"] },
-      { path: "/hr/devices", icon: "shield-check", label: ["أجهزة الحضور", "Devices"] },
-      { path: "/hr/salary-plans", icon: "layers", label: ["خطط الرواتب", "Salary plans"], adminOnly: true },
-      { path: "/hr/recruitment/settings", icon: "sliders", label: ["إعدادات التوظيف", "Recruitment settings"] },
-      { path: "/hr/questions", icon: "list-checks", label: ["بنك الأسئلة", "Question bank"] },
+      { path: "/hr/employees", icon: "users", label: ["ملفات الموظفين", "Employee files"], needs: "recruit", section: "people" },
+      { path: "/hr/attendance", icon: "users", label: ["لوحة الحضور", "Attendance board"], needs: "manage", section: "people" },
+      { path: "/hr/schedules", icon: "calendar", label: ["جداول العمل", "Schedules"], needs: "manage", section: "people" },
+      { path: "/hr/shifts", icon: "clock", label: ["الشيفتات", "Shifts"], needs: "manage", section: "people" },
+      { path: "/hr/leave", icon: "hand", label: ["طلبات الإجازة", "Leave requests"], needs: "manage", section: "people" },
+      { path: "/hr/overtime", icon: "clock", label: ["الأوفرتايم", "Overtime"], needs: "manage", section: "people" },
+      { path: "/hr/report", icon: "chart", label: ["التقرير الشهري", "Monthly report"], needs: "manage", section: "people" },
+      { path: "/hr/probation", icon: "eye", label: ["فترة الاختبار", "Probation"], needs: "recruit", section: "people" },
+      { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"], needs: "recruit", section: "people" },
+      { path: "/hr/complaints", icon: "thumbs-down", label: ["شكاوى العملاء", "Complaints"], needs: "recruit", section: "people" },
+      { path: "/hr/salary-requests", icon: "refresh", label: ["طلبات تغيير الراتب", "Salary requests"], needs: "recruit", section: "people" },
+      { path: "/hr/offices", icon: "map-pin", label: ["مواقع المكاتب", "Offices"], needs: "manage", section: "hrsettings" },
+      { path: "/hr/devices", icon: "shield-check", label: ["أجهزة الحضور", "Devices"], needs: "manage", section: "hrsettings" },
+      { path: "/hr/salary-plans", icon: "layers", label: ["خطط الرواتب", "Salary plans"], adminOnly: true, section: "hrsettings" },
+      { path: "/hr/recruitment/settings", icon: "sliders", label: ["إعدادات التوظيف", "Recruitment settings"], needs: "recruit", section: "hrsettings" },
+      { path: "/hr/questions", icon: "list-checks", label: ["بنك الأسئلة", "Question bank"], needs: "recruit", section: "hrsettings" },
     ],
   },
   // The reviewer has this one page and nothing else (section 24).
@@ -129,20 +154,23 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     path: "/reviewer/tests",
     icon: "check-circle",
     label: ["اختبارات المرشحين", "Candidate tests"],
+    section: "work",
   },
   translator_home: {
     path: "/translator",
     icon: "pen",
     label: ["شغلي", "My work"],
+    section: "work",
     // The payslip in full is the translator's own too: it opens under the money screens' address.
     also: ["/tasks", "/accounts/lines"],
     extra: [{ path: "/payroll", icon: "folder", label: ["مستحقاتي", "My payroll"] }],
   },
-  // The classic menu's order for the operation: the mail first, then the tasks, the teams and the client codes.
+  // The operation's order: the mail first, then the tasks, the teams and the client codes.
   operation: {
     path: "/inbox",
     icon: "mail",
     label: ["ميلات واردة", "Incoming mail"],
+    section: "work",
     badge: "mail_unseen",
     extra: [
       { path: "/tasks", icon: "layers", label: ["التاسكات", "Tasks"], badge: "tasks_new" },
@@ -150,12 +178,13 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
     ],
   },
-  // The team leader's own: their tasks (the classic menu's badge is how many are being worked), who of their team is
-  // free, and the client codes. The task page is theirs too (`/tasks/<code>`), titled by the screen they have.
+  // The team leader's own: their tasks (the badge is how many are being worked), who of their team is free, and the client
+  // codes. The task page is theirs too (`/tasks/<code>`), titled by the screen they have.
   lead: {
     path: "/lead",
     icon: "target",
     label: ["تاسكاتي", "My tasks"],
+    section: "work",
     badge: "tasks_open",
     also: ["/tasks"],
     extra: [
@@ -165,21 +194,76 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"] },
     ],
   },
-  // A Sales person's own line, in the classic menu's words: their mail, their number and address, the client codes.
+  // A Sales person's own line: their mail, their number and address, the client codes.
   sales: {
     path: "/inbox",
     icon: "mail",
     label: ["ميلاتي", "My mail"],
+    section: "work",
     badge: "mail_unseen",
     extra: [
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"] },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"] },
     ],
   },
-  attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"] },
-  leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"] },
-  chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
+  attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "me" },
+  leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"], section: "me" },
+  chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"], section: "talk" },
 };
+
+/** One line of the menu: a screen's first line or one of its other pages, with the section it is drawn in. */
+interface MenuLine {
+  key: ScreenKey;
+  head: boolean;
+  path: string;
+  icon: string;
+  label: [string, string];
+  section: Section;
+  badge?: Badge;
+  danger?: boolean;
+  also?: string[];
+  /** Matches its address exactly, because another line of the same screen lives under it (`/lead` and `/lead/translators`). */
+  end: boolean;
+}
+
+/** The lines this person has, in the order of their screens, each address once. */
+function menuLines(keys: ScreenKey[], isAdmin: boolean, can: { recruit: boolean; manage: boolean }): MenuLine[] {
+  const allowed = (need?: Need) => !need || (need === "recruit" ? can.recruit : can.manage);
+  const out: MenuLine[] = [];
+  for (const key of keys) {
+    const screen = SCREENS[key];
+    const extras = (screen.extra ?? []).filter((entry) => (!entry.adminOnly || isAdmin) && allowed(entry.needs));
+    if (allowed(screen.needs)) {
+      out.push({
+        key,
+        head: true,
+        path: screen.path,
+        icon: screen.icon,
+        label: screen.label,
+        section: screen.section,
+        badge: screen.badge,
+        also: screen.also,
+        end: extras.some((entry) => entry.path.startsWith(`${screen.path}/`)),
+      });
+    }
+    for (const entry of extras) {
+      out.push({
+        key,
+        head: false,
+        path: entry.path,
+        icon: entry.icon,
+        label: entry.label,
+        section: entry.section ?? screen.section,
+        badge: entry.badge,
+        danger: entry.danger,
+        also: entry.also,
+        end: extras.some((other) => other.path.startsWith(`${entry.path}/`)),
+      });
+    }
+  }
+  const seen = new Set<string>();
+  return out.filter((line) => !seen.has(line.path) && seen.add(line.path));
+}
 
 /** Signing out is a POST the classic way too: a form with the token, then the redirect. */
 function logout(): void {
@@ -234,6 +318,10 @@ function Frame() {
   const unreadChats = me.data?.unread_chats ?? 0;
   const unsent = useOutboxProblems().length;
   const screens = (me.data?.screens ?? []).filter((key) => Object.hasOwn(SCREENS, key));
+  const lines = menuLines(screens, Boolean(user?.is_admin), {
+    recruit: me.data?.can.recruit ?? false,
+    manage: me.data?.can.manage_attendance ?? false,
+  });
   // The title follows the address, not the list: it is right before `me` has arrived too (every screen is looked at
   // until it has). Once it has, only the person's own screens are: the task page is "my work" to a translator and
   // "tasks" to the operation, and one address cannot be both.
@@ -286,58 +374,47 @@ function Frame() {
         </a>
         <nav className="nav" id="sideNav">
           <div className="nav__items">
-            <NavLink to="/" end className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
-              <Icon name="layers" />
-              <span>{t("الرئيسية", "Home")}</span>
-            </NavLink>
-            {screens.map((key) => (
-              <Fragment key={key}>
-                {SCREENS[key].group && <div className="nav__label">{t(...SCREENS[key].group)}</div>}
-                <NavLink
-                  to={SCREENS[key].path}
-                  // A screen whose other pages live under its own address (`/lead` and `/lead/translators`) must not
-                  // light its first line on them as well: one line at a time.
-                  end={(SCREENS[key].extra ?? []).some((entry) => entry.path.startsWith(`${SCREENS[key].path}/`))}
-                  className={({ isActive }) => `nav__item${isActive || sharedWith(key) ? " is-active" : ""}`}
-                >
-                  <Icon name={SCREENS[key].icon} />
-                  <span>{t(...SCREENS[key].label)}</span>
-                  {count(SCREENS[key].badge) > 0 && <span className="nav__count is-hot">{count(SCREENS[key].badge)}</span>}
-                  {key === "chats" && unsent > 0 && (
-                    <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
-                      <Icon name="alert" size="sm" />
-                    </span>
-                  )}
-                  {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
-                </NavLink>
-                {(SCREENS[key].extra ?? []).filter((entry) => !entry.adminOnly || user?.is_admin).map((entry, _at, entries) => (
-                  <Fragment key={entry.path}>
-                    {entry.group && <div className="nav__label">{t(...entry.group)}</div>}
+            {SECTIONS.map((section) => {
+              const here = lines.filter((line) => line.section === section.key);
+              const notifications = section.key === "talk";
+              if (here.length === 0 && !notifications) return null;
+              return (
+                <Fragment key={section.key}>
+                  <div className="nav__label" data-section={section.key}>
+                    {t(...section.label)}
+                  </div>
+                  {here.map((line) => (
                     <NavLink
-                      to={entry.path}
-                      // A line with a sibling under its own address (`/hr/recruitment` and `/hr/recruitment/settings`) matches exactly.
-                      end={entries.some((other) => other.path.startsWith(`${entry.path}/`))}
+                      key={line.path}
+                      to={line.path}
+                      // A line with a sibling under its own address (`/lead` and `/lead/translators`) matches exactly, so only
+                      // one of them is lit.
+                      end={line.end}
                       className={({ isActive }) =>
-                        `nav__item${isActive || (entry.also ?? []).some(startsWith) ? " is-active" : ""}${entry.danger ? " nav__item--danger" : ""}`
+                        `nav__item${isActive || (line.head ? sharedWith(line.key) : (line.also ?? []).some(startsWith)) ? " is-active" : ""}${line.danger ? " nav__item--danger" : ""}`
                       }
                     >
-                      <Icon name={entry.icon} />
-                      <span>{t(...entry.label)}</span>
-                      {count(entry.badge) > 0 && <span className="nav__count is-hot">{count(entry.badge)}</span>}
+                      <Icon name={line.icon} />
+                      <span>{t(...line.label)}</span>
+                      {count(line.badge) > 0 && <span className="nav__count is-hot">{count(line.badge)}</span>}
+                      {line.key === "chats" && unsent > 0 && (
+                        <span className="nav__count is-hot" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
+                          <Icon name="alert" size="sm" />
+                        </span>
+                      )}
+                      {line.key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
                     </NavLink>
-                  </Fragment>
-                ))}
-              </Fragment>
-            ))}
-            <NavLink to="/notifications" className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
-              <Icon name="bell" />
-              <span>{t("التنبيهات", "Notifications")}</span>
-              {unread > 0 && <span className="nav__count is-hot">{unread}</span>}
-            </NavLink>
-            <a href={CLASSIC_HOME} className="nav__item">
-              <Icon name="arrow-right" />
-              <span>{t("الواجهة الحالية", "Classic interface")}</span>
-            </a>
+                  ))}
+                  {notifications && (
+                    <NavLink to="/notifications" className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}`}>
+                      <Icon name="bell" />
+                      <span>{t("التنبيهات", "Notifications")}</span>
+                      {unread > 0 && <span className="nav__count is-hot">{unread}</span>}
+                    </NavLink>
+                  )}
+                </Fragment>
+              );
+            })}
           </div>
         </nav>
       </aside>

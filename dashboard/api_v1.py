@@ -232,9 +232,16 @@ def me(request):
             "files": {"count": MAX_FILES, "bytes": MAX_FILE_BYTES, "total_bytes": MAX_FILES_TOTAL_BYTES},
             "voice": {"seconds": audio.MAX_SECONDS, "bytes": MAX_VOICE_BYTES},
         },
-        # The ported screens that are switched on for this person (newui.py):
-        # the menu lists exactly these, and the home page hands them on.
+        # The screens in this person's menu (newui.py): their role's, or - the admin's - the ones the admin oversees.
         "screens": newui.enabled_keys(user),
+        # What the menu's lines answer to, for a person of one role who was given a capability of another (the attendance
+        # pages of the HR screen go to whoever can manage attendance, the recruitment pages only to HR and the owner).
+        "can": {
+            "manage_attendance": user.can_manage_attendance,
+            "recruit": user.can_recruit,
+            "review_tests": user.can_review_tests,
+            "approve_hiring": user.can_approve_hiring,
+        },
         "unread_notifications": _unread(user),
         # The chats entry's badge: messages waiting in any of the three lists.
         "unread_chats": services.unread_chat_total(user),

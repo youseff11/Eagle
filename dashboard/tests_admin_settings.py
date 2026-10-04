@@ -246,7 +246,7 @@ class FormTests(_Settings):
 
     def test_the_door_sends_the_sections_the_fields_and_the_bilingual_texts(self):
         body = _json(self.get(self.admin, GET))
-        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "workflow", "newui", "whatsapp", "email"])
+        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "workflow", "whatsapp", "email"])
         fields = {field["name"]: field for field in body["fields"]}
         self.assertEqual((fields["claude_model"]["label_ar"], fields["claude_model"]["label_en"]), ("الموديل", "Model"))
         self.assertIn("hint_ar", fields["rate_keywords"])
@@ -348,21 +348,23 @@ class FormTests(_Settings):
         self.get(self.admin, GET)
         self.assertEqual((AuditLog.objects.count(), self.fresh().updated_at if hasattr(AppSettings, "updated_at") else None), before)
 
-    def test_the_status_and_the_addresses_are_the_classic_pages(self):
+    def test_the_status_and_the_addresses(self):
         conf = AppSettings.load()
         conf.whatsapp_access_token, conf.whatsapp_phone_number_id = "EAAG-token-value", "12345"
         conf.imap_host, conf.imap_user = "imap.example.com", "mail@example.com"
         conf.google_sync_at = timezone.now()
         conf.save()
         body = _json(self.get(self.admin, GET))
-        classic = self.get(self.admin, "dashboard:admin_settings", classic=1)
         self.assertEqual(body["status"]["whatsapp_saved"], True)
         self.assertEqual(body["status"]["email_saved"], True)
-        self.assertEqual(body["status"]["google_connected"], classic.context["google_connected"])
-        self.assertEqual(body["urls"]["webhook"], classic.context["webhook_url"])
-        self.assertEqual(body["urls"]["google_redirect"], classic.context["google_redirect_uri"])
-        self.assertEqual((body["urls"]["is_local"], body["urls"]["is_https"]), (classic.context["is_local"], classic.context["is_https"]))
+        self.assertEqual(body["status"]["google_connected"], False)
+        self.assertTrue(body["urls"]["webhook"].endswith("/webhooks/whatsapp/"))
+        self.assertTrue(body["urls"]["google_redirect"].endswith("/callback/"))
+        self.assertEqual((body["urls"]["is_local"], body["urls"]["is_https"]), (False, False))
         self.assertTrue(body["status"]["google_sync_at"]["en"])
+        # The rollout switches are gone from the page: the whole site is the app.
+        self.assertNotIn("newui", body)
+        self.assertFalse([name for name in (field["name"] for field in body["fields"]) if name.startswith("newui_")])
 
     def test_the_number_of_questions_does_not_grow_with_the_people(self):
         def questions():
@@ -382,44 +384,6 @@ class RolloutSwitchTests(_Settings):
     def switch(self, key):
         return newui.config(self.fresh(), key)
 
-    def test_the_rows_are_one_per_screen_with_the_fields_that_edit_them(self):
-        body = _json(self.get(self.admin, GET))
-        self.assertEqual([row["key"] for row in body["newui"]], list(newui.SCREENS))
-        names = {field["name"] for field in body["fields"]}
-        for row in body["newui"]:
-            self.assertIn(row["roles"], names)
-            self.assertIn(row["users"], names)
-
-    def test_the_roles_and_people_come_with_their_choices(self):
-        fields = {field["name"]: field for field in _json(self.get(self.admin, GET))["fields"]}
-        roles = fields["newui_operation_roles"]
-        self.assertEqual({choice["value"] for choice in roles["choices"]}, {"admin", "operation"})
-        self.assertEqual(roles["value"], ["admin"])
-        people = {choice["value"] for choice in fields["newui_operation_users"]["choices"]}
-        self.assertIn(str(self.ops.pk), people)
-        self.assertNotIn(str(self.tr.pk), people)
-
-    def test_a_role_is_switched_on_and_off(self):
-        self.save(newui_operation_roles=["admin", "operation"])
-        self.assertEqual(self.switch("operation")["roles"], ["admin", "operation"])
-        self.assertTrue(newui.enabled(self.ops, "operation"))
-        self.save(newui_operation_roles=["admin"])
-        self.assertFalse(newui.enabled(self.ops, "operation"))
-
-    def test_one_person_can_be_tried_before_the_role(self):
-        self.save(newui_lead_users=[str(self.lead.pk)])
-        self.assertEqual(self.switch("lead")["users"], [self.lead.pk])
-        self.assertTrue(newui.enabled(self.lead, "lead"))
-
-    def test_a_role_the_screen_is_not_for_is_refused(self):
-        answer = self.save(newui_operation_roles=["translator"])
-        self.assertEqual((answer.status_code, "newui_operation_roles" in _json(answer)["errors"]), (400, True))
-        self.assertFalse(newui.enabled(self.tr, "operation"))
-
-    def test_a_person_who_is_not_a_candidate_is_refused(self):
-        answer = self.save(newui_operation_users=[str(self.tr.pk)])
-        self.assertEqual((answer.status_code, "newui_operation_users" in _json(answer)["errors"]), (400, True))
-
     def test_saving_something_else_leaves_every_switch_exactly_as_it_was(self):
         conf = AppSettings.load()
         conf.new_ui = {"operation": {"roles": ["operation"], "users": []}, "lead": {"roles": [], "users": [self.lead.pk]}}
@@ -429,37 +393,11 @@ class RolloutSwitchTests(_Settings):
         self.assertEqual(self.fresh().new_ui, {"operation": {"roles": ["operation"], "users": []}, "lead": {"roles": [], "users": [self.lead.pk]}})
         self.assertEqual(AuditLog.objects.filter(action="settings.new_ui").count(), count)
 
-    def test_changing_one_screen_leaves_the_others(self):
-        conf = AppSettings.load()
-        conf.new_ui = {"lead": {"roles": [], "users": [self.lead.pk]}}
-        conf.save()
-        self.save(newui_operation_roles=["admin", "operation"])
-        self.assertEqual(self.switch("lead")["users"], [self.lead.pk])
-        self.assertEqual(self.switch("operation")["roles"], ["admin", "operation"])
-
-    def test_a_change_of_the_switches_is_written_down_in_full(self):
-        self.save(newui_operation_roles=["admin", "operation"], newui_lead_users=[str(self.lead.pk)])
-        row = AuditLog.objects.filter(action="settings.new_ui").latest("pk")
-        written = json.loads(row.detail)
-        self.assertEqual(written["operation"]["roles"], ["admin", "operation"])
-        self.assertEqual(written["lead"]["users"], [self.lead.pk])
-        self.assertEqual(row.actor_id, self.admin.pk)
-
     def test_the_same_switches_again_write_nothing_new(self):
         self.save(newui_operation_roles=["admin", "operation"])
         count = AuditLog.objects.filter(action="settings.new_ui").count()
         self.save(newui_operation_roles=["admin", "operation"])
         self.assertEqual(AuditLog.objects.filter(action="settings.new_ui").count(), count)
-
-    def test_a_screen_added_later_is_a_row_without_anyone_touching_this_page(self):
-        body = _json(self.get(self.admin, GET))
-        self.assertIn("admin", [row["key"] for row in body["newui"]])
-
-    def test_the_admins_own_switch_can_be_turned_off_and_the_classic_page_still_opens(self):
-        self.turn_on()
-        self.save(newui_admin_roles=[])
-        self.assertFalse(newui.enabled(self.admin, "admin"))
-        self.assertEqual(self.get(self.admin, "dashboard:admin_settings").status_code, 200)
 
     def test_a_refused_save_moves_nobody(self):
         self.save(newui_operation_roles=["admin", "operation"])
@@ -520,15 +458,6 @@ class HandOnTests(_Settings):
         answer = self.get(self.admin, "dashboard:admin_settings")
         self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin/settings"))
 
-    def test_without_the_switch_and_by_name_the_classic_page_opens_and_it_has_the_switches(self):
-        page = self.get(self.admin, "dashboard:admin_settings")
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "newui_operation_roles")
-        self.turn_on()
-        by_name = self.get(self.admin, "dashboard:admin_settings", classic=1)
-        self.assertEqual(by_name.status_code, 200)
-        self.assertContains(by_name, "newui_admin_roles")
-
     def test_the_classic_form_already_open_is_answered_where_it_is_even_with_the_switch(self):
         self.turn_on()
         browser = DjangoClient()
@@ -566,11 +495,6 @@ class WhatWasChangedTests(_Settings):
         everything = json.dumps(list(AuditLog.objects.values()), default=str)
         for value in (*ALL_SECRETS.values(), "a-brand-new-app-secret"):
             self.assertNotIn(value, everything)
-
-    def test_a_change_of_the_switches_is_one_word_and_the_map_has_its_own_row(self):
-        self.save(newui_operation_roles=["admin", "operation"], claude_model="claude-x")
-        self.assertEqual(sorted(self.last_detail().split(", ")), ["claude_model", "newui"])
-        self.assertTrue(AuditLog.objects.filter(action="settings.new_ui").exists())
 
     def test_the_group_creators_are_named_only_when_they_were_sent(self):
         self.save(claude_model="claude-x")

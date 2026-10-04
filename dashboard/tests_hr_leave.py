@@ -363,36 +363,6 @@ class SwitchAndHandOnTests(_Leave):
         browser.force_login(who)
         return browser.get(reverse(f"dashboard:{name}"), query)
 
-    def test_the_screen_is_every_roles_and_the_admin_is_not_on_it_until_they_say_so(self):
-        screen = newui.SCREENS["leave"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects, screen.admin_default), ("my_leave", "/leave", True, False))
-        self.assertEqual(set(screen.roles), {"operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales"})
-        self.assertFalse(newui.enabled(self.admin, "leave"))
-        self.assertFalse(newui.enabled(self.tr, "leave"))
-
-    def test_a_person_is_handed_on_once_their_role_is_switched_on(self):
-        # A person whose shift is about to start is kept on the classic pages until they check in (the gate), so the answer
-        # would depend on the hour the suite runs at. Attendance is off for these accounts: the hand-on is what is tested.
-        User.objects.filter(pk__in=[self.tr.pk, self.hr.pk, self.ops.pk]).update(attendance_enabled=False)
-        conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "leave": {"roles": ["translator"], "users": [self.hr.pk]}}
-        conf.save()
-        self.assertEqual(self.classic("my_leave", self.tr).status_code, 302)
-        self.assertEqual(self.classic("my_leave", self.tr)["Location"], "/app/leave")
-        self.assertEqual(self.classic("my_leave", self.hr)["Location"], "/app/leave")
-        self.assertEqual(self.classic("my_leave", self.ops).status_code, 200)
-        self.assertEqual(self.classic("my_leave", self.tr, classic=1).status_code, 200)
-
-    def test_the_queue_is_handed_on_with_its_filters_for_the_hr_switch_only(self):
-        self.switch(roles=["hr"])
-        answer = self.classic("hr_leave", self.hr, user=str(self.tr.pk), status="pending", evil="x")
-        self.assertEqual(answer.status_code, 302)
-        for part in ("/app/hr/leave?", f"user={self.tr.pk}", "status=pending"):
-            self.assertIn(part, answer["Location"])
-        self.assertNotIn("evil", answer["Location"])
-        self.assertEqual(self.classic("hr_leave", self.flagged).status_code, 200)
-        self.assertEqual(self.classic("hr_leave", self.hr, classic=1).status_code, 200)
-
     def test_a_post_to_a_classic_page_is_never_handed_on(self):
         conf = AppSettings.load()
         conf.new_ui = {"leave": {"roles": ["translator"], "users": []}}

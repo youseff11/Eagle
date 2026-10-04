@@ -155,13 +155,6 @@ class PayrollApiTests(_Screen):
             answer = self.payroll(self.tr, period=bad)
             self.assertEqual((answer.status_code, _json(answer)), (400, {"ok": False, "error": "bad_period"}), bad)
 
-    def test_the_figures_are_the_ones_on_the_classic_page(self):
-        self.slip(self.tr, self.year, self.month)
-        page = self.client_classic()
-        body = _json(self.payroll(self.tr))["line"]
-        for figure in (body["base_salary"], body["production_bonus"], body["deductions"], body["net"]):
-            self.assertIn(figure, page)
-
     def client_classic(self):
         browser = DjangoClient()
         browser.force_login(self.tr)
@@ -190,16 +183,6 @@ class PayrollHandOnTests(_Screen):
         self.turn_on(roles=["translator"])
         for bad in ("evil", "//evil.example", "2026-09&x=1", "2026-13"):
             self.assertEqual(self.classic(self.tr, period=bad)["Location"], "/app/payroll", bad)
-
-    def test_without_the_switch_or_with_classic_the_classic_page_opens(self):
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.turn_on(roles=["translator"])
-        self.assertEqual(self.classic(self.tr, classic=1).status_code, 200)
-
-    def test_the_admin_is_never_sent_on_from_it(self):
-        self.turn_on(roles=["translator", "admin"])
-        self.assertEqual(self.classic(self.admin).status_code, 200)
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The task page
@@ -431,14 +414,6 @@ class TaskHandOnTests(_Screen):
         self.turn_on(roles=["translator"])
         answer = self.classic(self.tr)
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/tasks/{self.task.code}"))
-
-    def test_without_the_switch_with_classic_or_for_anybody_else_the_classic_page_opens(self):
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.turn_on(roles=["translator", "admin", "operation", "team_lead"])
-        self.assertEqual(self.classic(self.tr, classic=1).status_code, 200)
-        # The classic page shows the admin, the operation and the leader what the translator's page leaves out.
-        for user in (self.admin, self.ops, self.lead):
-            self.assertEqual(self.classic(user).status_code, 200, user.username)
 
     def test_what_is_not_a_code_is_not_carried_into_the_address(self):
         self.turn_on(roles=["translator"])

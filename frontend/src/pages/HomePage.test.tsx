@@ -1,83 +1,71 @@
 import { screen } from "@testing-library/react";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Role, ScreenKey } from "../api/types";
+import type { Role } from "../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
-import { HomePage } from "./HomePage";
+import { HomePage, LANDING } from "./HomePage";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function renderHome(role: Role, screens: ScreenKey[]) {
-  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin", short_name: "Nour" }, 0, screens)) });
+const PLACES: Record<string, string> = {
+  admin: "the admin overview",
+  operation: "the operation mailbox",
+  team_lead: "the leader board",
+  translator: "the translator desk",
+  hr: "the recruitment board",
+  reviewer: "the reviewer queue",
+  accounting: "the money sheet",
+  sales: "the client codes",
+};
+
+function renderHome(role: Role) {
+  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin", short_name: "Nour" })) });
   vi.stubGlobal("fetch", mocked.fn);
   return renderWithProviders(
     <Routes>
       <Route index element={<HomePage />} />
-      <Route path="translator" element={<div>the translator desk</div>} />
-      <Route path="admin" element={<div>the admin overview</div>} />
-      <Route path="hr/recruitment" element={<div>the recruitment board</div>} />
-      <Route path="reviewer/tests" element={<div>the reviewer queue</div>} />
+      <Route path="admin" element={<div>{PLACES.admin}</div>} />
+      <Route path="inbox" element={<div>{PLACES.operation}</div>} />
+      <Route path="lead" element={<div>{PLACES.team_lead}</div>} />
+      <Route path="translator" element={<div>{PLACES.translator}</div>} />
+      <Route path="hr/recruitment" element={<div>{PLACES.hr}</div>} />
+      <Route path="reviewer/tests" element={<div>{PLACES.reviewer}</div>} />
+      <Route path="accounts" element={<div>{PLACES.accounting}</div>} />
+      <Route path="clients" element={<div>{PLACES.sales}</div>} />
+      <Route path="notifications" element={<div>the notifications</div>} />
     </Routes>,
   );
 }
 
 describe("HomePage", () => {
-  it("starts a translator whose desk was switched over on the desk, as the classic / does", async () => {
-    renderHome("translator", ["translator_home"]);
-    expect(await screen.findByText("the translator desk")).toBeInTheDocument();
-  });
-
-  it("keeps a translator whose desk was not switched over on the home page", async () => {
-    renderHome("translator", []);
-    expect(await screen.findByText(/Nour/)).toBeInTheDocument();
-    expect(screen.queryByText("the translator desk")).not.toBeInTheDocument();
-  });
-
-  it("starts the admin whose panel was switched over on the overview, as the classic / does", async () => {
-    renderHome("admin", ["admin"]);
-    expect(await screen.findByText("the admin overview")).toBeInTheDocument();
-  });
-
-  it("keeps an admin whose panel was not switched over on the home page, and no other role is moved by it", async () => {
-    renderHome("admin", ["chats"]);
-    expect(await screen.findByText(/Nour/)).toBeInTheDocument();
-    for (const role of ["operation", "team_lead", "hr"] as const) {
-      const view = renderHome(role, ["admin"]);
-      expect(await screen.findByText(/Nour/), role).toBeInTheDocument();
-      expect(screen.queryByText("the admin overview"), role).not.toBeInTheDocument();
+  it("sends every role to the screen its work is on", async () => {
+    for (const role of Object.keys(PLACES) as Role[]) {
+      const view = renderHome(role);
+      expect(await screen.findByText(PLACES[role]!), role).toBeInTheDocument();
       view.unmount();
     }
   });
 
-  it("starts HR on the recruitment board and a reviewer on the queue once those screens are switched on, and only them", async () => {
-    renderHome("hr", ["hr"]);
-    expect(await screen.findByText("the recruitment board")).toBeInTheDocument();
-    renderHome("reviewer", ["reviewer"]);
-    expect(await screen.findByText("the reviewer queue")).toBeInTheDocument();
+  it("knows a landing for every role the server can send", () => {
+    expect(Object.keys(LANDING).sort()).toEqual(Object.keys(PLACES).sort());
   });
 
-  it("keeps HR and a reviewer on the home page while their screens are off, and the admin where the admin's own screen puts them", async () => {
-    for (const [role, screens] of [["hr", []], ["hr", ["chats"]], ["reviewer", []], ["admin", ["hr"]], ["admin", ["reviewer"]], ["operation", ["hr"]]] as const) {
-      const view = renderHome(role, [...screens]);
-      expect(await screen.findByText(/Nour/), `${role} ${screens.join()}`).toBeInTheDocument();
-      expect(screen.queryByText("the recruitment board")).not.toBeInTheDocument();
-      expect(screen.queryByText("the reviewer queue")).not.toBeInTheDocument();
-      view.unmount();
-    }
+  it("shows nothing of its own, and no way to the classic interface", async () => {
+    const view = renderHome("operation");
+    await screen.findByText(PLACES.operation!);
+    expect(view.container.querySelector('a[href="/?classic=1"]')).toBeNull();
+    expect(screen.queryByText(/الواجهة الحالية/)).toBeNull();
   });
 
-  it("does not move anyone else, whatever the server lists for them", async () => {
-    for (const role of ["admin", "operation", "team_lead", "hr", "reviewer", "accounting", "sales"] as const) {
-      const view = renderHome(role, ["translator_home"]);
-      expect(await screen.findByText(/Nour/), role).toBeInTheDocument();
-      expect(screen.queryByText("the translator desk"), role).not.toBeInTheDocument();
-      view.unmount();
-    }
-  });
-
-  it("links to the classic interface by the address that does not bounce back", async () => {
-    renderHome("admin", []);
-    const link = await screen.findByRole("link", { name: "افتح الواجهة الحالية" });
-    expect(link).toHaveAttribute("href", "/?classic=1");
+  it("lands a role it does not know on the notifications, which every role has", async () => {
+    const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role: "from_the_future" as Role })) });
+    vi.stubGlobal("fetch", mocked.fn);
+    renderWithProviders(
+      <Routes>
+        <Route index element={<HomePage />} />
+        <Route path="notifications" element={<div>the notifications</div>} />
+      </Routes>,
+    );
+    expect(await screen.findByText("the notifications")).toBeInTheDocument();
   });
 });

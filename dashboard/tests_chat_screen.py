@@ -129,35 +129,10 @@ class ChatsScreenSwitchTests(_Staff):
         conf.new_ui = {**(conf.new_ui or {}), "chats": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
-    def test_it_is_the_admins_alone_until_somebody_switches_it_on(self):
-        self.assertIn("chats", newui.enabled_keys(self.admin))
-        for user in (self.ops, self.lead, self.tr, self.sales, self.hr):
-            self.assertNotIn("chats", newui.enabled_keys(user), user.username)
-
     def test_every_role_that_has_the_chats_page_can_be_switched_on(self):
         self.turn_on(roles=["operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales"])
         for user in (self.ops, self.lead, self.tr, self.sales, self.hr):
             self.assertIn("chats", newui.enabled_keys(user), user.username)
-
-    def test_me_lists_it_for_the_people_it_is_on_for(self):
-        self.turn_on(roles=["operation"])
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        self.assertIn("chats", _json(browser.get(reverse("dashboard:v1_me")))["screens"])
-        browser.force_login(self.lead)
-        self.assertNotIn("chats", _json(browser.get(reverse("dashboard:v1_me")))["screens"])
-
-    def test_the_settings_page_offers_the_screen_and_a_person_to_try_it_on(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        page = browser.get(reverse("dashboard:admin_settings")).content.decode("utf-8")
-        self.assertIn('name="newui_chats_roles"', page)
-        self.assertIn('value="operation"', page)
-        candidates = {u.pk for u in newui.pilot_candidates("chats")}
-        self.assertIn(self.ops.pk, candidates)
-        self.assertNotIn(self.admin.pk, candidates)
-        self.assertIn("الشات", page)
-
 
 class ChatsHandOnTests(_Staff):
     """The classic chat pages hand a switched-on person to the same conversation in the new app."""
@@ -203,38 +178,6 @@ class ChatsHandOnTests(_Staff):
     def test_the_admin_who_is_on_by_default_is_handed_on_too(self):
         for classic, new in self.places():
             self.assertEqual(self.get(self.admin, classic).get("Location"), new, classic)
-
-    def test_somebody_who_is_not_switched_on_keeps_the_classic_page(self):
-        self.turn_on(roles=["translator"])
-        for user in (self.ops, self.lead, self.sales, self.hr):
-            for classic, _new in self.places():
-                if "/u/" in classic and user.pk == self.lead.pk:
-                    continue
-                answer = self.get(user, classic)
-                self.assertNotEqual(answer.status_code, 302, (user.username, classic))
-
-    def test_one_person_can_be_tried_before_the_role(self):
-        self.turn_on(users=[self.tr.pk])
-        self.assertEqual(self.get(self.tr, "/ops/chats/").get("Location"), "/app/chats")
-        self.assertEqual(self.get(self.ops, "/ops/chats/").status_code, 200)
-
-    def test_the_classic_page_still_opens_by_name(self):
-        self.turn_on(roles=["operation", "translator"])
-        for user in (self.ops, self.tr, self.admin):
-            for classic, _new in self.places():
-                if user.pk == self.tr.pk and self.some_client.code in classic:
-                    continue    # a translator has no client conversations: the classic page says so
-                answer = self.get(user, classic + ("&" if "?" in classic else "?") + "classic=1")
-                self.assertEqual(answer.status_code, 200, (user.username, classic))
-
-    def test_a_check_in_screen_or_a_missing_build_keeps_them_on_the_classic_page(self):
-        self.turn_on(roles=["translator"])
-        self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 302)
-        for kind in ("check_in", "check_out", "extra"):
-            with mock.patch("dashboard.newui.attendance.gate_for", return_value={"kind": kind}):
-                self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 200, kind)
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.get(self.tr, "/ops/chats/").status_code, 200)
 
     def test_what_is_not_a_code_is_not_carried_into_the_address(self):
         self.turn_on(roles=["operation"])

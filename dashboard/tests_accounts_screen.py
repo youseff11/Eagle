@@ -166,16 +166,6 @@ class OverviewTests(_Accounts):
         self.assertEqual(set(body["totals"]), {"net", "words", "deductions", "alerts"})
         self.assertIsInstance(body["totals"]["net"], str)
 
-    def test_it_lists_what_the_classic_page_lists(self):
-        self.line_of()
-        self.violation()
-        classic = self.get(self.accounting, "dashboard:accounts_overview", classic=1)
-        body = _json(self.get(self.accounting, OVERVIEW))
-        self.assertEqual([row["id"] for row in body["lines"]], [line.pk for line in classic.context["lines"]])
-        self.assertEqual([row["id"] for row in body["pending_violations"]], [v.pk for v in classic.context["pending_violations"]])
-        self.assertEqual({row["id"] for row in body["missing_salary"]}, {p.pk for p in classic.context["missing_salary"]})
-        self.assertEqual(body["totals"]["net"], str(classic.context["totals"]["net"]))
-
     def test_a_translator_with_no_salary_is_named(self):
         other = User.objects.create_user("person_translator_two", password="pw", role=Role.TRANSLATOR, team_lead=self.lead)
         ids = {row["id"] for row in _json(self.get(self.admin, OVERVIEW))["missing_salary"]}
@@ -770,23 +760,6 @@ class SwitchAndHandOnTests(_Accounts):
         super().setUp()
         self.line = self.line_of()
 
-    def test_the_screen_is_accountings_and_the_admin_is_not_on_it_until_they_say_so(self):
-        screen = newui.SCREENS["accounts"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects, screen.admin_default), ("accounts_overview", "/accounts", True, False))
-        self.assertEqual(set(screen.roles), {Role.ACCOUNTING})
-        self.assertFalse(newui.enabled(self.admin, "accounts"))
-        self.assertFalse(newui.enabled(self.accounting, "accounts"))
-        self.switch(roles=["accounting"])
-        self.assertTrue(newui.enabled(self.accounting, "accounts"))
-        for user in (self.ops, self.tr, self.hr, self.sales):
-            self.assertFalse(newui.enabled(user, "accounts"), user.username)
-
-    def test_one_accountant_can_be_tried_before_the_role(self):
-        other = User.objects.create_user("person_accountant_two", password="pw", role=Role.ACCOUNTING)
-        self.switch(users=[self.accounting.pk])
-        self.assertTrue(newui.enabled(self.accounting, "accounts"))
-        self.assertFalse(newui.enabled(other, "accounts"))
-
     def test_the_menu_lists_it_for_who_is_switched_on(self):
         self.switch(roles=["accounting"])
         self.assertIn("accounts", _json(self.get(self.accounting, "dashboard:v1_me"))["screens"])
@@ -818,14 +791,6 @@ class SwitchAndHandOnTests(_Accounts):
         self.assertEqual(self.get(self.accounting, "dashboard:accounts_attendance", user="x y")["Location"], "/app/accounts/attendance")
         self.assertEqual(self.get(self.accounting, "dashboard:accounts_overview")["Location"], "/app/accounts")
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        names = (("dashboard:accounts_overview", None), ("dashboard:accounts_attendance", None), ("dashboard:accounts_violations", None), ("dashboard:accounts_salary", [self.tr.pk]))
-        for name, args in names:
-            self.assertEqual(self.get(self.accounting, name, args).status_code, 200, name)
-        self.switch(roles=["accounting"])
-        for name, args in names:
-            self.assertEqual(self.get(self.accounting, name, args, classic=1).status_code, 200, name)
-
     def test_a_form_already_open_is_answered_where_it_is(self):
         self.switch(roles=["accounting"])
         browser = DjangoClient()
@@ -835,16 +800,6 @@ class SwitchAndHandOnTests(_Accounts):
         self.assertEqual(answer.status_code, 302)
         self.assertNotIn("/app/", answer["Location"])
         self.assertEqual(Violation.objects.count(), before + 1)
-
-    def test_a_translators_own_payslip_goes_by_their_own_screen_and_the_admins_by_theirs(self):
-        self.assertEqual(self.get(self.tr, "dashboard:accounts_line", [self.line.pk]).status_code, 200)
-        self.switch("translator_home", roles=["translator"])
-        answer = self.get(self.tr, "dashboard:accounts_line", [self.line.pk])
-        self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/accounts/lines/{self.line.pk}"))
-        self.assertEqual(self.get(self.tr, "dashboard:accounts_line", [self.line.pk], classic=1).status_code, 200)
-        self.assertEqual(self.get(self.admin, "dashboard:accounts_line", [self.line.pk]).status_code, 200)
-        self.switch(roles=["accounting", "admin"])
-        self.assertEqual(self.get(self.admin, "dashboard:accounts_line", [self.line.pk])["Location"], f"/app/accounts/lines/{self.line.pk}")
 
     def test_somebody_elses_payslip_is_a_404_in_both_interfaces(self):
         other = User.objects.create_user("person_translator_two", password="pw", role=Role.TRANSLATOR, team_lead=self.lead)

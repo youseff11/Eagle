@@ -171,19 +171,6 @@ class DeskApiTests(_Desk):
         self.assertTrue(rows[self.task.code]["can_ask_more_time"])
         self.assertFalse(rows[waiting.code]["can_ask_more_time"])
 
-    def test_the_page_and_the_api_list_the_same_work(self):
-        _make_task(self, status=TaskStatus.DELIVERED, title="Closed lately")
-        outsider = User.objects.create_user("person_other_translator", password="pw", role=Role.TRANSLATOR)
-        stranger = _make_task(self, translator=outsider, title="Somebody else's")
-        body = _json(self.desk(self.tr))
-        page = self.classic(self.tr, classic=1).content.decode("utf-8")
-        listed = [i["code"] for i in body["open"]] + [i["code"] for i in body["done"]]
-        self.assertGreaterEqual(len(listed), 2)
-        for code in listed:
-            self.assertIn(code, page)
-        self.assertNotIn(stranger.code, page)
-        self.assertNotIn(stranger.code, json.dumps(body))
-
     def test_a_list_costs_the_same_queries_however_long_it_is(self):
         def cost():
             browser = DjangoClient()
@@ -200,77 +187,22 @@ class DeskApiTests(_Desk):
 
 
 class SwitchTests(_Desk):
-    def test_nothing_set_means_the_admin_alone(self):
-        self.assertEqual(AppSettings.load().new_ui, {})
-        self.assertTrue(newui.enabled(self.admin, "translator_home"))
-        self.assertFalse(newui.enabled(self.tr, "translator_home"))
-
-    def test_the_classic_page_is_what_a_translator_gets_until_it_is_switched_on(self):
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-
     def test_switched_on_for_the_role_the_classic_page_hands_them_on(self):
         self.turn_on(roles=["translator"])
         answer = self.classic(self.tr)
         self.assertEqual(answer.status_code, 302)
         self.assertEqual(answer["Location"], "/app/translator")
 
-    def test_the_classic_page_still_opens_by_name(self):
-        self.turn_on(roles=["translator", "admin"])
-        for user in (self.tr, self.admin):
-            answer = self.classic(user, classic=1)
-            self.assertEqual(answer.status_code, 200, user.username)
-            self.assertTemplateUsed(answer, "translator/home.html")
-        # Only the exact value: it is a way back, not a way to guess.
-        self.assertEqual(self.classic(self.tr, classic="true").status_code, 302)
-        self.assertEqual(self.classic(self.tr, classic="0").status_code, 302)
-
-    def test_one_person_can_be_tried_before_the_role(self):
-        other = User.objects.create_user("person_other_translator", password="pw", role=Role.TRANSLATOR)
-        self.turn_on(roles=[], users=[self.tr.pk])
-        self.assertEqual(self.classic(self.tr).status_code, 302)
-        self.assertEqual(self.classic(other).status_code, 200)
-
-    def test_switched_off_again_the_page_comes_back_at_once(self):
-        self.turn_on(roles=["translator"])
-        self.assertEqual(self.classic(self.tr).status_code, 302)
-        self.turn_on(roles=[])
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.assertEqual(self.classic(self.admin).status_code, 200)
-
-    def test_the_switch_cannot_give_a_role_what_the_role_does_not_have(self):
-        # Hand-edited JSON naming a role and a person the screen is not for.
-        self.turn_on(roles=["hr", "operation", "translator"], users=[self.hr.pk, self.ops.pk])
-        for user in (self.hr, self.ops, self.reviewer, self.accounting, self.sales, self.lead):
-            self.assertFalse(newui.enabled(user, "translator_home"), user.username)
-            self.assertEqual(newui.enabled_keys(user), [], user.username)
-        # And what is not a role of the screen is dropped on the way in.
-        self.assertEqual(
-            newui.config(AppSettings.load(), "translator_home")["roles"], ["translator"]
-        )
-
-    def test_unreadable_settings_fall_back_to_the_admin_alone_never_to_everybody(self):
-        for broken in ([], "text", 5, {"translator_home": "yes"}, {"translator_home": {"roles": "translator"}},
-                       {"translator_home": [1, 2]}):
-            conf = AppSettings.load()
-            conf.new_ui = broken
-            conf.save()
-            self.assertFalse(newui.enabled(self.tr, "translator_home"), repr(broken))
-            self.assertTrue(newui.enabled(self.admin, "translator_home"), repr(broken))
-        # The column cannot hold null, but a value read before it is saved can be one.
-        unsaved = AppSettings(new_ui=None)
-        self.assertFalse(newui.enabled(self.tr, "translator_home", unsaved))
-        self.assertTrue(newui.enabled(self.admin, "translator_home", unsaved))
-
-    def test_bad_ids_in_the_list_are_ignored(self):
-        self.turn_on(roles=[], users=["7", True, -1, 0, None, 2.5, self.tr.pk])
-        self.assertEqual(newui.config(AppSettings.load(), "translator_home")["users"], [self.tr.pk])
-
-    def test_me_lists_the_screens_that_are_on_for_that_person_only(self):
-        self.turn_on(roles=["translator"])
-        mine = _json(self.get(self.tr, "v1_me"))["screens"]
-        self.assertEqual(mine, ["translator_home"])
-        for user in (self.ops, self.hr, self.sales):
-            self.assertEqual(_json(self.get(user, "v1_me"))["screens"], [], user.username)
+    def test_me_lists_the_screens_of_that_persons_role_and_the_admins_overview(self):
+        self.assertEqual(_json(self.get(self.tr, "v1_me"))["screens"], ["translator_home", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.ops, "v1_me"))["screens"], ["operation", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.lead, "v1_me"))["screens"], ["lead", "reviewer", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.sales, "v1_me"))["screens"], ["sales", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.reviewer, "v1_me"))["screens"], ["reviewer", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.accounting, "v1_me"))["screens"], ["accounts", "attendance", "leave", "chats"])
+        self.assertEqual(_json(self.get(self.hr, "v1_me"))["screens"], ["hr", "attendance", "leave", "chats"])
+        # The admin oversees: the panel, the money, HR, the operation, and not another role's own desk.
+        self.assertEqual(_json(self.get(self.admin, "v1_me"))["screens"], ["admin", "accounts", "hr", "operation", "attendance", "chats"])
 
     def test_the_data_does_not_depend_on_the_switch(self):
         # The switch decides the page. Who may see the work is the role: a
@@ -291,13 +223,6 @@ class HandOnOnlyWhenNothingStandsInTheWayTests(_Desk):
 
     def test_the_control_with_nothing_in_the_way_it_hands_on(self):
         self.assertEqual(self.classic(self.tr).status_code, 302)
-
-    def test_a_check_in_or_check_out_or_extra_time_screen_keeps_them_on_the_classic_page(self):
-        for kind in ("check_in", "check_out", "extra"):
-            with mock.patch("dashboard.newui.attendance.gate_for", return_value={"kind": kind}):
-                answer = self.classic(self.tr)
-            self.assertEqual(answer.status_code, 200, kind)
-            self.assertTemplateUsed(answer, "translator/home.html")
 
     def test_an_assignment_waiting_for_an_answer_no_longer_holds_them_back_the_new_app_shows_it_itself(self):
         from .models import Assignment, AssignmentStatus
@@ -321,56 +246,27 @@ class HandOnOnlyWhenNothingStandsInTheWayTests(_Desk):
 
 
 class HandOffsDoNotBounceTests(_Desk):
-    """The new app sends a person to the classic pages for what only they can show.
+    """``/`` is the app's, for everybody; the classic landing page is only for a checkout that never built it."""
 
-    The check-in screen, an assignment with a 60-second clock and a ringing call
-    live in the classic interface. If ``/`` handed a translator on to the new
-    app, and the new app handed them back to ``/``, they would go back and forth
-    and never see the screen that decides whether they lose the assignment.
-    """
+    def test_every_role_lands_in_the_app_with_and_without_the_old_parameter(self):
+        for user in (self.admin, self.ops, self.hr, self.reviewer, self.accounting, self.sales, self.lead, self.tr):
+            browser = DjangoClient()
+            browser.force_login(user)
+            self.assertEqual(browser.get("/")["Location"], "/app/", user.username)
+            self.assertEqual(browser.get("/?classic=1")["Location"], "/app/", user.username)
 
-    def test_the_way_into_the_classic_interface_ends_on_the_classic_page(self):
-        self.turn_on(roles=["translator"])
-        browser = DjangoClient()
-        browser.force_login(self.tr)
-        answer = browser.get("/?classic=1", follow=True)
-        self.assertEqual(answer.redirect_chain, [("/translator/?classic=1", 302)])
-        self.assertEqual(answer.status_code, 200)
-        self.assertTemplateUsed(answer, "translator/home.html")
-
-    def test_without_it_a_translator_who_has_the_switch_lands_in_the_new_app(self):
-        self.turn_on(roles=["translator"])
-        browser = DjangoClient()
-        browser.force_login(self.tr)
-        answer = browser.get("/", follow=True)
-        self.assertEqual(answer.redirect_chain[-1], ("/app/translator", 302))
-
-    def test_every_role_still_lands_where_it_did_with_and_without_the_parameter(self):
+    def test_without_a_built_app_the_classic_landing_page_is_served_as_it_was(self):
         landing = {
             self.admin: "dashboard:admin_overview", self.ops: "dashboard:ops_inbox",
             self.hr: "dashboard:hr_recruitment", self.reviewer: "dashboard:reviewer_tests",
             self.accounting: "dashboard:accounts_overview", self.sales: "dashboard:client_list",
             self.lead: "dashboard:lead_home",
         }
-        for user, name in landing.items():
-            browser = DjangoClient()
-            browser.force_login(user)
-            plain = browser.get("/")
-            self.assertEqual(plain["Location"], reverse(name), user.username)
-            kept = browser.get("/?classic=1")
-            self.assertEqual(kept["Location"], reverse(name) + "?classic=1", user.username)
-
-    def test_the_check_in_hand_off_lands_on_a_classic_page_even_with_the_switch_on(self):
-        self.turn_on(roles=["translator", "admin"])
-        browser = DjangoClient()
-        browser.force_login(self.tr)
-        with mock.patch("dashboard.spa.attendance.gate_for", return_value={"kind": "check_in"}):
-            first = browser.get("/app/translator")
-        self.assertEqual(first["Location"], "/?classic=1")
-        landed = browser.get(first["Location"], follow=True)
-        self.assertEqual(landed.status_code, 200)
-        self.assertTemplateUsed(landed, "translator/home.html")
-
+        with mock.patch("dashboard.views.spa.built_assets", return_value=None):
+            for user, name in landing.items():
+                browser = DjangoClient()
+                browser.force_login(user)
+                self.assertEqual(browser.get("/")["Location"], reverse(name), user.username)
 
 class SettingsSectionTests(_Desk):
     def post(self, user, skip_section=False, **changes):
@@ -390,36 +286,6 @@ class SettingsSectionTests(_Desk):
         browser.force_login(user)
         return browser.post(reverse("dashboard:admin_settings"), data)
 
-    def test_the_settings_page_carries_the_section_and_the_marker(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        page = browser.get(reverse("dashboard:admin_settings")).content.decode("utf-8")
-        self.assertIn('id="s-newui"', page)
-        self.assertIn('name="newui_present_translator_home"', page)
-        self.assertIn('name="newui_present_chats"', page)
-        self.assertIn('name="newui_chats_roles"', page)
-        self.assertIn('name="newui_translator_home_roles"', page)
-        self.assertIn('name="newui_translator_home_users"', page)
-
-    def test_the_admin_switches_a_screen_on_for_a_role_and_one_person(self):
-        answer = self.post(
-            self.admin, newui_present_translator_home="1",
-            newui_translator_home_roles=["admin", "translator"],
-            newui_translator_home_users=[str(self.tr.pk)],
-        )
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(
-            AppSettings.load().new_ui,
-            {"translator_home": {"roles": ["admin", "translator"], "users": [self.tr.pk]}},
-        )
-        self.assertTrue(newui.enabled(self.tr, "translator_home"))
-
-    def test_unticking_everything_sends_everybody_back_to_the_classic_page(self):
-        self.turn_on(roles=["translator"])
-        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=[], newui_translator_home_users=[])
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.assertEqual(self.classic(self.admin).status_code, 200)
-
     def test_a_post_that_never_carried_the_section_leaves_the_switch_alone(self):
         self.turn_on(roles=["translator"])
         # The same post as every other test here, minus the section: as an old
@@ -429,71 +295,14 @@ class SettingsSectionTests(_Desk):
         self.assertEqual(AppSettings.load().poll_ms, 4000)
         self.assertEqual(AppSettings.load().new_ui["translator_home"]["roles"], ["translator"])
 
-    def test_a_role_the_screen_is_not_for_is_refused_and_nothing_is_saved(self):
-        for bad in ({"newui_translator_home_roles": ["hr"]},
-                    {"newui_translator_home_roles": ["translator", "sales"]},
-                    {"newui_translator_home_users": [str(self.hr.pk)]},
-                    {"newui_translator_home_users": [str(self.admin.pk)]}):
-            answer = self.post(self.admin, newui_present_translator_home="1", **bad)
-            self.assertEqual(answer.status_code, 200, bad)
-            self.assertEqual(AppSettings.load().new_ui, {}, bad)
-
     def test_only_the_admin_can_change_it(self):
         for user in (self.ops, self.lead, self.tr, self.hr, self.sales):
             answer = self.post(user, newui_present_translator_home="1", newui_translator_home_roles=["translator"])
             self.assertEqual(answer.status_code, 403, user.username)
         self.assertEqual(AppSettings.load().new_ui, {})
 
-    def test_a_deactivated_person_cannot_be_picked(self):
-        User.objects.filter(pk=self.tr.pk).update(is_active=False)
-        answer = self.post(self.admin, newui_present_translator_home="1", newui_translator_home_users=[str(self.tr.pk)])
-        self.assertEqual(answer.status_code, 200)
-        self.assertEqual(AppSettings.load().new_ui, {})
-
-    def test_a_refused_post_says_so_and_shows_the_error_beside_the_field(self):
-        User.objects.filter(pk=self.tr.pk).update(is_active=False)
-        answer = self.post(self.admin, newui_present_translator_home="1", poll_ms="4000",
-                           newui_translator_home_users=[str(self.tr.pk)])
-        self.assertEqual(answer.status_code, 200)
-        page = answer.content.decode("utf-8")
-        self.assertIn("errorlist", page)
-        self.assertIn("اتحفظش حاجة", page)
-        self.assertNotEqual(AppSettings.load().poll_ms, 4000)
-
-    def test_a_change_of_the_switch_is_written_to_the_audit_log_in_full(self):
-        from .models import AuditLog
-
-        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["admin", "translator"],
-                  newui_translator_home_users=[])
-        row = AuditLog.objects.filter(action="settings.new_ui", actor=self.admin).get()
-        self.assertEqual(json.loads(row.detail), {"translator_home": {"roles": ["admin", "translator"], "users": []}})
-
     def test_a_post_that_changes_something_else_writes_no_switch_row(self):
         from .models import AuditLog
 
         self.post(self.admin, poll_ms="4000", skip_section=True)
         self.assertFalse(AuditLog.objects.filter(action="settings.new_ui").exists())
-
-    def test_a_screen_whose_row_was_not_posted_is_left_alone(self):
-        conf = AppSettings.load()
-        conf.new_ui = {"chats": {"roles": ["operation"], "users": []}}
-        conf.save()
-        self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["admin"],
-                  newui_translator_home_users=[])
-        saved = AppSettings.load().new_ui
-        self.assertEqual(saved["chats"], {"roles": ["operation"], "users": []})
-        self.assertEqual(saved["translator_home"], {"roles": ["admin"], "users": []})
-
-    def test_each_screen_is_saved_on_its_own_marker(self):
-        self.turn_on(roles=["translator"])
-        self.post(self.admin, newui_present_chats="1", newui_chats_roles=["operation", "hr"], newui_chats_users=[])
-        saved = AppSettings.load().new_ui
-        self.assertEqual(saved["chats"], {"roles": ["operation", "hr"], "users": []})
-        self.assertEqual(saved["translator_home"], {"roles": ["translator"], "users": []})
-
-    def test_a_role_the_other_screen_is_not_for_is_refused_for_this_one(self):
-        # "translator" is for the translator desk and for the chats; "accounting" is for chats and not for the desk.
-        answer = self.post(self.admin, newui_present_translator_home="1", newui_translator_home_roles=["accounting"])
-        self.assertEqual(answer.status_code, 200)
-        self.assertNotIn("translator_home", AppSettings.load().new_ui)
-

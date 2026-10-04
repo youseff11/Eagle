@@ -237,39 +237,11 @@ class ScreenSwitchTests(_Att):
         self.assertEqual(set(screen.roles), {Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SALES})
         self.assertEqual(newui.app_url("attendance"), "/app/attendance")
 
-    def test_the_admin_is_on_by_default_and_a_role_or_a_person_can_be_switched_on(self):
-        from . import newui
-
-        self.assertTrue(newui.gate_in_app(self.admin))
-        self.assertFalse(newui.gate_in_app(self.worker))
-        self.turn_on(roles=["translator"])
-        self.assertTrue(newui.gate_in_app(self.worker))
-        self.assertFalse(newui.gate_in_app(self.ops))
-        self.turn_on(users=[self.ops.pk])
-        self.assertTrue(newui.gate_in_app(self.ops))
-        self.assertFalse(newui.gate_in_app(self.worker))
-
-    def test_the_menu_of_the_new_app_lists_it_only_for_who_is_switched_on(self):
-        self.turn_on(roles=["translator"])
-        self.assertIn("attendance", _json(self.page(self.worker, "dashboard:v1_me"))["screens"])
-        self.assertNotIn("attendance", _json(self.page(self.ops, "dashboard:v1_me"))["screens"])
-
-    def test_the_settings_page_offers_the_switch(self):
-        answer = self.page(self.admin, "dashboard:admin_settings", classic=1)
-        self.assertEqual(answer.status_code, 200)
-        self.assertIn("الحضور والانصراف", answer.content.decode("utf-8"))
-
-
 class CardHandOnTests(_Att):
     def test_the_classic_card_goes_on_once_the_screen_is_on(self):
         self.turn_on(roles=["translator"])
         answer = self.page(self.worker, "dashboard:my_attendance")
         self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/attendance"))
-
-    def test_without_the_switch_and_by_name_the_classic_card_opens(self):
-        self.assertEqual(self.page(self.worker, "dashboard:my_attendance").status_code, 200)
-        self.turn_on(roles=["translator"])
-        self.assertEqual(self.page(self.worker, "dashboard:my_attendance", classic=1).status_code, 200)
 
     def test_the_card_is_handed_on_even_while_the_check_in_screen_is_up(self):
         self.freeze(21, 9, 5)
@@ -290,20 +262,6 @@ class WhoDrawsTheGateTests(_Att):
 
     def gate_up(self):
         self.freeze(21, 9, 5)
-
-    def test_with_the_screen_off_a_person_who_owes_a_check_in_stays_on_the_classic_pages(self):
-        self.gate_up()
-        self.turn_on(roles=["translator"])
-        # Another screen is on for this person, the attendance one is not.
-        conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": ["translator"], "users": []}, "attendance": {"roles": [], "users": []}}
-        conf.save()
-        self.assertEqual(self.page(self.worker, "dashboard:translator_home").status_code, 200)
-        # The new app sends them to the classic interface, where the screen is drawn.
-        browser = DjangoClient()
-        browser.force_login(self.worker)
-        answer = browser.get("/app/")
-        self.assertEqual((answer.status_code, answer["Location"]), (302, "/?classic=1"))
 
     def test_with_the_screen_on_the_other_screens_are_handed_on_and_the_app_stays_open(self):
         self.gate_up()
@@ -326,9 +284,8 @@ class WhoDrawsTheGateTests(_Att):
         self.assertEqual(config["gate"]["kind"], "check_in")
         self.assertEqual(config["gate"]["date"], "2026-09-21")
 
-    def test_the_shell_says_nothing_when_nothing_is_asked_and_nothing_when_the_screen_is_off(self):
+    def test_the_shell_says_nothing_when_nothing_is_asked(self):
         self.freeze(21, 8, 0)
-        self.turn_on(roles=["translator"])
         browser = DjangoClient()
         browser.force_login(self.worker)
         html = browser.get("/app/").content.decode("utf-8")
@@ -336,39 +293,12 @@ class WhoDrawsTheGateTests(_Att):
         config = json.loads(html[html.index(">", start) + 1: html.index("</script>", start)])
         self.assertIn("gate", config)
         self.assertIsNone(config["gate"])
-        self.turn_on(roles=[])
-        html = browser.get("/app/").content.decode("utf-8")
-        start = html.index('id="app-config"')
-        config = json.loads(html[html.index(">", start) + 1: html.index("</script>", start)])
-        self.assertNotIn("gate", config)
 
-    def test_the_heartbeat_says_who_draws_it(self):
+    def test_the_heartbeat_says_the_app_draws_it_and_what_it_asks(self):
         self.gate_up()
-        self.assertFalse(self.beat(self.worker)["attendance_screen"])
-        self.turn_on(roles=["translator"])
         beat = self.beat(self.worker)
         self.assertTrue(beat["attendance_screen"])
-        # What the screen asks is the same answer either way.
         self.assertEqual(beat["attendance"]["kind"], "check_in")
-
-    def test_the_three_checks_agree_for_every_state_so_nobody_is_sent_back_and_forth(self):
-        """For a person with the gate up, hand-on, the shell and the heartbeat answer the same question."""
-        from . import newui
-
-        self.gate_up()
-        conf = AppSettings.load()
-        for on in (False, True):
-            conf.new_ui = {
-                "translator_home": {"roles": ["translator"], "users": []},
-                "attendance": {"roles": ["translator"] if on else [], "users": []},
-            }
-            conf.save()
-            browser = DjangoClient()
-            browser.force_login(self.worker)
-            handed = browser.get(reverse("dashboard:translator_home")).status_code == 302
-            app_open = browser.get("/app/").status_code == 200
-            says_in_app = _json(browser.get(reverse("dashboard:api_heartbeat")))["attendance_screen"]
-            self.assertEqual((handed, app_open, says_in_app, newui.gate_in_app(self.worker)), (on, on, on, on), f"screen on={on}")
 
     def test_a_person_with_no_gate_is_handed_on_whatever_the_attendance_switch_says(self):
         self.freeze(21, 8, 0)
@@ -376,21 +306,6 @@ class WhoDrawsTheGateTests(_Att):
         conf.new_ui = {"translator_home": {"roles": ["translator"], "users": []}, "attendance": {"roles": [], "users": []}}
         conf.save()
         self.assertEqual(self.page(self.worker, "dashboard:translator_home")["Location"], "/app/translator")
-
-    def test_a_check_out_reminder_and_extra_time_are_the_same_as_the_check_in(self):
-        self.freeze(21, 9, 0)
-        attendance.punch(self.worker, PunchKind.CHECK_IN)
-        self.turn_on(roles=["translator"])
-        with mock.patch("django.utils.timezone.now", return_value=aware(21, 17, 10)):
-            self.assertEqual(self.beat(self.worker)["attendance"]["kind"], "check_out")
-            self.assertTrue(self.beat(self.worker)["attendance_screen"])
-            attendance.punch(self.worker, PunchKind.EXTRA_START)
-            self.assertEqual(self.beat(self.worker)["attendance"]["kind"], "extra")
-        self.turn_on(roles=[])
-        with mock.patch("django.utils.timezone.now", return_value=aware(21, 17, 10)):
-            browser = DjangoClient()
-            browser.force_login(self.worker)
-            self.assertEqual(browser.get("/app/")["Location"], "/?classic=1")
 
     def test_somebody_who_does_not_clock_in_never_has_a_gate_in_either_interface(self):
         self.gate_up()

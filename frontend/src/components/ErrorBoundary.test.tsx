@@ -26,14 +26,14 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("the page")).toBeInTheDocument();
   });
 
-  it("keeps a failing page inside a message with the way to the classic interface", () => {
+  it("keeps a failing page inside a message with the way home", () => {
     renderWithProviders(
       <ErrorBoundary>
         <Bomb explode />
       </ErrorBoundary>,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("حصلت مشكلة في عرض الصفحة دي.");
-    expect(screen.getByRole("link", { name: "افتح الواجهة الحالية" })).toHaveAttribute("href", "/?classic=1");
+    expect(screen.getByRole("link", { name: "الرئيسية" })).toHaveAttribute("href", "/app/");
     expect(screen.getByRole("button", { name: "جرّب تاني" })).toBeInTheDocument();
   });
 

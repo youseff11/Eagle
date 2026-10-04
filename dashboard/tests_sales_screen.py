@@ -50,52 +50,11 @@ class _Sales(_Site):
 
 
 class ScreenSwitchTests(_Sales):
-    def test_the_screen_is_the_sales_roles_and_the_admin_is_not_on_by_default(self):
-        screen = newui.SCREENS["sales"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects, screen.admin_default), ("sales_line", "/line", True, False))
-        self.assertEqual(set(screen.roles), {Role.SALES})
-        self.assertFalse(newui.enabled(self.admin, "sales"))
-        self.assertFalse(newui.enabled(self.sales, "sales"))
-        # The screens that were the admin's from the start still are.
-        self.assertTrue(newui.enabled(self.admin, "operation"))
-        self.assertEqual(newui.default_for("sales"), {"roles": [], "users": []})
-        self.assertEqual(newui.default_for("operation"), {"roles": ["admin"], "users": []})
-
-    def test_a_role_or_a_person_can_be_switched_on_and_the_admin_only_by_name(self):
-        self.turn_on(roles=["sales"])
-        self.assertTrue(newui.enabled(self.sales, "sales"))
-        self.assertTrue(newui.enabled(self.other_sales, "sales"))
-        self.assertFalse(newui.enabled(self.admin, "sales"))
-        self.turn_on(roles=[], users=[self.sales.pk])
-        self.assertTrue(newui.enabled(self.sales, "sales"))
-        self.assertFalse(newui.enabled(self.other_sales, "sales"))
-        # Nobody but a Sales person (and the admin) can be switched on for it, whatever the setting says.
-        self.turn_on(roles=["sales", "translator", "operation"], users=[self.ops.pk, self.tr.pk])
-        self.assertFalse(newui.enabled(self.ops, "sales"))
-        self.assertFalse(newui.enabled(self.tr, "sales"))
-
     def test_the_menu_of_the_new_app_lists_it_only_for_who_is_switched_on(self):
         self.turn_on(roles=["sales"])
         self.assertIn("sales", _json(self.get(self.sales, "dashboard:v1_me"))["screens"])
         self.assertNotIn("sales", _json(self.get(self.ops, "dashboard:v1_me"))["screens"])
         self.assertNotIn("sales", _json(self.get(self.admin, "dashboard:v1_me"))["screens"])
-
-    def test_the_settings_page_offers_the_switch_with_nobody_ticked(self):
-        answer = self.get(self.admin, "dashboard:admin_settings", classic=1)
-        self.assertEqual(answer.status_code, 200)
-        text = answer.content.decode("utf-8")
-        self.assertIn("شاشة المبيعات", text)
-        form = answer.context["form"]
-        row = next(one for one in form.new_ui_rows if one["screen"].key == "sales")
-        self.assertEqual(form.initial["newui_sales_roles"], [])
-        self.assertEqual(row["screen"].key, "sales")
-
-    def test_a_setting_written_by_hand_is_still_cleaned(self):
-        conf = AppSettings.load()
-        conf.new_ui = {"sales": {"roles": "sales", "users": []}}
-        conf.save()
-        self.assertEqual(newui.config(conf, "sales"), {"roles": [], "users": []})
-
 
 class LineDoorTests(_Sales):
     def test_the_sales_person_reads_their_own_line_and_nothing_of_anybody_elses(self):
@@ -254,14 +213,6 @@ class HandOnTests(_Sales):
         answer = self.get(self.sales, "dashboard:ops_mail_thread", [mine.pk], state="mine")
         self.assertEqual(answer["Location"], f"/app/inbox/thread/{mine.pk}?state=mine")
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        self.assertEqual(self.get(self.sales, "dashboard:sales_line").status_code, 200)
-        self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-        self.assertEqual(self.get(self.sales, "dashboard:client_list").status_code, 200)
-        self.turn_on(roles=["sales"])
-        for name in ("dashboard:sales_line", "dashboard:ops_inbox", "dashboard:client_list"):
-            self.assertEqual(self.get(self.sales, name, classic=1).status_code, 200, name)
-
     def test_a_form_that_is_already_open_is_answered_where_it_is(self):
         self.turn_on(roles=["sales"])
         browser = DjangoClient()
@@ -270,20 +221,6 @@ class HandOnTests(_Sales):
         self.assertEqual(answer.status_code, 200)
         self.sales.refresh_from_db()
         self.assertEqual(self.sales.wa_phone_number_id, "2718281")
-
-    def test_the_operations_switch_does_not_move_a_sales_person_and_theirs_does_not_move_the_operation(self):
-        self.turn_on("operation", roles=["operation", "sales"])
-        self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-        self.assertEqual(self.get(self.sales, "dashboard:client_list").status_code, 200)
-        self.turn_on("operation", roles=[])
-        self.turn_on("sales", roles=["sales", "operation"])
-        self.assertEqual(self.get(self.ops, "dashboard:ops_inbox").status_code, 200)
-        self.assertEqual(self.get(self.ops, "dashboard:client_list").status_code, 200)
-
-    def test_one_sales_person_can_be_tried_before_the_role(self):
-        self.turn_on(roles=[], users=[self.sales.pk])
-        self.assertEqual(self.get(self.sales, "dashboard:ops_inbox")["Location"], "/app/inbox")
-        self.assertEqual(self.get(self.other_sales, "dashboard:ops_inbox").status_code, 200)
 
     def test_the_admin_keeps_the_classic_line_page_until_they_name_themselves(self):
         self.assertEqual(self.get(self.admin, "dashboard:sales_line").status_code, 200)
@@ -294,22 +231,6 @@ class HandOnTests(_Sales):
         self.turn_on(roles=["sales"])
         with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
             self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-
-    def test_the_check_in_screen_still_keeps_a_sales_person_on_the_classic_pages_until_the_attendance_screen_is_on(self):
-        from datetime import datetime
-
-        from django.utils import timezone
-
-        from .models import Shift, ShiftTemplate
-
-        ShiftTemplate.seed_defaults()
-        Shift.objects.create(user=self.sales, weekday=0, template=ShiftTemplate.objects.get(name="Shift 1"))
-        self.turn_on(roles=["sales"])
-        with mock.patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 9, 21, 9, 5))):
-            self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-            self.turn_on("attendance", roles=["sales"])
-            self.assertEqual(self.get(self.sales, "dashboard:ops_inbox")["Location"], "/app/inbox")
-
 
 class ClientDoorsForSalesTests(_Sales):
     def test_a_sales_person_may_know_who_the_clients_are_and_it_is_logged_as_it_is_for_the_admin(self):
@@ -355,8 +276,3 @@ class ClientDoorsForSalesTests(_Sales):
         self.assertFalse(body["sees_identity"])
         self.assertIsNone(body["activity"])
         self.assertEqual(set(body["client"]), {"code"})
-
-    def test_the_classic_pages_show_a_sales_person_the_same_things(self):
-        page = self.get(self.sales, "dashboard:client_detail", [self.client_obj.code]).content.decode("utf-8")
-        self.assertIn(CLIENT_NAME, page)
-        self.assertIn("متابعة العميل", page)

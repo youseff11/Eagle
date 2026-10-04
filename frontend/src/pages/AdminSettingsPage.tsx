@@ -8,8 +8,6 @@ import { Icon } from "../components/Icon";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 
-type Edits = ReturnType<typeof useFormEdits>;
-
 function Badge({ ok, yes, no }: { ok: boolean; yes: [string, string]; no: [string, string] }) {
   const { t } = usePreferences();
   return (
@@ -200,77 +198,11 @@ function GoogleControls({ data }: { data: AdminSettings }) {
   );
 }
 
-/** The switches that send each screen's people to the new interface: by role, or by name to try one person first. */
-function NewUiCard({ data, edits, errors }: { data: AdminSettings; edits: Edits; errors: FormErrors }) {
-  const { t, lang } = usePreferences();
-  const byName = new Map(data.fields.map((field) => [field.name, field]));
-  return (
-    <>
-      <p className="muted" style={{ fontSize: ".84rem" }}>
-        {t(
-          "كل شاشة بتتنقل للواجهة الجديدة لوحدها. اللي معلّم عليهم بيتحوّلوا للنسخة الجديدة، والباقي يفضلوا على القديمة. شيل العلامة وهيرجعوا للقديمة فورًا من غير ما حد يعمل حاجة.",
-          "Each screen moves to the new interface on its own. The people ticked are sent to the new version and everybody else stays on the classic one. Untick and they are back on the classic page at once.",
-        )}
-      </p>
-      {data.newui.map((row) => {
-        const roles = byName.get(row.roles);
-        const users = byName.get(row.users);
-        if (!roles) return null;
-        const list = (field: FormField) => (
-          <div className="row row--tight" style={{ flexWrap: "wrap" }}>
-            {(field.choices ?? []).map((choice) => {
-              const chosen = edits.valueOf(field);
-              const on = Array.isArray(chosen) && chosen.includes(choice.value);
-              return (
-                <label key={choice.value} className="chip" style={{ cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={(event) => {
-                      const now = Array.isArray(chosen) ? chosen : [];
-                      edits.set(field.name, event.target.checked ? [...now, choice.value] : now.filter((item) => item !== choice.value));
-                    }}
-                  />
-                  <span>{choice.label}</span>
-                </label>
-              );
-            })}
-          </div>
-        );
-        const problems = [...(errors[row.roles] ?? []), ...(errors[row.users] ?? [])];
-        return (
-          <div className="field" key={row.key} data-screen={row.key}>
-            <label>{lang === "ar" ? row.ar : row.en}</label>
-            {list(roles)}
-            {users && (users.choices ?? []).length > 0 && (
-              <>
-                <label className="muted" style={{ fontSize: ".84rem" }}>
-                  {t("أو ناس بالاسم (تجربة على واحد قبل الدور كله)", "Or people one by one (try it on one before the whole role)")}
-                </label>
-                {list(users)}
-              </>
-            )}
-            {problems.length > 0 && (
-              <ul className="errorlist" role="alert">
-                {problems.map((message, index) => (
-                  <li key={index}>{message}</li>
-                ))}
-              </ul>
-            )}
-            <span className="helptext">{t("الصفحة القديمة بتفتح دايمًا لو ضفت ?classic=1 آخر العنوان.", "The classic page always opens if you add ?classic=1 to its address.")}</span>
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
 /**
- * The settings: the AI check, the workflow rules, which screens are on the new interface, WhatsApp and the mail.
+ * The settings: the AI check, the workflow rules, WhatsApp and the mail.
  *
  * It draws what the server describes - a secret is only ever "saved" or not, so a box for one starts empty and stays empty
- * unless something is typed (or the saved value is explicitly cleared) - and sends only what was changed. This is also the page
- * that holds the switches for the new interface: the classic one stays reachable with `?classic=1` in case this one breaks.
+ * unless something is typed (or the saved value is explicitly cleared) - and sends only what was changed.
  */
 export function AdminSettingsPage() {
   const { t } = usePreferences();
@@ -367,8 +299,6 @@ export function AdminSettingsPage() {
               )}
             </div>
             {section.note_ar && <p className="muted" style={{ fontSize: ".84rem" }}>{t(section.note_ar, section.note_en ?? section.note_ar)}</p>}
-
-            {section.key === "newui" && <NewUiCard data={data} edits={edits} errors={errors} />}
 
             {section.key === "whatsapp" && (
               <>

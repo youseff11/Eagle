@@ -127,8 +127,10 @@ export interface MeResponse {
     /** A voice note: the longest it may run (seconds) and the biggest it may be (bytes). */
     voice: { seconds: number; bytes: number };
   };
-  /** The ported screens that are switched on for this person (`dashboard/newui.py`). */
+  /** The screens in this person's menu: their role's, or - the admin's - the ones the admin oversees (`dashboard/newui.py`). */
   screens: ScreenKey[];
+  /** What the menu's lines answer to: a person of one role can be given a capability of another (the attendance pages of HR). */
+  can: { manage_attendance: boolean; recruit: boolean; review_tests: boolean; approve_hiring: boolean };
   unread_notifications: number;
   /** Messages waiting in any chat tab (`services.unread_chat_total`). */
   unread_chats: number;
@@ -1176,8 +1178,6 @@ export interface AdminSettings {
     note_en?: string;
     groups: { ar?: string; en?: string; note_ar?: string; note_en?: string; fields: string[] }[];
   }[];
-  /** One row of the rollout switches per screen: the two form fields that edit it. */
-  newui: { key: string; ar: string; en: string; roles: string; users: string }[];
   status: {
     whatsapp_saved: boolean;
     email_saved: boolean;

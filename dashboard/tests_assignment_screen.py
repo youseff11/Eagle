@@ -273,17 +273,6 @@ class AssignmentHandOnTests(_Handoff):
         answer = self.classic(self.tr)
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/assignments/{self.handoff.pk}"))
 
-    def test_without_the_switch_with_classic_or_for_anybody_else_the_classic_page_opens(self):
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.turn_on(roles=["translator", "admin", "team_lead"])
-        self.assertEqual(self.classic(self.tr, classic=1).status_code, 200)
-        self.assertEqual(self.classic(self.admin).status_code, 200)
-        self.assertEqual(self.classic(self.lead, self.handoff_to_lead().pk).status_code, 200)
-
-    def test_the_classic_page_still_records_that_the_files_were_opened(self):
-        self.assertEqual(self.classic(self.tr).status_code, 200)
-        self.assertIsNotNone(Assignment.objects.get(pk=self.handoff.pk).opened_at)
-
     def test_somebody_elses_hand_off_is_sent_on_and_refused_there(self):
         self.turn_on(roles=["translator"])
         other = User.objects.create_user("person_other_translator", password="pw", role=Role.TRANSLATOR, team_lead=self.lead)

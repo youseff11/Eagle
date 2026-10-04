@@ -747,10 +747,10 @@ class HandOnTests(_People):
         self.assertIn("/app/hr/salary-plans?edit=3", answer["Location"])
         self.assertEqual(self.classic("hr_salary_plans").status_code, 403)
 
-    def test_the_classic_page_stays_reachable_and_the_flag_holder_keeps_it(self):
+    def test_the_old_way_back_to_the_classic_page_is_gone_and_the_flag_holder_is_handed_on_with_everybody_else(self):
         for name in ("hr_employees", "hr_probation", "hr_performance", "hr_complaints", "hr_salary_requests"):
-            self.assertEqual(self.classic(name, classic=1).status_code, 200, name)
-        self.assertEqual(self.classic("hr_probation", who=self.flagged).status_code, 200)
+            self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
+        self.assertEqual(self.classic("hr_probation", who=self.flagged).status_code, 302)
 
     def test_a_post_to_a_classic_page_is_never_handed_on(self):
         browser = DjangoClient()
@@ -759,11 +759,3 @@ class HandOnTests(_People):
         self.assertEqual(answer.status_code, 302)
         self.assertEqual(answer["Location"], reverse("dashboard:hr_complaints"))
         self.assertTrue(ClientComplaint.objects.filter(summary="Late").exists())
-
-    def test_the_classic_complaint_box_takes_an_old_task_and_shows_no_title(self):
-        type(self.task).objects.filter(pk=self.task.pk).update(title=f"{CLIENT_NAME} contract")
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        page = browser.get(reverse("dashboard:hr_complaints"), {"classic": 1})
-        self.assertNotContains(page, CLIENT_NAME)
-        self.assertContains(page, self.task.code)

@@ -77,17 +77,6 @@ describe("App: the accept screen is wired to the heartbeat", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it("still sends a person whose check-in screen is due to the classic interface, with the accept screen waiting or not", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    const assign = vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
-    const server = serve();
-    server.state.pending = PENDING;
-    server.state.attendance = { kind: "check_in" };
-    renderWithProviders(<App pollMs={4000} />, { route: "/payroll" });
-    await beat(0);
-    expect(assign).toHaveBeenCalledWith("/?classic=1");
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
 });
 
 describe("App: the check-in screen is wired to the heartbeat", () => {
@@ -135,16 +124,6 @@ describe("App: the check-in screen is wired to the heartbeat", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.querySelector(".shell")).not.toHaveAttribute("inert");
     expect(assign).not.toHaveBeenCalled();
-  });
-
-  it("sends the person to the classic interface instead when this app does not draw it for them", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    const assign = vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
-    serveGate({ gate: GATE, screen: false });
-    renderWithProviders(<App pollMs={4000} />, { route: "/payroll" });
-    await beat(0);
-    expect(assign).toHaveBeenCalledWith("/?classic=1");
-    expect(screen.queryByRole("dialog", { name: "سجّل حضورك" })).toBeNull();
   });
 
   it("shows what the page that carried the app asked on the first paint, before any beat", async () => {

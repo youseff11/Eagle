@@ -1,6 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { usePreferences } from "../i18n/Preferences";
-import { CLASSIC_HOME } from "../lib/navigation";
 import { Icon } from "./Icon";
 
 function Fallback() {
@@ -14,8 +13,8 @@ function Fallback() {
           <button className="btn btn--sm" type="button" onClick={() => window.location.reload()}>
             {t("جرّب تاني", "Try again")}
           </button>
-          <a className="btn btn--sm" href={CLASSIC_HOME}>
-            {t("افتح الواجهة الحالية", "Open the classic interface")}
+          <a className="btn btn--sm" href="/app/">
+            {t("الرئيسية", "Home")}
           </a>
         </div>
       </div>
@@ -35,7 +34,7 @@ interface Props {
  * The heartbeat runs above the pages, and it is what keeps a person shown as online and what
  * carries the 60-second assignment screen: a blank page that also stopped it would lose them
  * the assignment and cost them the rating penalty. So the failure stays inside the page: the
- * menu and the heartbeat carry on, and the way to the classic interface is on screen.
+ * menu and the heartbeat carry on, and the way home is on screen.
  */
 export class ErrorBoundary extends Component<Props, { failed: boolean }> {
   state = { failed: false };

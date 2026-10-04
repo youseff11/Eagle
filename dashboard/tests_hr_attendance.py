@@ -455,31 +455,6 @@ class SwitchAndHandOnTests(_Hr):
         browser.force_login(who)
         return browser.get(reverse(f"dashboard:{name}", args=args), query)
 
-    def test_the_screen_is_hrs_and_the_admin_is_not_on_it_until_they_say_so(self):
-        screen = newui.SCREENS["hr"]
-        self.assertEqual((screen.path, screen.roles, screen.redirects, screen.admin_default), ("/hr/recruitment", ("hr",), True, False))
-        self.assertEqual(screen.eligible_roles, ("admin", "hr"))
-        self.assertFalse(newui.enabled(self.admin, "hr"))
-        self.assertFalse(newui.enabled(self.hr, "hr"))
-        self.switch(roles=["hr"])
-        self.assertTrue(newui.enabled(self.hr, "hr"))
-        self.assertFalse(newui.enabled(self.admin, "hr"))
-
-    def test_nobody_else_can_be_switched_on_for_it(self):
-        self.switch(roles=["hr", "operation", "translator"], users=[self.ops.pk, self.flagged.pk, self.tr.pk])
-        for user in (self.ops, self.flagged, self.tr, self.lead, self.accounting, self.sales, self.reviewer):
-            self.assertFalse(newui.enabled(user, "hr"), user.username)
-            self.assertNotIn("hr", _json(self.get(user, "dashboard:v1_me"))["screens"], user.username)
-
-    def test_the_menu_lists_it_for_hr_once_it_is_on(self):
-        self.assertNotIn("hr", _json(self.get(self.hr, "dashboard:v1_me"))["screens"])
-        self.switch(roles=["hr"])
-        self.assertIn("hr", _json(self.get(self.hr, "dashboard:v1_me"))["screens"])
-
-    def test_nobody_is_handed_on_while_the_switch_is_off(self):
-        for name, args in (("hr_attendance", None), ("hr_attendance_day", [self.row.pk]), ("hr_report", None)):
-            self.assertEqual(self.classic(self.hr, name, args).status_code, 200, name)
-
     def test_the_board_is_handed_on_with_its_filters(self):
         self.switch(roles=["hr"])
         page = self.classic(self.hr, "hr_attendance", view="week", date="2026-09-16", user=str(self.tr.pk), flagged="1", ignored="x")
@@ -502,18 +477,10 @@ class SwitchAndHandOnTests(_Hr):
         self.switch(roles=["hr"])
         self.assertEqual(self.classic(self.hr, "hr_attendance_day", [999999]).status_code, 404)
 
-    def test_the_classic_page_stays_reachable_and_a_post_is_never_handed_on(self):
-        self.switch(roles=["hr"])
-        self.assertEqual(self.classic(self.hr, "hr_attendance", classic=1).status_code, 200)
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_attendance_day", args=[self.row.pk]), {"status": "present", "work_mode": "office", "break_minutes": "0", "reason": "r"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(answer["Location"], reverse("dashboard:hr_attendance_day", args=[self.row.pk]))
-
-    def test_the_flag_holder_keeps_the_classic_pages(self):
-        self.switch(roles=["hr", "operation"], users=[self.flagged.pk])
-        self.assertEqual(self.classic(self.flagged, "hr_attendance").status_code, 200)
+    def test_the_flag_holder_is_handed_on_to_the_attendance_pages_like_hr(self):
+        answer = self.classic(self.flagged, "hr_attendance")
+        self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/hr/attendance"))
+        self.assertEqual(self.classic(self.ops, "hr_attendance").status_code, 403)
 
     def test_the_admin_is_handed_on_when_ticked(self):
         self.switch(roles=["admin"])

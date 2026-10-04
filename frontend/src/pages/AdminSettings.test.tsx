@@ -38,22 +38,10 @@ function settings(over: Partial<AdminSettings> = {}): AdminSettings {
       field("mail_aliases", { kind: "textarea", value: "a@example.com", label_ar: "العناوين الموجودة على ميل الشركة", label_en: "Aliases on the company mailbox" }),
       field("google_client_id", { value: "cid", label_ar: "Client ID", label_en: "Client ID" }),
       secret("google_client_secret", true, ["Client Secret", "Client Secret"]),
-      field("newui_operation_roles", {
-        kind: "multi",
-        value: ["admin"],
-        choices: [
-          { value: "admin", label: "أدمن · Admin" },
-          { value: "operation", label: "أوبريشن · Operation" },
-        ],
-      }),
-      field("newui_operation_users", { kind: "multi", value: [], choices: [{ value: "7", label: "Nour Operation" }] }),
-      field("newui_admin_roles", { kind: "multi", value: [], choices: [{ value: "admin", label: "أدمن · Admin" }] }),
-      field("newui_admin_users", { kind: "multi", value: [], choices: [] }),
     ],
     sections: [
       { key: "ai", icon: "sparkles", ar: "مراجعة الترجمة بالـ AI", en: "AI translation check", note_ar: "لما تكون مفعّلة", note_en: "When enabled", groups: [{ fields: ["ai_check_enabled", "claude_api_key", "claude_model"] }] },
       { key: "workflow", icon: "list-checks", ar: "قواعد الشغل", en: "Workflow rules", groups: [{ fields: ["response_window_seconds", "rate_keywords"] }] },
-      { key: "newui", icon: "layers", ar: "الواجهة الجديدة", en: "The new interface", groups: [] },
       { key: "whatsapp", icon: "phone", ar: "واتساب", en: "WhatsApp", groups: [{ fields: ["whatsapp_phone_number_id", "whatsapp_access_token"] }] },
       {
         key: "email", icon: "mail", ar: "الإيميل", en: "Email",
@@ -63,10 +51,6 @@ function settings(over: Partial<AdminSettings> = {}): AdminSettings {
           { ar: "مزامنة العناوين مع Google", en: "Sync aliases with Google", fields: ["google_client_id", "google_client_secret"] },
         ],
       },
-    ],
-    newui: [
-      { key: "operation", ar: "شاشة الأوبريشن", en: "The operation's screen", roles: "newui_operation_roles", users: "newui_operation_users" },
-      { key: "admin", ar: "لوحة الأدمن", en: "The admin panel", roles: "newui_admin_roles", users: "newui_admin_users" },
     ],
     status: {
       whatsapp_saved: true, email_saved: false, google_configured: true, google_connected: false, google_sync_at: null, google_sync_error: "",
@@ -118,7 +102,7 @@ describe("AdminSettingsPage: what it draws", () => {
     serve("admin");
     const { container } = open();
     await screen.findByText("مراجعة الترجمة بالـ AI");
-    expect(Array.from(container.querySelectorAll("[data-section]")).map((one) => one.getAttribute("data-section"))).toEqual(["ai", "workflow", "newui", "whatsapp", "email"]);
+    expect(Array.from(container.querySelectorAll("[data-section]")).map((one) => one.getAttribute("data-section"))).toEqual(["ai", "workflow", "whatsapp", "email"]);
     expect(screen.getByLabelText("الموديل")).toHaveValue("claude-old");
     expect(screen.getByLabelText("فعّل مراجعة الـ AI")).not.toBeChecked();
     expect(screen.getByText("افصل بينهم بفاصلة.")).toHaveClass("helptext");
@@ -273,55 +257,15 @@ describe("AdminSettingsPage: saving", () => {
   });
 });
 
-describe("AdminSettingsPage: the switches for the new interface", () => {
-  it("draws one row per screen with its roles and the people it can be tried on", async () => {
+describe("AdminSettingsPage: the whole site is the app", () => {
+  it("has no switches for the new interface and no word about the classic one", async () => {
     serve("admin");
     const { container } = open();
-    await screen.findByText("شاشة الأوبريشن");
-    const row = container.querySelector('[data-screen="operation"]') as HTMLElement;
-    expect(within(row).getByRole("checkbox", { name: "أدمن · Admin" })).toBeChecked();
-    expect(within(row).getByRole("checkbox", { name: "أوبريشن · Operation" })).not.toBeChecked();
-    expect(within(row).getByRole("checkbox", { name: "Nour Operation" })).not.toBeChecked();
-    expect(within(row).getByText(/\?classic=1/)).toBeInTheDocument();
-    const admin = container.querySelector('[data-screen="admin"]') as HTMLElement;
-    expect(within(admin).queryByText(/ناس بالاسم/)).toBeNull();
-  });
-
-  it("sends the whole list of roles when one is ticked", async () => {
-    const served = serve("admin");
-    const user = userEvent.setup();
-    const { container } = open();
-    await screen.findByText("شاشة الأوبريشن");
-    const row = container.querySelector('[data-screen="operation"]') as HTMLElement;
-    await user.click(within(row).getByRole("checkbox", { name: "أوبريشن · Operation" }));
-    await user.click(within(row).getByRole("checkbox", { name: "Nour Operation" }));
-    await user.click(screen.getByRole("button", { name: /حفظ الإعدادات/ }));
-    await waitFor(() => expect(saves(served).length).toBe(1));
-    expect((saves(served)[0]!.body as { values: unknown }).values).toEqual({ newui_operation_roles: ["admin", "operation"], newui_operation_users: ["7"] });
-  });
-
-  it("sends nothing about the switches when only something else changed", async () => {
-    const served = serve("admin");
-    const user = userEvent.setup();
-    open();
-    await user.type(await screen.findByLabelText("الموديل"), "x");
-    await user.click(screen.getByRole("button", { name: /حفظ الإعدادات/ }));
-    await waitFor(() => expect(saves(served).length).toBe(1));
-    const sent = Object.keys((saves(served)[0]!.body as { values: Record<string, unknown> }).values);
-    expect(sent.filter((name) => name.startsWith("newui_"))).toEqual([]);
-  });
-
-  it("shows a refusal of a switch beside its row", async () => {
-    serve("admin", settings, {
-      "/api/v1/admin/settings/save/": () => jsonResponse({ ok: false, error: "invalid", errors: { newui_operation_roles: ["Select a valid choice."] } }, 400),
-    });
-    const user = userEvent.setup();
-    const { container } = open();
-    await screen.findByText("شاشة الأوبريشن");
-    const row = container.querySelector('[data-screen="operation"]') as HTMLElement;
-    await user.click(within(row).getByRole("checkbox", { name: "أوبريشن · Operation" }));
-    await user.click(screen.getByRole("button", { name: /حفظ الإعدادات/ }));
-    expect(await within(row).findByText("Select a valid choice.")).toBeInTheDocument();
+    await screen.findByLabelText("الموديل");
+    expect(container.querySelector("[data-screen]")).toBeNull();
+    expect(container.querySelector('[data-section="newui"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/classic=1/);
+    expect(container.textContent).not.toContain("الواجهة الجديدة");
   });
 });
 

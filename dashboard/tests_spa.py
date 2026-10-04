@@ -36,6 +36,10 @@ class _Built(TestCase):
         self.user = User.objects.create_user(
             "person_spa_user", password="pw", role=Role.OPERATION, first_name="Nour", last_name="Operation",
         )
+        # The test settings say the app is not built; these tests write a manifest of their own and mean it.
+        built = self.settings(SPA_ASSETS_OFF=False)
+        built.enable()
+        self.addCleanup(built.disable)
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.manifest_file = Path(folder.name) / "manifest.json"
@@ -173,28 +177,6 @@ class ConfigTests(_Built):
         self.assertEqual(self.config_of(answer)["lang"], "ar")
         self.assertEqual(self.config_of(answer)["theme"], "dark")
         self.assertIn('lang="ar" dir="rtl" data-theme="dark"', page)
-
-
-class CheckInTests(_Built):
-    def test_when_the_check_in_screen_is_due_the_person_goes_to_the_classic_interface(self):
-        with mock.patch("dashboard.spa.attendance.gate_for", return_value={"kind": "check_in"}):
-            for path in ("/app/", "/app/notifications"):
-                answer = self.open(path)
-                self.assertEqual(answer.status_code, 302, path)
-                self.assertEqual(answer["Location"], "/?classic=1")
-
-    def test_the_reminders_that_can_be_put_off_are_the_classic_interfaces_too(self):
-        # The new app does not show them, and a forgotten check-out costs the whole day:
-        # whoever owes one works where it is shown.
-        for kind in ("check_out", "extra"):
-            with mock.patch("dashboard.spa.attendance.gate_for", return_value={"kind": kind}):
-                answer = self.open()
-                self.assertEqual(answer.status_code, 302, kind)
-                self.assertEqual(answer["Location"], "/?classic=1", kind)
-
-    def test_when_nothing_is_due_the_app_opens(self):
-        with mock.patch("dashboard.spa.attendance.gate_for", return_value=None):
-            self.assertEqual(self.open().status_code, 200)
 
 
 class BuiltAssetsTests(_Built):

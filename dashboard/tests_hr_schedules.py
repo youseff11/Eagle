@@ -650,10 +650,12 @@ class HandOnTests(_Sched):
             self.assertTrue(answer["Location"].startswith(path), answer["Location"])
             self.assertIn(kept, answer["Location"])
 
-    def test_the_classic_page_stays_reachable_and_the_flag_holder_keeps_it(self):
+    def test_the_old_way_back_is_gone_and_the_flag_holder_is_handed_on_to_the_attendance_pages(self):
         for name in ("hr_schedules", "hr_shifts", "hr_offices", "hr_devices", "hr_overtime"):
-            self.assertEqual(self.classic(name, classic=1).status_code, 200, name)
-            self.assertEqual(self.classic(name, who=self.flagged).status_code, 200, name)
+            self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
+            answer = self.classic(name, who=self.flagged)
+            self.assertEqual(answer.status_code, 302, name)
+            self.assertTrue(answer["Location"].startswith("/app/hr/"), answer["Location"])
 
     def test_a_post_to_a_classic_page_is_never_handed_on(self):
         browser = DjangoClient()

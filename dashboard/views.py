@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST, require_safe
 
 from . import (
     attendance, chatlists, clock, employees, galiases, identity, newui, payroll, performance, recruitment,
-    services, shiftpick, taskstart, wordcount,
+    services, shiftpick, spa, taskstart, wordcount,
 )
 from .forms import (
     AICheckForm,
@@ -185,19 +185,16 @@ def healthz(request):
 
 @login_required
 def home(request):
-    """Each role's own landing page.
+    """Each role's own landing page: the app's, which picks the person's own screen (``HomePage``).
 
-    ``/?classic=1`` is the way into the classic interface that never bounces: it is
-    passed on to the landing page, which a ported screen would otherwise hand on to
-    the new app. The new app uses it when something that only the classic pages can
-    show is waiting (the check-in screen, an assignment with a clock on it, a ringing
-    call); without it that hand-off and this one would send a person back and forth.
+    Only a checkout that never built the app is served the classic landing page.
     """
     user = request.user
+    if spa.built_assets() is not None:
+        return redirect("/app/")
 
     def landing(name):
-        url = reverse(f"dashboard:{name}")
-        return redirect(f"{url}?{newui.CLASSIC_PARAM}=1" if newui.wants_classic(request) else url)
+        return redirect(reverse(f"dashboard:{name}"))
 
     if user.is_admin_role:
         return landing("admin_overview")
@@ -860,13 +857,13 @@ def ops_team(request):
 # ---------------------------------------------------------------------------
 
 def _lead_hand_on(request, path):
-    """The leader's own pages in the new app once their ``lead`` screen is switched over; else ``None``.
+    """The leader's own pages in the app; else ``None`` (only when the app is not built).
 
-    Only a team leader is sent (the admin opens these pages to read them as they are, with no team of their own).
+    The admin has no team of their own: they are sent to the app's home, which is theirs.
     """
-    if not request.user.is_team_lead or not newui.hand_on(request, "lead"):
+    if not newui.hand_on(request, "lead"):
         return None
-    return redirect("/app" + path)
+    return redirect("/app" + path if request.user.is_team_lead else "/app/")
 
 
 @role_required(Role.TEAM_LEAD)
@@ -916,16 +913,13 @@ def lead_translators(request):
 
 
 def _translator_hand_on(request, path):
-    """The same page in the new app, for a translator whose screen was switched over; else ``None``.
+    """The same page in the app, for a translator; else ``None`` (only when the app is not built).
 
-    The desk, the payslip and the task page are one screen in the plan and one switch
-    (``translator_home``): a person who has the desk in the new app has all three there, and never a
-    mixture. Only a translator is sent: the admin may be switched on for the desk, but the classic task
-    page shows the admin what the translator's page leaves out, and that is what they open it for.
+    The desk, the payslip and the task page are one screen. The admin is sent to the app's home, which is theirs.
     """
-    if not request.user.is_translator or not newui.hand_on(request, "translator_home"):
+    if not newui.hand_on(request, "translator_home"):
         return None
-    return redirect("/app" + path)
+    return redirect("/app" + path if request.user.is_translator else "/app/")
 
 
 @role_required(Role.TRANSLATOR)
@@ -945,10 +939,9 @@ def translator_home(request):
 def task_detail(request, code):
     # The translator's own page is in the new app once their screen is switched over; the code goes into the
     # address only if it looks like one, and what the person may open is decided there (404 and audit).
-    handed = _translator_hand_on(request, f"/tasks/{code}") if _CHAT_CODE.fullmatch(code) else None
-    if handed is None and request.user.role in (Role.OPERATION, Role.TEAM_LEAD) and _CHAT_CODE.fullmatch(code):
-        # The operation's and the team leader's own pages, each by their own switch. Not the admin's: the classic
-        # page still has the chat inside it and the add-a-member box, which the admin opens it for.
+    handed = _translator_hand_on(request, f"/tasks/{code}") if request.user.is_translator and _CHAT_CODE.fullmatch(code) else None
+    if handed is None and request.user.role in (Role.OPERATION, Role.TEAM_LEAD, Role.ADMIN) and _CHAT_CODE.fullmatch(code):
+        # The operation's, the team leader's and the admin's own pages (the admin's has the add-a-member box).
         handed = _ops_hand_on(request, f"/tasks/{code}")
     if handed is not None:
         return handed
@@ -1313,6 +1306,8 @@ def client_form(request, code=None):
 
 @login_required
 def notifications(request):
+    if spa.built_assets() is not None:
+        return redirect("/app/notifications")
     items = request.user.notifications.all()[:100]
     Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
     return render(request, "shared/notifications.html", {"items": items})
@@ -1363,8 +1358,6 @@ def _pending_assignments():
 
 @admin_only
 def admin_settings(request):
-    # The switches that send people to the new interface live on this page: if the new page ever breaks, ``?classic=1`` is
-    # the way back to the one that has them.
     handed = _admin_hand_on(request, "/admin/settings")
     if handed is not None:
         return handed

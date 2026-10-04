@@ -115,16 +115,6 @@ class ListTests(_Records):
         self.assertEqual([row["id"] for row in body["clients"]], [robot.pk])
         self.assertEqual((body["show"], body["robots_count"], body["all_count"]), ("robots", 1, 2))
 
-    def test_the_numbers_agree_with_the_classic_page(self):
-        self.junk()
-        self.plain()
-        classic = self.get(self.admin, "dashboard:admin_clients", classic=1, q="")
-        body = _json(self.get(self.admin, LIST))
-        self.assertEqual(
-            (body["shown"], body["all_count"], body["robots_count"], [row["id"] for row in body["clients"]]),
-            (classic.context["shown"], classic.context["all_count"], classic.context["robots_count"], [c.pk for c in classic.context["clients"]]),
-        )
-
     def test_a_filter_that_is_not_one_is_a_400(self):
         for params in ({"show": "everything"}, {"q": "x" * 300}, {"q": "a\x00b"}):
             answer = self.get(self.admin, LIST, **params)
@@ -439,15 +429,6 @@ class HandOnTests(_Records):
         self.turn_on()
         answer = self.get(self.admin, "dashboard:admin_clients", show="everything", q="a" * 500)
         self.assertEqual(answer["Location"], "/app/admin/clients")
-
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        code = self.client_obj.code
-        pages = (("dashboard:admin_clients", None), ("dashboard:admin_client_new", None), ("dashboard:admin_client_edit", [code]))
-        for name, args in pages:
-            self.assertEqual(self.get(self.admin, name, args).status_code, 200, name)
-        self.turn_on()
-        for name, args in pages:
-            self.assertEqual(self.get(self.admin, name, args, classic=1).status_code, 200, name)
 
     def test_the_classic_delete_and_forms_already_open_are_answered_where_they_are(self):
         self.turn_on()

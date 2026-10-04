@@ -9,21 +9,16 @@ decide which people are sent to the new interface. Two rules follow from that, a
   stored secret before it leaves. Nothing here logs a value.
 * **The form decides.** The values go to the classic ``SettingsForm`` as its input, so every rule it has (an address must be an
   address, a list of aliases is cleaned, the alias list is Google's while Google is linked) is the rule here, and what the
-  classic page wrote down (``settings.update``, and the full switch map when it changed) is written down the same way.
-
-The switches are why the classic page stays reachable (``?classic=1``): if this page ever breaks, the admin is not locked out
-of the very setting that sends people to it.
+  classic page wrote down (``settings.update``) is written down the same way.
 
 Only the admin is answered. A GET changes nothing.
 """
 
-import copy
-import json
 
 from django.http import JsonResponse
 from django.urls import reverse
 
-from . import api_forms, galiases, identity, newui, services
+from . import api_forms, galiases, identity, services
 from .api_v1 import BadBody, _error, _object, _stamp, endpoint
 from .forms import SettingsForm
 from .models import AppSettings, Role
@@ -56,7 +51,6 @@ SECTIONS = (
             "rate_keywords", "group_creator_roles",
         )},),
     },
-    {"key": "newui", "icon": "layers", "ar": "الواجهة الجديدة", "en": "The new interface", "groups": ()},
     {
         "key": "whatsapp", "icon": "phone", "ar": "واتساب", "en": "WhatsApp",
         "groups": (
@@ -203,26 +197,23 @@ def _clean(value, conf):
     return value
 
 
-def _changed(form, values, switches_moved):
+def _changed(form, values):
     """Which boxes a save changed, as names only: a secret is "set" or "cleared", never its value.
 
     The audit row used to say only that settings were saved. A webhook secret cleared on purpose, by mistake or from a stolen
     session leaves the webhook open to anybody who knows its address, and nothing said so.
 
     Only boxes the request carried can have changed (the rest were filled from what is stored), which also keeps out the
-    fields the form cannot compare when it is filled in (it sets their starting value only for an empty form). The rollout
-    switches have a row of their own with the whole map, so here they are one word.
+    fields the form cannot compare when it is filled in (it sets their starting value only for an empty form).
     """
     out = []
     for name in form.changed_data:
-        if name not in values or name.startswith("newui_"):
+        if name not in values:
             continue
         if name in SECRET_FIELDS:
             out.append(f"{name}:{'set' if form.cleaned_data.get(name) else 'cleared'}")
         else:
             out.append(name)
-    if switches_moved:
-        out.append("newui")
     return ", ".join(out)[:500]
 
 
@@ -275,10 +266,6 @@ def settings(request):
         "ok": True,
         "fields": _fields(form),
         "sections": _sections(),
-        "newui": [
-            {"key": key, "ar": screen.ar, "en": screen.en, "roles": f"newui_{key}_roles", "users": f"newui_{key}_users"}
-            for key, screen in newui.SCREENS.items()
-        ],
         "status": {
             "whatsapp_saved": bool(conf.whatsapp_access_token and conf.whatsapp_phone_number_id),
             "email_saved": bool(conf.imap_host and conf.imap_user),
@@ -304,28 +291,19 @@ def settings(request):
 @endpoint("POST")
 @api_role_required(Role.ADMIN)
 def settings_save(request):
-    """Save what was changed. The form decides; the log gets what the classic page wrote, and the switch map when it moved."""
+    """Save what was changed. The form decides; the log gets what the classic page wrote."""
     conf = AppSettings.load()
-    switch_before = copy.deepcopy(conf.new_ui)
     try:
         body = _object(request)
         values = body.get("values", {})
         data = api_forms.form_data(SettingsForm, values, instance=conf, secrets=SECRET_FIELDS)
     except (BadBody, api_forms.BadValues):
         return _error(400, "bad_body")
-    # A screen's row is read only when this request carried it: an unticked box is not sent at all, so "nothing sent" must
-    # never be read as "everybody unticked".
-    for key in newui.SCREENS:
-        if f"newui_{key}_roles" in values or f"newui_{key}_users" in values:
-            data[f"{SettingsForm.NEW_UI_MARKER}_{key}"] = "1"
     form = SettingsForm(data, instance=conf)
     if not form.is_valid():
         return api_forms.invalid(form)
     form.save()
-    services.log(request.user, "settings.update", "", _changed(form, values, conf.new_ui != switch_before))
-    if conf.new_ui != switch_before:
-        # Who was sent to which interface: the one setting whose change moves people from page to page, written in full.
-        services.log(request.user, "settings.new_ui", "-", json.dumps(conf.new_ui, sort_keys=True))
+    services.log(request.user, "settings.update", "", _changed(form, values))
     if "mail_aliases_hidden" in form.changed_data:
         # A hidden address leaves the list now, not at the next sync.
         galiases.sync(force=True)

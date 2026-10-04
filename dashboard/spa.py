@@ -10,10 +10,8 @@ The built files come from Vite (``frontend/``, built into ``static/app/``) and a
 found through its manifest, so their hashed names never have to be written here.
 Until the app has been built the page says so instead of failing.
 
-The attendance screens are not part of the new app: when the check-in screen, or a
-check-out or extra-time reminder, is due, the person is sent to the classic interface,
-where it opens by itself. The reminders can be put off there, and ``newui.hand_on``
-keeps the classic page from handing the person back while one is still due.
+The check-in screen, and the check-out and extra-time reminders, are drawn by the app over every page
+(``AttendanceGate``); the page carries what they ask for on the first paint.
 
 The page carries a Content-Security-Policy. The app has no inline script or style, so
 the policy is strict: scripts and styles from this site (and the font stylesheet from
@@ -30,9 +28,8 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 from django.templatetags.static import static
-from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_safe
@@ -51,7 +48,12 @@ def built_assets():
 
     The URLs go through ``static()``, so in production they carry the hashed names
     that ``collectstatic`` made and a stylesheet can never be stale at the edge.
+
+    ``SPA_ASSETS_OFF`` (the test settings) says the app is not built whatever is on disk, so a test of a classic page does not
+    depend on whether the checkout happened to run ``npm run build``; a test of the app's side patches this function.
     """
+    if getattr(settings, "SPA_ASSETS_OFF", False):
+        return None
     try:
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -119,14 +121,6 @@ def content_security_policy(request):
 @ensure_csrf_cookie
 @require_safe
 def shell(request, path=""):
-    # The check-in screen may not be skipped, and a check-out or extra-time reminder costs the day when it is
-    # missed. The new app draws them itself for a person whose attendance screen is on; for everybody else only
-    # the classic interface shows them, so whoever owes one of them works there.
-    from . import newui
-
-    in_app = newui.gate_in_app(request.user)
-    if not in_app and attendance.gate_for(request.user):
-        return redirect(reverse("dashboard:home") + "?classic=1")
     assets = built_assets()
     if assets is None:
         return HttpResponse(
@@ -136,9 +130,9 @@ def shell(request, path=""):
             content_type="text/plain; charset=utf-8",
         )
     config = _config(request)
-    if in_app:
-        # What the screen asks right now, so it is on the first paint and not a beat later (as the classic page does).
-        config["gate"] = attendance.gate_for(request.user)
+    # The check-in screen may not be skipped, and a check-out or extra-time reminder costs the day when it is missed: the app
+    # draws them over every page. What the screen asks right now is on the first paint, not a beat later.
+    config["gate"] = attendance.gate_for(request.user)
     response = render(request, "app/shell.html", {"assets": assets, "app_config": config})
     response["Content-Security-Policy"] = content_security_policy(request)
     return response

@@ -314,14 +314,6 @@ class HandOnTests(_Tools):
             answer = self.get(self.admin, name)
             self.assertEqual((answer.status_code, answer["Location"]), (302, target), name)
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        names = ("dashboard:admin_simulate", "dashboard:admin_reset_tasks", "dashboard:admin_reset_mail")
-        for name in names:
-            self.assertEqual(self.get(self.admin, name).status_code, 200, name)
-        self.turn_on()
-        for name in names:
-            self.assertEqual(self.get(self.admin, name, classic=1).status_code, 200, name)
-
     def test_the_classic_forms_are_answered_where_they_are_even_with_the_switch(self):
         self.turn_on()
         browser = DjangoClient()

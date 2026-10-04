@@ -623,13 +623,6 @@ class HandOnTests(_Staff):
         for answer, target in pairs:
             self.assertEqual((answer.status_code, answer["Location"]), (302, target))
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        for name, args in (("dashboard:admin_users", None), ("dashboard:admin_user_new", None), ("dashboard:admin_user_edit", [self.tr.pk])):
-            self.assertEqual(self.get(self.admin, name, args).status_code, 200, name)
-        self.turn_on()
-        for name, args in (("dashboard:admin_users", None), ("dashboard:admin_user_new", None), ("dashboard:admin_user_edit", [self.tr.pk])):
-            self.assertEqual(self.get(self.admin, name, args, classic=1).status_code, 200, name)
-
     def test_a_person_that_does_not_exist_is_a_404_in_both_interfaces(self):
         self.turn_on()
         self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [999999]).status_code, 404)
@@ -650,18 +643,6 @@ class HandOnTests(_Staff):
         row = Shift.objects.get(user=self.tr)
         self.assertEqual((row.weekday, row.start_time, row.end_time, row.is_active, row.required_minutes, row.template_id), (0, time(9), time(17), True, 0, None))
         self.assertEqual(len(self.tr.active_shifts()), 1)
-
-    def test_the_classic_box_says_so_when_the_row_is_not_a_row_and_saves_nothing(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        for body in (
-            {"weekday": 0, "start_time": "", "end_time": "17:00"}, {"weekday": 0, "start_time": "09:00"}, {"weekday": 0},
-            {"weekday": 0, "start_time": "09:00", "end_time": "09:00"}, {"weekday": 9, "start_time": "09:00", "end_time": "17:00"},
-            {"start_time": "09:00", "end_time": "17:00"}, {"weekday": 0, "start_time": "99:99", "end_time": "17:00"},
-        ):
-            answer = browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), body, follow=True)
-            self.assertContains(answer, "اكتب اليوم ووقت البداية ووقت النهاية", msg_prefix=str(body))
-        self.assertFalse(Shift.objects.filter(user=self.tr).exists())
 
     def test_the_classic_box_and_the_new_door_make_the_same_row(self):
         browser = DjangoClient()

@@ -301,27 +301,6 @@ class OpsHandOnTests(_Switched):
         for bad in ("evil", "x&y=1", "//evil.example", "OPEN"):
             self.assertEqual(self.page(self.ops, "dashboard:ops_tasks", status=bad)["Location"], "/app/tasks", bad)
 
-    def test_the_admin_is_on_by_default_and_everybody_else_is_not(self):
-        self.assertEqual(self.page(self.admin, "dashboard:ops_tasks")["Location"], "/app/tasks")
-        self.assertEqual(self.page(self.ops, "dashboard:ops_tasks").status_code, 200)
-
-    def test_one_person_can_be_tried_before_the_role(self):
-        self.turn_on(users=[self.ops.pk])
-        self.assertEqual(self.page(self.ops, "dashboard:ops_team").status_code, 302)
-        other = User.objects.create_user("person_operation_b", password="pw", role=Role.OPERATION)
-        self.assertEqual(self.page(other, "dashboard:ops_team").status_code, 200)
-
-    def test_the_classic_page_opens_by_name_and_when_nothing_else_allows_the_new_one(self):
-        from unittest import mock
-
-        self.turn_on(roles=["operation", "admin"])
-        for user in (self.ops, self.admin):
-            self.assertEqual(self.page(user, "dashboard:ops_tasks", classic=1).status_code, 200, user.username)
-        with mock.patch("dashboard.newui.attendance.gate_for", return_value={"kind": "check_in"}):
-            self.assertEqual(self.page(self.ops, "dashboard:ops_tasks").status_code, 200)
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.page(self.ops, "dashboard:ops_tasks").status_code, 200)
-
     def test_a_role_the_screen_is_not_for_cannot_be_switched_on_for(self):
         from . import newui
 
@@ -1011,33 +990,8 @@ class OpsHandOnFormAndTaskTests(_Switched):
         made = Task.objects.get(title="Posted classic")
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/tasks/{made.code}/"))
 
-    def test_the_classic_form_opens_by_name(self):
-        self.turn_on(roles=["operation", "admin"])
-        for user in (self.ops, self.admin):
-            self.assertEqual(self.page(user, "dashboard:ops_task_new", classic=1).status_code, 200, user.username)
-
-    def test_the_task_page_goes_on_for_the_operation_and_for_nobody_else(self):
-        self.turn_on(roles=["operation", "admin", "team_lead"])
-        answer = self.page(self.ops, "dashboard:task_detail", [self.task.code])
-        self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/tasks/{self.task.code}"))
-        # The classic page has the leader's tools and the AI notes that the new page does not: those who use them stay.
-        for user in (self.admin, self.lead):
-            self.assertEqual(self.page(user, "dashboard:task_detail", [self.task.code]).status_code, 200, user.username)
-        self.assertEqual(self.page(self.ops, "dashboard:task_detail", [self.task.code], classic=1).status_code, 200)
-
     def test_a_code_that_is_not_one_is_not_carried_into_the_address(self):
         self.turn_on(roles=["operation"])
         for odd in ("we.ird", "x" * 41, "a:b"):
             answer = self.page(self.ops, "dashboard:task_detail", [odd])
             self.assertEqual(answer.status_code, 404, odd)
-
-    def test_the_translators_task_page_still_goes_on_by_its_own_switch(self):
-        from .models import AppSettings
-
-        conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": ["translator"], "users": []}}
-        conf.save()
-        answer = self.page(self.tr, "dashboard:task_detail", [self.task.code])
-        self.assertEqual(answer["Location"], f"/app/tasks/{self.task.code}")
-        # The operation's switch is not on: the operation keeps the classic page.
-        self.assertEqual(self.page(self.ops, "dashboard:task_detail", [self.task.code]).status_code, 200)

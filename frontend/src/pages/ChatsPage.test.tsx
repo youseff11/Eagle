@@ -316,18 +316,6 @@ describe("a conversation", () => {
     expect(await screen.findByText("حصلت مشكلة في التحميل.")).toBeInTheDocument();
   });
 
-  it("says what is still done in the classic page, and points at it by an address on this site only", async () => {
-    render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "/ops/chats/CL-0001/" }), messages: [] } });
-    const link = await screen.findByRole("link", { name: "افتح المحادثة هناك" });
-    expect(link).toHaveAttribute("href", "/ops/chats/CL-0001/");
-    expect(screen.getByText(/لو محتاج حاجة مش هنا/)).toBeInTheDocument();
-  });
-
-  it("never offers to open a classic page that is not on this site", async () => {
-    render("/chats/CL-0001", { thread: { client: row("CL-0001", { url: "https://evil.example/" }), messages: [] } });
-    await screen.findByText(/لو محتاج حاجة مش هنا/);
-    expect(screen.queryByRole("link", { name: "افتح المحادثة هناك" })).not.toBeInTheDocument();
-  });
 });
 
 describe("what 'read' is about", () => {

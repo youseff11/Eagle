@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLASSIC_HOME, navigation } from "../lib/navigation";
+import { navigation } from "../lib/navigation";
 import { jsonResponse } from "../test/helpers";
 import { useHeartbeat } from "./useHeartbeat";
 
@@ -41,16 +41,6 @@ describe("useHeartbeat", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(100);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("sends the person to the classic interface when the check-in screen is due", async () => {
-    answer = { ok: true, attendance: { kind: "check_in" }, pending: null, call: null };
-    renderHook(() => useHeartbeat(4000));
-    await vi.advanceTimersByTimeAsync(0);
-    // Not "/": that would be handed straight back to the new app for a person whose screen has been
-    // ported, and they would go back and forth without ever seeing the check-in screen.
-    expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-    expect(CLASSIC_HOME).toBe("/?classic=1");
   });
 
   describe("a call that is ringing", () => {
@@ -99,14 +89,6 @@ describe("useHeartbeat", () => {
       expect(calls).toEqual([CALL]);
     });
 
-    it("still sends the person to the classic interface for a check-in this app does not draw, call or no call", async () => {
-      const calls: unknown[] = [];
-      answer = { ok: true, attendance: { kind: "check_in" }, attendance_screen: false, pending: null, call: CALL };
-      renderHook(() => useHeartbeat(4000, undefined, undefined, undefined, (call) => calls.push(call)));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-      expect(calls).toEqual([]);
-    });
   });
 
   it("keeps the person here for an assignment waiting for an answer: this app draws the accept screen itself", async () => {
@@ -139,26 +121,6 @@ describe("useHeartbeat", () => {
     expect(heard).toEqual([PENDING]);
     await vi.advanceTimersByTimeAsync(4000);
     expect(heard).toEqual([PENDING, PENDING]);
-  });
-
-  it("does not tell a hand-off to a person who is being sent to the classic interface", async () => {
-    const heard: unknown[] = [];
-    answer = { ok: true, attendance: { kind: "check_in" }, pending: PENDING, call: null };
-    renderHook(() => useHeartbeat(4000, undefined, (pending) => heard.push(pending)));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-    expect(heard).toEqual([]);
-  });
-
-  it("sends the person away for the check-out and extra-time reminders too, which only the classic interface shows", async () => {
-    for (const kind of ["check_out", "extra"]) {
-      vi.mocked(navigation.assign).mockClear();
-      answer = { ok: true, attendance: { kind }, pending: null, call: null };
-      const { unmount } = renderHook(() => useHeartbeat(4000));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign, kind).toHaveBeenCalledWith("/?classic=1");
-      unmount();
-    }
   });
 
   describe("the check-in screen, when this app draws it", () => {
@@ -202,15 +164,6 @@ describe("useHeartbeat", () => {
       expect(heard).toEqual([GATE]);
     });
 
-    it("still sends the person to the classic interface when it is not this app that draws it", async () => {
-      const heard: unknown[] = [];
-      answer = { ok: true, attendance: GATE, attendance_screen: false, pending: null, call: null };
-      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-      expect(heard).toEqual([]);
-    });
-
     it("tells nothing is asked to a person whose screen is not drawn here and who owes nothing", async () => {
       const heard: unknown[] = [];
       answer = { ok: true, attendance: null, attendance_screen: false, pending: null, call: null };
@@ -218,15 +171,6 @@ describe("useHeartbeat", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(heard).toEqual([null]);
       expect(navigation.assign).not.toHaveBeenCalled();
-    });
-
-    it("never takes the word of an answer that does not say who draws it", async () => {
-      const heard: unknown[] = [];
-      answer = { ok: true, attendance: GATE, pending: null, call: null };
-      renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-      expect(heard).toEqual([]);
     });
 
   });
@@ -306,15 +250,5 @@ describe("useHeartbeat", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2); // no extra beat from the re-render
     });
 
-    it("does not call back for a person being sent to the classic interface", async () => {
-      const onLive = vi.fn();
-      beatWith("aaa");
-      renderHook(() => useHeartbeat(4000, onLive));
-      await vi.advanceTimersByTimeAsync(0);
-      answer = { ok: true, attendance: { kind: "check_in" }, pending: null, call: null, live: "ccc" };
-      await vi.advanceTimersByTimeAsync(4000);
-      expect(navigation.assign).toHaveBeenCalledWith("/?classic=1");
-      expect(onLive).not.toHaveBeenCalled();
-    });
   });
 });

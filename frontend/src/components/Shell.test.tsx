@@ -148,12 +148,14 @@ describe("Shell", () => {
     expect(container.querySelector(".realtime-dot")).toHaveAttribute("data-state", "closed");
   });
 
-  it("offers the way back to the classic interface", async () => {
+  it("has no way back to the classic interface and no home line: the logo goes to the app", async () => {
     const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
     await screen.findByText("Nour");
-    const link = within(container.querySelector(".sidebar") as HTMLElement).getByRole("link", { name: "الواجهة الحالية" });
-    // A plain link, not a router link: it leaves the app for the classic pages.
-    expect(link).toHaveAttribute("href", "/?classic=1");
+    const sidebar = container.querySelector(".sidebar") as HTMLElement;
+    expect(sidebar.querySelector('a[href="/?classic=1"]')).toBeNull();
+    expect(within(sidebar).queryByText("الواجهة الحالية")).toBeNull();
+    expect(sidebar.querySelector('a[href="/"]')).toBeNull();
+    expect(sidebar.querySelector('a.brand[href="/app/"]')).not.toBeNull();
   });
 
   it("lists a ported screen in the menu only when the server switched it on for this person", async () => {
@@ -258,8 +260,8 @@ describe("Shell", () => {
       "/api/v1/me/": () => jsonResponse({ ...me({ role: "translator" }), screens: ["no_such_screen", "constructor", "translator_home"] }),
     });
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toBeNull());
-    // home, my work, my payroll (the same screen's other page), notifications, classic
-    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(5);
+    // my work, my payroll (the same screen's other page), notifications
+    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(3);
     expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toBeNull();
   });
 
@@ -290,7 +292,7 @@ describe("Shell", () => {
     it("lists the mail, the tasks, the teams and the client codes in the classic menu's order", async () => {
       const view = at("/inbox", () => opsMe());
       await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-      expect(links(view.container).slice(0, 6)).toEqual(["/", "/inbox", "/tasks", "/team", "/clients", "/chats"]);
+      expect(links(view.container)).toEqual(["/inbox", "/tasks", "/team", "/clients", "/chats", "/notifications"]);
       expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلات واردة")).toBeInTheDocument();
       expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
     });
@@ -407,7 +409,7 @@ describe("Shell: the Sales screen", () => {
   it("lists their mail, their number and mail, and the client codes in the classic menu's words, then the chats", async () => {
     const view = at("/inbox", ["sales", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 5)).toEqual(["/", "/inbox", "/line", "/clients", "/chats"]);
+    expect(links(view.container)).toEqual(["/inbox", "/line", "/clients", "/chats", "/notifications"]);
     expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/line"]') as HTMLElement).getByText("رقمي وإيميلي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
@@ -470,7 +472,7 @@ describe("Shell: the team leader's screen", () => {
   it("lists their tasks, who is free and the client codes in the classic menu's words, then the chats", async () => {
     const view = at("/lead", ["lead", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 6)).toEqual(["/", "/lead", "/lead/translators", "/clients", "/reviewer/tests", "/chats"]);
+    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/clients", "/reviewer/tests", "/chats", "/notifications"]);
     expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
   });
@@ -530,9 +532,13 @@ describe("Shell: the admin's panel", () => {
   it("lists every page of the panel in the classic menu's order and words, the two that delete last and in red, then the chats", async () => {
     const view = at("/admin", ["admin", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/audit"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 10)).toEqual([
-      "/", "/admin", "/admin/clients", "/admin/users", "/admin/settings", "/admin/simulate", "/admin/audit",
-      "/admin/reset-mail", "/admin/reset-tasks", "/chats",
+    // The panel first, the chats after it, and the two that delete for good last of all, in a section of their own.
+    expect(links(view.container)).toEqual([
+      "/admin", "/admin/clients", "/admin/users", "/admin/settings", "/admin/simulate", "/admin/audit",
+      "/chats", "/notifications", "/admin/reset-mail", "/admin/reset-tasks",
+    ]);
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
+      "لوحة الأدمن", "التواصل", "منطقة الخطر",
     ]);
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/admin/users", "المستخدمين والشيفتات"],
@@ -566,13 +572,6 @@ describe("Shell: the admin's panel", () => {
       view.unmount();
     }
   });
-
-  it("draws none of it for an admin who has not switched it on, and keeps the way to the classic panel", async () => {
-    const view = at("/admin", ["chats"]);
-    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
-    for (const href of ["/admin", "/admin/audit"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
-    expect(view.container.querySelector('.sidebar a[href="/?classic=1"]')).not.toBeNull();
-  });
 });
 
 describe("Shell: the money screens", () => {
@@ -597,13 +596,13 @@ describe("Shell: the money screens", () => {
   it("gives accounting the sheet and the deductions, and keeps attendance and the rules for the admin", async () => {
     const view = at("/accounts", ["accounts", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/accounts/violations"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 4)).toEqual(["/", "/accounts", "/accounts/violations", "/chats"]);
+    expect(links(view.container)).toEqual(["/accounts", "/accounts/violations", "/chats", "/notifications"]);
     expect(links(view.container)).not.toContain("/accounts/attendance");
     expect(links(view.container)).not.toContain("/accounts/rules");
     view.unmount();
     const admin = at("/accounts", ["accounts", "chats"], "admin");
     await waitFor(() => expect(admin.container.querySelector('.sidebar a[href="/accounts/rules"]')).not.toBeNull());
-    expect(links(admin.container).slice(0, 6)).toEqual(["/", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/rules", "/chats"]);
+    expect(links(admin.container)).toEqual(["/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/rules", "/chats", "/notifications"]);
   });
 
   it("titles every page and lights exactly one line on each", async () => {
@@ -659,14 +658,16 @@ describe("Shell: human resources", () => {
   it("lists the pages for HR in the classic menu's three groups, recruitment first, then the chats", async () => {
     const view = at("/hr/attendance", ["hr", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/devices"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 21)).toEqual([
-      "/", "/hr/recruitment", "/hr/candidates", "/hr/vacancies",
+    expect(links(view.container)).toEqual([
+      "/hr/recruitment", "/hr/candidates", "/hr/vacancies",
       "/hr/employees", "/hr/attendance", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/report", "/hr/probation",
       "/hr/performance", "/hr/complaints", "/hr/salary-requests",
       "/hr/offices", "/hr/devices", "/hr/recruitment/settings", "/hr/questions", "/chats", "/notifications",
     ]);
     // Each group has its heading, and the heading comes before the group's first line.
-    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["التوظيف", "الموظفين", "الإعدادات"]);
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
+      "التوظيف", "الموظفين والحضور", "إعدادات الموارد البشرية", "التواصل",
+    ]);
     // The salary plans move money: the admin's line, not HR's.
     expect(links(view.container)).not.toContain("/hr/salary-plans");
     // The hiring decision and the tests are the owner's: HR does not have those lines.
@@ -720,7 +721,7 @@ describe("Shell: human resources", () => {
   it("gives the admin the same lines once ticked", async () => {
     const view = at("/hr/report", ["hr"], "admin");
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/report"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 4)).toEqual(["/", "/hr/recruitment", "/hr/candidates", "/hr/vacancies"]);
+    expect(links(view.container).slice(0, 5)).toEqual(["/hr/recruitment", "/hr/candidates", "/hr/vacancies", "/hr/approvals", "/reviewer/tests"]);
     // ...and the owner's own line, the salary plans, which HR does not have.
     expect(links(view.container)).toContain("/hr/salary-plans");
     // ...and the owner's hiring decisions and the candidate tests, which are theirs too.

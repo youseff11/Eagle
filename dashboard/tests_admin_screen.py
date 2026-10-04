@@ -70,32 +70,11 @@ class _Admin(_Site):
 
 
 class ScreenSwitchTests(_Admin):
-    def test_the_screen_is_the_admins_alone_and_the_admin_is_not_on_it_until_they_say_so(self):
-        screen = newui.SCREENS["admin"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects, screen.admin_default), ("admin_overview", "/admin", True, False))
-        self.assertEqual(screen.roles, ())
-        self.assertEqual(screen.eligible_roles, ("admin",))
-        self.assertFalse(newui.enabled(self.admin, "admin"))
-        self.turn_on()
-        self.assertTrue(newui.enabled(self.admin, "admin"))
-
     def test_no_other_role_or_person_can_be_switched_on_for_it(self):
         self.turn_on(roles=["admin", "operation", "team_lead"], users=[self.ops.pk, self.lead.pk])
         for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
             self.assertFalse(newui.enabled(user, "admin"), user.username)
             self.assertNotIn("admin", _json(self.get(user, "dashboard:v1_me"))["screens"], user.username)
-
-    def test_the_menu_lists_it_for_the_admin_once_it_is_on(self):
-        self.assertNotIn("admin", _json(self.get(self.admin, "dashboard:v1_me"))["screens"])
-        self.turn_on()
-        self.assertEqual(_json(self.get(self.admin, "dashboard:v1_me"))["screens"][0], "admin")
-
-    def test_the_settings_page_still_offers_the_switch_to_the_admin(self):
-        self.turn_on()
-        page = self.get(self.admin, "dashboard:admin_settings", classic=1)
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "newui_admin_roles")
-
 
 class OverviewDoorTests(_Admin):
     def test_the_admin_is_answered_and_everybody_else_is_refused(self):
@@ -194,19 +173,6 @@ class OverviewDoorTests(_Admin):
         self.assertTrue(all(row["status"]["value"] for row in rows))
         self.assertIn("title", rows[0])
 
-    def test_it_lists_what_the_classic_page_lists(self):
-        self.hold_back()
-        self.task.deadline = timezone.now() - timedelta(hours=1)
-        self.task.save()
-        other = Task.objects.create(client=self.client_obj, title="Offered", created_by=self.ops, team_lead=self.lead, status=TaskStatus.LEAD_ACCEPTED)
-        services.assign_to_translator(other, self.tr, self.lead)
-        classic = self.get(self.admin, "dashboard:admin_overview", classic=1)
-        body = _json(self.get(self.admin, OVERVIEW))
-        self.assertEqual([row["id"] for row in body["blocked"]], [m.pk for m in classic.context["blocked"]])
-        self.assertEqual([row["code"] for row in body["late"]], [t.code for t in classic.context["late_tasks"]])
-        self.assertEqual([row["code"] for row in body["recent"]], [t.code for t in classic.context["recent_tasks"]])
-        self.assertEqual([row["id"] for row in body["pending"]], [a.pk for a in classic.context["pending"]])
-
     def test_a_get_changes_nothing_not_even_the_log(self):
         self.hold_back()
         before = (AuditLog.objects.count(), InboundMessage.objects.count(), Task.objects.count())
@@ -289,19 +255,6 @@ class AuditDoorTests(_Admin):
         ids = [row["id"] for row in rows]
         self.assertEqual(ids, sorted(ids, reverse=True))
 
-    def test_the_filters_are_the_classic_pages(self):
-        self.entry("client.identity.view", target="a")
-        self.entry(identity.ACCESS_DENIED, target="b")
-        self.entry("task.created", target="c")
-        everything = _json(self.get(self.admin, AUDIT))["rows"]
-        security = _json(self.get(self.admin, AUDIT, only="security"))["rows"]
-        denied = _json(self.get(self.admin, AUDIT, only="denied"))["rows"]
-        self.assertIn("c", [row["target"] for row in everything])
-        self.assertEqual({row["target"] for row in security}, {"a", "b"})
-        self.assertEqual({row["target"] for row in denied}, {"b"})
-        classic = self.get(self.admin, "dashboard:admin_audit", classic=1, only="security")
-        self.assertEqual([row["id"] for row in security], [entry.pk for entry in classic.context["logs"]])
-
     def test_a_filter_that_is_not_one_is_a_400_and_not_a_full_log(self):
         for value in ("everything", "SECURITY", "denied;", "x" * 500):
             answer = self.get(self.admin, AUDIT, only=value)
@@ -356,28 +309,21 @@ class HandOnTests(_Admin):
         for value in ("", "bogus", "se curity", "<script>"):
             self.assertEqual(self.get(self.admin, "dashboard:admin_audit", only=value)["Location"], "/app/admin/audit", value)
 
-    def test_without_the_switch_and_by_name_the_classic_pages_open(self):
-        for name in ("dashboard:admin_overview", "dashboard:admin_audit"):
-            self.assertEqual(self.get(self.admin, name).status_code, 200, name)
-        self.turn_on()
-        for name in ("dashboard:admin_overview", "dashboard:admin_audit"):
-            self.assertEqual(self.get(self.admin, name, classic=1).status_code, 200, name)
-
-    def test_home_lands_on_the_new_overview_and_classic_home_does_not_bounce(self):
-        self.turn_on()
+    def test_home_lands_in_the_app_and_a_classic_parameter_changes_nothing(self):
         browser = DjangoClient()
         browser.force_login(self.admin)
-        self.assertEqual(browser.get("/", follow=True).redirect_chain[-1][0], "/app/admin")
-        landing = browser.get("/", {"classic": "1"}, follow=True)
-        self.assertEqual(landing.status_code, 200)
-        self.assertNotIn("/app/admin", [step[0] for step in landing.redirect_chain])
+        self.assertEqual(browser.get("/")["Location"], "/app/")
+        self.assertEqual(browser.get("/", {"classic": "1"})["Location"], "/app/")
+        # A checkout that never built the app is the one place the classic landing page is still served.
+        with mock.patch("dashboard.newui.spa.built_assets", return_value=None), mock.patch("dashboard.views.spa.built_assets", return_value=None):
+            self.assertEqual(browser.get("/")["Location"], reverse("dashboard:admin_overview"))
 
     def test_a_build_that_does_not_exist_hands_nobody_on(self):
         self.turn_on()
         with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
             self.assertEqual(self.get(self.admin, "dashboard:admin_overview").status_code, 200)
 
-    def test_every_page_of_the_classic_panel_goes_on_and_every_one_opens_by_name(self):
+    def test_every_page_of_the_classic_panel_goes_on(self):
         """The whole panel is in the new app: nothing the admin used to open is left only in the classic interface."""
         pages = {
             "dashboard:admin_overview": "/app/admin", "dashboard:admin_audit": "/app/admin/audit",
@@ -386,11 +332,11 @@ class HandOnTests(_Admin):
             "dashboard:admin_settings": "/app/admin/settings", "dashboard:admin_simulate": "/app/admin/simulate",
             "dashboard:admin_reset_tasks": "/app/admin/reset-tasks", "dashboard:admin_reset_mail": "/app/admin/reset-mail",
         }
-        self.turn_on()
         for name, target in pages.items():
             answer = self.get(self.admin, name)
             self.assertEqual((answer.status_code, answer["Location"]), (302, target), name)
-            self.assertEqual(self.get(self.admin, name, classic=1).status_code, 200, name)
+            # The old way back to the classic page is not a thing any more.
+            self.assertEqual(self.get(self.admin, name, classic=1)["Location"], target, name)
         # The pages that take an argument.
         self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk])["Location"], f"/app/admin/users/{self.tr.pk}")
         self.assertEqual(self.get(self.admin, "dashboard:admin_client_edit", [self.client_obj.code])["Location"], f"/app/admin/clients/{self.client_obj.code}/edit")

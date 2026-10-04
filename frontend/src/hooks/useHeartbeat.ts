@@ -1,31 +1,9 @@
 import { useEffect, useRef } from "react";
 import { api } from "../api/client";
 import type { AttendanceGate, CallInfo, HeartbeatResponse, PendingAssignment } from "../api/types";
-import { CLASSIC_HOME, navigation } from "../lib/navigation";
 
 /** Larger than any notification id, so the answer carries no notification rows. */
 const NO_NOTIFICATIONS = 9007199254740991;
-
-/**
- * Whether the answer says something is waiting that only the classic interface can show.
- *
- *  - an attendance screen, when this app does not draw it for this person (`attendance_screen`: their attendance
- *    screen is not switched on): the mandatory check-in, which may not be skipped, and the check-out and
- *    extra-time reminders, which a person who never sees them pays for with the whole day. An answer that does
- *    not say who draws it (an older server) is the classic interface's.
- *
- * A call that is ringing is not on the list any more: this app rings it and draws it itself, over whatever page the person
- * is on (`CallOverlay`, `lib/calls.ts`).
- *
- * An assignment waiting for an answer is not on the list any more: its 60-second accept screen is drawn
- * by this app itself, over whatever page the person is on (`AssignmentModal`).
- *
- * The classic reminders can be put off, and the server does not hand a person back to this
- * app while one is still due (`newui.hand_on`), so sending them away cannot loop.
- */
-export function needsClassicInterface(answer: HeartbeatResponse): boolean {
-  return Boolean(answer.attendance) && answer.attendance_screen !== true;
-}
 
 /**
  * The old pages' pulse, kept going while someone works in the new app.
@@ -74,14 +52,9 @@ export function useHeartbeat(
       busy = true;
       try {
         const answer = await api<HeartbeatResponse>(`/api/heartbeat/?after=${NO_NOTIFICATIONS}`);
-        if (needsClassicInterface(answer)) {
-          navigation.assign(CLASSIC_HOME);
-          return;
-        }
         onPendingRef.current?.(answer.pending ?? null);
         onCallRef.current?.(answer.call ?? null);
-        // Only for a person whose screen this app draws: for anybody else it was the classic interface's (above).
-        onGateRef.current?.(answer.attendance_screen === true ? (answer.attendance ?? null) : null);
+        onGateRef.current?.(answer.attendance ?? null);
         if (typeof answer.live === "string") {
           if (stamp !== null && answer.live !== stamp) onLiveRef.current?.();
           stamp = answer.live;

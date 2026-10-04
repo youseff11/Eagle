@@ -427,20 +427,6 @@ class MailHandOnTests(_Mail):
         self.assertEqual(self.get(self.ops, "dashboard:ops_inbox", state="mine&x=1")["Location"], "/app/inbox")
         self.assertEqual(self.get(self.ops, "dashboard:ops_inbox", q="a&x=1")["Location"], "/app/inbox?q=a%26x%3D1")
 
-    def test_the_operation_without_the_switch_and_the_classic_name_keep_the_classic_pages(self):
-        self.assertEqual(self.get(self.ops, "dashboard:ops_inbox").status_code, 200)
-        self.assertEqual(self.get(self.ops, "dashboard:ops_mail_thread", [self.second.pk]).status_code, 200)
-        self.turn_on(roles=["operation"])
-        self.assertEqual(self.get(self.ops, "dashboard:ops_inbox", classic=1).status_code, 200)
-        self.assertEqual(self.get(self.ops, "dashboard:ops_mail_thread", [self.second.pk], classic=1).status_code, 200)
-
-    def test_the_admin_is_on_by_default_and_the_sales_stay_on_the_classic_page_even_when_named(self):
-        self.assertEqual(self.get(self.admin, "dashboard:ops_inbox")["Location"], "/app/inbox")
-        self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-        # The screen is the operation's: the Sales have no pages of their own in the new app yet.
-        self.turn_on(users=[self.sales.pk])
-        self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
-
     def test_a_conversation_that_is_not_theirs_is_still_not_found_and_not_handed_on_to_open(self):
         self.turn_on(roles=["operation"])
         sales_letter = self.letter("Sales only", "mine", key="k13", owner=self.sales)
