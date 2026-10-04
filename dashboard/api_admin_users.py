@@ -89,21 +89,6 @@ def users(request):
     })
 
 
-def _picker_json(person):
-    """What the "which shift" card draws: the company's shifts, the one most of the roster points at, the working days."""
-    current = attendance.current_template(person)
-    working = set(person.shifts.filter(is_active=True).values_list("weekday", flat=True)) or set(attendance.DEFAULT_WORKDAYS)
-    return {
-        "current": current.pk if current else None,
-        "has_custom": person.shifts.filter(template__isnull=True).exists(),
-        "templates": [
-            {"id": template.pk, "label": template.label, "start": _time_json(template.start_time), "end": _time_json(template.end_time)}
-            for template in ShiftTemplate.objects.filter(is_active=True)
-        ],
-        "days": [{**_weekday_json(day), "checked": day in working} for day in attendance.WEEK_ORDER],
-    }
-
-
 @endpoint("GET")
 @api_role_required(Role.ADMIN)
 def user_new(request):
@@ -132,7 +117,7 @@ def user(request, pk):
             {"delta": str(event.delta), "reason": event.reason_ar, "at": _stamp(event.created_at, "%m-%d")}
             for event in person.rating_events.all()[:MAX_EVENTS]
         ],
-        "picker": _picker_json(person),
+        "picker": shiftpick.picker_json(person),
     })
 
 
@@ -214,19 +199,12 @@ def user_shift(request, pk):
         body = _object(request)
     except BadBody:
         return _error(400, "bad_body")
-    template, days = body.get("template", ""), body.get("weekdays", [])
-    if isinstance(template, int) and not isinstance(template, bool):
-        template = str(template)
-    texts = [body.get(name, "") for name in ("new_name", "new_start", "new_end")]
-    if (
-        not isinstance(template, str) or not isinstance(days, list) or len(days) > MAX_DAYS
-        or any(isinstance(day, bool) or not isinstance(day, (int, str)) for day in days)
-        or any(not isinstance(text, str) or len(text) > MAX_SHIFT_TEXT for text in texts)
-    ):
+    choice = shiftpick.read_choice(body)
+    if choice is None:
         return _error(400, "bad_body")
+    template, days, new_name, new_start, new_end = choice
     problem, chosen = shiftpick.choose(
-        person, template, [str(day) for day in days],
-        new_name=texts[0], new_start=texts[1], new_end=texts[2], actor=request.user,
+        person, template, days, new_name=new_name, new_start=new_start, new_end=new_end, actor=request.user,
     )
     if problem:
         return _error(400, problem)

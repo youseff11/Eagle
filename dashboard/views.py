@@ -3,7 +3,7 @@
 import copy
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 
 from django.contrib import messages as flash
@@ -1822,6 +1822,28 @@ def _accounts_hand_on(request, path, key="accounts", carry=()):
     return redirect("/app" + path + (f"?{urlencode(params)}" if params else ""))
 
 
+def _hr_hand_on(request, path, carry=(), key="hr"):
+    """The same HR page in the new app once the person's ``hr`` screen (or ``key``) is switched on; else ``None``.
+
+    A GET only. ``carry`` names the query parameters that go along when they hold something: the month is passed as the one
+    ``period=2026-9`` the new pages read (from the classic ``period`` or ``year`` and ``month``), anything else as it came,
+    only when it is short and printable. The new door checks every value again and refuses the ones it cannot read.
+    """
+    if request.method != "GET" or not newui.hand_on(request, key):
+        return None
+    params = {}
+    for name in carry:
+        if name == "period":
+            if any(key in request.GET for key in ("period", "year", "month")):
+                year, month = _requested_month(request)
+                params["period"] = f"{year}-{month}"
+            continue
+        value = request.GET.get(name, "")
+        if value and len(value) <= 80 and value.isprintable():
+            params[name] = value
+    return redirect("/app" + path + (f"?{urlencode(params)}" if params else ""))
+
+
 @accounting_only
 def accounts_overview(request):
     handed = _accounts_hand_on(request, "/accounts", carry=("period",))
@@ -2176,25 +2198,18 @@ def my_attendance(request):
 
 def _range_for(request):
     """Read ``?view=day|week|month`` and ``?date=`` into a real date range."""
-    mode = request.GET.get("view") or "day"
-    raw = request.GET.get("date") or ""
-    try:
-        anchor = datetime.strptime(raw, "%Y-%m-%d").date() if raw else timezone.localdate()
-    except ValueError:
-        anchor = timezone.localdate()
-
-    if mode == "week":
-        # Saturday-first, because the Egyptian working week is.
-        start = anchor - timedelta(days=(anchor.weekday() + 2) % 7)
-        return mode, anchor, start, start + timedelta(days=6)
-    if mode == "month":
-        return (mode, anchor) + payroll.month_bounds(anchor.year, anchor.month)
-    return mode, anchor, anchor, anchor
+    return payroll.board_range(request.GET.get("view") or "day", request.GET.get("date") or "")
 
 
 @hr_required
 def hr_attendance(request):
     """Everybody's attendance for a day, a week or a month, with filters."""
+    handed = _hr_hand_on(
+        request, "/hr/attendance",
+        carry=("view", "date", "user", "role", "mode", "status", "day_mode", "shift", "flagged"),
+    )
+    if handed is not None:
+        return handed
     mode, anchor, first_day, last_day = _range_for(request)
     # Days nobody checked out of stop counting here too, sweep or no sweep.
     attendance.expire_open_days()
@@ -2264,6 +2279,9 @@ def hr_attendance(request):
 def hr_attendance_day(request, pk):
     """One day, its punches, its corrections - and the form that adds more."""
     row = get_object_or_404(WorkDay.objects.select_related("user"), pk=pk)
+    handed = _hr_hand_on(request, f"/hr/attendance/{row.pk}")
+    if handed is not None:
+        return handed
     form = AttendanceEditForm(request.POST or None, instance=row)
 
     if request.method == "POST" and form.is_valid():
@@ -2304,6 +2322,9 @@ def hr_attendance_clear(request, pk):
 @hr_required
 def hr_report(request):
     """Section 12, for one person and one month."""
+    handed = _hr_hand_on(request, "/hr/report", carry=("period", "user"))
+    if handed is not None:
+        return handed
     year, month = _requested_month(request)
     first_day, last_day = payroll.month_bounds(year, month)
     people = User.objects.filter(is_active=True, attendance_enabled=True)
@@ -2331,6 +2352,9 @@ def hr_report(request):
 @hr_required
 def hr_schedules(request):
     """A person's standing roster, plus the one-off days that override it."""
+    handed = _hr_hand_on(request, "/hr/schedules", carry=("user",))
+    if handed is not None:
+        return handed
     people = User.objects.filter(is_active=True)
     person_id = request.GET.get("user") or request.POST.get("user")
     person = people.filter(pk=person_id).first() if person_id else people.first()
@@ -2340,7 +2364,10 @@ def hr_schedules(request):
     action = request.POST.get("action") if request.method == "POST" else ""
 
     if action == "shift" and person is not None:
-        shift_form = ShiftForm(request.POST)
+        # The box has no "switched on" tick, and a form that is not sent one reads it as off: a row saved that way never counted.
+        posted = request.POST.copy()
+        posted["is_active"] = "on"
+        shift_form = ShiftForm(posted)
         if shift_form.is_valid():
             row = shift_form.save(commit=False)
             row.user = person
@@ -2408,35 +2435,12 @@ def hr_override_delete(request, pk):
     return redirect(f"{reverse('dashboard:hr_schedules')}?user={person_id}")
 
 
-def _shift_usage(templates):
-    """Attach who leans on each company shift, so the page can say why one
-    cannot be deleted instead of letting the database refuse it.
-    """
-    people = dict(
-        Shift.objects.filter(template__isnull=False).order_by()
-        .values_list("template").annotate(n=Count("user", distinct=True))
-    )
-    overrides = dict(
-        ScheduleOverride.objects.filter(template__isnull=False).order_by()
-        .values_list("template").annotate(n=Count("id"))
-    )
-    vacancies = dict(
-        Vacancy.shifts.through.objects.values_list("shifttemplate_id")
-        .annotate(n=Count("vacancy_id"))
-    )
-    rows = list(templates)
-    for row in rows:
-        row.people_n = people.get(row.pk, 0)
-        row.overrides_n = overrides.get(row.pk, 0)
-        row.vacancies_n = vacancies.get(row.pk, 0)
-        row.in_use = bool(row.people_n or row.overrides_n or row.vacancies_n)
-        row.hours_txt = f"{row.minutes / 60:g}"
-    return rows
-
-
 @hr_required
 def hr_shifts(request):
     """The company's shifts: add one, change its hours, close it, delete it."""
+    handed = _hr_hand_on(request, "/hr/shifts", carry=("edit",))
+    if handed is not None:
+        return handed
     raw = request.GET.get("edit") or ""
     editing = ShiftTemplate.objects.filter(pk=raw).first() if raw.isdigit() else None
     form = ShiftTemplateForm(request.POST or None, instance=editing)
@@ -2452,7 +2456,7 @@ def hr_shifts(request):
     return render(request, "hr/shifts.html", {
         "form": form,
         "editing": editing,
-        "rows": _shift_usage(ShiftTemplate.objects.all()),
+        "rows": shiftpick.shift_usage(ShiftTemplate.objects.all()),
     })
 
 
@@ -2460,7 +2464,7 @@ def hr_shifts(request):
 @require_POST
 def hr_shift_template_delete(request, pk):
     row = get_object_or_404(ShiftTemplate, pk=pk)
-    if _shift_usage([row])[0].in_use:
+    if shiftpick.shift_usage([row])[0].in_use:
         flash.error(request, "الشيفت ده عليه موظفين أو جداول أو وظايف — اقفله من التعديل بدل ما تمسحه.")
     else:
         name = row.name
@@ -2473,7 +2477,9 @@ def hr_shift_template_delete(request, pk):
 @hr_required
 @require_POST
 def hr_template_add(request):
-    form = ShiftTemplateForm(request.POST)
+    form = shiftpick.new_template_form(
+        request.POST.get("name"), request.POST.get("name_ar"), request.POST.get("start_time"), request.POST.get("end_time"),
+    )
     if form.is_valid():
         form.save()
         services.log(request.user, "schedule.template.add")
@@ -2490,6 +2496,9 @@ def hr_offices(request):
     ``?edit=<id>`` puts an office in the form, so its place or its radius can
     be changed without deleting it and starting over.
     """
+    handed = _hr_hand_on(request, "/hr/offices", carry=("edit",))
+    if handed is not None:
+        return handed
     raw = request.GET.get("edit") or ""
     editing = OfficeLocation.objects.filter(pk=raw).first() if raw.isdigit() else None
     form = OfficeLocationForm(request.POST or None, instance=editing)
@@ -2520,6 +2529,9 @@ def hr_office_delete(request, pk):
 
 @hr_required
 def hr_devices(request):
+    handed = _hr_hand_on(request, "/hr/devices")
+    if handed is not None:
+        return handed
     return render(request, "hr/devices.html", {
         "pending": AuthorizedDevice.objects.filter(
             status=ApprovalStatus.PENDING
@@ -2548,6 +2560,9 @@ def hr_device_decide(request, pk, action):
 @hr_required
 def hr_overtime(request):
     """Extra hours waiting on a decision - the mirror of the violations page."""
+    handed = _hr_hand_on(request, "/hr/overtime")
+    if handed is not None:
+        return handed
     return render(request, "hr/overtime.html", {
         "pending": OvertimeClaim.objects.filter(
             status=ApprovalStatus.PENDING
@@ -2587,6 +2602,9 @@ def hr_overtime_decide(request, pk, action):
 @recruit_required
 def hr_recruitment(request):
     """Section 26, the pipeline at a glance."""
+    handed = _hr_hand_on(request, "/hr/recruitment")
+    if handed is not None:
+        return handed
     conf = RecruitmentSettings.load()
     return render(request, "hr/recruitment.html", {
         "conf": conf,
@@ -2607,6 +2625,9 @@ def hr_recruitment(request):
 
 @recruit_required
 def hr_vacancies(request):
+    handed = _hr_hand_on(request, "/hr/vacancies", carry=("status",))
+    if handed is not None:
+        return handed
     form = VacancyForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
@@ -2635,6 +2656,9 @@ def hr_vacancies(request):
 def hr_vacancy(request, code):
     """One vacancy: its details, and the questions the bot will ask for it."""
     vacancy = get_object_or_404(Vacancy.objects.select_related("department"), code=code)
+    handed = _hr_hand_on(request, f"/hr/vacancies/{vacancy.code}")
+    if handed is not None:
+        return handed
     form = VacancyForm(request.POST or None, instance=vacancy)
     action = request.POST.get("action") if request.method == "POST" else ""
 
@@ -2697,6 +2721,9 @@ def hr_vacancy_question_delete(request, pk):
 @recruit_required
 def hr_questions(request):
     """The central bank. HR writes the questions; the code never does."""
+    handed = _hr_hand_on(request, "/hr/questions", carry=("department", "edit"))
+    if handed is not None:
+        return handed
     editing = RecruitmentQuestion.objects.filter(pk=request.GET.get("edit")).first()
     form = RecruitmentQuestionForm(request.POST or None, instance=editing)
     if request.method == "POST" and form.is_valid():
@@ -2724,7 +2751,10 @@ def hr_questions(request):
 @recruit_required
 @require_POST
 def hr_department_add(request):
-    form = DepartmentForm(request.POST)
+    # The box has no "open" tick, and a form that is not sent one reads it as off: a department saved that way was invisible.
+    posted = request.POST.copy()
+    posted["is_active"] = "on"
+    form = DepartmentForm(posted)
     if form.is_valid():
         form.save()
         services.log(request.user, "recruitment.department.add", form.cleaned_data["name"])
@@ -2736,6 +2766,9 @@ def hr_department_add(request):
 
 @recruit_required
 def hr_candidates(request):
+    handed = _hr_hand_on(request, "/hr/candidates", carry=("status", "source", "vacancy", "q"))
+    if handed is not None:
+        return handed
     rows = Candidate.objects.select_related("vacancy", "department")
     for field in ("status", "source"):
         if request.GET.get(field):
@@ -2764,7 +2797,21 @@ def hr_candidate(request, code):
     candidate = get_object_or_404(
         Candidate.objects.select_related("vacancy", "department", "hired_user"), code=code
     )
-    form = CandidateForm(request.POST or None, request.FILES or None, instance=candidate)
+    handed = _hr_hand_on(request, f"/hr/candidates/{quote(candidate.code, safe='')}")
+    if handed is not None:
+        return handed
+    posted = request.POST
+    if request.method == "POST" and request.POST.get("action") == "save":
+        # The profile box does not draw the source, the vacancy, the department or the skills, so they never arrive: left out,
+        # the form refused the save for the missing source and said nothing. A box that was not drawn keeps what is stored.
+        posted = request.POST.copy()
+        for name, stored in (
+            ("source", candidate.source), ("vacancy", candidate.vacancy_id or ""),
+            ("department", candidate.department_id or ""), ("skills", candidate.skills),
+        ):
+            if name not in posted:
+                posted[name] = stored
+    form = CandidateForm(posted or None, request.FILES or None, instance=candidate)
     interview_form = InterviewForm()
     test_form = CandidateTestForm()
     message_form = CandidateMessageForm()
@@ -2856,6 +2903,9 @@ def hr_interview_score(request, pk):
     interview = get_object_or_404(
         Interview.objects.select_related("candidate"), pk=pk
     )
+    handed = _hr_hand_on(request, f"/hr/interviews/{interview.pk}")
+    if handed is not None:
+        return handed
     form = InterviewScoreForm(request.POST or None, instance=interview)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
@@ -2879,6 +2929,9 @@ def hr_interview_score(request, pk):
 @reviewer_required
 def reviewer_tests(request):
     """The reviewer's own queue - tests and nothing else (section 24)."""
+    handed = _hr_hand_on(request, "/reviewer/tests", key="reviewer")
+    if handed is not None:
+        return handed
     mine = CandidateTest.objects.select_related("candidate", "department")
     if not request.user.is_admin_role:
         mine = mine.filter(Q(reviewer=request.user) | Q(reviewer__isnull=True))
@@ -2891,6 +2944,9 @@ def reviewer_tests(request):
 @reviewer_required
 def hr_test_score(request, pk):
     test = get_object_or_404(CandidateTest.objects.select_related("candidate"), pk=pk)
+    handed = _hr_hand_on(request, f"/reviewer/tests/{test.pk}", key="reviewer")
+    if handed is not None:
+        return handed
     form = TestScoreForm(request.POST or None, request.FILES or None, instance=test)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
@@ -2920,6 +2976,9 @@ def hr_test_score(request, pk):
 @owner_required
 def hr_approvals(request):
     """Section 16. The owner's queue, and the only place a hire is decided."""
+    handed = _hr_hand_on(request, "/hr/approvals")
+    if handed is not None:
+        return handed
     return render(request, "hr/approvals.html", {
         "waiting": Candidate.objects.filter(
             status=CandidateStatus.OWNER_APPROVAL
@@ -2952,7 +3011,10 @@ def hr_hire(request, code):
     candidate = get_object_or_404(
         Candidate.objects.select_related("vacancy", "department"), code=code
     )
-    form = HireForm(request.POST or None, initial={
+    handed = _hr_hand_on(request, f"/hr/candidates/{quote(candidate.code, safe='')}/hire")
+    if handed is not None:
+        return handed
+    form = HireForm(request.POST or None, actor=request.user, initial={
         "job_title": candidate.vacancy.title if candidate.vacancy else "",
         "joining_date": timezone.localdate(),
     })
@@ -2979,6 +3041,9 @@ def hr_hire(request, code):
 
 @recruit_required
 def hr_employees(request):
+    handed = _hr_hand_on(request, "/hr/employees", carry=("department", "status"))
+    if handed is not None:
+        return handed
     rows = User.objects.filter(is_active=True).select_related("department", "team_lead")
     if request.GET.get("department"):
         rows = rows.filter(department_id=request.GET["department"])
@@ -3094,6 +3159,9 @@ def hr_employee(request, pk):
     person = get_object_or_404(
         User.objects.select_related("department", "team_lead"), pk=pk
     )
+    handed = _hr_hand_on(request, f"/hr/employees/{person.pk}")
+    if handed is not None:
+        return handed
     today = timezone.localdate()
     first_day, last_day = payroll.month_bounds(today.year, today.month)
     return render(request, "hr/employee.html", {
@@ -3115,6 +3183,9 @@ def hr_employee(request, pk):
 
 @recruit_required
 def hr_recruitment_settings(request):
+    handed = _hr_hand_on(request, "/hr/recruitment/settings")
+    if handed is not None:
+        return handed
     conf = RecruitmentSettings.load()
     form = RecruitmentSettingsForm(request.POST or None, instance=conf)
     if request.method == "POST" and form.is_valid():
@@ -3141,6 +3212,9 @@ def hr_recruitment_settings(request):
 @login_required
 def my_leave(request):
     """Anybody's own leave: the balance, the history, and the form to ask."""
+    handed = _hr_hand_on(request, "/leave", key="leave")
+    if handed is not None:
+        return handed
     person = request.user
     today = timezone.localdate()
     form = LeaveRequestForm(request.POST or None)
@@ -3174,6 +3248,9 @@ def my_leave(request):
 @hr_required
 def hr_leave(request):
     """The queue. What somebody can do to a row depends on where it is."""
+    handed = _hr_hand_on(request, "/hr/leave", carry=("user", "status"))
+    if handed is not None:
+        return handed
     rows = LeaveRequest.objects.select_related("user", "manager", "hr_decision_by")
     if request.GET.get("status"):
         rows = rows.filter(status=request.GET["status"])
@@ -3229,6 +3306,9 @@ def leave_cancel(request, pk):
 @hr_required
 def hr_probation(request):
     """Section 19: who is on probation and which reviews have come due."""
+    handed = _hr_hand_on(request, "/hr/probation", carry=("state",))
+    if handed is not None:
+        return handed
     rows = ProbationReview.objects.select_related("user", "reviewer").filter(
         user__is_active=True
     )
@@ -3289,6 +3369,9 @@ def probation_open(request, pk):
 @recruit_required
 def hr_performance(request):
     """Section 20, for one person and one month."""
+    handed = _hr_hand_on(request, "/hr/performance", carry=("period", "user"))
+    if handed is not None:
+        return handed
     year, month = _requested_month(request)
     people = User.objects.filter(is_active=True, role=Role.TRANSLATOR)
     person_id = request.GET.get("user")
@@ -3312,6 +3395,9 @@ def hr_performance(request):
 
 @recruit_required
 def hr_complaints(request):
+    handed = _hr_hand_on(request, "/hr/complaints", carry=("translator",))
+    if handed is not None:
+        return handed
     form = ClientComplaintForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         row = form.save(commit=False)
@@ -3348,6 +3434,9 @@ def complaint_resolve(request, pk):
 @admin_only
 def hr_salary_plans(request):
     """Section 23's plans. Owner-only: they move money."""
+    handed = _hr_hand_on(request, "/hr/salary-plans", carry=("edit",))
+    if handed is not None:
+        return handed
     editing = SalaryPlan.objects.filter(pk=request.GET.get("edit")).first()
     form = SalaryPlanForm(request.POST or None, instance=editing)
     if request.method == "POST" and form.is_valid():
@@ -3388,6 +3477,9 @@ def assign_salary_plan(request, pk):
 @recruit_required
 def hr_salary_requests(request):
     """HR asks here; the owner decides here. Nobody edits a salary directly."""
+    handed = _hr_hand_on(request, "/hr/salary-requests", carry=("user",))
+    if handed is not None:
+        return handed
     people = User.objects.filter(is_active=True)
     person = people.filter(pk=request.GET.get("user")).first()
     form = SalaryChangeRequestForm(request.POST or None, initial={

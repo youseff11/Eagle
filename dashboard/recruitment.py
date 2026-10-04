@@ -664,7 +664,9 @@ ALLOWED_MOVES = {
     ),
     # Only the owner leaves this one, and only through `decide_hiring`.
     CandidateStatus.OWNER_APPROVAL: (),
-    CandidateStatus.APPROVED: (CandidateStatus.HIRED, CandidateStatus.REJECTED),
+    # "Hired" is not a move: it is `hire` making the employee. A status changed on its own left a hired candidate with nobody hired
+    # (and `hire` refuses anything that is not approved).
+    CandidateStatus.APPROVED: (CandidateStatus.REJECTED,),
     CandidateStatus.HIRED: (),
     CandidateStatus.REJECTED: (CandidateStatus.SCREENING,),
 }

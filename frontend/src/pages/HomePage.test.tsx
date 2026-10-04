@@ -15,6 +15,8 @@ function renderHome(role: Role, screens: ScreenKey[]) {
       <Route index element={<HomePage />} />
       <Route path="translator" element={<div>the translator desk</div>} />
       <Route path="admin" element={<div>the admin overview</div>} />
+      <Route path="hr/recruitment" element={<div>the recruitment board</div>} />
+      <Route path="reviewer/tests" element={<div>the reviewer queue</div>} />
     </Routes>,
   );
 }
@@ -43,6 +45,23 @@ describe("HomePage", () => {
       const view = renderHome(role, ["admin"]);
       expect(await screen.findByText(/Nour/), role).toBeInTheDocument();
       expect(screen.queryByText("the admin overview"), role).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("starts HR on the recruitment board and a reviewer on the queue once those screens are switched on, and only them", async () => {
+    renderHome("hr", ["hr"]);
+    expect(await screen.findByText("the recruitment board")).toBeInTheDocument();
+    renderHome("reviewer", ["reviewer"]);
+    expect(await screen.findByText("the reviewer queue")).toBeInTheDocument();
+  });
+
+  it("keeps HR and a reviewer on the home page while their screens are off, and the admin where the admin's own screen puts them", async () => {
+    for (const [role, screens] of [["hr", []], ["hr", ["chats"]], ["reviewer", []], ["admin", ["hr"]], ["admin", ["reviewer"]], ["operation", ["hr"]]] as const) {
+      const view = renderHome(role, [...screens]);
+      expect(await screen.findByText(/Nour/), `${role} ${screens.join()}`).toBeInTheDocument();
+      expect(screen.queryByText("the recruitment board")).not.toBeInTheDocument();
+      expect(screen.queryByText("the reviewer queue")).not.toBeInTheDocument();
       view.unmount();
     }
   });

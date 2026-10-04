@@ -65,6 +65,29 @@ def api_role_required(*roles):
     return decorator
 
 
+def api_gate(check):
+    """The JSON twin of the page gates below: ``check(user)`` decides, a refusal is a logged 403 and nobody signed in is a 401.
+
+    The HR pages are not guarded by role alone (attendance rights are a flag a person can be given, recruitment is HR and the
+    owner), so a door asks the very question the page asks instead of a list of roles.
+    """
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(request, *args, **kwargs):
+            user = request.user
+            if not user.is_authenticated:
+                return JsonResponse({"ok": False, "error": "auth"}, status=401)
+            if check(user):
+                return view(request, *args, **kwargs)
+            _refused(request, f"api_gate {view.__name__}")
+            return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+
+        return wrapper
+
+    return decorator
+
+
 def _gate(check, message):
     """Build a decorator from a predicate on the user.
 

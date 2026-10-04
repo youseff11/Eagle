@@ -1405,9 +1405,12 @@ class CandidateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["department"].required = False
         self.fields["vacancy"].required = False
-        self.fields["vacancy"].queryset = Vacancy.objects.exclude(
-            status=VacancyStatus.CLOSED
-        )
+        # Open vacancies, and the one this candidate is already on even if it has closed since: without it a saved
+        # form for such a candidate would refuse its own stored value.
+        vacancies = Vacancy.objects.exclude(status=VacancyStatus.CLOSED)
+        if self.instance and self.instance.vacancy_id:
+            vacancies = vacancies | Vacancy.objects.filter(pk=self.instance.vacancy_id)
+        self.fields["vacancy"].queryset = vacancies
 
 
 class InterviewForm(forms.ModelForm):
@@ -1454,6 +1457,8 @@ class InterviewScoreForm(forms.ModelForm):
             value = data.get(name)
             if value is not None and not 0 <= value <= 10:
                 self.add_error(name, "من 0 لـ 10.")
+        if not self.errors and all(data.get(name) is None for name in Interview.SCORE_FIELDS):
+            self.add_error(None, "اكتب درجة واحدة على الأقل.")
         return data
 
 
@@ -1508,11 +1513,23 @@ class TestScoreForm(forms.ModelForm):
             value = data.get(name)
             if value is not None and not 0 <= value <= 10:
                 self.add_error(name, "من 0 لـ 10.")
+        if not self.errors and all(data.get(name) is None for name in CandidateTest.SCORE_FIELDS):
+            self.add_error(None, "اكتب درجة واحدة على الأقل.")
         return data
 
 
+#: The roles HR may hand out when it hires. The owner's role reads everything, Sales reads client identities (which HR may
+#: not), and the money role reads the payroll: an account made here has a password somebody signs in with, so those are made
+#: from the staff page, by the owner.
+HR_CAN_HIRE_INTO = (Role.TRANSLATOR, Role.REVIEWER, Role.OPERATION, Role.TEAM_LEAD)
+
+
 class HireForm(forms.Form):
-    """Section 17: what the system still needs that the application did not."""
+    """Section 17: what the system still needs that the application did not.
+
+    ``actor`` is who is hiring: the owner picks any role, anyone else only ``HR_CAN_HIRE_INTO``. A form made without one is
+    the narrow one.
+    """
 
     role = forms.ChoiceField(
         choices=Role.choices, initial=Role.TRANSLATOR,
@@ -1546,17 +1563,29 @@ class HireForm(forms.Form):
         label="الباسورد", help_text="سيبه فاضي والحساب يتقفل لحد ما تحطه.",
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, actor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["team_lead"].queryset = User.objects.filter(
             is_active=True, role=Role.TEAM_LEAD
         )
+        if not (actor is not None and actor.can_approve_hiring):
+            self.fields["role"].choices = [
+                (value, label) for value, label in Role.choices if value in HR_CAN_HIRE_INTO
+            ]
 
     def clean_username(self):
         name = (self.cleaned_data.get("username") or "").strip()
         if name and User.objects.filter(username=name).exists():
             raise forms.ValidationError("الاسم ده مستخدم بالفعل.")
         return name
+
+    def clean_password(self):
+        from django.contrib.auth.password_validation import validate_password
+
+        password = self.cleaned_data.get("password") or ""
+        if password:
+            validate_password(password)
+        return password
 
 
 class RecruitmentSettingsForm(forms.ModelForm):
@@ -1676,6 +1705,7 @@ class ClientComplaintForm(forms.ModelForm):
     class Meta:
         model = ClientComplaint
         fields = ("client", "task", "translator", "severity", "summary", "detail", "happened_on")
+        field_classes = {"task": RecentTaskField}
         widgets = {
             "client": forms.Select(attrs={"class": "input"}),
             "task": forms.Select(attrs={"class": "input"}),
@@ -1693,9 +1723,9 @@ class ClientComplaintForm(forms.ModelForm):
         self.fields["translator"].queryset = User.objects.filter(
             is_active=True, role=Role.TRANSLATOR
         )
-        # A complaint is about recent work, so the picker is not the whole
-        # history of the company.
-        self.fields["task"].queryset = Task.objects.order_by("-created_at")[:200]
+        # A complaint is about recent work, so the picker lists the newest few hundred by code - but any task may be named: a cut
+        # queryset cannot be looked up in, and a task's title may carry a client's name which HR may not know.
+        self.fields["task"].queryset = Task.objects.order_by("-created_at")
 
 
 class SalaryPlanForm(forms.ModelForm):

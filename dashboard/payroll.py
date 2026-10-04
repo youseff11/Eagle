@@ -19,7 +19,7 @@ tier. Beating the monthly target is what the 250 target bonus is for.
 """
 
 from calendar import monthrange
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db.models import Sum
@@ -158,6 +158,23 @@ def period_choices(limit=13, today=None):
         if month == 0:
             year, month = year - 1, 12
     return out
+
+
+def board_range(mode, raw):
+    """``(mode, anchor, first_day, last_day)`` for the HR board: ``mode`` is day, week or month, ``raw`` a ``YYYY-MM-DD``.
+
+    A date that is not one is today. The week starts on Saturday, because the Egyptian working week does.
+    """
+    try:
+        anchor = datetime.strptime(raw, "%Y-%m-%d").date() if raw else timezone.localdate()
+    except ValueError:
+        anchor = timezone.localdate()
+    if mode == "week":
+        start = anchor - timedelta(days=(anchor.weekday() + 2) % 7)
+        return mode, anchor, start, start + timedelta(days=6)
+    if mode == "month":
+        return (mode, anchor) + month_bounds(anchor.year, anchor.month)
+    return mode, anchor, anchor, anchor
 
 
 def parse_period(raw):

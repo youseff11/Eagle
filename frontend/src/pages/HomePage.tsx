@@ -13,6 +13,13 @@ export function HomePage() {
   if (me.data?.user.role === "translator" && (me.data.screens ?? []).includes("translator_home")) {
     return <Navigate to="/translator" replace />;
   }
+  // HR starts on the recruitment board and a reviewer on the queue of tests, as the classic `/` does for them.
+  if (me.data?.user.role === "hr" && (me.data.screens ?? []).includes("hr")) {
+    return <Navigate to="/hr/recruitment" replace />;
+  }
+  if (me.data?.user.role === "reviewer" && (me.data.screens ?? []).includes("reviewer")) {
+    return <Navigate to="/reviewer/tests" replace />;
+  }
   // The admin whose panel was switched over starts on the overview, as the classic `/` does for them.
   if (me.data?.user.is_admin && (me.data.screens ?? []).includes("admin")) {
     return <Navigate to="/admin" replace />;

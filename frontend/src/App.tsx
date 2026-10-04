@@ -11,6 +11,35 @@ import { AccountsRulesPage } from "./pages/AccountsRulesPage";
 import { AccountsSalaryPage } from "./pages/AccountsSalaryPage";
 import { AccountsViolationsPage } from "./pages/AccountsViolationsPage";
 import { AdminAuditPage } from "./pages/AdminAuditPage";
+import { HrAttendancePage } from "./pages/HrAttendancePage";
+import { HrDayPage } from "./pages/HrDayPage";
+import { HrLeavePage } from "./pages/HrLeavePage";
+import { HrDevicesPage } from "./pages/HrDevicesPage";
+import { HrOfficesPage } from "./pages/HrOfficesPage";
+import { HrOvertimePage } from "./pages/HrOvertimePage";
+import { HrReportPage } from "./pages/HrReportPage";
+import { HrSchedulesPage } from "./pages/HrSchedulesPage";
+import { HrComplaintsPage } from "./pages/HrComplaintsPage";
+import { HrEmployeePage } from "./pages/HrEmployeePage";
+import { HrEmployeesPage } from "./pages/HrEmployeesPage";
+import { HrPerformancePage } from "./pages/HrPerformancePage";
+import { HrProbationPage } from "./pages/HrProbationPage";
+import { HrApprovalsPage } from "./pages/HrApprovalsPage";
+import { HrCandidatePage } from "./pages/HrCandidatePage";
+import { HrCandidatesPage } from "./pages/HrCandidatesPage";
+import { HrHirePage } from "./pages/HrHirePage";
+import { HrInterviewPage } from "./pages/HrInterviewPage";
+import { HrQuestionsPage } from "./pages/HrQuestionsPage";
+import { ReviewerTestPage } from "./pages/ReviewerTestPage";
+import { ReviewerTestsPage } from "./pages/ReviewerTestsPage";
+import { HrRecruitmentPage } from "./pages/HrRecruitmentPage";
+import { HrRecruitmentSettingsPage } from "./pages/HrRecruitmentSettingsPage";
+import { HrSalaryPlansPage } from "./pages/HrSalaryPlansPage";
+import { HrVacanciesPage } from "./pages/HrVacanciesPage";
+import { HrVacancyPage } from "./pages/HrVacancyPage";
+import { HrSalaryRequestsPage } from "./pages/HrSalaryRequestsPage";
+import { MyLeavePage } from "./pages/MyLeavePage";
+import { HrShiftsPage } from "./pages/HrShiftsPage";
 import { AdminClientFormPage } from "./pages/AdminClientFormPage";
 import { AdminClientsPage } from "./pages/AdminClientsPage";
 import { AdminOverviewPage } from "./pages/AdminOverviewPage";
@@ -61,6 +90,35 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="accounts/violations" element={<AccountsViolationsPage />} />
         <Route path="accounts/rules" element={<AccountsRulesPage />} />
         <Route path="accounts/salary/:id" element={<AccountsSalaryPage />} />
+        <Route path="hr/attendance" element={<HrAttendancePage />} />
+        <Route path="hr/attendance/:id" element={<HrDayPage />} />
+        <Route path="hr/report" element={<HrReportPage />} />
+        <Route path="hr/schedules" element={<HrSchedulesPage />} />
+        <Route path="hr/shifts" element={<HrShiftsPage />} />
+        <Route path="hr/employees" element={<HrEmployeesPage />} />
+        <Route path="hr/employees/:id" element={<HrEmployeePage />} />
+        <Route path="hr/probation" element={<HrProbationPage />} />
+        <Route path="hr/performance" element={<HrPerformancePage />} />
+        <Route path="hr/complaints" element={<HrComplaintsPage />} />
+        <Route path="hr/salary-requests" element={<HrSalaryRequestsPage />} />
+        <Route path="hr/salary-plans" element={<HrSalaryPlansPage />} />
+        <Route path="hr/leave" element={<HrLeavePage />} />
+        <Route path="hr/overtime" element={<HrOvertimePage />} />
+        <Route path="leave" element={<MyLeavePage />} />
+        <Route path="hr/offices" element={<HrOfficesPage />} />
+        <Route path="hr/devices" element={<HrDevicesPage />} />
+        <Route path="hr/recruitment" element={<HrRecruitmentPage />} />
+        <Route path="hr/recruitment/settings" element={<HrRecruitmentSettingsPage />} />
+        <Route path="hr/vacancies" element={<HrVacanciesPage />} />
+        <Route path="hr/vacancies/:code" element={<HrVacancyPage />} />
+        <Route path="hr/questions" element={<HrQuestionsPage />} />
+        <Route path="hr/candidates" element={<HrCandidatesPage />} />
+        <Route path="hr/candidates/:code" element={<HrCandidatePage />} />
+        <Route path="hr/candidates/:code/hire" element={<HrHirePage />} />
+        <Route path="hr/interviews/:id" element={<HrInterviewPage />} />
+        <Route path="hr/approvals" element={<HrApprovalsPage />} />
+        <Route path="reviewer/tests" element={<ReviewerTestsPage />} />
+        <Route path="reviewer/tests/:id" element={<ReviewerTestPage />} />
         <Route path="admin" element={<AdminOverviewPage />} />
         <Route path="admin/audit" element={<AdminAuditPage />} />
         <Route path="admin/clients" element={<AdminClientsPage />} />

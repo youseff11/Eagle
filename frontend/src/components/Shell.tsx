@@ -41,7 +41,20 @@ export interface ScreenEntry {
   also?: string[];
   /** The number the menu shows beside the line, from `/me/` (the mail not opened, the tasks nobody has). */
   badge?: Badge;
-  extra?: { path: string; icon: string; label: [string, string]; badge?: Badge; danger?: boolean; adminOnly?: boolean }[];
+  /** A heading drawn above the screen's first line (the HR menu opens with the recruitment group). */
+  group?: [string, string];
+  extra?: {
+    path: string;
+    icon: string;
+    label: [string, string];
+    /** Addresses that are this line's own pages without a line of their own (an interview's page belongs to the candidates). */
+    also?: string[];
+    badge?: Badge;
+    danger?: boolean;
+    adminOnly?: boolean;
+    /** A heading drawn above this line when it opens a new group of lines (the HR menu has three). */
+    group?: [string, string];
+  }[];
 }
 
 /** The counters `/me/` carries for the menu. */
@@ -77,6 +90,45 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/accounts/violations", icon: "alert", label: ["المخالفات والخصومات", "Violations"] },
       { path: "/accounts/rules", icon: "list-checks", label: ["قواعد الحساب", "Payroll rules"], adminOnly: true },
     ],
+  },
+  // Human resources. The classic menu's three groups, in its order: recruitment (where HR starts), the people and their
+  // attendance, and the places and rules HR sets once. The owner's own lines (the hiring decisions, the tests, the pay plans)
+  // are drawn for the owner only.
+  hr: {
+    path: "/hr/recruitment",
+    icon: "contact",
+    label: ["لوحة التوظيف", "Recruitment board"],
+    group: ["التوظيف", "Recruitment"],
+    extra: [
+      { path: "/hr/candidates", icon: "users", label: ["المرشحين", "Candidates"], also: ["/hr/interviews"] },
+      { path: "/hr/vacancies", icon: "layers", label: ["الوظائف", "Vacancies"] },
+      // The owner decides a hire; HR does not see the queue (it is the owner's page).
+      { path: "/hr/approvals", icon: "user-check", label: ["موافقات التعيين", "Hiring approvals"], adminOnly: true },
+      // The owner marks tests too, from the candidate's file: the reviewer's pages, under the owner's own line.
+      { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"], adminOnly: true },
+      { path: "/hr/employees", icon: "users", label: ["ملفات الموظفين", "Employee files"], group: ["الموظفين", "People"] },
+      { path: "/hr/attendance", icon: "users", label: ["لوحة الحضور", "Attendance board"] },
+      { path: "/hr/schedules", icon: "calendar", label: ["جداول العمل", "Schedules"] },
+      { path: "/hr/shifts", icon: "clock", label: ["الشيفتات", "Shifts"] },
+      { path: "/hr/leave", icon: "hand", label: ["طلبات الإجازة", "Leave requests"] },
+      { path: "/hr/overtime", icon: "clock", label: ["الأوفرتايم", "Overtime"] },
+      { path: "/hr/report", icon: "chart", label: ["التقرير الشهري", "Monthly report"] },
+      { path: "/hr/probation", icon: "eye", label: ["فترة الاختبار", "Probation"] },
+      { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"] },
+      { path: "/hr/complaints", icon: "thumbs-down", label: ["شكاوى العملاء", "Complaints"] },
+      { path: "/hr/salary-requests", icon: "refresh", label: ["طلبات تغيير الراتب", "Salary requests"] },
+      { path: "/hr/offices", icon: "map-pin", label: ["مواقع المكاتب", "Offices"], group: ["الإعدادات", "Settings"] },
+      { path: "/hr/devices", icon: "shield-check", label: ["أجهزة الحضور", "Devices"] },
+      { path: "/hr/salary-plans", icon: "layers", label: ["خطط الرواتب", "Salary plans"], adminOnly: true },
+      { path: "/hr/recruitment/settings", icon: "sliders", label: ["إعدادات التوظيف", "Recruitment settings"] },
+      { path: "/hr/questions", icon: "list-checks", label: ["بنك الأسئلة", "Question bank"] },
+    ],
+  },
+  // The reviewer has this one page and nothing else (section 24).
+  reviewer: {
+    path: "/reviewer/tests",
+    icon: "check-circle",
+    label: ["اختبارات المرشحين", "Candidate tests"],
   },
   translator_home: {
     path: "/translator",
@@ -123,6 +175,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     ],
   },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"] },
+  leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"] },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"] },
 };
 
@@ -184,10 +237,15 @@ function Frame() {
   // "tasks" to the operation, and one address cannot be both.
   const startsWith = (prefix: string) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`);
   const looked = me.data ? screens : (Object.keys(SCREENS) as ScreenKey[]);
-  const own = (key: ScreenKey) => [SCREENS[key].path, ...(SCREENS[key].extra ?? []).map((entry) => entry.path)].some(startsWith);
+  const own = (key: ScreenKey) =>
+    [SCREENS[key].path, ...(SCREENS[key].extra ?? []).flatMap((entry) => [entry.path, ...(entry.also ?? [])])].some(startsWith);
   // A screen's own pages first; the addresses it only shares (`also`) when no other screen of the person's owns them.
   const here = looked.find(own) ?? looked.find((key) => (SCREENS[key].also ?? []).some(startsWith));
-  const extraHere = looked.flatMap((key) => SCREENS[key].extra ?? []).find((entry) => startsWith(entry.path));
+  // The longest address wins: `/hr/recruitment/settings` is its own page, not the board's.
+  const extraHere = looked
+    .flatMap((key) => SCREENS[key].extra ?? [])
+    .filter((entry) => startsWith(entry.path) || (entry.also ?? []).some(startsWith))
+    .sort((a, b) => b.path.length - a.path.length)[0];
   const sharedWith = (key: ScreenKey) => (SCREENS[key].also ?? []).some(startsWith) && !screens.some((other) => other !== key && own(other));
   // Before `me` has arrived an address two screens share is not named at all (not the wrong one for a moment).
   const claimants = looked.filter((key) => own(key) || (SCREENS[key].also ?? []).some(startsWith));
@@ -232,6 +290,7 @@ function Frame() {
             </NavLink>
             {screens.map((key) => (
               <Fragment key={key}>
+                {SCREENS[key].group && <div className="nav__label">{t(...SCREENS[key].group)}</div>}
                 <NavLink
                   to={SCREENS[key].path}
                   // A screen whose other pages live under its own address (`/lead` and `/lead/translators`) must not
@@ -249,16 +308,22 @@ function Frame() {
                   )}
                   {key === "chats" && unreadChats > 0 && <span className="nav__count is-hot">{unreadChats}</span>}
                 </NavLink>
-                {(SCREENS[key].extra ?? []).filter((entry) => !entry.adminOnly || user?.is_admin).map((entry) => (
-                  <NavLink
-                    key={entry.path}
-                    to={entry.path}
-                    className={({ isActive }) => `nav__item${isActive ? " is-active" : ""}${entry.danger ? " nav__item--danger" : ""}`}
-                  >
-                    <Icon name={entry.icon} />
-                    <span>{t(...entry.label)}</span>
-                    {count(entry.badge) > 0 && <span className="nav__count is-hot">{count(entry.badge)}</span>}
-                  </NavLink>
+                {(SCREENS[key].extra ?? []).filter((entry) => !entry.adminOnly || user?.is_admin).map((entry, _at, entries) => (
+                  <Fragment key={entry.path}>
+                    {entry.group && <div className="nav__label">{t(...entry.group)}</div>}
+                    <NavLink
+                      to={entry.path}
+                      // A line with a sibling under its own address (`/hr/recruitment` and `/hr/recruitment/settings`) matches exactly.
+                      end={entries.some((other) => other.path.startsWith(`${entry.path}/`))}
+                      className={({ isActive }) =>
+                        `nav__item${isActive || (entry.also ?? []).some(startsWith) ? " is-active" : ""}${entry.danger ? " nav__item--danger" : ""}`
+                      }
+                    >
+                      <Icon name={entry.icon} />
+                      <span>{t(...entry.label)}</span>
+                      {count(entry.badge) > 0 && <span className="nav__count is-hot">{count(entry.badge)}</span>}
+                    </NavLink>
+                  </Fragment>
                 ))}
               </Fragment>
             ))}

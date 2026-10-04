@@ -633,3 +633,151 @@ describe("Shell: the money screens", () => {
     for (const href of ["/accounts", "/accounts/violations", "/accounts/rules"]) expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
   });
 });
+
+describe("Shell: human resources", () => {
+  const at = (route: string, screens: string[], role: "hr" | "admin" | "reviewer" = "hr") => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin" }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="hr/*" element={<div>an HR page</div>} />
+          <Route path="reviewer/*" element={<div>a reviewer page</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+  const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+
+  it("lists the pages for HR in the classic menu's three groups, recruitment first, then the chats", async () => {
+    const view = at("/hr/attendance", ["hr", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/devices"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 21)).toEqual([
+      "/", "/hr/recruitment", "/hr/candidates", "/hr/vacancies",
+      "/hr/employees", "/hr/attendance", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/report", "/hr/probation",
+      "/hr/performance", "/hr/complaints", "/hr/salary-requests",
+      "/hr/offices", "/hr/devices", "/hr/recruitment/settings", "/hr/questions", "/chats", "/notifications",
+    ]);
+    // Each group has its heading, and the heading comes before the group's first line.
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["التوظيف", "الموظفين", "الإعدادات"]);
+    // The salary plans move money: the admin's line, not HR's.
+    expect(links(view.container)).not.toContain("/hr/salary-plans");
+    // The hiring decision and the tests are the owner's: HR does not have those lines.
+    expect(links(view.container)).not.toContain("/hr/approvals");
+    expect(links(view.container)).not.toContain("/reviewer/tests");
+  });
+
+  it("titles every page and lights exactly one line on each", async () => {
+    for (const [route, title, lit] of [
+      ["/hr/attendance", "لوحة الحضور", "/hr/attendance"],
+      ["/hr/attendance/5", "لوحة الحضور", "/hr/attendance"],
+      ["/hr/report", "التقرير الشهري", "/hr/report"],
+      ["/hr/schedules", "جداول العمل", "/hr/schedules"],
+      ["/hr/shifts", "الشيفتات", "/hr/shifts"],
+      ["/hr/employees", "ملفات الموظفين", "/hr/employees"],
+      ["/hr/employees/7", "ملفات الموظفين", "/hr/employees"],
+      ["/hr/probation", "فترة الاختبار", "/hr/probation"],
+      ["/hr/performance", "الأداء", "/hr/performance"],
+      ["/hr/complaints", "شكاوى العملاء", "/hr/complaints"],
+      ["/hr/salary-requests", "طلبات تغيير الراتب", "/hr/salary-requests"],
+      ["/hr/leave", "طلبات الإجازة", "/hr/leave"],
+      ["/hr/overtime", "الأوفرتايم", "/hr/overtime"],
+      ["/hr/offices", "مواقع المكاتب", "/hr/offices"],
+      ["/hr/devices", "أجهزة الحضور", "/hr/devices"],
+      ["/hr/recruitment", "لوحة التوظيف", "/hr/recruitment"],
+      ["/hr/recruitment/settings", "إعدادات التوظيف", "/hr/recruitment/settings"],
+      ["/hr/vacancies", "الوظائف", "/hr/vacancies"],
+      ["/hr/vacancies/VAC-0001", "الوظائف", "/hr/vacancies"],
+      ["/hr/questions", "بنك الأسئلة", "/hr/questions"],
+      ["/hr/candidates", "المرشحين", "/hr/candidates"],
+      ["/hr/candidates/CAN-0007", "المرشحين", "/hr/candidates"],
+      ["/hr/candidates/CAN-0007/hire", "المرشحين", "/hr/candidates"],
+      ["/hr/interviews/21", "المرشحين", "/hr/candidates"],
+    ] as const) {
+      const view = at(route, ["hr"]);
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`), route).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("draws none of it for HR that has not been switched on", async () => {
+    const view = at("/hr/attendance", ["chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    for (const href of ["/hr/attendance", "/hr/report", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/offices", "/hr/devices", "/hr/employees", "/hr/probation", "/hr/recruitment", "/hr/vacancies", "/hr/questions", "/hr/recruitment/settings", "/hr/candidates"]) {
+      expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
+    }
+  });
+
+  it("gives the admin the same lines once ticked", async () => {
+    const view = at("/hr/report", ["hr"], "admin");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/report"]')).not.toBeNull());
+    expect(links(view.container).slice(0, 4)).toEqual(["/", "/hr/recruitment", "/hr/candidates", "/hr/vacancies"]);
+    // ...and the owner's own line, the salary plans, which HR does not have.
+    expect(links(view.container)).toContain("/hr/salary-plans");
+    // ...and the owner's hiring decisions and the candidate tests, which are theirs too.
+    expect(links(view.container)).toContain("/hr/approvals");
+    expect(links(view.container)).toContain("/reviewer/tests");
+  });
+
+  it("titles the owner's pages and lights one line on each", async () => {
+    for (const [route, title, lit] of [
+      ["/hr/approvals", "موافقات التعيين", "/hr/approvals"],
+      ["/reviewer/tests", "اختبارات المرشحين", "/reviewer/tests"],
+      ["/reviewer/tests/5", "اختبارات المرشحين", "/reviewer/tests"],
+    ] as const) {
+      const view = at(route, ["hr"], "admin");
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
+      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`), route).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("gives the reviewer one page, lit on the queue and on a test", async () => {
+    for (const route of ["/reviewer/tests", "/reviewer/tests/5"]) {
+      const view = at(route, ["reviewer"], "reviewer");
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("اختبارات المرشحين"));
+      expect(links(view.container).filter((href) => href?.startsWith("/reviewer") || href?.startsWith("/hr"))).toEqual(["/reviewer/tests"]);
+      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/reviewer/tests"].is-active')).not.toBeNull());
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
+      view.unmount();
+    }
+  });
+});
+
+describe("Shell: my leave", () => {
+  const at = (route: string, screens: string[], role: "translator" | "hr" = "translator") => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="leave" element={<div>my leave page</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+
+  it("is one line for any role it is switched on for, titled and lit on its page", async () => {
+    const view = at("/leave", ["translator_home", "leave", "chats"]);
+    await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("إجازاتي"));
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/leave"].is-active')).not.toBeNull());
+    expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
+  });
+
+  it("is not drawn when it has not been switched on", async () => {
+    const view = at("/leave", ["translator_home", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/leave"]')).toBeNull();
+  });
+});

@@ -11,6 +11,33 @@ import type {
   AccountsSalary,
   AccountsSheet,
   AccountsViolations,
+  HrApprovals,
+  HrBoard,
+  HrCandidate,
+  HrCandidates,
+  HrComplaints,
+  HrDay,
+  HrDevices,
+  HrEmployee,
+  HrHire,
+  HrInterview,
+  HrLeave,
+  HrOffices,
+  HrOvertime,
+  HrPerformance,
+  HrProbation,
+  HrQuestions,
+  HrRecruitSettings,
+  HrRecruitment,
+  HrRegister,
+  HrReport,
+  HrSalaryPlans,
+  HrSalaryRequests,
+  HrSchedules,
+  HrShifts,
+  HrVacancies,
+  HrVacancy,
+  MyLeave,
   AdminAudit,
   AdminSettings,
   AdminSimulate,
@@ -48,6 +75,8 @@ import type {
   PendingAssignment,
   ReactResponse,
   ReadResponse,
+  ReviewerQueue,
+  ReviewerTest,
   SalesLine,
   SendResponse,
   ThreadResponse,
@@ -349,6 +378,315 @@ export function useAccountsRules(enabled = true) {
     queryKey: qk.accountsRules,
     queryFn: () => api<AccountsRules>("/api/v1/accounts/rules/"),
     refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** HR's attendance board; `search` is the filters as a query string (`view=week&date=2026-09-16`). */
+export function useHrBoard(search: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrBoard(search),
+    queryFn: () => api<HrBoard>(`/api/v1/hr/attendance/${search ? `?${search}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One day of one person: its punches, its trail, and the form that corrects it. */
+export function useHrDay(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrDay(id),
+    queryFn: () => api<HrDay>(`/api/v1/hr/attendance/${id}/`),
+    refetchOnWindowFocus: false,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** One person's month (`period` is `2026-9`, `user` an id; both may be empty). */
+export function useHrReport(period: string, user: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (period) params.set("period", period);
+  if (user) params.set("user", user);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.hrReport(period, user),
+    queryFn: () => api<HrReport>(`/api/v1/hr/report/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** A person's roster, the days that override it, the next fortnight, and the forms (`user` is an id; empty is the first person). */
+export function useHrSchedules(user: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrSchedules(user),
+    queryFn: () => api<HrSchedules>(`/api/v1/hr/schedules/${user ? `?user=${encodeURIComponent(user)}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** The company's shifts and the form (`edit` is the id of the one being changed, or empty). */
+export function useHrShifts(edit: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrShifts(edit),
+    queryFn: () => api<HrShifts>(`/api/v1/hr/shifts/${edit ? `?edit=${encodeURIComponent(edit)}` : ""}`),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useHrOffices(edit: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrOffices(edit),
+    queryFn: () => api<HrOffices>(`/api/v1/hr/offices/${edit ? `?edit=${encodeURIComponent(edit)}` : ""}`),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useHrDevices(enabled = true) {
+  return useQuery({
+    queryKey: qk.hrDevices,
+    queryFn: () => api<HrDevices>("/api/v1/hr/devices/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useHrOvertime(enabled = true) {
+  return useQuery({
+    queryKey: qk.hrOvertime,
+    queryFn: () => api<HrOvertime>("/api/v1/hr/overtime/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** Everybody active (`search` is `department=&status=`). */
+export function useHrRegister(search: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrRegister(search),
+    queryFn: () => api<HrRegister>(`/api/v1/hr/employees/${search ? `?${search}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One person's file. */
+export function useHrEmployee(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrEmployee(id),
+    queryFn: () => api<HrEmployee>(`/api/v1/hr/employees/${id}/`),
+    refetchOnWindowFocus: false,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** The probation reviews (`state` is `due`, `all`, or empty for the open ones). */
+export function useHrProbation(state: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrProbation(state),
+    queryFn: () => api<HrProbation>(`/api/v1/hr/probation/${state ? `?state=${encodeURIComponent(state)}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One translator's month (`period` is `2026-9`, `user` an id; both may be empty). */
+export function useHrPerformance(period: string, user: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (period) params.set("period", period);
+  if (user) params.set("user", user);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.hrPerformance(period, user),
+    queryFn: () => api<HrPerformance>(`/api/v1/hr/performance/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+export function useHrComplaints(translator: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrComplaints(translator),
+    queryFn: () => api<HrComplaints>(`/api/v1/hr/complaints/${translator ? `?translator=${encodeURIComponent(translator)}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+export function useHrSalaryRequests(user: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrSalaryRequests(user),
+    queryFn: () => api<HrSalaryRequests>(`/api/v1/hr/salary-requests/${user ? `?user=${encodeURIComponent(user)}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+export function useHrSalaryPlans(edit: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrSalaryPlans(edit),
+    queryFn: () => api<HrSalaryPlans>(`/api/v1/hr/salary-plans/${edit ? `?edit=${encodeURIComponent(edit)}` : ""}`),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** The recruitment board: the counts, the latest applicants, today's interviews, who waits for the owner. */
+export function useHrRecruitment(enabled = true) {
+  return useQuery({
+    queryKey: qk.hrRecruitment,
+    queryFn: () => api<HrRecruitment>("/api/v1/hr/recruitment/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useHrVacancies(status: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrVacancies(status),
+    queryFn: () => api<HrVacancies>(`/api/v1/hr/vacancies/${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One vacancy by its code; a code that is not one comes back 404. */
+export function useHrVacancy(code: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrVacancy(code),
+    queryFn: () => api<HrVacancy>(`/api/v1/hr/vacancies/${encodeURIComponent(code)}/`),
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+    enabled: enabled && code !== "",
+  });
+}
+
+/** The question bank, narrowed by department, with the form for a new question (or the one `edit` names). */
+export function useHrQuestions(department: string, edit: string, enabled = true) {
+  const params = new URLSearchParams();
+  if (department) params.set("department", department);
+  if (edit) params.set("edit", edit);
+  const text = params.toString();
+  return useQuery({
+    queryKey: qk.hrQuestions(department, edit),
+    queryFn: () => api<HrQuestions>(`/api/v1/hr/questions/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+export function useHrRecruitSettings(enabled = true) {
+  return useQuery({
+    queryKey: qk.hrRecruitSettings,
+    queryFn: () => api<HrRecruitSettings>("/api/v1/hr/recruitment/settings/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** Everyone who applied (`search` is the filters as a query string: status, source, vacancy, q). */
+export function useHrCandidates(search: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrCandidates(search),
+    queryFn: () => api<HrCandidates>(`/api/v1/hr/candidates/${search ? `?${search}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** One candidate's whole file; a code that is not one comes back 404. */
+export function useHrCandidate(code: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrCandidate(code),
+    queryFn: () => api<HrCandidate>(`/api/v1/hr/candidates/${encodeURIComponent(code)}/`),
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+    enabled: enabled && code !== "",
+  });
+}
+
+export function useHrInterview(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrInterview(id),
+    queryFn: () => api<HrInterview>(`/api/v1/hr/interviews/${id}/`),
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** What carries over from the application, and the contract form (none unless the candidate is approved). */
+export function useHrHire(code: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrHire(code),
+    queryFn: () => api<HrHire>(`/api/v1/hr/candidates/${encodeURIComponent(code)}/hire/`),
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+    enabled: enabled && code !== "",
+  });
+}
+
+/** The owner's queue of hiring decisions and the last ones made. */
+export function useHrApprovals(enabled = true) {
+  return useQuery({
+    queryKey: qk.hrApprovals,
+    queryFn: () => api<HrApprovals>("/api/v1/hr/approvals/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** The reviewer's queue of candidate tests: codes and the work, never a person. */
+export function useReviewerQueue(enabled = true) {
+  return useQuery({
+    queryKey: qk.reviewerQueue,
+    queryFn: () => api<ReviewerQueue>("/api/v1/reviewer/tests/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+export function useReviewerTest(id: number, enabled = true) {
+  return useQuery({
+    queryKey: qk.reviewerTest(id),
+    queryFn: () => api<ReviewerTest>(`/api/v1/reviewer/tests/${id}/`),
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+    enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** The person's own leave: the balance, the requests, and the form. */
+export function useMyLeave(enabled = true) {
+  return useQuery({
+    queryKey: qk.leave,
+    queryFn: () => api<MyLeave>("/api/v1/leave/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** HR's leave queue and record (`search` is the filters as a query string). */
+export function useHrLeave(search: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrLeave(search),
+    queryFn: () => api<HrLeave>(`/api/v1/hr/leave/${search ? `?${search}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
     enabled,
   });
 }

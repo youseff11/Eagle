@@ -152,6 +152,26 @@ def describe(form, secrets=()):
     return out
 
 
+def named(fields, texts, hints=None, choices=None):
+    """Lay the bilingual words over a form described by ``describe``.
+
+    ``texts`` maps a field name to ``(ar, en)``, ``hints`` the same for its help line, and ``choices`` maps a field name to an
+    ``(ar, en)`` table for the options of a select (a value the table does not know keeps the form's own label).
+    """
+    for field in fields:
+        name = field["name"]
+        if name in texts:
+            field["label_ar"], field["label_en"] = texts[name]
+        if hints and name in hints:
+            field["hint_ar"], field["hint_en"] = hints[name]
+        if choices and name in choices:
+            for choice in field.get("choices", []):
+                pair = choices[name].get(choice["value"])
+                if pair:
+                    choice["label_ar"], choice["label_en"] = pair
+    return fields
+
+
 def errors_of(form):
     """``{field: [messages]}`` for a form that did not validate; ``__all__`` holds the ones that belong to no field."""
     return {name: [str(message) for message in messages] for name, messages in form.errors.items()}

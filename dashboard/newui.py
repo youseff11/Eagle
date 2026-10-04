@@ -73,6 +73,21 @@ SCREENS = {
             "Accounts (the month, violations, attendance and output, salaries, payroll rules)",
             classic="accounts_overview", path="/accounts", roles=(Role.ACCOUNTING,), admin_default=False,
         ),
+        # Human resources: attendance and schedules, leave, recruitment, the people already hired, and the places and rules HR
+        # keeps. HR runs it; the admin is not on it until they say so. A person who was only given the attendance flag
+        # (``attendance_manager``) keeps the classic pages: the switch is for the HR role.
+        Screen(
+            "hr", "الموارد البشرية (الحضور والجداول، الإجازات، التوظيف، ملفات الموظفين، الإعدادات)",
+            "Human resources (attendance and schedules, leave, recruitment, employee files, settings)",
+            classic="hr_recruitment", path="/hr/recruitment", roles=(Role.HR,), admin_default=False,
+        ),
+        # The reviewer's one page: the candidate tests waiting to be marked, and the page that marks one. The reviewer is blind to
+        # who the candidate is, so this screen carries a code and the work and nothing else. A team leader or the owner may
+        # mark a test too; they reach it from the candidate's file and are not on this switch.
+        Screen(
+            "reviewer", "اختبارات المرشحين (للمراجع)", "Candidate tests (the reviewer)",
+            classic="reviewer_tests", path="/reviewer/tests", roles=(Role.REVIEWER,), admin_default=False,
+        ),
         Screen(
             "translator_home", "شغل المترجم", "The translator's desk",
             classic="translator_home", path="/translator", roles=(Role.TRANSLATOR,),
@@ -97,6 +112,17 @@ SCREENS = {
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
                 Role.ACCOUNTING, Role.SALES,
             ),
+        ),
+        # A person's own leave: the balance, the requests, asking for time off. Every role has one (the page is only ever the
+        # person's own). The admin is not on it until they say so.
+        Screen(
+            "leave", "إجازاتي", "My leave",
+            classic="my_leave", path="/leave",
+            roles=(
+                Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
+                Role.ACCOUNTING, Role.SALES,
+            ),
+            admin_default=False,
         ),
         Screen(
             "chats", "الشات", "Chats",

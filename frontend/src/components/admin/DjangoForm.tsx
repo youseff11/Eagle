@@ -67,7 +67,7 @@ function Control({
   describedBy?: string;
   id: string;
 }) {
-  const { t } = usePreferences();
+  const { t, lang } = usePreferences();
   const common = { id, disabled: field.disabled, "aria-describedby": describedBy, dir: field.ltr ? ("ltr" as const) : undefined };
 
   switch (field.kind) {
@@ -78,7 +78,7 @@ function Control({
         <select {...common} className="input" value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)}>
           {(field.choices ?? []).map((choice) => (
             <option key={choice.value} value={choice.value}>
-              {choice.label}
+              {(lang === "ar" ? choice.label_ar : choice.label_en) ?? choice.label}
             </option>
           ))}
         </select>

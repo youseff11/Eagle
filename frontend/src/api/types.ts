@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "accounts" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
+export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -1011,7 +1011,8 @@ export interface FormField {
   value?: string | number | boolean | string[];
   /** A secret field: whether one is stored. The value is never sent. */
   saved?: boolean;
-  choices?: { value: string; label: string }[];
+  /** An option, with its own words in both languages when the server wrote them (the day statuses, the roles). */
+  choices?: { value: string; label: string; label_ar?: string; label_en?: string }[];
   /** Bilingual texts, when the classic page wrote its own beside the field (the settings). */
   label_ar?: string;
   label_en?: string;
@@ -1401,4 +1402,672 @@ export interface CallSignals {
   ok: boolean;
   call: CallJson;
   signals: { id: number; kind: string; payload: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// HR (api_hr.py)
+// ---------------------------------------------------------------------------
+
+export type DayStatusJson = Labelled & { tone: string };
+
+/** One day of one person as the board and the report draw it. */
+export interface HrBoardRow {
+  id: number;
+  user: { id: number; name: string };
+  date: string;
+  work_mode: Labelled | null;
+  schedule: string;
+  check_in: Stamp | null;
+  check_out: Stamp | null;
+  is_open: boolean;
+  work_minutes: number;
+  status: DayStatusJson;
+  late_minutes: number;
+  early_leave_minutes: number;
+  short_minutes: number;
+  overtime_minutes: number;
+  off_site: boolean;
+  extra_started_at: Stamp | null;
+  checkout_missed: boolean;
+  needs_review: boolean;
+}
+
+/** GET /api/v1/hr/attendance/?view=&date=&user=&role=&mode=&status=&day_mode=&shift=&flagged=. */
+export interface HrBoard {
+  ok: true;
+  view: "day" | "week" | "month";
+  date: string;
+  first_day: string;
+  last_day: string;
+  flagged_count: number;
+  totals: { present: number; late: number; off_site: number; open: number; minutes: number; overtime: number };
+  /** More rows matched than the board draws (the first 600 are here). */
+  truncated: boolean;
+  rows: HrBoardRow[];
+  missing: { user: { id: number; name: string }; schedule: string }[];
+  options: {
+    people: { id: number; name: string }[];
+    roles: Labelled[];
+    day_modes: Labelled[];
+    statuses: DayStatusJson[];
+    shifts: string[];
+  };
+}
+
+/** GET /api/v1/hr/attendance/<id>/. */
+export interface HrDay {
+  ok: true;
+  day: HrBoardRow & {
+    review_reason: string;
+    scheduled_start: Stamp | null;
+    scheduled_end: Stamp | null;
+    scheduled_minutes: number;
+    grace_minutes: number;
+  };
+  events: {
+    kind: Labelled;
+    at: Stamp | null;
+    within_geofence: boolean | null;
+    distance_m: number | null;
+    accuracy_m: number | null;
+    office: string;
+    device: string;
+    ip: string;
+  }[];
+  edits: { actor: string | null; field: string; old: string; new: string; reason: string; at: Stamp | null }[];
+  conf: { grace_minutes: number };
+  form: FormField[];
+}
+
+/** GET /api/v1/hr/report/?period=&user=. */
+export interface HrReport {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  people: { id: number; name: string }[];
+  person: { id: number; name: string } | null;
+  summary:
+    | (Record<
+        | "scheduled_days"
+        | "present_days"
+        | "office_days"
+        | "remote_days"
+        | "leave_days"
+        | "excused_days"
+        | "absent_days"
+        | "late_days"
+        | "late_minutes"
+        | "early_leave_minutes"
+        | "short_minutes"
+        | "work_minutes"
+        | "break_minutes"
+        | "overtime_minutes"
+        | "needs_review",
+        number
+      > & {
+        days: {
+          date: string;
+          status: DayStatusJson;
+          work_mode: Labelled | null;
+          check_in: Stamp | null;
+          check_out: Stamp | null;
+          break_minutes: number;
+          work_minutes: number;
+          late_minutes: number;
+          short_minutes: number;
+          overtime_minutes: number;
+        }[];
+      })
+    | null;
+}
+
+/** One day of a person's standing roster (`api_hr._roster_json`); a row that is switched off counts for nothing. */
+export interface HrRosterRow {
+  id: number;
+  weekday: { value: number; ar: string; en: string };
+  template: string | null;
+  start: Stamp | null;
+  end: Stamp | null;
+  crosses_midnight: boolean;
+  minutes: number;
+  work_mode: Labelled | null;
+  is_active: boolean;
+}
+
+/** GET /api/v1/hr/schedules/?user=. */
+export interface HrSchedules {
+  ok: true;
+  people: { id: number; name: string }[];
+  person: { id: number; name: string; employment: Labelled; work_mode: Labelled | null; schedule_kind: string } | null;
+  shifts: HrRosterRow[];
+  overrides: { id: number; date: string; is_day_off: boolean; label: string; work_mode: Labelled | null; reason: string }[];
+  preview: { date: string; working: boolean; label: string; start: Stamp | null; end: Stamp | null; mode: Labelled | null; source: string }[];
+  templates: { id: number; label: string; is_active: boolean; start: Stamp | null; end: Stamp | null }[];
+  shift_form: FormField[];
+  override_form: FormField[];
+  template_form: FormField[];
+}
+
+/** GET /api/v1/hr/shifts/?edit=. */
+export interface HrShifts {
+  ok: true;
+  rows: {
+    id: number;
+    label: string;
+    name: string;
+    name_ar: string;
+    is_active: boolean;
+    start: Stamp | null;
+    end: Stamp | null;
+    crosses_midnight: boolean;
+    hours: string;
+    people: number;
+    overrides: number;
+    vacancies: number;
+    in_use: boolean;
+  }[];
+  editing: number | null;
+  form: FormField[];
+}
+
+/** GET /api/v1/hr/offices/?edit=. */
+export interface HrOffices {
+  ok: true;
+  offices: { id: number; label: string; latitude: string; longitude: string; radius_meters: number; is_active: boolean }[];
+  editing: number | null;
+  form: FormField[];
+  policy: "reject" | "flag";
+}
+
+export interface HrDevice {
+  id: number;
+  user: string;
+  name: string;
+  fingerprint: string;
+  browser: string;
+  status: "pending" | "approved" | "rejected";
+  decided_by: string | null;
+  first_seen: Stamp | null;
+  last_seen: Stamp | null;
+}
+
+/** GET /api/v1/hr/devices/. */
+export interface HrDevices {
+  ok: true;
+  pending: HrDevice[];
+  decided: HrDevice[];
+}
+
+export interface HrClaim {
+  id: number;
+  user: string;
+  date: string;
+  hours: string;
+  hourly_rate: string;
+  amount: string;
+  status: "pending" | "approved" | "rejected";
+  decided_by: string | null;
+}
+
+/** GET /api/v1/hr/overtime/. */
+export interface HrOvertime {
+  ok: true;
+  pending: HrClaim[];
+  decided: HrClaim[];
+}
+
+// ---------------------------------------------------------------------------
+// Leave (api_leave.py)
+// ---------------------------------------------------------------------------
+
+/** One request as the lists draw it. A permission has a window inside one day and no end date. */
+export interface LeaveRequestJson {
+  id: number;
+  kind: Labelled;
+  is_permission: boolean;
+  start_date: string;
+  end_date: string | null;
+  days: number;
+  minutes: number;
+  start_time: Stamp | null;
+  end_time: Stamp | null;
+  status: DayStatusJson;
+  is_open: boolean;
+  reason: string;
+  decision_note: string;
+}
+
+/** GET /api/v1/leave/. */
+export interface MyLeave {
+  ok: true;
+  balance: { allowance: number; taken: number; pending: number; left: number; over: number };
+  rows: LeaveRequestJson[];
+  form: FormField[];
+  needs_manager: boolean;
+}
+
+/** GET /api/v1/hr/leave/?user=&status=. */
+export interface HrLeave {
+  ok: true;
+  waiting: (LeaveRequestJson & { user: { id: number; name: string }; manager: string | null; can_decide: boolean })[];
+  rows: (LeaveRequestJson & { user: { id: number; name: string }; decided_by: string | null; applied: boolean })[];
+  options: { people: { id: number; name: string }[]; statuses: DayStatusJson[] };
+}
+
+// ---------------------------------------------------------------------------
+// HR: the people already hired (api_people.py)
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/hr/employees/?department=&status=. */
+export interface HrRegister {
+  ok: true;
+  rows: {
+    id: number;
+    code: string;
+    name: string;
+    role: Labelled;
+    department: string | null;
+    employment: Labelled;
+    joining_date: string | null;
+    status: DayStatusJson;
+  }[];
+  options: { departments: { id: number; label: string }[]; statuses: DayStatusJson[] };
+}
+
+/** GET /api/v1/hr/employees/<id>/. */
+export interface HrEmployee {
+  ok: true;
+  person: {
+    id: number;
+    name: string;
+    role: Labelled;
+    status: DayStatusJson;
+    code: string;
+    job_title: string;
+    department: string | null;
+    manager: string | null;
+    languages: string;
+    joining_date: string | null;
+    employment: Labelled;
+    work_mode: Labelled | null;
+    probation_start: string | null;
+    probation_end: string | null;
+    phone: string;
+    attendance_enabled: boolean;
+  };
+  summary: Record<"scheduled_days" | "present_days" | "office_days" | "remote_days" | "leave_days" | "absent_days" | "late_days" | "work_minutes" | "overtime_minutes", number> | null;
+  shifts: HrRosterRow[];
+  picker: AdminUser["picker"] | null;
+  work_mode_card: {
+    work_mode: Labelled | null;
+    is_hybrid: boolean;
+    offices: { label: string; radius_meters: number }[];
+    pinned_days: number;
+    policy_reject: boolean;
+  } | null;
+  probation: { stage: Labelled; due_date: string; outcome: DayStatusJson }[];
+  leave: LeaveRequestJson[];
+  plan: { current: { id: number; name: string; overrides: string[] } | null; options: { id: number; name: string }[] };
+  application: { code: string; applied_on: string } | null;
+  salary: { effective_from: string; amount: string }[];
+  can: { edit: boolean; shift: boolean; plan: boolean };
+}
+
+/** GET /api/v1/hr/probation/?state=. */
+export interface HrProbation {
+  ok: true;
+  state: "open" | "due" | "all";
+  rows: {
+    id: number;
+    user: { id: number; name: string };
+    stage: Labelled;
+    due_date: string;
+    overdue: boolean;
+    outcome: DayStatusJson;
+    score: number | null;
+    decided: boolean;
+    reviewer: string | null;
+  }[];
+  form: FormField[];
+  on_probation: { id: number; name: string; department: string | null; probation_end: string | null; has_reviews: boolean }[];
+  due_count: number;
+}
+
+/** One performance indicator: its score, its band, the figures that explain it, and why there is no score when there is none. */
+export interface HrPart {
+  score: number | null;
+  band: DayStatusJson;
+  reason?: { ar: string; en: string };
+  words?: number;
+  target?: number;
+  reviewer_avg?: number | null;
+  reviewed?: number;
+  complaints?: number;
+  violations?: number;
+  late?: number;
+  total?: number;
+  present?: number;
+  scheduled?: number;
+  late_days?: number;
+}
+
+/** GET /api/v1/hr/performance/?period=&user=. */
+export interface HrPerformance {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  people: { id: number; name: string }[];
+  person: { id: number; name: string } | null;
+  report: {
+    weights: Record<"productivity" | "quality" | "deadline" | "attendance", number>;
+    parts: Record<"productivity" | "quality" | "deadline" | "attendance", HrPart>;
+    overall: number | null;
+    band: DayStatusJson;
+    projects: number;
+    returned_projects: number;
+    revision_rate: number | null;
+  } | null;
+}
+
+/** GET /api/v1/hr/complaints/?translator=. */
+export interface HrComplaints {
+  ok: true;
+  rows: {
+    id: number;
+    date: string | null;
+    summary: string;
+    detail: string;
+    translator: string | null;
+    task: string | null;
+    severity: DayStatusJson;
+    resolved: boolean;
+  }[];
+  people: { id: number; name: string }[];
+  form: FormField[];
+}
+
+export interface HrSalaryRequest {
+  id: number;
+  user: { id: number; name: string };
+  current_amount: string;
+  new_amount: string;
+  delta: string;
+  effective_from: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requested_by: string | null;
+  decided_by: string | null;
+}
+
+/** GET /api/v1/hr/salary-requests/?user=. */
+export interface HrSalaryRequests {
+  ok: true;
+  people: { id: number; name: string }[];
+  person: { id: number; name: string } | null;
+  current: string | null;
+  form: FormField[];
+  pending: HrSalaryRequest[];
+  decided: HrSalaryRequest[];
+  can: { decide: boolean };
+}
+
+/** GET /api/v1/hr/salary-plans/?edit=. */
+export interface HrSalaryPlans {
+  ok: true;
+  rows: {
+    id: number;
+    name: string;
+    note: string;
+    is_active: boolean;
+    overrides: string[];
+    extra_word_rate: string | null;
+    fixed_allowance: string;
+    members: number;
+  }[];
+  editing: number | null;
+  form: FormField[];
+  unassigned: number;
+}
+
+/** A candidate as the recruitment lists draw one: the code opens the file; the phone is HR's to see, nothing else of the person. */
+export interface HrCandidateRow {
+  code: string;
+  name: string;
+  vacancy: string | null;
+  vacancy_code: string | null;
+  phone: string;
+  source: Labelled;
+  status: DayStatusJson;
+  applied_on: string;
+  anonymous: boolean;
+  shift: string;
+}
+
+/** GET /api/v1/hr/recruitment/. */
+export interface HrRecruitment {
+  ok: true;
+  counts: Record<
+    "open_vacancies" | "total_applicants" | "screening" | "pending_owner" | "interviews_today" | "pending_tests" | "hired" | "on_probation",
+    number
+  >;
+  recent: HrCandidateRow[];
+  today_interviews: { candidate: { code: string; name: string }; kind: Labelled; at: Stamp | null }[];
+  waiting_owner: HrCandidateRow[];
+  privacy_armed: boolean;
+  bot_enabled: boolean;
+  recruit_number: string;
+  can: { approve: boolean };
+}
+
+/** GET /api/v1/hr/vacancies/?status=. */
+export interface HrVacancies {
+  ok: true;
+  rows: { code: string; title: string; department: string | null; work_mode: Labelled; applicants: number; status: DayStatusJson }[];
+  statuses: DayStatusJson[];
+  form: FormField[];
+}
+
+/** GET /api/v1/hr/vacancies/<code>/. */
+export interface HrVacancy {
+  ok: true;
+  vacancy: { code: string; title: string; status: DayStatusJson; applicants: number; deadline: string | null };
+  form: FormField[];
+  links: { id: number; order: number; required: boolean; question: { id: number; text: string; kind: Labelled; maps_to: Labelled | null } }[];
+  pool: { id: number; department: string | null; text: string }[];
+  candidates: HrCandidateRow[];
+}
+
+/** GET /api/v1/hr/questions/?department=&edit=. */
+export interface HrQuestions {
+  ok: true;
+  rows: { id: number; text: string; options: string[]; department: string | null; kind: Labelled; maps_to: Labelled | null; is_active: boolean }[];
+  editing: number | null;
+  form: FormField[];
+  departments: { id: number; label: string; questions: number }[];
+  department_form: FormField[];
+}
+
+/** GET /api/v1/hr/recruitment/settings/. */
+export interface HrRecruitSettings {
+  ok: true;
+  form: FormField[];
+  privacy_armed: boolean;
+  sample: string;
+  line: { number: string; phone_number_id: boolean };
+}
+
+/** A stored file as a page links it: the protected address (`/files/...`) and the name to show. */
+export interface HrFileLink {
+  url: string;
+  name: string;
+}
+
+/** GET /api/v1/hr/candidates/?status=&source=&vacancy=&q=. */
+export interface HrCandidates {
+  ok: true;
+  rows: HrCandidateRow[];
+  total: number;
+  limit: number;
+  counts: Record<string, number>;
+  statuses: DayStatusJson[];
+  sources: Labelled[];
+  vacancies: { code: string; title: string }[];
+}
+
+/** An interview and its five marks (`marks` are out of ten, `null` is not marked). */
+export interface HrInterviewJson {
+  id: number;
+  at: Stamp | null;
+  kind: Labelled;
+  interviewer: string | null;
+  meeting_link: string;
+  location: string;
+  notes: string;
+  evaluated: boolean;
+  marks: Record<string, number | null>;
+  total: number;
+  max: number;
+  comments: string;
+}
+
+/** A candidate's test as HR reads it. */
+export interface HrExam {
+  id: number;
+  title: string;
+  department: string | null;
+  brief: string;
+  language_pair: string;
+  word_count: number;
+  assignment: HrFileLink | null;
+  submission: HrFileLink | null;
+  submitted_at: Stamp | null;
+  deadline: Stamp | null;
+  overdue: boolean;
+  reviewer: string | null;
+  marked: boolean;
+  marks: Record<string, number | null>;
+  total: number;
+  max: number;
+  comments: string;
+}
+
+/** GET /api/v1/hr/candidates/<code>/. */
+export interface HrCandidate {
+  ok: true;
+  candidate: HrCandidateRow & {
+    email: string;
+    department: string | null;
+    experience_years: string;
+    languages: string;
+    skills: string;
+    expected_salary: string;
+    hr_notes: string;
+    hr_recommendation: string;
+    rejection_reason: string;
+    cv: HrFileLink | null;
+    identity: { revealed: boolean; at: Stamp | null; by: string | null };
+    owner_decision: { at: Stamp | null; by: string | null } | null;
+    hired_user: number | null;
+  };
+  form: FormField[];
+  answers: { order: number; question: string; value: string; file: HrFileLink | null; at: Stamp | null }[];
+  interviews: HrInterviewJson[];
+  tests: HrExam[];
+  next_statuses: DayStatusJson[];
+  privacy_armed: boolean;
+  interview_form: FormField[];
+  test_form: FormField[];
+  can: { hire: boolean; mark: boolean };
+}
+
+/** GET /api/v1/hr/interviews/<id>/. */
+export interface HrInterview {
+  ok: true;
+  interview: HrInterviewJson;
+  candidate: { code: string; name: string };
+  form: FormField[];
+}
+
+/** GET /api/v1/hr/candidates/<code>/hire/. */
+export interface HrHire {
+  ok: true;
+  candidate: {
+    code: string;
+    name: string;
+    phone: string;
+    email: string;
+    languages: string;
+    department: string | null;
+    shift: string;
+    cv: HrFileLink | null;
+    status: DayStatusJson;
+    hired_user: number | null;
+  };
+  hireable: boolean;
+  probation_days: number;
+  form: FormField[];
+}
+
+/** A score as the owner reads it: out of fifty, or nothing when it was never given. */
+export type HrScore = { total: number; max: number } | null;
+
+/** GET /api/v1/hr/approvals/. */
+export interface HrApprovals {
+  ok: true;
+  waiting: (HrCandidateRow & {
+    interview_score: HrScore;
+    test_score: HrScore;
+    expected_salary: string;
+    hr_recommendation: string;
+    hr_notes: string;
+    cv: HrFileLink | null;
+    department: string | null;
+  })[];
+  decided: (HrCandidateRow & { decided_at: Stamp | null; can_hire: boolean })[];
+}
+
+/** One line of the reviewer's queue: a code, never a person. */
+export interface ReviewerRow {
+  id: number;
+  candidate: string;
+  title: string;
+  department: string | null;
+  overdue: boolean;
+  submitted: boolean;
+  submitted_at: Stamp | null;
+  marked_at: Stamp | null;
+  total: number | null;
+  max: number;
+}
+
+/** GET /api/v1/reviewer/tests/. */
+export interface ReviewerQueue {
+  ok: true;
+  pending: ReviewerRow[];
+  done: ReviewerRow[];
+}
+
+/** GET /api/v1/reviewer/tests/<id>/. `candidate.name` is the owner's to read: a reviewer is blind. */
+export interface ReviewerTest {
+  ok: true;
+  blind: boolean;
+  candidate: { code: string; name?: string };
+  test: {
+    id: number;
+    title: string;
+    brief: string;
+    department: string | null;
+    language_pair: string;
+    word_count: number;
+    deadline: Stamp | null;
+    assignment: HrFileLink | null;
+    submission: HrFileLink | null;
+    submitted_at: Stamp | null;
+    marked: boolean;
+    total: number;
+    max: number;
+  };
+  form: FormField[];
 }
