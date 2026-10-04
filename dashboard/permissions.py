@@ -66,10 +66,10 @@ def api_role_required(*roles):
 
 
 def api_gate(check):
-    """The JSON twin of the page gates below: ``check(user)`` decides, a refusal is a logged 403 and nobody signed in is a 401.
+    """``check(user)`` decides, a refusal is a logged 403 and nobody signed in is a 401.
 
-    The HR pages are not guarded by role alone (attendance rights are a flag a person can be given, recruitment is HR and the
-    owner), so a door asks the very question the page asks instead of a list of roles.
+    Some doors are not guarded by role alone (attendance rights are a flag a person can be given, recruitment is HR and the
+    owner), so a door asks the very question the screen asks instead of a list of roles.
     """
 
     def decorator(view):
@@ -86,63 +86,6 @@ def api_gate(check):
         return wrapper
 
     return decorator
-
-
-def _gate(check, message):
-    """Build a decorator from a predicate on the user.
-
-    The three recruitment gates differ only in which property they read, so
-    they are made here rather than written out three times.
-    """
-
-    def decorator(view):
-        @wraps(view)
-        def wrapper(request, *args, **kwargs):
-            user = request.user
-            if not user.is_authenticated:
-                return redirect_to_login(request.get_full_path())
-            if check(user):
-                return view(request, *args, **kwargs)
-            raise PermissionDenied(message)
-
-        wrapper.eagle_allows = check
-        return wrapper
-
-    return decorator
-
-
-#: Section 24. The owner passes every one of these; nobody else passes them all.
-recruit_required = _gate(
-    lambda u: u.can_recruit, "Only HR and the owner can open recruitment."
-)
-reviewer_required = _gate(
-    lambda u: u.can_review_tests, "Only a reviewer can mark a candidate's test."
-)
-owner_required = _gate(
-    lambda u: u.can_approve_hiring, "Only the owner decides a hire."
-)
-#: The /clients/ pages. Opening them is not seeing the identity - that is
-#: ``can_see_client_identity``, checked again inside the view.
-client_codes_required = _gate(
-    lambda u: u.can_open_client_codes, "Your role cannot open the client pages."
-)
-
-
-def hr_required(view):
-    """Attendance rights. Eagle has no HR *role* - it is a flag on the person,
-    so an operations lead can be given the board without being made an admin."""
-
-    @wraps(view)
-    def wrapper(request, *args, **kwargs):
-        user = request.user
-        if not user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-        if user.can_manage_attendance:
-            return view(request, *args, **kwargs)
-        raise PermissionDenied("Your role cannot open the attendance board.")
-
-    wrapper.eagle_allows = lambda u: u.can_manage_attendance
-    return wrapper
 
 
 def user_may_open(user, url):
@@ -172,8 +115,3 @@ def user_may_open(user, url):
 
 
 admin_only = role_required(Role.ADMIN)
-#: Section 24: accounting runs the month. The owner still sets the rules.
-accounting_only = role_required(Role.ACCOUNTING)
-operation_only = role_required(Role.OPERATION)
-lead_only = role_required(Role.TEAM_LEAD)
-translator_only = role_required(Role.TRANSLATOR)

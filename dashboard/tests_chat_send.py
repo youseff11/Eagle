@@ -106,27 +106,6 @@ class ClientSendTests(_Send):
         self.assertEqual(ours[0]["status"], "sent")
         self.assertEqual(body["client"]["code"], self.client_obj.code)
 
-    def test_it_is_exactly_what_the_classic_page_writes_for_every_role_that_may(self):
-        # The classic endpoint is the specification: same row, same line, same words - for each person on a
-        # conversation of their own line (the company's for the operation, their number for a Sales person).
-        for client, heard, people in (
-            (self.client_obj, self.heard, (self.admin, self.ops, self.boss_sales)),
-            (self.sales_client, self.sales_heard, (self.admin, self.sales, self.boss_sales)),
-        ):
-            for user in people:
-                OutboundMessage.objects.all().delete()
-                self.browser(user).post(
-                    reverse("dashboard:api_client_chat_send", args=[client.code]),
-                    {"body": "same words", "reply_uid": f"in-{heard.pk}"},
-                )
-                old = OutboundMessage.objects.get()
-                OutboundMessage.objects.all().delete()
-                answer = self.to_client(user, code=client.code, body="same words", reply_uid=f"in-{heard.pk}")
-                self.assertEqual(answer.status_code, 200, (client.code, user.username))
-                new = OutboundMessage.objects.get()
-                fields = ("channel", "to_identity", "body", "status", "owner_id", "reply_to_wamid", "reply_preview", "kind")
-                self.assertEqual([getattr(new, f) for f in fields], [getattr(old, f) for f in fields], user.username)
-
     def test_a_reply_quotes_the_message_it_names_and_only_the_first_part_of_it(self):
         InboundMessage.objects.filter(pk=self.heard.pk).update(body="q" * 400)
         self.to_client(self.ops, body="answer", reply_uid=f"in-{self.heard.pk}")
@@ -476,8 +455,9 @@ class GroupSendTests(_Send):
         self.assertEqual(notice.url, f"/ops/chats/u/{self.ops.pk}/")
         self.assertEqual(notice.body_en, f"{self.ops.short_name}: ready when you are")
         self.assertNotIn("—", notice.body_ar)
-        # And the link works: it is the chat, not a page that is not there.
-        self.assertEqual(self.browser(self.lead).get(notice.url).status_code, 200)
+        # And the link works: the old address lands on the same chat in the app.
+        landed = self.browser(self.lead).get(notice.url)
+        self.assertEqual((landed.status_code, landed["Location"]), (302, f"/app/chats/u{self.ops.pk}"))
 
     def test_a_work_groups_notice_still_names_the_group(self):
         self.to_group(self.lead, self.team, body="news")
@@ -803,31 +783,8 @@ class AdminStartsAConversationTests(_Send):
         self.assertEqual(self.to_client(self.ops, code=fresh.code, body="and welcome from us").status_code, 200)
 
 
-class ClassicDoorLineTests(_Send):
-    """The rule is the send's, not the new door's: the classic endpoint (the old chat page) asks it too."""
-
-    def classic(self, user, client, **data):
-        return self.browser(user).post(reverse("dashboard:api_client_chat_send", args=[client.code]), data)
-
-    def test_a_client_who_wrote_to_another_line_is_not_there_for_the_old_chat_page_either(self):
-        for user in (self.ops, self.sales2):
-            answer = self.classic(user, self.sales_client, body="intruding")
-            self.assertEqual(answer.status_code, 404, user.username)
-        self.assertEqual(OutboundMessage.objects.count(), 0)
-        self.nothing_left_the_building()
-        self.assertTrue(AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).exists())
-        # The line's own person and the admin may; and the company's line is the operation's and the admin's.
-        for user in (self.sales, self.admin):
-            self.assertEqual(self.classic(user, self.sales_client, body="mine").status_code, 200, user.username)
-        self.assertEqual(self.classic(self.ops, self.client_obj, body="ours").status_code, 200)
-        self.assertEqual(self.classic(self.sales, self.client_obj, body="not theirs").status_code, 404)
-        self.assertEqual(OutboundMessage.objects.filter(body="not theirs").count(), 0)
-
-    def test_the_old_page_reads_a_failed_row_the_same_way_it_is_written(self):
-        # Nothing was sent for a refusal, so there is nothing to mark read or to quote either.
-        before = ChatRead.objects.count()
-        self.classic(self.ops, self.sales_client, body="intruding", reply_uid=f"in-{self.sales_heard.pk}")
-        self.assertEqual(ChatRead.objects.count(), before)
+class ClientSendLineTests(_Send):
+    """The line rule is the send's as well as the door's."""
 
     def test_a_code_off_the_line_answers_like_an_unknown_one_whatever_was_sent(self):
         # The new door looks at who the client is before it looks at the form: an empty or an over-long one to a code
@@ -837,6 +794,34 @@ class ClassicDoorLineTests(_Send):
             unknown = self.to_client(self.ops, code="CL-9999", **data)
             self.assertEqual((hidden.status_code, hidden.content), (unknown.status_code, unknown.content), data and list(data))
             self.assertEqual(hidden.status_code, 404)
+
+    def test_the_send_itself_asks_the_line_whoever_calls_it(self):
+        """The door asks first; the function behind it asks again, so a caller that skips the door cannot send on a line that is not theirs."""
+        from django.http import Http404
+        from django.test import RequestFactory
+
+        from . import api
+
+        request = RequestFactory().post("/x/", {"body": "hello"})
+        request.user = self.ops
+        before = AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).count()
+        with self.assertRaises(Http404):
+            api.send_to_client(request, self.sales_client)
+        self.assertEqual(AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).count(), before + 1)
+        self.assertEqual(OutboundMessage.objects.filter(client=self.sales_client).count(), 0)
+        self.nothing_left_the_building()
+
+    def test_the_read_receipt_of_a_sales_conversation_goes_out_on_that_sales_number(self):
+        """Marked read on the number the message arrived on, not on the company's."""
+        with mock.patch("dashboard.services.send_read_receipt") as receipt:
+            answer = self.browser(self.sales).post(reverse("dashboard:v1_client_read", args=[self.sales_client.code]))
+        self.assertEqual(_json(answer), {"ok": True, "moved": True})
+        receipt.assert_called_once_with("wamid.in.s", from_id="100001")
+
+    def test_the_read_receipt_of_the_company_line_goes_out_on_the_company_number(self):
+        with mock.patch("dashboard.services.send_read_receipt") as receipt:
+            self.browser(self.ops).post(reverse("dashboard:v1_client_read", args=[self.client_obj.code]))
+        receipt.assert_called_once_with("wamid.in.1")
 
 
 def _file(name="brief.txt", content=b"words", kind="text/plain"):
@@ -1369,14 +1354,17 @@ class VoiceEdgesTests(_Send):
         self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
 
     def test_a_recording_over_the_ceiling_is_refused_by_the_function_too_whichever_door_it_came_by(self):
-        # The classic door has no check of its own: the function behind it says no.
+        # The door (``api_v1.client_send``) checks the size first; the function behind it says no on its own too.
+        from django.test import RequestFactory
+
+        from . import api
+
         big = _voice(content=OGG + b"\x00" * audio.MAX_UPLOAD_BYTES)
-        answer = self.browser(self.ops).post(
-            reverse("dashboard:api_client_chat_send", args=[self.client_obj.code]), {"voice": big, "seconds": "3"},
-        )
-        body = _json(answer)
-        self.assertFalse(body["ok"])
-        self.assertIn("كبير", body["error"])
+        request = RequestFactory().post("/x/", {"voice": big, "seconds": "3"})
+        request.user = self.ops
+        ok, outbound, error = api.send_to_client(request, self.client_obj)
+        self.assertFalse(ok)
+        self.assertIn("كبير", error)
         self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.Status.FAILED)
         self.nothing_left_the_building()
 
@@ -1396,7 +1384,6 @@ class VoiceNotesAreNotDeliverablesTests(_Send):
             ChatAttachment.objects.create(
                 message=message, file=ContentFile(b"x", name=name), original_name=name, size=1,
             )
-        page = self.browser(self.ops).get(reverse("dashboard:task_detail", args=[task.code]))
-        self.assertEqual(page.status_code, 200)
-        offered = [(f["name"], f["final"]) for f in page.context["deliverables"]]
-        self.assertEqual(offered, [("translation.docx", True)])
+        from . import api_ops
+
+        offered = [(f["name"], f["final"]) for f in api_ops._deliverables_json(task)]

@@ -24,7 +24,7 @@ SAVE = "dashboard:v1_sales_line_save"
 class _Sales(_Site):
     def setUp(self):
         super().setUp()
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
         self.other_sales = User.objects.create_user(
@@ -45,7 +45,6 @@ class _Sales(_Site):
 
     def turn_on(self, key="sales", roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), key: {"roles": list(roles), "users": list(users)}}
         conf.save()
 
 
@@ -173,19 +172,6 @@ class LineSaveTests(_Sales):
         self.sales.refresh_from_db()
         self.assertEqual(self.sales.wa_phone_number_id, "")
 
-    def test_the_classic_page_saves_by_the_same_rules(self):
-        browser = DjangoClient()
-        browser.force_login(self.sales)
-        refused = browser.post(reverse("dashboard:sales_line"), {"wa_phone_number_id": "12ab"})
-        self.assertEqual(refused.status_code, 200)
-        self.assertIn("أرقام بس", refused.content.decode("utf-8"))
-        saved = browser.post(reverse("dashboard:sales_line"), {"wa_phone_number_id": "31415926", "wa_display_number": " +20 9 "})
-        self.assertEqual(saved.status_code, 200)
-        self.sales.refresh_from_db()
-        self.assertEqual((self.sales.wa_phone_number_id, self.sales.wa_display_number), ("31415926", "+20 9"))
-        self.assertTrue(AuditLog.objects.filter(action="sales.line", actor=self.sales).exists())
-
-
 class HandOnTests(_Sales):
     def test_the_classic_pages_go_on_for_a_sales_person_with_the_switch_and_keep_their_filters(self):
         self.turn_on(roles=["sales"])
@@ -212,25 +198,6 @@ class HandOnTests(_Sales):
         )
         answer = self.get(self.sales, "dashboard:ops_mail_thread", [mine.pk], state="mine")
         self.assertEqual(answer["Location"], f"/app/inbox/thread/{mine.pk}?state=mine")
-
-    def test_a_form_that_is_already_open_is_answered_where_it_is(self):
-        self.turn_on(roles=["sales"])
-        browser = DjangoClient()
-        browser.force_login(self.sales)
-        answer = browser.post(reverse("dashboard:sales_line"), {"wa_phone_number_id": "2718281", "wa_display_number": ""})
-        self.assertEqual(answer.status_code, 200)
-        self.sales.refresh_from_db()
-        self.assertEqual(self.sales.wa_phone_number_id, "2718281")
-
-    def test_the_admin_keeps_the_classic_line_page_until_they_name_themselves(self):
-        self.assertEqual(self.get(self.admin, "dashboard:sales_line").status_code, 200)
-        # The admin's mail and client pages are the operation's switch, which is theirs by default.
-        self.assertEqual(self.get(self.admin, "dashboard:ops_inbox")["Location"], "/app/inbox")
-
-    def test_a_build_that_does_not_exist_hands_nobody_on(self):
-        self.turn_on(roles=["sales"])
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.get(self.sales, "dashboard:ops_inbox").status_code, 200)
 
 class ClientDoorsForSalesTests(_Sales):
     def test_a_sales_person_may_know_who_the_clients_are_and_it_is_logged_as_it_is_for_the_admin(self):

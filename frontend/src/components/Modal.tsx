@@ -12,6 +12,7 @@ export function Modal({
   icon,
   count,
   busy = false,
+  wide = false,
   onClose,
   children,
 }: {
@@ -20,6 +21,8 @@ export function Modal({
   /** A number beside the title (how many things this is about). */
   count?: number;
   busy?: boolean;
+  /** For a dialog that holds a table: the confirm-box width (420px) leaves a column of names a few letters wide. */
+  wide?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -41,7 +44,7 @@ export function Modal({
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ textAlign: "start" }}>
+      <div className={wide ? "modal modal--wide" : "modal"} role="dialog" aria-modal="true" aria-labelledby={titleId} style={{ textAlign: "start" }}>
         <div className="row row--tight">
           <Icon name={icon} />
           <div className="modal__title" id={titleId}>

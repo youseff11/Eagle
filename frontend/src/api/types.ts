@@ -196,8 +196,6 @@ export interface HeartbeatResponse {
   ok: true;
   /** The attendance screen that is due, or null: `{ kind: "check_in" | "check_out" | "extra", ... }`. */
   attendance: AttendanceGate | null;
-  /** Whether this app draws that screen itself for this person (their attendance screen is switched on). */
-  attendance_screen?: boolean;
   /** An assignment waiting for an answer (the 60-second accept screen), or null. */
   pending: PendingAssignment | null;
   /** A call ringing for this person, or null. */

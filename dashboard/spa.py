@@ -49,8 +49,8 @@ def built_assets():
     The URLs go through ``static()``, so in production they carry the hashed names
     that ``collectstatic`` made and a stylesheet can never be stale at the edge.
 
-    ``SPA_ASSETS_OFF`` (the test settings) says the app is not built whatever is on disk, so a test of a classic page does not
-    depend on whether the checkout happened to run ``npm run build``; a test of the app's side patches this function.
+    ``SPA_ASSETS_OFF`` (the test settings) says the app is not built whatever is on disk, so a test does not depend on whether
+    the checkout happened to run ``npm run build``; a test of the app's side patches this function.
     """
     if getattr(settings, "SPA_ASSETS_OFF", False):
         return None

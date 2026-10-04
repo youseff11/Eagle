@@ -41,7 +41,7 @@ SECRETS = {
 class _Admin(_Site):
     def setUp(self):
         super().setUp()
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
 
@@ -53,7 +53,6 @@ class _Admin(_Site):
 
     def turn_on(self, roles=("admin",), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "admin": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def hold_back(self, body="What is your price per page", sender="buyer@example.com", files=()):
@@ -68,13 +67,6 @@ class _Admin(_Site):
             MessageAttachment.objects.create(message=letter, file=ContentFile(b"data", name=name), original_name=name, size=4)
         return letter
 
-
-class ScreenSwitchTests(_Admin):
-    def test_no_other_role_or_person_can_be_switched_on_for_it(self):
-        self.turn_on(roles=["admin", "operation", "team_lead"], users=[self.ops.pk, self.lead.pk])
-        for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
-            self.assertFalse(newui.enabled(user, "admin"), user.username)
-            self.assertNotIn("admin", _json(self.get(user, "dashboard:v1_me"))["screens"], user.username)
 
 class OverviewDoorTests(_Admin):
     def test_the_admin_is_answered_and_everybody_else_is_refused(self):
@@ -94,18 +86,6 @@ class OverviewDoorTests(_Admin):
         for user in (self.ops, self.tr):
             self.get(user, OVERVIEW)
         self.assertEqual(AuditLog.objects.filter(action=identity.ACCESS_DENIED).count(), before + 2)
-
-    def test_the_numbers_are_the_classic_pages(self):
-        from . import views
-
-        body = _json(self.get(self.admin, OVERVIEW))["counters"]
-        classic = views._task_counters()
-        self.assertEqual({key: body[key] for key in ("new", "open", "delivered")}, {key: classic[key] for key in ("new", "open", "delivered")})
-        self.assertEqual(body["clients"], 1)
-        Task.objects.create(client=self.client_obj, title="Fresh", created_by=self.ops, status=TaskStatus.NEW)
-        Task.objects.create(client=self.client_obj, title="Done", created_by=self.ops, status=TaskStatus.DELIVERED)
-        again = _json(self.get(self.admin, OVERVIEW))["counters"]
-        self.assertEqual((again["new"], again["delivered"]), (body["new"] + 1, body["delivered"] + 1))
 
     def test_a_letter_held_back_is_listed_with_its_words_sender_and_keyword(self):
         letter = self.hold_back(files=("rates.pdf",))
@@ -309,20 +289,6 @@ class HandOnTests(_Admin):
         for value in ("", "bogus", "se curity", "<script>"):
             self.assertEqual(self.get(self.admin, "dashboard:admin_audit", only=value)["Location"], "/app/admin/audit", value)
 
-    def test_home_lands_in_the_app_and_a_classic_parameter_changes_nothing(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        self.assertEqual(browser.get("/")["Location"], "/app/")
-        self.assertEqual(browser.get("/", {"classic": "1"})["Location"], "/app/")
-        # A checkout that never built the app is the one place the classic landing page is still served.
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None), mock.patch("dashboard.views.spa.built_assets", return_value=None):
-            self.assertEqual(browser.get("/")["Location"], reverse("dashboard:admin_overview"))
-
-    def test_a_build_that_does_not_exist_hands_nobody_on(self):
-        self.turn_on()
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.get(self.admin, "dashboard:admin_overview").status_code, 200)
-
     def test_every_page_of_the_classic_panel_goes_on(self):
         """The whole panel is in the new app: nothing the admin used to open is left only in the classic interface."""
         pages = {
@@ -340,38 +306,6 @@ class HandOnTests(_Admin):
         # The pages that take an argument.
         self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk])["Location"], f"/app/admin/users/{self.tr.pk}")
         self.assertEqual(self.get(self.admin, "dashboard:admin_client_edit", [self.client_obj.code])["Location"], f"/app/admin/clients/{self.client_obj.code}/edit")
-
-    def test_every_admin_page_of_the_classic_interface_is_in_the_sweep(self):
-        """A page added to the classic panel later must be handed on (or listed here as left behind on purpose)."""
-        from django.urls import get_resolver
-
-        left_on_purpose = {
-            "dashboard:admin_shift_add", "dashboard:admin_shift_delete", "dashboard:admin_clients_delete",
-            "dashboard:google_connect", "dashboard:google_callback", "dashboard:google_sync", "dashboard:google_disconnect",
-            "dashboard:admin_client_edit", "dashboard:admin_user_edit",
-        }
-        handled = {
-            "dashboard:admin_overview", "dashboard:admin_audit", "dashboard:admin_users", "dashboard:admin_user_new",
-            "dashboard:admin_clients", "dashboard:admin_client_new", "dashboard:admin_settings", "dashboard:admin_simulate",
-            "dashboard:admin_reset_tasks", "dashboard:admin_reset_mail",
-        }
-        names = {
-            f"dashboard:{name}" for name in get_resolver().reverse_dict.keys()
-            if isinstance(name, str) and (name.startswith("admin_") or name.startswith("google_"))
-        }
-        self.assertEqual(names - handled - left_on_purpose, set())
-
-    def test_a_form_already_open_is_answered_where_it_is(self):
-        self.turn_on()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_overview"))
-        self.assertNotEqual(answer.status_code, 302)
-
-    def test_nobody_else_is_handed_on_or_let_in(self):
-        self.turn_on()
-        for user in (self.ops, self.sales):
-            self.assertEqual(self.get(user, "dashboard:admin_overview").status_code, 403, user.username)
 
     def test_the_new_address_serves_the_app_to_the_admin(self):
         self.turn_on()

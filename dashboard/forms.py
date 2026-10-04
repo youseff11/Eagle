@@ -1,6 +1,6 @@
 """Forms used by the Eagle dashboard."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
@@ -141,61 +141,6 @@ class DeadlineInput(forms.Widget):
 
     def value_omitted_from_data(self, data, files, name):
         return all(f"{name}_{part}" not in data for part in self.parts)
-
-    def boxes(self, value):
-        """``({part: text}, was)`` — what to draw in each box."""
-        empty = {part: "" for part in self.parts}
-        if isinstance(value, dict):
-            # The form came back (invalid, most likely). Keep what was typed.
-            return {p: value.get(p, "") for p in self.parts}, value.get("was", "")
-        if not value:
-            return empty, ""
-
-        was = value.isoformat()
-        if isinstance(value, datetime):
-            left = int((value - timezone.now()).total_seconds())
-        else:
-            left = (value - timezone.localdate()).days * DEADLINE_SECONDS["days"]
-        if left <= 0:
-            # Already passed. Blank, which reads as "leave it alone".
-            return empty, was
-
-        boxes, rest = {}, left
-        for part in ("days", "hours", "minutes"):
-            size = DEADLINE_SECONDS[part]
-            if part not in self.parts:
-                continue
-            # The last box shown carries whatever the bigger ones left over,
-            # so a days-only field says "3" for anything inside the third day.
-            if part == self.parts[-1]:
-                boxes[part] = str(rest // size)
-            else:
-                boxes[part], rest = str(rest // size), rest % size
-        return boxes, was
-
-    def render(self, name, value, attrs=None, renderer=None):
-        from django.utils.html import escape
-        from django.utils.safestring import mark_safe
-
-        boxes, was = self.boxes(value)
-        cells = "".join(
-            '<label class="dur__part">'
-            f'<input class="input dur__num" type="number" min="0" step="1"'
-            f' inputmode="numeric" name="{escape(name)}_{part}"'
-            f' id="id_{escape(self.scope)}{escape(name)}_{part}"'
-            f' value="{escape(boxes.get(part, ""))}">'
-            f'<span class="dur__unit" data-ar="{escape(ar)}" data-en="{escape(en)}">'
-            f'{escape(ar)}</span>'
-            "</label>"
-            for part, ar, en in DEADLINE_PARTS if part in self.parts
-        )
-        return mark_safe(
-            '<div class="dur" data-deadline>'
-            f"{cells}"
-            f'<input type="hidden" name="{escape(name)}_was" value="{escape(was)}">'
-            '<div class="dur__out mono" data-deadline-out></div>'
-            "</div>"
-        )
 
 
 class DeadlineField(forms.Field):

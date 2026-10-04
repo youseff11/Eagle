@@ -258,8 +258,13 @@ class AcceptAndDeclineAreTheClassicEndpoints(_Handoff):
         self.assertEqual(fresh.status, AssignmentStatus.PENDING)
         self.assertIsNotNone(fresh.opened_at)
         # Not for somebody else's hand-off.
+        from .models import AuditLog
+
+        before = AuditLog.objects.filter(action="security.denied", actor=self.lead).count()
         browser.force_login(self.lead)
         self.assertEqual(browser.post(reverse("dashboard:api_assignment_files", args=[self.handoff.pk])).status_code, 404)
+        self.assertEqual(AuditLog.objects.filter(action="security.denied", actor=self.lead).count(), before + 1)
+        self.assertIsNotNone(Assignment.objects.get(pk=self.handoff.pk).opened_at)
 
 
 class AssignmentHandOnTests(_Handoff):

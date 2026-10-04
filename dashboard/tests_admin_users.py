@@ -202,16 +202,6 @@ class FileTests(_Staff):
         self.assertEqual(len(body["events"]), 1)
         self.assertEqual(body["events"][0]["reason"], "اتأخر")
 
-    def test_the_shift_picker_agrees_with_the_classic_one(self):
-        template = ShiftTemplate.objects.create(name="Noon", name_ar="الضهر", start_time=time(12), end_time=time(20))
-        attendance.assign_shift(self.tr, template, [0, 1, 2])
-        picker = _json(self.get(self.admin, ONE, [self.tr.pk]))["picker"]
-        classic = views._shift_picker(self.tr, "/")
-        self.assertEqual(picker["current"], classic["current"].pk)
-        self.assertEqual(picker["has_custom"], classic["has_custom"])
-        self.assertEqual([row["id"] for row in picker["templates"]], [row.pk for row in classic["templates"]])
-        self.assertEqual([(row["num"], row["checked"]) for row in picker["days"]], [(row["num"], row["checked"]) for row in classic["days"]])
-
     def test_a_person_that_does_not_exist_is_a_404(self):
         self.assertEqual(self.get(self.admin, ONE, [999999]).status_code, 404)
 
@@ -556,14 +546,6 @@ class PickTests(_Staff):
             answer = self.post(self.admin, PICK, body, [self.tr.pk])
             self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_body"), body)
 
-    def test_it_does_what_the_hr_page_does_for_the_same_choice(self):
-        classic = DjangoClient()
-        classic.force_login(self.hr)
-        classic.post(f"/hr/employees/{self.ops.pk}/shift/", {"template": self.noon.pk, "weekdays": ["0", "1"]})
-        self.post(self.admin, PICK, {"template": self.noon.pk, "weekdays": [0, 1]}, [self.tr.pk])
-        self.assertEqual(self.rows(self.ops), [(day, template) for day, template in self.rows(self.tr)])
-
-
 class AliasSyncTests(_Staff):
     def test_it_asks_google_at_most_once_a_minute_and_says_whether_it_did(self):
         with mock.patch("dashboard.galiases.sync", return_value=(True, "", None)) as sync:
@@ -622,34 +604,3 @@ class HandOnTests(_Staff):
         )
         for answer, target in pairs:
             self.assertEqual((answer.status_code, answer["Location"]), (302, target))
-
-    def test_a_person_that_does_not_exist_is_a_404_in_both_interfaces(self):
-        self.turn_on()
-        self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [999999]).status_code, 404)
-
-    def test_the_forms_already_open_are_answered_where_they_are(self):
-        self.turn_on()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_user_edit", args=[self.tr.pk]), {"first_name": "Changed", "role": "translator"})
-        self.assertNotEqual(answer.get("Location"), f"/app/admin/users/{self.tr.pk}")
-
-    def test_the_classic_box_for_a_typed_shift_saves_the_row_it_was_given(self):
-        """It used to save nothing and say nothing (the form wanted fields the box never sent): now it saves an active row."""
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), {"weekday": 0, "start_time": "09:00", "end_time": "17:00"})
-        self.assertEqual(answer.status_code, 302)
-        row = Shift.objects.get(user=self.tr)
-        self.assertEqual((row.weekday, row.start_time, row.end_time, row.is_active, row.required_minutes, row.template_id), (0, time(9), time(17), True, 0, None))
-        self.assertEqual(len(self.tr.active_shifts()), 1)
-
-    def test_the_classic_box_and_the_new_door_make_the_same_row(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        browser.post(reverse("dashboard:admin_shift_add", args=[self.tr.pk]), {"weekday": 2, "start_time": "17:00", "end_time": "01:00"})
-        self.post(self.admin, SHIFT_ADD, {"weekday": 2, "start_time": "17:00", "end_time": "01:00"}, [self.ops.pk])
-        fields = ("weekday", "start_time", "end_time", "is_active", "required_minutes", "work_mode", "template_id")
-        self.assertEqual(
-            list(Shift.objects.filter(user=self.tr).values_list(*fields)), list(Shift.objects.filter(user=self.ops).values_list(*fields)),
-        )

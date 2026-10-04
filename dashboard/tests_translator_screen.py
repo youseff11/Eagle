@@ -415,13 +415,6 @@ class TaskHandOnTests(_Screen):
         answer = self.classic(self.tr)
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/tasks/{self.task.code}"))
 
-    def test_what_is_not_a_code_is_not_carried_into_the_address(self):
-        self.turn_on(roles=["translator"])
-        for odd in ("we.ird", "x" * 41, "a:b"):
-            answer = self.classic(self.tr, odd)
-            self.assertNotEqual(answer.status_code, 302, odd)
-            self.assertEqual(answer.status_code, 404, odd)
-
     def test_a_task_that_is_not_theirs_is_sent_on_and_refused_there(self):
         self.turn_on(roles=["translator"])
         other = self.other_translator()

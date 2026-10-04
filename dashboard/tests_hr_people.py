@@ -741,21 +741,7 @@ class HandOnTests(_People):
             self.assertTrue(answer["Location"].startswith(path), answer["Location"])
             self.assertIn(kept, answer["Location"])
 
-    def test_the_salary_plans_are_handed_on_for_the_admin_only_and_the_edit_goes_along(self):
-        answer = self.classic("hr_salary_plans", who=self.admin, edit="3")
-        self.assertEqual(answer.status_code, 302)
-        self.assertIn("/app/hr/salary-plans?edit=3", answer["Location"])
-        self.assertEqual(self.classic("hr_salary_plans").status_code, 403)
-
     def test_the_old_way_back_to_the_classic_page_is_gone_and_the_flag_holder_is_handed_on_with_everybody_else(self):
         for name in ("hr_employees", "hr_probation", "hr_performance", "hr_complaints", "hr_salary_requests"):
             self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
         self.assertEqual(self.classic("hr_probation", who=self.flagged).status_code, 302)
-
-    def test_a_post_to_a_classic_page_is_never_handed_on(self):
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_complaints"), {"summary": "Late", "severity": "low"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(answer["Location"], reverse("dashboard:hr_complaints"))
-        self.assertTrue(ClientComplaint.objects.filter(summary="Late").exists())

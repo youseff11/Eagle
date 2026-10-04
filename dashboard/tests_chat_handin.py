@@ -149,20 +149,6 @@ class HandInTests(_HandIn):
         self.assertEqual(one.message.task_id, self.task.pk)
         self.assertTrue(AuditLog.objects.filter(action="task.handed_in_from_chat", target=self.task.code).exists())
 
-    def test_it_is_exactly_what_the_classic_door_does_for_every_role(self):
-        for user in self.everyone:
-            Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.IN_PROGRESS)
-            ChatMessage.objects.all().update(task=None)
-            file = self.send("same.docx")
-            old = self.browser(user).post(reverse("dashboard:api_task_handin", args=[self.task.code]), {"files": [file.pk]})
-            old_state = (old.status_code == 200, self.status(), ChatMessage.objects.filter(task=self.task).count())
-            Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.IN_PROGRESS)
-            ChatMessage.objects.all().update(task=None)
-            new = self.hand_in(user, [file])
-            new_state = (new.status_code == 200, self.status(), ChatMessage.objects.filter(task=self.task).count())
-            self.assertEqual(new_state, old_state, user.username)
-            self.assertEqual(new_state[0], user == self.tr, user.username)
-
     def test_somebody_elses_file_a_voice_note_and_a_file_from_another_room_are_refused_and_nothing_moves(self):
         other, _e = services.create_team_group(self.ops, "Elsewhere", [self.tr])
         for name, file in (
@@ -185,6 +171,18 @@ class HandInTests(_HandIn):
         answer = self.hand_in(self.tr, [file])
         self.assertEqual(answer.status_code, 400)
         self.assertEqual(self.status(), TaskStatus.IN_PROGRESS)
+
+    def test_somebody_who_may_see_the_task_but_is_not_its_translator_cannot_hand_in_for_them(self):
+        for who in (self.lead, self.admin):
+            # Their own file, in the work group, with the task's leader in it: only "this is not your task" stops it.
+            one = self.send("a.docx", sender=who)
+            answer = self.hand_in(who, [one])
+            self.assertEqual(answer.status_code, 400, who.username)
+            self.assertFalse(_json(answer)["ok"], who.username)
+            self.assertTrue(_json(answer)["message"], who.username)
+            self.assertEqual(self.status(), TaskStatus.IN_PROGRESS, who.username)
+            one.message.refresh_from_db()
+            self.assertIsNone(one.message.task_id, who.username)
 
     def test_a_task_that_is_not_in_progress_is_refused(self):
         file = self.send()

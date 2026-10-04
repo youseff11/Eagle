@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, chatlists, clock, identity, newui, services
+from . import ai, attendance, chatlists, clock, identity, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -19,11 +19,8 @@ from .models import (
     ChatMessage,
     ChatRoom,
     Client,
-    ClientRequirement,
     InboundMessage,
     Notification,
-    # Used by `_quoted_of` when somebody replies to a message we sent. It was
-    # missing, so quoting an outbound message raised NameError at runtime.
     OutboundMessage,
     PunchKind,
     Role,
@@ -31,7 +28,6 @@ from .models import (
     Task,
     TaskStatus,
     User,
-    WorkDay,
 )
 from .permissions import api_role_required
 
@@ -150,77 +146,20 @@ def heartbeat(request):
     # Every role has the chats page, so every role gets its badge: messages
     # waiting in any tab of it that this person has not opened yet.
     data["counters"]["chats"] = services.unread_chat_total(user)
-    # A colleague calling: every page rings (static/js/calls.js).
+    # A colleague calling: every page rings.
     data["call"] = services.incoming_call(user)
     # Live pages: a board re-fetches itself when this moves, and a task page
-    # follows its own task (static/js/app.js, initLive).
+    # follows its own task.
     data["live"] = services.live_stamp()
     # The check-in screen: opens by itself when a shift starts, even on a page
-    # that was already open (static/js/attendance.js).
+    # that was already open.
     data["attendance"] = attendance.gate_for(user)
-    # Whether the new app draws that screen itself (its heartbeat must not send the person to the classic pages for it).
-    data["attendance_screen"] = newui.gate_in_app(user)
     code = (request.GET.get("task") or "").strip()
     if code:
         task = Task.objects.filter(code=code).first()
         if task is not None and task.can_view(user):
             data["task_live"] = services.task_live_stamp(task)
     return JsonResponse(data)
-
-
-@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
-@require_GET
-def presence(request):
-    """Who has Eagle open right now, for the pages that show a status dot.
-
-    Polled by the browser so the dots move on their own — the whole point of
-    the column is to answer "can I hand this to them this minute", and a value
-    that is only correct at page load cannot answer that.
-
-    Only the roles with a status board get it, and a team leader gets their own
-    team: everyone's login pattern and workload is not something a translator
-    needs, and an endpoint that lists all staff is a roster anyone can harvest.
-    """
-    from django.db.models import Count, Q as _Q
-
-    user = request.user
-    people = User.objects.filter(is_active=True)
-    if user.is_team_lead and not user.is_admin_role:
-        people = people.filter(_Q(pk=user.pk) | _Q(team_lead=user))
-
-    # One query instead of one per person: this is polled every 20 seconds by
-    # every open board, so a per-row count would dominate the database.
-    people = people.annotate(
-        open_as_translator=Count(
-            "translator_tasks",
-            filter=_Q(translator_tasks__status__in=ACTIVE_TASK_STATUSES),
-            distinct=True,
-        ),
-        open_as_lead=Count(
-            "lead_tasks",
-            filter=_Q(lead_tasks__status__in=ACTIVE_TASK_STATUSES),
-            distinct=True,
-        ),
-    ).prefetch_related("shifts")
-
-    rows = []
-    for person in people:
-        seconds = person.seconds_since_seen
-        if person.is_translator:
-            busy = person.open_as_translator > 0
-        elif person.is_team_lead:
-            busy = person.open_as_lead > 0
-        else:
-            busy = False
-        rows.append({
-            "id": person.id,
-            "online": person.is_online,
-            "busy": busy,
-            "on_shift": person.on_shift,
-            "seen_ar": _seen_label(seconds, person.last_seen, "ar"),
-            "seen_en": _seen_label(seconds, person.last_seen, "en"),
-        })
-    return JsonResponse({"ok": True, "people": rows})
 
 
 def _seen_label(seconds, stamp, lang):
@@ -240,13 +179,6 @@ def _seen_label(seconds, stamp, lang):
         n = seconds // 86400
         return f"من {n} يوم" if lang == "ar" else f"{n}d ago"
     return clock.fmt12(stamp, lang, "%Y-%m-%d")
-
-
-@login_required
-@require_POST
-def mark_notifications_read(request):
-    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
-    return JsonResponse({"ok": True})
 
 
 @login_required
@@ -313,7 +245,7 @@ def open_assignment_files(request, pk):
     """
     assignment = get_object_or_404(Assignment, pk=pk)
     if assignment.assignee_id != request.user.pk:
-        raise Http404
+        identity.hidden(request, "assignment")
     if assignment.opened_at is None:
         assignment.opened_at = timezone.now()
         assignment.save(update_fields=["opened_at"])
@@ -559,24 +491,6 @@ def deliver(request, code):
     }, status=200 if ok else 400)
 
 
-@api_role_required(Role.ADMIN)
-@require_POST
-def whatsapp_test(request):
-    from . import whatsapp as wa
-
-    report = wa.check_connection(request.POST.get("to", "").strip())
-    return JsonResponse(report)
-
-
-@api_role_required(Role.ADMIN)
-@require_POST
-def email_test(request):
-    from . import mailer
-
-    report = mailer.check_connection(AppSettings.load(), request.POST.get("to", "").strip())
-    return JsonResponse(report)
-
-
 @api_role_required(Role.OPERATION)
 @require_POST
 def set_deadline(request, code):
@@ -673,112 +587,15 @@ def set_translator_deadline(request, code):
 # Inbound messages
 # ---------------------------------------------------------------------------
 
-@api_role_required(Role.OPERATION, Role.SALES)
-@require_GET
-def inbox_feed(request):
-    """Conversations that gained a letter newer than ``after``.
-
-    Each comes back as the whole row, rendered with the page's own partial. The
-    page swaps out the row with the same ``data-thread`` and puts the new one
-    on top — a reply moves its conversation up, the way it does in Gmail,
-    instead of appearing as a second row.
-    """
-    from django.template.loader import render_to_string
-
-    after = _int(request.GET.get("after"), 0)
-    state = request.GET.get("state", "")
-    query = request.GET.get("q", "").strip()
-    # after=0 is an inbox that was empty when the page loaded: everything
-    # that matches now is new to it.
-    threads = services.inbox_threads(request.user, state, query, limit=20, after=after)
-    back_qs = services.inbox_filter_qs(state, query)
-
-    # Oldest first so the client can prepend each one and keep newest on top.
-    threads = threads[::-1]
-    return JsonResponse({
-        "ok": True,
-        "last": max([after] + [t.last_id for t in threads]),
-        "items": [
-            {
-                "id": thread.last_id,
-                "thread": thread.key,
-                "html": render_to_string(
-                    "ops/_thread_item.html",
-                    {"thread": thread, "back_qs": back_qs},
-                    request=request,
-                ),
-            }
-            for thread in threads
-        ],
-    })
-
-
-@api_role_required(Role.OPERATION, Role.SALES)
-@require_GET
-def mail_thread_feed(request, pk):
-    """What is new in the conversation ``pk`` belongs to.
-
-    ``after`` is the newest client letter on screen, ``after_out`` our newest
-    reply. Keeps an open conversation current: the client's next letter — or a
-    colleague's reply — lands at the bottom of the page somebody is reading.
-
-    A letter that arrives while you are on the page counts as read — you are
-    looking at it — so the badge does not light up behind you. It still comes
-    in marked new, because it is.
-    """
-    from django.template.loader import render_to_string
-
-    anchor = get_object_or_404(InboundMessage, pk=pk, channel=Channel.EMAIL)
-    if not anchor.visible_to(request.user):
-        identity.hidden(request, "mail")
-    after = _int(request.GET.get("after"), 0)
-    after_out = _int(request.GET.get("after_out"), 0)
-
-    arrived = [
-        row for row in services.thread_messages(request.user, anchor)
-        if row.pk > after
-    ]
-    fresh = services.mark_letters_seen(request.user, arrived)
-    for row in arrived:
-        row.is_unseen = row.pk in fresh
-
-    items = [
-        {
-            "kind": "in",
-            "id": row.id,
-            "html": render_to_string(
-                "ops/_message_item.html",
-                {"item": row, "in_thread": True, "open": True},
-                request=request,
-            ),
-        }
-        for row in arrived
-    ]
-    items += [
-        {
-            "kind": "out",
-            "id": reply.id,
-            "html": render_to_string(
-                "ops/_reply_item.html", {"reply": reply, "open": True}, request=request,
-            ),
-        }
-        for reply in services.thread_replies(anchor.thread_key, request.user)
-        if reply.pk > after_out
-    ]
-    return JsonResponse({"ok": True, "items": items})
-
 
 @api_role_required(Role.OPERATION, Role.SALES)
 @require_POST
 def mail_reply(request, pk):
     """Answer the conversation ``pk`` is in: text, files, or both, by e-mail.
 
-    The reply comes back rendered, so the page can put it under the letters
-    without a reload — and it comes back on a failure too, marked failed, the
-    way the chat keeps a failed send visible instead of losing it.
+    The answer says whether it went and, when a letter was made (a failed one is kept, marked failed, the way the chat keeps
+    a failed send visible instead of losing it), its id.
     """
-    from django.template.loader import render_to_string
-
     anchor = get_object_or_404(
         InboundMessage.objects.select_related("client"), pk=pk, channel=Channel.EMAIL
     )
@@ -792,24 +609,7 @@ def mail_reply(request, pk):
     payload = {"ok": ok, "error": error}
     if outbound is not None:
         payload["id"] = outbound.pk
-        payload["html"] = render_to_string(
-            "ops/_reply_item.html", {"reply": outbound, "open": True}, request=request,
-        )
     return JsonResponse(payload, status=200 if ok else 400)
-
-
-@api_role_required(Role.OPERATION, Role.SALES)
-@require_POST
-def claim_message(request, pk):
-    message = get_object_or_404(InboundMessage, pk=pk)
-    # The rate block and the line (a Sales person's own, or the company's).
-    if not message.visible_to(request.user):
-        identity.hidden(request, "mail")
-    ok = services.claim_message(message, request.user)
-    return JsonResponse({
-        "ok": ok,
-        "claimed_by": message.claimed_by.short_name if message.claimed_by_id else "",
-    })
 
 
 @api_role_required(Role.OPERATION, Role.SALES)
@@ -1201,7 +1001,7 @@ def _group_json(room, viewer, unread=0, facts=None):
 @login_required
 @require_GET
 def client_chat_list(request):
-    """Feeds the chats sidebar. Mirrors views._chat_sidebar exactly.
+    """Feeds the chats sidebar.
 
     Any signed-in member can poll it — they only ever get their own groups —
     but the 1:1 list is the whole client directory, so it stays with the roles
@@ -1343,22 +1143,6 @@ def call_signals(request, pk):
 
 
 @login_required
-@require_POST
-def chat_react(request):
-    """Like, love... on one message. Same one again takes it back."""
-    ok, error, reactions = services.toggle_reaction(
-        request.user,
-        request.POST.get("source", ""),
-        request.POST.get("uid", ""),
-        request.POST.get("kind", ""),
-    )
-    return JsonResponse({
-        "ok": ok, "error": error, "uid": request.POST.get("uid", ""),
-        "reactions": reactions, "reactions_sig": services.reactions_sig(reactions),
-    }, status=200 if ok else 400)
-
-
-@login_required
 @require_GET
 def search_tasks(request):
     """The tasks half of the nav search. Only tasks this person may open."""
@@ -1366,30 +1150,6 @@ def search_tasks(request):
         "ok": True,
         "items": services.search_tasks(request.user, request.GET.get("q", "")),
     })
-
-
-@login_required
-@require_POST
-def chat_forward(request):
-    """Forward picked messages and/or files from one chat to another.
-
-    ``source`` / ``target`` are the chats-page codes (``CL-0002``, ``g12``,
-    ``u5``); ``uids`` the bubbles, ``files`` client attachment ids from the
-    "select files" mode. Every rule - who may send where, what text may
-    travel - lives in ``services.forward_to_chat``.
-    """
-    uids = [u for u in request.POST.getlist("uids") if u]
-    files = []
-    for value in request.POST.getlist("files"):
-        files += [chunk for chunk in str(value).split(",") if chunk.strip().isdecimal()]
-    ok, error, url = services.forward_to_chat(
-        request.user,
-        request.POST.get("source", ""),
-        request.POST.get("target", ""),
-        uids=uids, attachment_ids=files,
-        note=request.POST.get("note", ""),
-    )
-    return JsonResponse({"ok": ok, "error": error, "url": url}, status=200 if ok else 400)
 
 
 @login_required
@@ -1545,11 +1305,8 @@ def group_add_members(request, room_id):
 @require_GET
 def group_chat_fetch(request, room_id):
     room = _group_or_404(request, room_id)
-    # ``read=1`` is chat.js saying the conversation is on screen and the tab
-    # is in front. Polling alone is not reading: a phone showing the list, or
-    # a tab left in the background, fetches the same thread.
-    if request.GET.get("read") == "1":
-        services.mark_room_read(request.user, room)
+    # Fetching is not reading: a phone showing the list, or a tab left in the background, fetches the same thread. A
+    # conversation is read by saying so (``api_v1.group_read``).
     return JsonResponse({
         "ok": True,
         "client": _group_json(room, request.user),
@@ -1560,51 +1317,11 @@ def group_chat_fetch(request, room_id):
     })
 
 
-@login_required
-@require_POST
-def group_chat_send(request, room_id):
-    """Same contract as client_chat_send, so chat.js drives both identically."""
-    room = _group_or_404(request, room_id)
-    response = chat_send(request, room_id)
-    ok = response.status_code == 200
-    # Answering a conversation is having read it.
-    services.mark_room_read(request.user, room)
-    payload = {
-        "ok": ok,
-        "error": "",
-        "messages": [
-            _thread_entry_json(e, request.user)
-            for e in services.group_thread(room, request.user)
-        ],
-        "client": _group_json(room, request.user),
-    }
-    if ok:
-        import json as _json
-
-        relay_error = _json.loads(response.content).get("relay_error") or ""
-        if relay_error:
-            payload["ok"] = False
-            payload["error"] = relay_error
-    else:
-        import json as _json
-
-        try:
-            detail = _json.loads(response.content)
-        except ValueError:
-            detail = {}
-        payload["code"] = detail.get("error") or ""
-        payload["choices"] = detail.get("choices") or []
-        payload["error"] = detail.get("message") or "مفيش حاجة تتبعت."
-    return JsonResponse(payload, status=200)
-
-
 @api_role_required(Role.OPERATION, Role.SALES)
 @require_GET
 def client_chat_fetch(request, client_code):
     client = _client_or_404(request, client_code)
-    # See group_chat_fetch: only a conversation actually on screen is read.
-    if request.GET.get("read") == "1":
-        services.mark_client_read(request.user, client)
+    # See group_chat_fetch: fetching is not reading.
     entries = services.client_thread(client, request.user)
     return JsonResponse({
         "ok": True,
@@ -1692,49 +1409,9 @@ def send_to_client(request, client):
     )
 
 
-@api_role_required(Role.OPERATION, Role.SALES)
-@require_POST
-def client_chat_send(request, client_code):
-    client = _client_or_404(request, client_code)
-    ok, outbound, error = send_to_client(request, client)
-    payload = {"ok": ok, "error": error}
-    # Answering a conversation is having read it.
-    services.mark_client_read(request.user, client)
-    if outbound is not None:
-        # Re-render the whole thread tail so a failed send still shows up.
-        entries = services.client_thread(client, request.user)
-        payload["messages"] = [_thread_entry_json(e, request.user) for e in entries]
-        payload["client"] = _conversation_json(client, request.user)
-    return JsonResponse(payload, status=200 if ok else 400)
-
-
 # ---------------------------------------------------------------------------
 # Client requirements
 # ---------------------------------------------------------------------------
-
-@login_required
-@require_POST
-def add_requirement(request, client_code):
-    from .models import Client
-
-    client = get_object_or_404(Client, code=client_code)
-    user = request.user
-    if user.is_translator:
-        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
-    text = (request.POST.get("text") or "").strip()
-    kind = request.POST.get("kind", "rule")
-    if not text:
-        return JsonResponse({"ok": False, "error": "empty"}, status=400)
-    req = ClientRequirement.objects.create(
-        client=client, kind=kind, text=text, author=user
-    )
-    return JsonResponse({
-        "ok": True,
-        "id": req.id,
-        "kind": req.kind,
-        "text": req.text,
-        "author": user.short_name,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -1839,20 +1516,7 @@ def _decimal(value):
         return None
 
 
-def _day_json(row, plan=None):
-    if row is None:
-        return {
-            "state": "none",
-            "check_in": None,
-            "check_out": None,
-            "break_minutes": 0,
-            "on_break": False,
-            "late_minutes": 0,
-            "work_minutes": 0,
-            "needs_review": False,
-            "extra_running": False,
-            "after_shift": False,
-        }
+def _day_json(row):
     return {
         "state": "closed" if row.check_out else ("open" if row.check_in else "none"),
         "date": row.date.isoformat(),
@@ -1873,26 +1537,6 @@ def _day_json(row, plan=None):
         "review_reason": row.review_reason,
         "schedule": row.schedule_label,
     }
-
-
-@login_required
-@require_GET
-def attendance_state(request):
-    """What the buttons should look like right now."""
-    user = request.user
-    day, plan = attendance.resolve_work_date(user)
-    row = WorkDay.objects.filter(user=user, date=day).first()
-    return JsonResponse({
-        "ok": True,
-        "enabled": user.attendance_enabled,
-        "work_date": day.isoformat(),
-        "planned": plan.working,
-        "schedule": plan.label,
-        "work_mode": row.work_mode if row is not None else plan.mode,
-        "needs_location": (row.is_office_day if row is not None else plan.mode == "office"),
-        "day": _day_json(row, plan),
-        "gate": attendance.gate_for(user),
-    })
 
 
 @login_required

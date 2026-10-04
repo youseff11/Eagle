@@ -352,7 +352,7 @@ class TranslatorNeverEntersAClientRoomTests(_World):
         ChatMessage.objects.create(room=self.client_room, sender=self.ops, body="the clients own words")
         browser = DjangoClient()
         browser.force_login(self.tr)
-        answer = browser.get(reverse("dashboard:api_chat_fetch", args=[self.client_room.pk]))
+        answer = browser.get(reverse("dashboard:v1_room_messages", args=[self.client_room.pk]))
         self.assertEqual(answer.status_code, 404)
         self.assertNotIn(b"own words", answer.content)
 
@@ -367,13 +367,13 @@ class TranslatorNeverEntersAClientRoomTests(_World):
         browser = DjangoClient()
         browser.force_login(self.ops)
         answer = browser.post(
-            reverse("dashboard:api_group_add_members", args=[self.client_room.pk]),
-            {"members": [self.tr.pk]},
+            reverse("dashboard:v1_group_add", args=[self.client_room.pk]),
+            json.dumps({"members": [self.tr.pk]}), content_type="application/json",
         )
         self.assertFalse(self.client_room.members.filter(pk=self.tr.pk).exists())
         body = answer.json()
         self.assertFalse(body["ok"])
-        self.assertTrue(body["error"])
+        self.assertTrue(body["message"])
 
     def test_other_rooms_still_admit_a_translator_on_the_task(self):
         self.assertTrue(self.group.can_access(self.tr))

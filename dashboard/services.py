@@ -419,9 +419,6 @@ class MailThread:
         sent = [r for r in self.replies if r.status == "sent"]
         return bool(sent) and sent[-1].created_at >= self.latest.received_at
 
-    @property
-    def last_reply_id(self):
-        return max((r.pk for r in self.replies), default=0)
 
     @property
     def subject(self):
@@ -435,10 +432,6 @@ class MailThread:
     def client(self):
         return self.latest.client
 
-    @property
-    def unclaimed(self):
-        """Letters nobody has taken. Not the same as unread — see below."""
-        return [m for m in self.messages if not m.claimed_by_id]
 
     @property
     def unseen(self):
@@ -481,10 +474,6 @@ class MailThread:
                 names.append(message.claimed_by.short_name)
         return names
 
-    @property
-    def last_id(self):
-        return max(m.pk for m in self.messages)
-
 
 def _build_threads(user, idents):
     """``[MailThread]`` for the given conversation idents, newest first."""
@@ -523,17 +512,14 @@ def _build_threads(user, idents):
     return threads
 
 
-def inbox_threads(user, state="", query="", limit=100, after=0):
+def inbox_threads(user, state="", query="", limit=100):
     """The mail page as conversations, filtered like :func:`inbox_queryset`.
 
     A conversation is on the list when *any* letter in it matches — a search
     for "word count" finds the conversation that has it — and the row then
-    carries the whole conversation, as Gmail's does. ``after`` limits it to
-    conversations that gained a letter with a higher id: the live feed.
+    carries the whole conversation, as Gmail's does.
     """
     matching = inbox_queryset(user, state, query)
-    if after:
-        matching = matching.filter(id__gt=after)
 
     idents = []
     for pk, key in matching.order_by("-received_at", "-id").values_list(
@@ -619,15 +605,6 @@ def mark_letters_seen(user, messages):
             [MailRead(user=user, message=m) for m in fresh], ignore_conflicts=True
         )
     return {m.pk for m in fresh}
-
-
-def inbox_filter_qs(state="", query=""):
-    """The list's filters as a query string, carried into a conversation and
-    back out again, so "back" returns to the list as it was left."""
-    from django.utils.http import urlencode
-
-    params = [(k, v) for k, v in (("state", state), ("q", query)) if v]
-    return urlencode(params) if params else ""
 
 
 def thread_messages(user, message):

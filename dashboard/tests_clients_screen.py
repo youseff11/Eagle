@@ -135,14 +135,6 @@ class ClientListTests(_Clients):
         Client.objects.bulk_create([Client(code=f"MORE-{index:04d}") for index in range(50)])
         self.assertEqual(cost(), few)
 
-    def test_the_classic_list_still_answers_the_same_people_the_same_way(self):
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        answer = browser.get(reverse("dashboard:client_list") + "?classic=1")
-        self.assertEqual(answer.status_code, 200)
-        self.assertNotIn(CLIENT_NAME, answer.content.decode("utf-8"))
-
-
 class ClientDoorTests(_Clients):
     def test_the_operation_and_the_admin_are_answered_everybody_else_is_refused(self):
         code = self.client_obj.code
@@ -329,7 +321,7 @@ class ClientsHandOnTests(_Clients):
 
     def setUp(self):
         super().setUp()
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
 
@@ -337,7 +329,6 @@ class ClientsHandOnTests(_Clients):
         from .models import AppSettings
 
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "operation": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def page(self, user, name, args=None, /, **query):
@@ -359,22 +350,3 @@ class ClientsHandOnTests(_Clients):
 
     def test_the_admin_is_on_by_default(self):
         self.assertEqual(self.page(self.admin, "dashboard:client_list")["Location"], "/app/clients")
-
-    def test_a_form_that_is_already_open_is_answered_where_it_is(self):
-        self.turn_on(roles=["operation"])
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        answer = browser.post(reverse("dashboard:client_detail", args=[self.client_obj.code]), {"kind": "rule", "text": "Posted classic"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertFalse(answer["Location"].startswith("/app/"))
-        self.assertTrue(ClientRequirement.objects.filter(text="Posted classic").exists())
-
-    def test_a_client_that_is_not_there_is_still_a_404(self):
-        self.turn_on(roles=["operation"])
-        self.assertEqual(self.page(self.ops, "dashboard:client_detail", ["CL-99999"]).status_code, 404)
-
-    def test_a_code_with_odd_characters_is_never_carried_into_the_address(self):
-        self.turn_on(roles=["operation"])
-        odd = Client.objects.create(code="we.ird", name="Odd")
-        answer = self.page(self.ops, "dashboard:client_detail", [odd.code])
-        self.assertEqual(answer.status_code, 200)

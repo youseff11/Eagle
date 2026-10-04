@@ -138,20 +138,6 @@ class CreateTests(_Groups):
             if answer.status_code != 200:
                 self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "forbidden"), user.username)
 
-    def test_it_is_what_the_classic_page_makes_for_every_role(self):
-        for user in self.everyone:
-            ChatRoom.objects.filter(kind=RoomKind.TEAM, created_by=user).delete()
-            self.browser(user).post(
-                reverse("dashboard:api_team_group_create"), {"title": "same", "members": [self.ops2.pk, self.tr2.pk]},
-            )
-            shape = lambda room: (room.title, sorted(m.pk for m in room.members.all())) if room else None
-            old = shape(ChatRoom.objects.filter(kind=RoomKind.TEAM, created_by=user).first())
-            ChatRoom.objects.filter(kind=RoomKind.TEAM, created_by=user).delete()
-            answer = self.create(user, title="same", members=[self.ops2, self.tr2])
-            new = shape(ChatRoom.objects.filter(kind=RoomKind.TEAM, created_by=user).first())
-            self.assertEqual(new, old, user.username)
-            self.assertEqual(answer.status_code == 200, new is not None, user.username)
-
     def test_it_reaches_no_client_and_returns_none(self):
         answer = self.create(self.ops, title="internal", members=[self.lead, self.tr])
         self.nothing_left_the_building()
@@ -239,23 +225,6 @@ class MembersTests(_Groups):
         # Not even the admin reads a private line.
         self.assertEqual(self.members(self.admin, self.private).status_code, 404)
         self.assertEqual(self.members(self.admin, self.team).status_code, 200)
-
-    def test_the_agreement_with_the_classic_door_for_every_role_and_room(self):
-        # What the page says a person may do is what the classic door lets them do.
-        for room in (self.team, self.group, self.private):
-            for user in self.everyone:
-                page = self.members(user, room)
-                if page.status_code != 200:
-                    continue
-                can = _json(page)["can_add"]
-                # Somebody the room may take: for a room that reaches a client, somebody who talks to clients.
-                role = Role.SALES if room.kind == RoomKind.CLIENT else Role.HR
-                candidate = User.objects.create_user(f"newcomer_{room.pk}_{user.pk}", password="pw", role=role)
-                answer = self.browser(user).post(
-                    reverse("dashboard:api_group_add_members", args=[room.pk]), {"members": [candidate.pk]},
-                )
-                self.assertEqual(room.members.filter(pk=candidate.pk).exists(), can, (room.pk, user.username))
-                self.assertEqual(answer.status_code == 200 and _json(answer)["ok"], can, (room.pk, user.username))
 
     def test_the_answer_carries_nothing_about_a_client(self):
         answer = self.members(self.admin, self.group)
@@ -351,19 +320,6 @@ class AddTests(_Groups):
             answer = self.post("v1_group_add", self.lead, raw=data, content_type=content_type, args=[self.team.pk])
             self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_request"), name)
         self.assertEqual(self.team.members.count(), 3)
-
-    def test_it_is_what_the_classic_door_does(self):
-        for user in (self.admin, self.lead, self.ops):
-            for room_kind in ("team",):
-                fresh = [User.objects.create_user(f"a{user.pk}{n}", password="pw", role=Role.HR) for n in range(2)]
-                old = self.browser(user).post(
-                    reverse("dashboard:api_group_add_members", args=[self.team.pk]), {"members": [fresh[0].pk]},
-                )
-                new = self.add(user, self.team, [fresh[1]])
-                self.assertEqual(old.status_code == 200 and _json(old)["ok"], new.status_code == 200, user.username)
-                self.assertEqual(
-                    self.team.members.filter(pk=fresh[0].pk).exists(), self.team.members.filter(pk=fresh[1].pk).exists(), user.username,
-                )
 
     def test_a_session_a_post_and_the_csrf_token(self):
         url = reverse("dashboard:v1_group_add", args=[self.team.pk])

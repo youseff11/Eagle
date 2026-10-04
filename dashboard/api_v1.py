@@ -911,7 +911,7 @@ def message_confirm(request, message_id):
     """
     message = get_object_or_404(InboundMessage.objects.select_related("claimed_by"), pk=message_id)
     if not message.visible_to(request.user):
-        raise Http404
+        identity.hidden(request, "mail")
     if message.claimed_by_id:
         return JsonResponse({
             "ok": False, "error": "refused",

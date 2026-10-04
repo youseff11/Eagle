@@ -690,10 +690,10 @@ class MailDoorsRefuseAndLogTests(_Site):
         browser = DjangoClient()
         browser.force_login(self.ops)
         for path, method in (
-            (f"/api/inbox/thread/{self.private.pk}/feed/", "get"),
+            (f"/api/v1/mail/threads/{self.private.pk}/", "get"),
             (f"/api/inbox/thread/{self.private.pk}/reply/", "post"),
-            (f"/api/messages/{self.private.pk}/claim/", "post"),
-            (f"/api/messages/{self.private.pk}/confirm/", "post"),
+            (f"/api/v1/mail/threads/{self.private.pk}/seen/", "post"),
+            (f"/api/v1/messages/{self.private.pk}/confirm/", "post"),
         ):
             before = AuditLog.objects.filter(actor=self.ops, action=identity.ACCESS_DENIED).count()
             AuditLog.objects.filter(actor=self.ops).update(created_at=timezone.now() - timedelta(hours=1))

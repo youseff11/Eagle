@@ -6,7 +6,7 @@ import { useToasts } from "./Toasts";
 
 /**
  * Shows a toast, and rings the chime, for every notification that arrives while the app is open:
- * what the classic pages do from their heartbeat (`tick` in static/js/app.js).
+ * what the classic pages do from their heartbeat (`tick` in the old classic app.js, now deleted).
  *
  * The heartbeat of this app asks for no notifications (`useHeartbeat`), so this watches the same
  * list the notifications page shows. A doorbell on the socket asks for it again at once; with the

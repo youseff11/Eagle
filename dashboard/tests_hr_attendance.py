@@ -44,7 +44,6 @@ class _Hr(_Admin):
 
     def switch(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "hr": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def day(self, person=None, when=None, **over):
@@ -472,15 +471,6 @@ class SwitchAndHandOnTests(_Hr):
         self.assertTrue(report.startswith("/app/hr/report?"), report)
         self.assertIn("period=2026-9", report)
         self.assertIn(f"user={self.tr.pk}", report)
-
-    def test_a_day_that_is_not_there_is_a_404_even_when_handed_on(self):
-        self.switch(roles=["hr"])
-        self.assertEqual(self.classic(self.hr, "hr_attendance_day", [999999]).status_code, 404)
-
-    def test_the_flag_holder_is_handed_on_to_the_attendance_pages_like_hr(self):
-        answer = self.classic(self.flagged, "hr_attendance")
-        self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/hr/attendance"))
-        self.assertEqual(self.classic(self.ops, "hr_attendance").status_code, 403)
 
     def test_the_admin_is_handed_on_when_ticked(self):
         self.switch(roles=["admin"])

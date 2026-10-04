@@ -115,23 +115,6 @@ class ReactTests(_Doors):
         (theirs,) = _json(self.react(self.admin, source, uid, "like"))["reactions"]
         self.assertEqual((theirs["count"], theirs["mine"]), (1, False))
 
-    def test_it_is_what_the_classic_endpoint_decides_for_every_role_and_every_place(self):
-        # The classic endpoint is the specification: it answers 200 when the reaction was made, 400 when not.
-        for name, source, uid in self.cases():
-            for user in self.everyone:
-                ChatReaction.objects.all().delete()
-                old = self.browser(user).post(
-                    reverse("dashboard:api_chat_react"), {"source": source, "uid": uid, "kind": "like"},
-                )
-                made_by_classic = old.status_code == 200
-                ChatReaction.objects.all().delete()
-                new = self.react(user, source, uid)
-                self.assertEqual(new.status_code == 200, made_by_classic, (name, user.username))
-                self.assertEqual(ChatReaction.objects.filter(user=user).exists(), made_by_classic, (name, user.username))
-                if not made_by_classic:
-                    self.assertEqual(new.status_code, 404, (name, user.username))
-                    self.assertEqual(_json(new), {"ok": False, "error": "not_found"}, (name, user.username))
-
     def test_who_may_react_where_for_the_places_that_decide_a_clients_privacy(self):
         allowed = {
             # The operation and the admin answer clients; nobody else has a client conversation to react in.
@@ -403,27 +386,6 @@ class ForwardTests(_Doors):
         rated = MessageAttachment.objects.create(message=hidden, file="in/rates.pdf", original_name="rates.pdf", size=1)
         self.assertEqual(self.forward(self.ops, self.client_obj.code, f"u{self.tr.pk}", files=[rated.pk]).status_code, 400)
         self.assertEqual(self.forward(self.admin, self.client_obj.code, f"u{self.tr.pk}", files=[rated.pk]).status_code, 200)
-
-    def test_what_may_be_forwarded_from_where_is_what_the_classic_endpoint_decides(self):
-        sources = (
-            (self.client_obj.code, f"in-{self.heard.pk}"),
-            (self.sales_client.code, f"in-{self.sales_heard.pk}"),
-            (f"g{self.group.pk}", f"g{self.group.pk}-{self.talk_group.pk}"),
-            (f"g{self.team.pk}", f"g{self.team.pk}-{self.talk_team.pk}"),
-            (f"u{self.lead.pk}", f"g{self.private.pk}-{self.talk_private.pk}"),
-        )
-        for source, uid in sources:
-            for user in self.everyone:
-                for target in (f"u{self.hr.pk}", f"g{self.team.pk}"):
-                    ChatMessage.objects.filter(forwarded=True).delete()
-                    old = self.browser(user).post(
-                        reverse("dashboard:api_chat_forward"), {"source": source, "target": target, "uids": uid},
-                    )
-                    classic = ChatMessage.objects.filter(forwarded=True).count()
-                    ChatMessage.objects.filter(forwarded=True).delete()
-                    new = self.forward(user, source, target, uids=[uid])
-                    self.assertEqual(ChatMessage.objects.filter(forwarded=True).count(), classic, (source, user.username, target))
-                    self.assertEqual(new.status_code == 200, old.status_code == 200, (source, user.username, target))
 
     def test_a_conversation_that_is_not_yours_is_not_a_place_to_forward_from_or_to(self):
         uid = f"g{self.team.pk}-{self.talk_team.pk}"

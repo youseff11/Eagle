@@ -48,7 +48,7 @@ class _Desk(_Site):
         super().setUp()
         # As if ``npm run build`` had run: a checkout that never built the app must not
         # change what these tests say about the switch.
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
 
@@ -65,7 +65,6 @@ class _Desk(_Site):
 
     def turn_on(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
 
@@ -234,10 +233,6 @@ class HandOnOnlyWhenNothingStandsInTheWayTests(_Desk):
         # It was the classic page's job alone to show the accept screen; the new app draws it over any page.
         self.assertEqual(self.classic(self.tr).status_code, 302)
 
-    def test_a_missing_build_keeps_them_on_the_classic_page_instead_of_a_bare_503(self):
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.classic(self.tr).status_code, 200)
-
     def test_an_answered_assignment_no_longer_holds_them_back(self):
         from .models import Assignment, AssignmentStatus
 
@@ -254,55 +249,3 @@ class HandOffsDoNotBounceTests(_Desk):
             browser.force_login(user)
             self.assertEqual(browser.get("/")["Location"], "/app/", user.username)
             self.assertEqual(browser.get("/?classic=1")["Location"], "/app/", user.username)
-
-    def test_without_a_built_app_the_classic_landing_page_is_served_as_it_was(self):
-        landing = {
-            self.admin: "dashboard:admin_overview", self.ops: "dashboard:ops_inbox",
-            self.hr: "dashboard:hr_recruitment", self.reviewer: "dashboard:reviewer_tests",
-            self.accounting: "dashboard:accounts_overview", self.sales: "dashboard:client_list",
-            self.lead: "dashboard:lead_home",
-        }
-        with mock.patch("dashboard.views.spa.built_assets", return_value=None):
-            for user, name in landing.items():
-                browser = DjangoClient()
-                browser.force_login(user)
-                self.assertEqual(browser.get("/")["Location"], reverse(name), user.username)
-
-class SettingsSectionTests(_Desk):
-    def post(self, user, skip_section=False, **changes):
-        form = SettingsForm(instance=AppSettings.load())
-        data = {}
-        for name in form.fields:
-            if skip_section and name.startswith("newui_"):
-                continue
-            value = form[name].value()
-            if value in (None, False, ""):
-                continue
-            data[name] = "on" if value is True else (
-                [str(v) for v in value] if isinstance(value, (list, tuple, set)) else str(value)
-            )
-        data.update(changes)
-        browser = DjangoClient()
-        browser.force_login(user)
-        return browser.post(reverse("dashboard:admin_settings"), data)
-
-    def test_a_post_that_never_carried_the_section_leaves_the_switch_alone(self):
-        self.turn_on(roles=["translator"])
-        # The same post as every other test here, minus the section: as an old
-        # page, or the "save and test" button's partial post, would send it.
-        answer = self.post(self.admin, poll_ms="4000", skip_section=True)
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(AppSettings.load().poll_ms, 4000)
-        self.assertEqual(AppSettings.load().new_ui["translator_home"]["roles"], ["translator"])
-
-    def test_only_the_admin_can_change_it(self):
-        for user in (self.ops, self.lead, self.tr, self.hr, self.sales):
-            answer = self.post(user, newui_present_translator_home="1", newui_translator_home_roles=["translator"])
-            self.assertEqual(answer.status_code, 403, user.username)
-        self.assertEqual(AppSettings.load().new_ui, {})
-
-    def test_a_post_that_changes_something_else_writes_no_switch_row(self):
-        from .models import AuditLog
-
-        self.post(self.admin, poll_ms="4000", skip_section=True)
-        self.assertFalse(AuditLog.objects.filter(action="settings.new_ui").exists())

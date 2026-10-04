@@ -111,3 +111,17 @@ button.nav-tools__btn { appearance: none; }
 
 /* A field the menu's search sent you to stops clear of the sticky top bar, the way the settings cards do (app.css). */
 .field.is-found { scroll-margin-top: 84px; }
+
+/* A dialog that holds a table: wider than the confirm box, which is 420px. */
+.modal--wide { width: min(760px, 100%); }
+
+/* The list of clients about to be deleted: the code and the counts stay on one line, the name and the way to reach them sit
+   one above the other in the widest column, and a long address breaks inside its own box instead of letter by letter. */
+.table--plan th { white-space: normal; vertical-align: bottom; }
+.table--plan td, .table--plan th { padding-inline: 8px; }
+.table--plan td:first-child { white-space: nowrap; }
+.table--plan td:nth-child(n + 3), .table--plan th:nth-child(n + 3) { text-align: center; width: 1%; white-space: nowrap; }
+.table--plan th:nth-child(n + 3) { white-space: normal; min-width: 4.5rem; }
+.plan__client { min-width: 12rem; }
+.plan__client > span { display: block; }
+.plan__client > .mono { font-size: .78rem; overflow-wrap: anywhere; }

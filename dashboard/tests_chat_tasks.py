@@ -18,7 +18,7 @@ from django.test import Client as DjangoClient
 from django.urls import reverse
 from django.utils import timezone
 
-from . import services, whatsapp
+from . import identity, services, whatsapp
 from .models import AuditLog, Channel, InboundMessage, OutboundMessage, Role, User
 from .tests_chat_lists import _json
 from .tests_chat_send import NAME, PHONE, _Send
@@ -27,9 +27,6 @@ from .tests_chat_send import NAME, PHONE, _Send
 class ConfirmTests(_Send):
     def confirm(self, user, message, **kw):
         return self.browser(user).post(reverse("dashboard:v1_message_confirm", args=[message.pk]), **kw)
-
-    def classic(self, user, message):
-        return self.browser(user).post(reverse("dashboard:api_confirm_message", args=[message.pk]))
 
     def claimed(self, message):
         message.refresh_from_db()
@@ -46,27 +43,6 @@ class ConfirmTests(_Send):
         sent = OutboundMessage.objects.get(client=self.client_obj)
         self.assertEqual((sent.channel, sent.created_by_id, sent.status), (Channel.WHATSAPP, self.ops.pk, OutboundMessage.Status.SENT))
         self.assertTrue(AuditLog.objects.filter(action="message.confirm").exists())
-
-    def test_it_is_what_the_classic_door_does_for_every_role(self):
-        # The classic door is the specification: same answer, same message sent, same claim, for each person.
-        for user in self.everyone:
-            for message in (self.heard, self.sales_heard):
-                InboundMessage.objects.filter(pk=message.pk).update(claimed_by=None)
-                OutboundMessage.objects.all().delete()
-                self.text.reset_mock()
-                old = self.classic(user, message)
-                old_state = (old.status_code, self.text.call_count, bool(self.claimed(message)))
-                InboundMessage.objects.filter(pk=message.pk).update(claimed_by=None)
-                OutboundMessage.objects.all().delete()
-                self.text.reset_mock()
-                new = self.confirm(user, message)
-                new_state = (new.status_code, self.text.call_count, bool(self.claimed(message)))
-                label = (user.username, message.external_id)
-                self.assertEqual(new_state[1:], old_state[1:], label)
-                self.assertEqual(new.status_code == 200, old.status_code == 200, label)
-                if new.status_code != 200:
-                    self.assertIn(new.status_code, (400, 403, 404), label)
-                    self.assertFalse(new_state[2], label)
 
     def test_who_may_for_the_places_that_decide_a_clients_privacy(self):
         allowed = {
@@ -87,6 +63,13 @@ class ConfirmTests(_Send):
             self.assertEqual(answer.status_code, 404, user.username)
         self.nothing_left_the_building()
         self.assertFalse(self.claimed(self.sales_heard))
+
+    def test_a_refusal_for_a_message_that_is_not_theirs_is_a_row_in_the_audit_log_and_the_same_404(self):
+        unknown = self.browser(self.ops).post(reverse("dashboard:v1_message_confirm", args=[999999]))
+        before = AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).count()
+        refused = self.confirm(self.ops, self.sales_heard)
+        self.assertEqual((refused.status_code, refused.content), (unknown.status_code, unknown.content))
+        self.assertEqual(AuditLog.objects.filter(action=identity.ACCESS_DENIED, actor=self.ops).count(), before + 1)
 
     def test_a_message_the_rate_rule_hides_is_not_for_the_operation_but_is_for_the_admin(self):
         hidden = InboundMessage.objects.create(
@@ -271,10 +254,7 @@ class TaskFormLineTests(_Send):
         self.quote = MessageAttachment.objects.create(message=self.heard, file="in/quote.pdf", original_name="quote.pdf", size=1)
 
     def form(self, user, **query):
-        from urllib.parse import urlencode
-
-        # The classic form by name: the admin is on the new one by default once the app is built.
-        return self.browser(user).get(reverse("dashboard:ops_task_new") + "?" + urlencode({**query, "classic": 1}))
+        return self.browser(user).get(reverse("dashboard:v1_task_start"), query)
 
     def test_the_operation_gets_no_word_and_no_file_name_of_another_line(self):
         answer = self.form(self.ops, messages=self.sales_heard.pk, files=self.secret.pk)
@@ -296,11 +276,14 @@ class TaskFormLineTests(_Send):
     def test_posting_it_makes_no_task_and_claims_nothing(self):
         from .models import Task
 
-        deadline = (timezone.now() + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")
         before = Task.objects.count()
         self.browser(self.ops).post(
-            reverse("dashboard:ops_task_new") + f"?messages={self.sales_heard.pk}&files={self.secret.pk}",
-            {"client": self.sales_client.pk, "title": "Stolen", "description": "x", "priority": "normal", "source_lang": "AR", "target_lang": "EN", "deadline": deadline},
+            reverse("dashboard:v1_task_create"),
+            json.dumps({
+                "client": self.sales_client.pk, "title": "Stolen", "description": "x", "priority": "normal", "source_lang": "AR",
+                "target_lang": "EN", "deadline": {"days": "2"}, "messages": [self.sales_heard.pk], "files": [self.secret.pk],
+            }),
+            content_type="application/json",
         )
         self.sales_heard.refresh_from_db()
         self.assertIsNone(self.sales_heard.claimed_by_id)

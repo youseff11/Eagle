@@ -81,7 +81,7 @@ describe("useHeartbeat", () => {
     it("does not stop the check-in screen from being told, and it does not send the person away", async () => {
       const gates: unknown[] = [];
       const calls: unknown[] = [];
-      answer = { ok: true, attendance: { kind: "check_in" }, attendance_screen: true, pending: null, call: CALL };
+      answer = { ok: true, attendance: { kind: "check_in" }, pending: null, call: CALL };
       renderHook(() => useHeartbeat(4000, undefined, undefined, (gate) => gates.push(gate), (call) => calls.push(call)));
       await vi.advanceTimersByTimeAsync(0);
       expect(navigation.assign).not.toHaveBeenCalled();
@@ -131,7 +131,7 @@ describe("useHeartbeat", () => {
         vi.mocked(navigation.assign).mockClear();
         const heard: unknown[] = [];
         const gate = { ...GATE, kind };
-        answer = { ok: true, attendance: gate, attendance_screen: true, pending: null, call: null };
+        answer = { ok: true, attendance: gate, pending: null, call: null };
         const { unmount } = renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
         await vi.advanceTimersByTimeAsync(0);
         expect(navigation.assign, kind).not.toHaveBeenCalled();
@@ -142,19 +142,19 @@ describe("useHeartbeat", () => {
 
     it("tells nothing is asked once it is done, and what is asked again when it comes back", async () => {
       const heard: unknown[] = [];
-      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: null };
+      answer = { ok: true, attendance: GATE, pending: null, call: null };
       renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
       await vi.advanceTimersByTimeAsync(0);
-      answer = { ok: true, attendance: null, attendance_screen: true, pending: null, call: null };
+      answer = { ok: true, attendance: null, pending: null, call: null };
       await vi.advanceTimersByTimeAsync(4000);
-      answer = { ok: true, attendance: { ...GATE, kind: "check_out" }, attendance_screen: true, pending: null, call: null };
+      answer = { ok: true, attendance: { ...GATE, kind: "check_out" }, pending: null, call: null };
       await vi.advanceTimersByTimeAsync(4000);
       expect(heard).toEqual([GATE, null, { ...GATE, kind: "check_out" }]);
     });
 
     it("says nothing when a beat fails: the screen stays as it was until the next one tells the truth", async () => {
       const heard: unknown[] = [];
-      answer = { ok: true, attendance: GATE, attendance_screen: true, pending: null, call: null };
+      answer = { ok: true, attendance: GATE, pending: null, call: null };
       renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
       await vi.advanceTimersByTimeAsync(0);
       fetchMock.mockImplementationOnce(async () => {
@@ -166,7 +166,7 @@ describe("useHeartbeat", () => {
 
     it("tells nothing is asked to a person whose screen is not drawn here and who owes nothing", async () => {
       const heard: unknown[] = [];
-      answer = { ok: true, attendance: null, attendance_screen: false, pending: null, call: null };
+      answer = { ok: true, attendance: null, pending: null, call: null };
       renderHook(() => useHeartbeat(4000, undefined, undefined, (asked) => heard.push(asked)));
       await vi.advanceTimersByTimeAsync(0);
       expect(heard).toEqual([null]);

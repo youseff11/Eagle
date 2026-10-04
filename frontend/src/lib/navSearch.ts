@@ -5,7 +5,7 @@
  * so a page the person has no line for never turns up, neither as itself nor as one of its sections: the gate is the
  * menu's and is written once. Matching is forgiving on purpose: Arabic spelled any of the usual ways, filler words
  * ignored, and the row that matches most of what was typed comes first. The words and the scoring are the classic
- * menu's (`dashboard/nav.py` and `static/js/app.js`), so the same thing is found by the same typing.
+ * menu's (the old classic `nav.py` and `app.js`, both deleted), so the same thing is found by the same typing.
  */
 
 /** A line of the menu, as the search needs it. */

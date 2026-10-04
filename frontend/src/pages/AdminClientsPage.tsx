@@ -52,12 +52,12 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
   };
 
   return (
-    <Modal title={t("مسح عملاء", "Delete clients")} icon="alert" count={plan.deletable.length} busy={remove.isPending} onClose={onClose}>
+    <Modal title={t("مسح عملاء", "Delete clients")} icon="alert" count={plan.deletable.length} busy={remove.isPending} wide onClose={onClose}>
       <p className="muted">{t("راجع اللي هيتمسح. مفيش رجوع، بس هتنزل نسخة احتياطية.", "Check what goes. There is no undo, but a backup is saved.")}</p>
       {plan.deletable.length > 0 ? (
         <form id="delete-clients-form" autoComplete="off" onSubmit={confirm}>
           <div className="table-wrap">
-            <table className="table" data-plan="deletable">
+            <table className="table table--plan" data-plan="deletable">
               <thead>
                 <tr>
                   <th>{t("الكود", "Code")}</th>
@@ -74,8 +74,9 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
                     <td className="mono">
                       <strong>{row.code}</strong>
                     </td>
-                    <td dir="auto">
-                      {row.name || "—"} <span className="muted mono" dir="ltr">{row.contact}</span>
+                    <td dir="auto" className="plan__client">
+                      <span>{row.name || "—"}</span>
+                      <span className="muted mono" dir="ltr">{row.contact}</span>
                     </td>
                     <td className="mono">{row.letters}</td>
                     <td className="mono">{row.files}</td>

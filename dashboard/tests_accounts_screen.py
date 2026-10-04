@@ -62,7 +62,6 @@ class _Accounts(_Admin):
 
     def switch(self, key="accounts", roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), key: {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def run_month(self):
@@ -776,12 +775,6 @@ class SwitchAndHandOnTests(_Accounts):
             answer = self.get(self.accounting, name, args)
             self.assertEqual((answer.status_code, answer["Location"]), (302, target), name)
 
-    def test_the_rules_are_the_admins_and_go_on_with_the_admins_switch(self):
-        self.switch(roles=["accounting", "admin"])
-        answer = self.get(self.admin, "dashboard:accounts_rules")
-        self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/accounts/rules"))
-        self.assertEqual(self.get(self.accounting, "dashboard:accounts_rules").status_code, 403)
-
     def test_the_month_and_the_person_go_along_when_they_are_the_shape_the_new_page_reads(self):
         self.switch(roles=["accounting"])
         self.assertEqual(self.get(self.accounting, "dashboard:accounts_overview", year=2026, month=3)["Location"], "/app/accounts?period=2026-3")
@@ -790,29 +783,6 @@ class SwitchAndHandOnTests(_Accounts):
         self.assertEqual(answer["Location"], f"/app/accounts/attendance?period=2026-9&user={self.tr.pk}")
         self.assertEqual(self.get(self.accounting, "dashboard:accounts_attendance", user="x y")["Location"], "/app/accounts/attendance")
         self.assertEqual(self.get(self.accounting, "dashboard:accounts_overview")["Location"], "/app/accounts")
-
-    def test_a_form_already_open_is_answered_where_it_is(self):
-        self.switch(roles=["accounting"])
-        browser = DjangoClient()
-        browser.force_login(self.accounting)
-        before = Violation.objects.count()
-        answer = browser.post(reverse("dashboard:accounts_violations"), {"user": self.tr.pk, "date": self.today, "kind": "quality", "penalty_days": "1", "penalty_amount": "0", "reason": "x"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertNotIn("/app/", answer["Location"])
-        self.assertEqual(Violation.objects.count(), before + 1)
-
-    def test_somebody_elses_payslip_is_a_404_in_both_interfaces(self):
-        other = User.objects.create_user("person_translator_two", password="pw", role=Role.TRANSLATOR, team_lead=self.lead)
-        SalaryRecord.objects.create(user=other, amount=Decimal("5000"), effective_from=date(2020, 1, 1))
-        theirs = self.line_of(other)
-        self.switch("translator_home", roles=["translator"])
-        self.assertEqual(self.get(self.tr, "dashboard:accounts_line", [theirs.pk]).status_code, 404)
-        self.assertEqual(self.get(self.accounting, "dashboard:accounts_line", [theirs.pk]).status_code, 404)
-
-    def test_a_build_that_does_not_exist_hands_nobody_on(self):
-        self.switch(roles=["accounting"])
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.get(self.accounting, "dashboard:accounts_overview").status_code, 200)
 
     def test_the_new_addresses_serve_the_app(self):
         self.switch(roles=["accounting"])

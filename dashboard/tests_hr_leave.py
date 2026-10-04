@@ -356,20 +356,3 @@ class QueueTests(_Leave):
         self.assertEqual(queries(), few)
         self.assertEqual(AuditLog.objects.count(), audit)
 
-
-class SwitchAndHandOnTests(_Leave):
-    def classic(self, name, who, **query):
-        browser = DjangoClient()
-        browser.force_login(who)
-        return browser.get(reverse(f"dashboard:{name}"), query)
-
-    def test_a_post_to_a_classic_page_is_never_handed_on(self):
-        conf = AppSettings.load()
-        conf.new_ui = {"leave": {"roles": ["translator"], "users": []}}
-        conf.save()
-        browser = DjangoClient()
-        browser.force_login(self.tr)
-        answer = browser.post(reverse("dashboard:my_leave"), {"kind": "annual", "start_date": self.start.isoformat()})
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(answer["Location"], reverse("dashboard:my_leave"))
-        self.assertTrue(LeaveRequest.objects.filter(user=self.tr).exists())

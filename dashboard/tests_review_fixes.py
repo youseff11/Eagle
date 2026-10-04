@@ -442,15 +442,6 @@ class AdminPanelFixTests(_Admin):
         browser.force_login(self.admin)
         return browser.post(reverse(name, args=args), json.dumps(body), content_type="application/json")
 
-    def test_a_pilot_who_has_gone_does_not_stop_the_settings_from_being_saved(self):
-        pilot = User.objects.create_user("pilot_translator", password="pw", role="translator")
-        conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": [], "users": [pilot.pk]}}
-        conf.save()
-        User.objects.filter(pk=pilot.pk).update(is_active=False)
-        answer = self.post_json("dashboard:v1_admin_settings_save", {"values": {"poll_ms": 5000}})
-        self.assertEqual(answer.status_code, 200, answer.content)
-        self.assertEqual(AppSettings.load().poll_ms, 5000)
 
     def test_the_last_owner_cannot_be_closed_or_demoted_and_one_of_two_can(self):
         for values in ({"is_active": False}, {"role": "translator"}):

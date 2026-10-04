@@ -363,19 +363,6 @@ class EveryRowIsWhatTheSingleRowPathSaysTests(_Data):
         self.assertNotIn("to sales", json.dumps(ops))
         self.assertIn("to sales", json.dumps(self.ask(self.sales, "clients")[0]))
 
-    def test_the_classic_chat_pages_sidebar_says_the_same(self):
-        from . import views
-
-        compared = 0
-        for user in self.everyone:
-            for row in views._chat_sidebar(user, "", "clients"):
-                self.assertEqual(row["preview"], services.conversation_preview(row["client"], user), user.username)
-                compared += 1
-            for row in views._chat_sidebar(user, "", "groups"):
-                self.assertEqual(row["preview"], services.group_preview(row["room"], user), user.username)
-                compared += 1
-        self.assertGreater(compared, 60)
-
     def test_every_staff_row_of_every_role(self):
         for user in self.everyone:
             rows = services.staff_conversations(user)

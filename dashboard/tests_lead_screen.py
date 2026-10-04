@@ -31,7 +31,7 @@ TASK = "dashboard:v1_task"
 class _Lead(_Site):
     def setUp(self):
         super().setUp()
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
         self.other_lead = User.objects.create_user("person_leader_two", password="pw", role=Role.TEAM_LEAD)
@@ -58,7 +58,6 @@ class _Lead(_Site):
 
     def turn_on(self, key="lead", roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), key: {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def here(self, person):
@@ -464,10 +463,6 @@ class HandOnTests(_Lead):
         self.assertEqual(self.get(self.lead, "dashboard:client_list")["Location"], "/app/clients")
         self.assertEqual(self.get(self.lead, "dashboard:client_detail", [code])["Location"], f"/app/clients/{code}")
 
-    def test_a_code_that_is_not_one_is_never_carried_into_the_address(self):
-        self.turn_on(roles=["team_lead"])
-        self.assertEqual(self.get(self.lead, "dashboard:task_detail", ["we.ird"]).status_code, 404)
-
     def test_another_leaders_task_is_not_opened(self):
         self.turn_on(roles=["team_lead"])
         # The address is only an address: the new page asks the door, which answers 404 for it.
@@ -478,21 +473,6 @@ class HandOnTests(_Lead):
         self.turn_on("translator_home", roles=["translator"])
         self.turn_on(roles=["team_lead"])
         self.assertEqual(self.get(self.tr, "dashboard:task_detail", [self.task.code])["Location"], f"/app/tasks/{self.task.code}")
-
-    def test_a_build_that_does_not_exist_hands_nobody_on(self):
-        self.turn_on(roles=["team_lead"])
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.get(self.lead, "dashboard:lead_home").status_code, 200)
-
-    def test_a_form_that_is_already_open_is_answered_where_it_is(self):
-        self.turn_on(roles=["team_lead"])
-        browser = DjangoClient()
-        browser.force_login(self.lead)
-        answer = browser.post(reverse("dashboard:task_requirement", args=[self.task.code]), {"kind": "rule", "text": "Posted classic"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertFalse(answer["Location"].startswith("/app/"))
-        self.assertTrue(ClientRequirement.objects.filter(text="Posted classic").exists())
-
 
 class TheLeadersClassicToolsStillWorkTests(_Lead):
     """The new page writes through these endpoints, unchanged: pinned here so a change to one is seen from this screen."""

@@ -1,5 +1,5 @@
 /**
- * The notification sound, the same chime the classic pages play (`beep` in static/js/app.js):
+ * The notification sound, the same chime the classic pages play (`beep` in the old classic app.js, now deleted):
  * two notes a fifth apart, each a sine with a quiet octave on top so it carries on laptop speakers,
  * through a compressor so it can be loud without clipping. No audio files: it is made with WebAudio.
  *

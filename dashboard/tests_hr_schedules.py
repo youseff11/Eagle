@@ -344,35 +344,6 @@ class TemplateAddTests(_Sched):
         self.assertEqual(answer.status_code, 200)
 
 
-class ClassicBoxesTests(_Sched):
-    """The two classic boxes that did nothing useful: a roster day saved switched off, a company shift always refused."""
-
-    def classic_post(self, name, data):
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        return browser.post(reverse(name), data)
-
-    def test_the_classic_roster_day_box_saves_a_day_that_counts(self):
-        answer = self.classic_post("dashboard:hr_schedules", {
-            "action": "shift", "user": self.tr.pk, "weekday": "0", "template": "", "start_time": "09:00", "end_time": "17:00",
-            "work_mode": "", "required_minutes": "0",
-        })
-        self.assertEqual(answer.status_code, 302)
-        row = Shift.objects.get(user=self.tr)
-        self.assertTrue(row.is_active)
-        self.assertTrue(attendance.plan_for(self.tr, self.next_weekday(0)).working)
-
-    def test_the_classic_company_shift_box_saves_a_shift(self):
-        answer = self.classic_post("dashboard:hr_template_add", {"name": "Night", "name_ar": "ليلي", "start_time": "22:00", "end_time": "06:00"})
-        self.assertEqual(answer.status_code, 302)
-        row = ShiftTemplate.objects.get(name="Night")
-        self.assertTrue(row.is_active)
-
-    def test_the_classic_company_shift_box_still_refuses_a_bad_one(self):
-        self.classic_post("dashboard:hr_template_add", {"name": "Bad", "start_time": "09:00", "end_time": "09:00"})
-        self.assertFalse(ShiftTemplate.objects.filter(name="Bad").exists())
-
-
 class CompanyShiftTests(_Sched):
     def test_each_shift_says_who_leans_on_it(self):
         Shift.objects.create(user=self.tr, weekday=0, template=self.morning)
@@ -656,11 +627,3 @@ class HandOnTests(_Sched):
             answer = self.classic(name, who=self.flagged)
             self.assertEqual(answer.status_code, 302, name)
             self.assertTrue(answer["Location"].startswith("/app/hr/"), answer["Location"])
-
-    def test_a_post_to_a_classic_page_is_never_handed_on(self):
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_offices"), {"name": "HQ", "latitude": "30.04", "longitude": "31.23", "radius_meters": "150", "is_active": "on"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(answer["Location"], reverse("dashboard:hr_offices"))
-        self.assertTrue(OfficeLocation.objects.filter(name="HQ").exists())

@@ -93,12 +93,12 @@ describe("App: the check-in screen is wired to the heartbeat", () => {
     checkout_after: 60,
   };
 
-  function serveGate(state: { gate: unknown; screen: boolean }) {
+  function serveGate(state: { gate: unknown }) {
     const mocked = mockFetch({
       "/api/prefs/": () => jsonResponse({ ok: true }),
       "/api/v1/me/": () => jsonResponse(me({ role: "translator" }, 0, ["attendance"])),
       "/api/v1/attendance/": () => jsonResponse({ ok: false, error: "x" }, 500),
-      "/api/heartbeat/": () => jsonResponse({ ok: true, attendance: state.gate, attendance_screen: state.screen, pending: null, call: null, live: "a" }),
+      "/api/heartbeat/": () => jsonResponse({ ok: true, attendance: state.gate, pending: null, call: null, live: "a" }),
     });
     vi.stubGlobal("fetch", mocked.fn);
     return mocked;
@@ -107,7 +107,7 @@ describe("App: the check-in screen is wired to the heartbeat", () => {
   it("opens over the page a beat after the shift starts, and goes a beat after the check-in, without leaving the app", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const assign = vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
-    const state = { gate: null as unknown, screen: true };
+    const state = { gate: null as unknown };
     serveGate(state);
     renderWithProviders(<App pollMs={4000} />, { route: "/payroll" });
     await beat(0);
@@ -130,7 +130,7 @@ describe("App: the check-in screen is wired to the heartbeat", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(qk.gate, GATE);
-    serveGate({ gate: GATE, screen: true });
+    serveGate({ gate: GATE });
     renderWithProviders(<App pollMs={4000} />, { route: "/payroll", client });
     expect(screen.getByRole("dialog", { name: "سجّل حضورك" })).toBeInTheDocument();
   });

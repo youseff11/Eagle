@@ -264,6 +264,12 @@ describe("AdminClientsPage: deleting", () => {
     const goes = dialog.querySelector('[data-plan-row="CL-0002"]') as HTMLElement;
     expect(within(goes).getByText("Plain Buyer")).toBeInTheDocument();
     expect(within(goes).getByText("4")).toBeInTheDocument();
+    // A table in a 420px confirm box left the name a few letters wide: the dialog is the wide one, the table the plan's own, and the
+    // name and the way to reach the client are two lines of one cell (styles.css: .modal--wide, .table--plan, .plan__client).
+    expect(dialog).toHaveClass("modal--wide");
+    expect(dialog.querySelector('table[data-plan="deletable"]')).toHaveClass("table--plan");
+    const client = goes.querySelector(".plan__client") as HTMLElement;
+    expect([...client.children].map((part) => part.textContent)).toEqual(["Plain Buyer", "p@example.com"]);
     const blocked = dialog.querySelector('[data-plan="blocked"]') as HTMLElement;
     expect(within(blocked).getByText("CL-0001")).toBeInTheDocument();
     expect(within(blocked).getByText("عليه تاسكات.")).toBeInTheDocument();

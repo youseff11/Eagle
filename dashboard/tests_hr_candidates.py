@@ -889,7 +889,6 @@ class HandOnTests(_Cand):
 
     def reviewer_switch(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "reviewer": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def test_each_page_is_handed_on_with_what_it_carries(self):
@@ -918,33 +917,3 @@ class HandOnTests(_Cand):
         answer = self.classic("hr_test_score", [self.exam.pk], who=self.lead)
         self.assertEqual((answer.status_code, answer["Location"]), (302, f"/app/reviewer/tests/{self.exam.pk}"))
 
-    def test_a_candidate_that_is_not_there_is_a_404_even_when_handed_on(self):
-        for name, args in (("hr_candidate", ["CAN-9999"]), ("hr_hire", ["CAN-9999"]), ("hr_interview_score", [99999])):
-            self.assertEqual(self.classic(name, args).status_code, 404, name)
-        self.assertEqual(self.classic("hr_test_score", [99999], who=self.admin).status_code, 404)
-
-    def test_the_flag_holder_is_not_let_in(self):
-        for name, args in (("hr_candidates", None), ("hr_candidate", [self.person.code])):
-            self.assertEqual(self.classic(name, args, who=self.flagged).status_code, 403, name)
-
-    def test_the_classic_profile_box_saves_and_keeps_what_it_does_not_draw(self):
-        self.person.skills = "Subtitling"
-        self.person.save()
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_candidate", args=[self.person.code]), {
-            "action": "save", "full_name": NAME, "phone": PHONE, "email": EMAIL, "experience_years": "3", "languages": "AR",
-            "expected_salary": "7777", "shift_choice": "", "hr_notes": "Saved by the classic box", "hr_recommendation": "",
-        })
-        self.assertEqual(answer.status_code, 302)
-        self.person.refresh_from_db()
-        self.assertEqual((self.person.hr_notes, self.person.source, self.person.vacancy_id, self.person.skills), ("Saved by the classic box", "whatsapp", self.vac.pk, "Subtitling"))
-
-    def test_the_classic_status_box_cannot_make_a_hire_either(self):
-        self.person.status = "approved"
-        self.person.save()
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        browser.post(reverse("dashboard:hr_candidate", args=[self.person.code]), {"action": "status", "status": "hired"})
-        self.person.refresh_from_db()
-        self.assertEqual((self.person.status, self.person.hired_user_id), ("approved", None))

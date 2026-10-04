@@ -157,7 +157,7 @@ class ContractTests(_Site):
     def test_a_page_outside_the_api_keeps_djangos_own_csrf_page(self):
         browser = DjangoClient(enforce_csrf_checks=True)
         browser.force_login(self.ops)
-        answer = browser.post(reverse("dashboard:api_notifications_read"))
+        answer = browser.post(reverse("dashboard:logout"))
         self.assertEqual(answer.status_code, 403)
         self.assertNotIn("application/json", answer["Content-Type"])
 
@@ -447,7 +447,7 @@ class SeatedPeopleAreNotToldWhatTheClientSaidTests(_Site):
         browser.force_login(self.ops)
         with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")):
             answer = browser.post(
-                reverse("dashboard:api_chat_send", args=[self.task_client_room.pk]),
+                reverse("dashboard:v1_group_send", args=[self.task_client_room.pk]),
                 {"body": "OPS REPLY FOR THE CLIENT"},
             )
         self.assertEqual(answer.status_code, 200)
@@ -536,13 +536,9 @@ class ReadingIsNotAGetTests(_Site):
             external_id="wamid.TEST-READ-1",
         )
 
-    def test_the_old_endpoint_marks_a_group_read_on_get_the_new_one_does_not(self):
-        old = reverse("dashboard:api_group_chat_fetch", args=[self.client_group.pk])
+    def test_a_get_marks_nothing_read_even_when_the_query_asks_for_it(self):
         browser = DjangoClient()
         browser.force_login(self.ops)
-        browser.get(old, {"read": "1"})
-        self.assertTrue(ChatRead.objects.filter(user=self.ops, room=self.client_group).exists())
-        ChatRead.objects.all().delete()
         new = reverse("dashboard:v1_group_messages", args=[self.client_group.pk])
         self.assertEqual(browser.get(new, {"read": "1"}).status_code, 200)
         self.assertFalse(ChatRead.objects.filter(user=self.ops, room=self.client_group).exists())

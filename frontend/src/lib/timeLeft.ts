@@ -1,7 +1,7 @@
 /**
  * "باقي يومين و3 ساعات" until a deadline - or how late it already is - from the moment the server wrote
  * (an ISO time), worked out in the browser so it keeps moving between polls. The same words, and the same
- * rule for which parts are left out, as the classic accept screen (`deadlineLeft` in static/js/app.js).
+ * rule for which parts are left out, as the classic accept screen (`deadlineLeft` in the old classic app.js, now deleted).
  */
 export function deadlineLeft(
   iso: string,

@@ -41,14 +41,6 @@ class StaffMessagesTests(_Staff):
         self.assertEqual(mine["client"]["room"], self.private.pk)
         self.assertEqual(mine["client"]["label"], self.lead.short_name)
 
-    def test_it_is_the_very_answer_the_group_page_gives_for_that_room(self):
-        # One function reads it for both, so a rule changed there changes here.
-        for viewer, other in ((self.ops, self.lead), (self.lead, self.ops)):
-            browser = DjangoClient()
-            browser.force_login(viewer)
-            classic = _json(browser.get(reverse("dashboard:api_group_chat_fetch", args=[self.private.pk])))
-            self.assertEqual(_json(self.staff(viewer, other)), classic, viewer.username)
-
     def test_nobody_else_can_reach_it_by_any_id_not_even_the_admin(self):
         for viewer in (self.admin, self.hr, self.tr, self.sales):
             for other in self.everyone + [User.objects.get(pk=self.ops.pk)]:
@@ -126,7 +118,6 @@ class UnreadChatsInMeTests(_Staff):
 class ChatsScreenSwitchTests(_Staff):
     def turn_on(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "chats": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def test_every_role_that_has_the_chats_page_can_be_switched_on(self):
@@ -140,7 +131,7 @@ class ChatsHandOnTests(_Staff):
     def setUp(self):
         super().setUp()
         # As if ``npm run build`` had run: a checkout that never built the app must not change what these say.
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
         self.some_client = Client.objects.create(name="Handed On Client", phone="+201000000093")
@@ -149,7 +140,6 @@ class ChatsHandOnTests(_Staff):
 
     def turn_on(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "chats": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def get(self, user, path):
@@ -178,15 +168,6 @@ class ChatsHandOnTests(_Staff):
     def test_the_admin_who_is_on_by_default_is_handed_on_too(self):
         for classic, new in self.places():
             self.assertEqual(self.get(self.admin, classic).get("Location"), new, classic)
-
-    def test_what_is_not_a_code_is_not_carried_into_the_address(self):
-        self.turn_on(roles=["operation"])
-        for odd in ("we.ird", "a%20b", "%E2%80%AE", "x" * 41, "..", "a:b"):
-            answer = self.get(self.ops, f"/ops/chats/{odd}/")
-            self.assertEqual((answer.status_code, answer.get("Location")), (302, "/app/chats"), odd)
-        # An unknown tab is not carried either.
-        self.assertEqual(self.get(self.ops, "/ops/chats/?type=evil%26x=1").get("Location"), "/app/chats")
-        self.assertEqual(self.get(self.ops, "/ops/chats/?type=//evil.example").get("Location"), "/app/chats")
 
     def test_handing_on_opens_nothing_and_reads_nothing(self):
         # The classic page marked a conversation read on opening, and made a colleague's room. Now the

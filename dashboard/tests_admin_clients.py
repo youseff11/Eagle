@@ -429,15 +429,3 @@ class HandOnTests(_Records):
         self.turn_on()
         answer = self.get(self.admin, "dashboard:admin_clients", show="everything", q="a" * 500)
         self.assertEqual(answer["Location"], "/app/admin/clients")
-
-    def test_the_classic_delete_and_forms_already_open_are_answered_where_they_are(self):
-        self.turn_on()
-        free = self.plain()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_clients_delete"), {"clients": [free.pk]})
-        self.assertEqual(answer.status_code, 200)
-        self.assertTrue(Client.objects.filter(pk=free.pk).exists())
-        saved = browser.post(reverse("dashboard:admin_client_edit", args=[free.code]), {"name": "By Classic", "phone": free.phone, "is_active": "on"})
-        self.assertEqual(saved.status_code, 302)
-        self.assertNotIn("/app/", saved["Location"])

@@ -200,14 +200,6 @@ class TaskNotesDoorTests(_Notes):
         self.check([issue(f"n{index}") for index in range(40)])
         self.assertEqual(cost(), few)
 
-    def test_the_classic_page_still_shows_the_same_box_to_the_same_people(self):
-        self.check([issue("shown")])
-        browser = DjangoClient()
-        browser.force_login(self.lead)
-        page = browser.get(reverse("dashboard:task_detail", args=[self.task.code])).content.decode("utf-8")
-        self.assertIn("ملاحظات الـ AI على الترجمة", page)
-
-
 def identity_denied():
     from . import identity
 
@@ -273,14 +265,6 @@ class StaffPanelTests(_Notes):
         self.check([{"severity": "high", "location": "row 4", "issue": "Wrong term"}])
         one = _json(self.get(self.lead, STAFF, [self.tr.pk]))["notes"]["issues"][0]
         self.assertEqual((one["location"], one["text"]["en"]), ("row 4", "Wrong term"))
-
-    def test_the_classic_chat_page_still_shows_the_panel_to_the_leader(self):
-        self.check([issue("shown")])
-        browser = DjangoClient()
-        browser.force_login(self.lead)
-        page = browser.get(reverse("dashboard:ops_staff_chat", args=[self.tr.pk]) + "?classic=1").content.decode("utf-8")
-        self.assertIn("اقتراحات الـAI", page)
-
 
 class GroupPanelTests(_Notes):
     def team_group(self, *translators):

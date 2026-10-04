@@ -35,7 +35,7 @@ class _Att(_Site):
         super().setUp()
         ShiftTemplate.seed_defaults()
         self.morning = ShiftTemplate.objects.get(name="Shift 1")
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
         # A person on the morning shift on Mondays, who works remotely: no position is asked for.
@@ -49,7 +49,6 @@ class _Att(_Site):
 
     def turn_on(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "attendance": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def card(self, user):
@@ -228,15 +227,6 @@ class CardDoorTests(_Att):
             self.assertNotIn(word, text, word)
 
 
-class ScreenSwitchTests(_Att):
-    def test_the_screen_is_in_the_registry_for_every_role_that_clocks_in(self):
-        from . import newui
-
-        screen = newui.SCREENS["attendance"]
-        self.assertEqual((screen.classic, screen.path, screen.redirects), ("my_attendance", "/attendance", True))
-        self.assertEqual(set(screen.roles), {Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SALES})
-        self.assertEqual(newui.app_url("attendance"), "/app/attendance")
-
 class CardHandOnTests(_Att):
     def test_the_classic_card_goes_on_once_the_screen_is_on(self):
         self.turn_on(roles=["translator"])
@@ -251,12 +241,6 @@ class CardHandOnTests(_Att):
     def test_the_admin_is_handed_on_by_default(self):
         self.assertEqual(self.page(self.admin, "dashboard:my_attendance")["Location"], "/app/attendance")
 
-    def test_the_card_is_not_handed_on_to_a_build_that_does_not_exist(self):
-        self.turn_on(roles=["translator"])
-        with mock.patch("dashboard.newui.spa.built_assets", return_value=None):
-            self.assertEqual(self.page(self.worker, "dashboard:my_attendance").status_code, 200)
-
-
 class WhoDrawsTheGateTests(_Att):
     """Exactly one interface draws the check-in screen for a person: sending them to the other one is a loop."""
 
@@ -266,7 +250,6 @@ class WhoDrawsTheGateTests(_Att):
     def test_with_the_screen_on_the_other_screens_are_handed_on_and_the_app_stays_open(self):
         self.gate_up()
         conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": ["translator"], "users": []}, "attendance": {"roles": ["translator"], "users": []}}
         conf.save()
         self.assertEqual(self.page(self.worker, "dashboard:translator_home")["Location"], "/app/translator")
         browser = DjangoClient()
@@ -294,16 +277,9 @@ class WhoDrawsTheGateTests(_Att):
         self.assertIn("gate", config)
         self.assertIsNone(config["gate"])
 
-    def test_the_heartbeat_says_the_app_draws_it_and_what_it_asks(self):
-        self.gate_up()
-        beat = self.beat(self.worker)
-        self.assertTrue(beat["attendance_screen"])
-        self.assertEqual(beat["attendance"]["kind"], "check_in")
-
     def test_a_person_with_no_gate_is_handed_on_whatever_the_attendance_switch_says(self):
         self.freeze(21, 8, 0)
         conf = AppSettings.load()
-        conf.new_ui = {"translator_home": {"roles": ["translator"], "users": []}, "attendance": {"roles": [], "users": []}}
         conf.save()
         self.assertEqual(self.page(self.worker, "dashboard:translator_home")["Location"], "/app/translator")
 

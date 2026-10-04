@@ -584,13 +584,6 @@ class User(AbstractUser):
             return True
         return self.role in IDENTITY_GRANTABLE_ROLES and bool(self.client_identity_access)
 
-    @property
-    def can_open_client_codes(self):
-        """The /clients/ pages: the code list and each code's requirements."""
-        return (
-            self.is_admin_role or self.is_operation or self.is_team_lead
-            or self.is_sales or self.is_accounting
-        )
 
     @property
     def can_create_team_group(self):
@@ -1068,13 +1061,6 @@ class Client(models.Model):
         ends = self.reply_window_ends
         return bool(ends and ends > timezone.now())
 
-    @property
-    def reply_window_minutes_left(self):
-        ends = self.reply_window_ends
-        if not ends:
-            return 0
-        return max(0, int((ends - timezone.now()).total_seconds() // 60))
-
 
 class ClientRequirement(models.Model):
     class Kind(models.TextChoices):
@@ -1151,9 +1137,6 @@ class InboundMessage(models.Model):
     def client_code(self):
         return self.client.code if self.client_id else "UNKNOWN"
 
-    @property
-    def is_claimed(self):
-        return self.claimed_by_id is not None
 
     @property
     def document_attachments(self):
@@ -1409,12 +1392,6 @@ class Task(models.Model):
         """True when the number may walk into payroll without being asked."""
         return self.word_count_state in (WordCountState.AUTO, WordCountState.CONFIRMED)
 
-    @property
-    def word_count_gap(self):
-        """How far the translation is from its source, as a percentage."""
-        if not self.source_words or not self.translated_words:
-            return None
-        return abs(self.translated_words - self.source_words) / self.source_words * 100
 
     @property
     def production_date(self):
@@ -1476,18 +1453,11 @@ class Task(models.Model):
             return "soon"
         return "ok"
 
-    @property
-    def seconds_to_deadline(self):
-        if not self.deadline:
-            return None
-        return int((self.deadline - timezone.now()).total_seconds())
 
     def participants(self):
         people = [self.created_by, self.team_lead, self.translator]
         return [p for p in people if p is not None]
 
-    def client_label_for(self, user):
-        return self.client.label_for(user)
 
     def can_view(self, user):
         if user.is_admin_role or user.is_operation:
@@ -1680,10 +1650,6 @@ class ChatRoom(models.Model):
             return self.client
         return self.task.client if self.task_id else None
 
-    @property
-    def is_group(self):
-        """A standalone client group, as opposed to a task's client room."""
-        return self.kind == RoomKind.CLIENT and self.task_id is None
 
     @property
     def display_title(self):
@@ -1694,9 +1660,6 @@ class ChatRoom(models.Model):
         client = self.relay_client
         return client.code if client else "—"
 
-    @property
-    def is_staff_chat(self):
-        return self.kind == RoomKind.STAFF
 
     @property
     def is_team_group(self):
@@ -2104,15 +2067,6 @@ class AppSettings(models.Model):
 
     simulation_enabled = models.BooleanField(default=True)
     poll_ms = models.PositiveIntegerField(default=3000)
-
-    #: Who sees the React version of a screen that has been ported
-    #: (``dashboard/newui.py``): ``{"translator_home": {"roles": ["admin"],
-    #: "users": [12]}}``. A screen with no entry is the admin's alone, so a new
-    #: one never reaches anybody until the admin switches it on.
-    new_ui = models.JSONField(
-        default=dict, blank=True,
-        help_text="Which roles and people see the new version of each ported screen.",
-    )
 
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -2971,10 +2925,6 @@ class PayrollPeriod(models.Model):
     def is_locked(self):
         return self.status == PeriodStatus.LOCKED
 
-    @property
-    def total_net(self):
-        return sum((line.net for line in self.lines.all()), Decimal("0.00"))
-
 
 class PayrollLine(models.Model):
     """One translator's month, frozen. Every figure that produced ``net`` is
@@ -3047,13 +2997,6 @@ class PayrollLine(models.Model):
         """The two monthly bonuses actually being paid on this line."""
         return self.discipline_bonus + self.target_bonus
 
-    @property
-    def work_hours_display(self):
-        return f"{self.work_minutes // 60}:{self.work_minutes % 60:02d}"
-
-    @property
-    def overtime_hours_display(self):
-        return f"{self.overtime_minutes // 60}:{self.overtime_minutes % 60:02d}"
 
     @property
     def pending_bonus(self):
@@ -3430,10 +3373,6 @@ class RecruitmentQuestion(models.Model):
     def option_list(self):
         return [str(item) for item in (self.options or []) if str(item).strip()]
 
-    @property
-    def wants_options(self):
-        return self.kind in CHOICE_KINDS
-
 
 class Vacancy(models.Model):
     """A role being hired for, and the questions its applicants are asked."""
@@ -3488,11 +3427,6 @@ class Vacancy(models.Model):
     def is_open(self):
         return self.status == VacancyStatus.OPEN
 
-    @property
-    def salary_range(self):
-        if self.salary_min and self.salary_max:
-            return f"{self.salary_min:.0f} - {self.salary_max:.0f}"
-        return f"{self.salary_min or self.salary_max or '—'}"
 
     @property
     def shift_list(self):
@@ -3598,17 +3532,6 @@ class Candidate(models.Model):
     def display_name(self):
         return self.full_name or self.phone or self.code
 
-    @property
-    def is_early_stage(self):
-        return self.status in EARLY_CANDIDATE_STAGES
-
-    @property
-    def is_rejected(self):
-        return self.status == CandidateStatus.REJECTED
-
-    @property
-    def is_hired(self):
-        return self.status == CandidateStatus.HIRED
 
     @property
     def latest_interview(self):
@@ -3688,10 +3611,6 @@ class CandidateSession(models.Model):
 
     def __str__(self):
         return f"{self.contact} ({self.state})"
-
-    @property
-    def is_live(self):
-        return self.state in (SessionState.PICKING, SessionState.ASKING)
 
 
 class Interview(models.Model):

@@ -25,14 +25,6 @@ class NotAnIdTests(_Doors):
             self.assertEqual(answer.status_code, 400, uid)
         self.assertFalse(ChatMessage.objects.filter(forwarded=True).exists())
 
-    def test_the_classic_door_does_not_fail_on_one_either(self):
-        answer = self.browser(self.ops).post(
-            reverse("dashboard:api_chat_forward"),
-            {"source": self.client_obj.code, "target": f"u{self.lead.pk}", "uids": "in-²", "files": "²,1"},
-        )
-        self.assertEqual(answer.status_code, 400)
-
-
 class BodyShapeTests(_Doors):
     def test_a_nul_in_any_text_is_refused_before_it_reaches_the_database(self):
         for body in (
@@ -95,15 +87,6 @@ class WhatGoesOutToAClientTests(_Doors):
         answer = self.forward(self.ops, f"g{self.team.pk}", f"u{self.lead.pk}", uids=[f"g{self.team.pk}-{m.pk}" for m in made])
         self.assertEqual(answer.status_code, 200)
         self.assertEqual(self.private.messages.filter(forwarded=True).count(), 30)
-
-    def test_the_classic_door_is_not_capped(self):
-        made = self.team_messages(25)
-        self.browser(self.ops).post(
-            reverse("dashboard:api_chat_forward"),
-            {"source": f"g{self.team.pk}", "target": self.client_obj.code, "uids": [f"g{self.team.pk}-{m.pk}" for m in made]},
-        )
-        self.assertEqual(self.text.call_count, 25)
-
 
 class NoticeTests(_Doors):
     def test_a_forward_into_a_colleagues_chat_names_it_as_the_colleague_sees_it(self):

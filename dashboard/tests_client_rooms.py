@@ -173,10 +173,10 @@ class TheGateTests(_Site):
 
 
 class WhatTheTranslatorIsShownTests(_Site):
-    def test_the_old_endpoints_answer_404_not_the_messages(self):
+    def test_the_message_endpoints_answer_404_not_the_messages(self):
         self.seat_translator()
-        for name, room in (("api_chat_fetch", self.task_client_room),
-                           ("api_group_chat_fetch", self.client_group)):
+        for name, room in (("v1_room_messages", self.task_client_room),
+                           ("v1_group_messages", self.client_group)):
             answer = self.get(self.tr, name, [room.pk])
             self.assertEqual(answer.status_code, 404, name)
             self.assertNotIn(b"Please look at this", answer.content)
@@ -189,7 +189,7 @@ class WhatTheTranslatorIsShownTests(_Site):
         self.assertNotIn(self.task_client_room.pk, listed)
         self.assertNotIn(self.client_group, services.groups_for(self.tr))
         self.assertNotIn(self.task_client_room, services.rooms_for(self.task, self.tr))
-        body = self.get(self.tr, "api_client_chat_list", type="groups").content
+        body = self.get(self.tr, "v1_chats", type="groups").content
         self.assertNotIn(b"what the client wrote", body)
         self.assertNotIn(b"Client group", body)
 
@@ -247,7 +247,7 @@ class NobodyIsQuotedTheClientUnlessTheyMayOpenTheRoomTests(_Site):
         self.seat_translator()
         self.client_writes()
         self.assertEqual(self.quoting(self.tr), [])
-        self.assertNotIn(b"CLIENT WORDS", self.get(self.tr, "notifications").content)
+        self.assertNotIn(b"CLIENT WORDS", self.get(self.tr, "v1_notifications").content)
 
     def test_a_team_lead_taken_off_the_task_is_told_nothing(self):
         other = User.objects.create_user("person_other_leader", password="pw", role=Role.TEAM_LEAD)
@@ -259,7 +259,7 @@ class NobodyIsQuotedTheClientUnlessTheyMayOpenTheRoomTests(_Site):
         self.task_client_room.members.add(self.tr)
         with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")):
             answer = self.browser(self.ops).post(
-                reverse("dashboard:api_chat_send", args=[self.task_client_room.pk]),
+                reverse("dashboard:v1_group_send", args=[self.task_client_room.pk]),
                 {"body": "OPS REPLY FOR THE CLIENT"},
             )
         self.assertEqual(answer.status_code, 200)
@@ -271,15 +271,15 @@ class NobodyIsQuotedTheClientUnlessTheyMayOpenTheRoomTests(_Site):
 class AddingMembersTests(_Site):
     def add(self, *people):
         return self.browser(self.ops).post(
-            reverse("dashboard:api_group_add_members", args=[self.client_group.pk]),
-            {"members": [p.pk for p in people]},
+            reverse("dashboard:v1_group_add", args=[self.client_group.pk]),
+            json.dumps({"members": [p.pk for p in people]}), content_type="application/json",
         )
 
     def test_a_translator_cannot_be_given_a_seat_in_a_client_group(self):
         answer = self.add(self.tr)
         self.assertFalse(self.client_group.members.filter(pk=self.tr.pk).exists())
         self.assertFalse(_json(answer)["ok"])
-        self.assertTrue(_json(answer)["error"])
+        self.assertTrue(_json(answer)["message"])
 
     def test_the_others_are_still_added_in_the_same_call(self):
         answer = self.add(self.tr, self.sales)
@@ -294,8 +294,8 @@ class AddingMembersTests(_Site):
             answer = self.add(person)
             body = _json(answer)
             self.assertFalse(body["ok"], person.username)
-            self.assertIn("أوبريشن", body["error"], person.username)
-            self.assertIn("Sales", body["error"], person.username)
+            self.assertIn("أوبريشن", body["message"], person.username)
+            self.assertIn("Sales", body["message"], person.username)
             self.assertFalse(self.client_group.members.filter(pk=person.pk).exists(), person.username)
         # The ones who do talk to clients are added.
         self.assertTrue(_json(self.add(self.sales))["ok"])
@@ -339,7 +339,7 @@ class ForwardingTests(_Site):
 class SeatedTranslatorCannotWriteTests(_Site):
     def test_a_post_into_a_client_room_is_refused_and_nothing_reaches_the_client(self):
         self.seat_translator()
-        for name, room in (("api_chat_send", self.task_client_room), ("api_group_chat_send", self.client_group)):
+        for name, room in (("v1_group_send", self.task_client_room), ("v1_group_send", self.client_group)):
             before = room.messages.count()
             with mock.patch("dashboard.services.relay_chat_message", return_value=(True, "")) as relay:
                 answer = self.browser(self.tr).post(
@@ -376,7 +376,7 @@ class TheWindowIsTheViewersOwnLineTests(_Site):
             owner=self.sales, received_at=timezone.now(),
         )
         self.assertTrue(self.client_obj.reply_window_open)  # the control: some line is open
-        body = _json(self.get(self.ops, "api_client_chat_list", type="groups"))
+        body = _json(self.get(self.ops, "v1_chats", type="groups"))
         row = next(item for item in body["items"] if item["room"] == self.client_group.pk)
         self.assertFalse(row["window_open"])
         self.assertEqual(row["minutes_left"], 0)

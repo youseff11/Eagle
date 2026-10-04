@@ -202,14 +202,6 @@ class MailListTests(_Mail):
         # The password is not part of what the page is told.
         self.assertNotIn("secret", self.get(self.ops, LIST).content.decode("utf-8").replace("imap.example.test", ""))
 
-    def test_the_page_and_the_door_list_the_same_conversations_in_the_same_order(self):
-        for index in range(4):
-            self.letter(f"More {index}", "x", key=f"extra{index}", at=timezone.now() - timedelta(minutes=index))
-        listed = [r["subject"] for r in self.rows()]
-        page = self.get(self.ops, "dashboard:ops_inbox", classic=1).content.decode("utf-8")
-        positions = [page.index(subject) for subject in listed]
-        self.assertEqual(positions, sorted(positions))
-
     def test_a_list_costs_the_same_queries_however_long_it_is(self):
         def cost():
             browser = DjangoClient()
@@ -388,13 +380,6 @@ class MailSeenTests(_Mail):
         self.assertEqual(self.post(self.ops, SEEN, [sales_letter.pk]).status_code, 404)
         self.assertEqual(MailRead.objects.count(), before)
 
-    def test_the_classic_page_still_marks_it_read_when_it_is_opened(self):
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        self.assertEqual(browser.get(reverse("dashboard:ops_mail_thread", args=[self.second.pk]) + "?classic=1").status_code, 200)
-        self.assertEqual(MailRead.objects.filter(user=self.ops).count(), 2)
-
-
 class MailHandOnTests(_Mail):
     """The classic mailbox pages go on to the new app with the operation's switch, keeping the list's filters."""
 
@@ -403,13 +388,12 @@ class MailHandOnTests(_Mail):
         from unittest import mock
 
         # As if ``npm run build`` had run: a checkout that never built the app must not change what these say.
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
 
     def turn_on(self, roles=(), users=()):
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "operation": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def test_the_list_and_a_conversation_go_on_with_the_filters(self):

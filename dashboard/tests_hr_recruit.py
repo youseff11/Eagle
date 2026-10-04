@@ -551,26 +551,3 @@ class HandOnTests(_Recruit):
             self.assertEqual(answer.status_code, 302, name)
             self.assertTrue(answer["Location"].startswith(path), answer["Location"])
             self.assertIn(kept, answer["Location"])
-
-    def test_a_vacancy_that_is_not_there_is_a_404_even_when_handed_on(self):
-        self.assertEqual(self.classic("hr_vacancy", ["VAC-9999"]).status_code, 404)
-
-    def test_the_old_way_back_is_gone_and_the_flag_holder_is_not_let_in(self):
-        for name in ("hr_recruitment", "hr_vacancies", "hr_questions", "hr_recruitment_settings"):
-            self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
-            self.assertEqual(self.classic(name, who=self.flagged).status_code, 403, name)
-
-    def test_the_classic_department_box_adds_a_department_that_is_open(self):
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_department_add"), {"name": "Legal", "name_ar": "القانونية"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertTrue(Department.objects.get(name="Legal").is_active)
-
-    def test_a_post_to_a_classic_page_is_never_handed_on(self):
-        browser = DjangoClient()
-        browser.force_login(self.hr)
-        answer = browser.post(reverse("dashboard:hr_recruitment_settings"), {"probation_days": "45", "session_timeout_hours": "48", "redact_placeholder": "[—]", "bot_name": "x", "bot_name_ar": "y"})
-        self.assertEqual(answer.status_code, 302)
-        self.assertEqual(answer["Location"], reverse("dashboard:hr_recruitment_settings"))
-        self.assertEqual(RecruitmentSettings.load().probation_days, 45)

@@ -384,27 +384,11 @@ class RolloutSwitchTests(_Settings):
     def switch(self, key):
         return newui.config(self.fresh(), key)
 
-    def test_saving_something_else_leaves_every_switch_exactly_as_it_was(self):
-        conf = AppSettings.load()
-        conf.new_ui = {"operation": {"roles": ["operation"], "users": []}, "lead": {"roles": [], "users": [self.lead.pk]}}
-        conf.save()
-        count = AuditLog.objects.filter(action="settings.new_ui").count()
-        self.save(claude_model="claude-new")
-        self.assertEqual(self.fresh().new_ui, {"operation": {"roles": ["operation"], "users": []}, "lead": {"roles": [], "users": [self.lead.pk]}})
-        self.assertEqual(AuditLog.objects.filter(action="settings.new_ui").count(), count)
-
     def test_the_same_switches_again_write_nothing_new(self):
         self.save(newui_operation_roles=["admin", "operation"])
         count = AuditLog.objects.filter(action="settings.new_ui").count()
         self.save(newui_operation_roles=["admin", "operation"])
         self.assertEqual(AuditLog.objects.filter(action="settings.new_ui").count(), count)
-
-    def test_a_refused_save_moves_nobody(self):
-        self.save(newui_operation_roles=["admin", "operation"])
-        before = self.fresh().new_ui
-        self.save(newui_operation_roles=["admin"], newui_lead_users=["999999"])
-        self.assertEqual(self.fresh().new_ui, before)
-
 
 class GoogleAndTestTests(_Settings):
     def test_a_sync_says_what_changed(self):
@@ -458,23 +442,9 @@ class HandOnTests(_Settings):
         answer = self.get(self.admin, "dashboard:admin_settings")
         self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin/settings"))
 
-    def test_the_classic_form_already_open_is_answered_where_it_is_even_with_the_switch(self):
-        self.turn_on()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_settings"), {"claude_model": "by-classic"})
-        self.assertNotEqual(answer.get("Location"), "/app/admin/settings")
-
-    def test_the_google_links_still_land_on_the_page_that_works(self):
-        self.turn_on()
+    def test_the_google_steps_land_on_the_settings_page_of_the_app(self):
         answer = self.get(self.admin, "dashboard:google_callback")
-        self.assertEqual(answer.status_code, 302)
-        self.assertTrue(answer["Location"].startswith(reverse("dashboard:admin_settings")))
-
-    def test_nobody_else_opens_it(self):
-        for user in (self.ops, self.sales, self.accounting):
-            self.assertEqual(self.get(user, "dashboard:admin_settings").status_code, 403, user.username)
-
+        self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin/settings"))
 
 class WhatWasChangedTests(_Settings):
     """A save says which boxes it changed - by name, never by value - and a secret as set or cleared."""

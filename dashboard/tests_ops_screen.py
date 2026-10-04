@@ -132,15 +132,6 @@ class TaskListTests(_Ops):
         self.assertEqual([s["value"] for s in statuses], [value for value, _label in TaskStatus.choices])
         self.assertTrue(all(s["ar"] and s["en"] for s in statuses))
 
-    def test_the_page_and_the_door_list_the_same_tasks_in_the_same_order(self):
-        for index in range(5):
-            _make_task(self, title=f"More {index}")
-        listed = [t["code"] for t in _json(self.door(self.ops, "dashboard:v1_tasks"))["tasks"]]
-        page = self.classic(self.ops, "dashboard:ops_tasks").content.decode("utf-8")
-        positions = [page.index(code) for code in listed]
-        self.assertEqual(positions, sorted(positions))
-        self.assertEqual(len(listed), Task.objects.count())
-
     def test_at_most_two_hundred_rows_are_answered(self):
         client = self.client_obj
         for index in range(210):
@@ -270,7 +261,7 @@ class _Switched(_Ops):
         from unittest import mock
 
         # As if ``npm run build`` had run: a checkout that never built the app must not change what these say.
-        built = mock.patch("dashboard.newui.spa.built_assets", return_value={"js": "x.js", "css": []})
+        built = mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []})
         built.start()
         self.addCleanup(built.stop)
 
@@ -278,7 +269,6 @@ class _Switched(_Ops):
         from .models import AppSettings
 
         conf = AppSettings.load()
-        conf.new_ui = {**(conf.new_ui or {}), "operation": {"roles": list(roles), "users": list(users)}}
         conf.save()
 
     def page(self, user, name, args=None, /, **query):
@@ -950,21 +940,6 @@ class TaskCreateDoorTests(_Start):
         self.assertEqual(new.origin, "whatsapp")
         self.assertEqual(sorted(new.source_files.values_list("pk", flat=True)), sorted([self.contract.pk, self.annex.pk]))
 
-    def test_the_classic_form_makes_the_same_task_and_keeps_the_same_boxes_now(self):
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        answer = browser.post(reverse("dashboard:ops_task_new") + "?classic=1", {
-            "client": self.client_obj.pk, "title": "Classic job", "description": "", "source_lang": "en", "target_lang": "ar",
-            "priority": "normal", "deadline_days": "1", "deadline_hours": "", "deadline_minutes": "", "word_count": "800",
-            "is_difficult": "on",
-        })
-        self.assertEqual(answer.status_code, 302)
-        task = Task.objects.get(title="Classic job")
-        self.assertEqual((task.source_lang, task.target_lang, task.word_count, task.word_count_state, task.is_difficult),
-                         ("EN", "AR", 800, "confirmed", True))
-        self.assertIsNotNone(task.deadline)
-
-
 class OpsHandOnFormAndTaskTests(_Switched):
     def test_the_new_task_form_goes_on_with_the_messages_the_files_and_the_task_it_repeats(self):
         self.turn_on(roles=["operation"])
@@ -979,19 +954,3 @@ class OpsHandOnFormAndTaskTests(_Switched):
                       {"from": "a:b"}, {"evil": "1"}, {"message": "7&x=1"}):
             answer = self.page(self.ops, "dashboard:ops_task_new", **query)
             self.assertEqual(answer["Location"], "/app/tasks/new", query)
-
-    def test_a_form_that_is_already_open_is_answered_where_it_is(self):
-        self.turn_on(roles=["operation"])
-        browser = DjangoClient()
-        browser.force_login(self.ops)
-        answer = browser.post(reverse("dashboard:ops_task_new"), {"client": self.client_obj.pk, "title": "Posted classic",
-                                                                  "source_lang": "en", "target_lang": "ar", "priority": "normal",
-                                                                  "word_count": "0"})
-        made = Task.objects.get(title="Posted classic")
-        self.assertEqual((answer.status_code, answer["Location"]), (302, f"/tasks/{made.code}/"))
-
-    def test_a_code_that_is_not_one_is_not_carried_into_the_address(self):
-        self.turn_on(roles=["operation"])
-        for odd in ("we.ird", "x" * 41, "a:b"):
-            answer = self.page(self.ops, "dashboard:task_detail", [odd])
-            self.assertEqual(answer.status_code, 404, odd)

@@ -183,10 +183,13 @@ def board_range(mode, raw):
 def parse_period(raw):
     """``"2026-09"`` (or ``"2026-9"``) as ``(2026, 9)``; ``None`` for anything else, so a typo is an error, not this month."""
     head, sep, tail = (raw or "").partition("-")
-    if not sep or not (head.isascii() and head.isdecimal() and tail.isascii() and tail.isdecimal()):
+    # The lengths first: ``int()`` of a few thousand digits raises, and the text comes from an address.
+    if not sep or len(head) != 4 or not 1 <= len(tail) <= 2:
+        return None
+    if not (head.isascii() and head.isdecimal() and tail.isascii() and tail.isdecimal()):
         return None
     year, month = int(head), int(tail)
-    if not (2000 <= year <= 2100 and 1 <= month <= 12) or len(head) != 4 or len(tail) > 2:
+    if not (2000 <= year <= 2100 and 1 <= month <= 12):
         return None
     return year, month
 

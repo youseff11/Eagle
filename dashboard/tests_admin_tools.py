@@ -314,18 +314,6 @@ class HandOnTests(_Tools):
             answer = self.get(self.admin, name)
             self.assertEqual((answer.status_code, answer["Location"]), (302, target), name)
 
-    def test_the_classic_forms_are_answered_where_they_are_even_with_the_switch(self):
-        self.turn_on()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse("dashboard:admin_reset_tasks"), {"password": "wrong", "confirm": "1"})
-        self.assertEqual(answer.status_code, 400)
-        self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
-        sent = browser.post(reverse("dashboard:admin_simulate"), {"channel": "whatsapp", "sender_identity": "+201110003333", "body": "Hi"})
-        self.assertEqual(sent.status_code, 302)
-        self.assertNotIn("/app/", sent["Location"])
-
-
 class ResetLockTests(_Tools):
     """Five wrong passwords in a quarter of an hour shut both clear-outs to that admin, whatever comes next."""
 
@@ -385,18 +373,6 @@ class ResetLockTests(_Tools):
         ok, error, _backup, _deleted = services.reset_all_tasks(self.ops, "x")
         self.assertFalse(ok)
         self.assertNotEqual(error, services.RESET_LOCKED_MESSAGE)
-
-    def test_the_classic_pages_are_shut_by_the_same_count(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        for _ in range(5):
-            browser.post(reverse("dashboard:admin_reset_tasks"), {"password": "not-it", "confirm": "1"})
-        answer = browser.post(reverse("dashboard:admin_reset_tasks"), {"password": ADMIN_PASSWORD, "confirm": "1"})
-        self.assertEqual(answer.status_code, 400)
-        self.assertContains(answer, services.RESET_LOCKED_MESSAGE, status_code=400)
-        mail = browser.post(reverse("dashboard:admin_reset_mail"), {"password": ADMIN_PASSWORD, "confirm": "1"})
-        self.assertContains(mail, services.RESET_LOCKED_MESSAGE, status_code=400)
-        self.assertTrue(Task.objects.filter(pk=self.task.pk).exists())
 
     def test_the_wrong_password_itself_still_says_wrong_before_the_limit(self):
         answer = self.post(self.admin, TASKS_RUN, {"password": "not-it", "confirm": True})
