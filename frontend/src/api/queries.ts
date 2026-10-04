@@ -81,6 +81,7 @@ import type {
   SendResponse,
   ThreadResponse,
   TaskAiNotes,
+  TaskSearchResponse,
   TasksResponse,
   TaskStartResponse,
   TeamResponse,
@@ -1209,5 +1210,19 @@ export function useMarkChatRead() {
         void client.invalidateQueries({ queryKey: qk.me });
       }
     },
+  });
+}
+
+/**
+ * The tasks half of the menu's search: the tasks this person may open that the typing finds (the server decides, by the
+ * same rules as the task page). Asked only once there are two letters, and the answer to an older typing is never shown.
+ */
+export function useNavTaskSearch(query: string) {
+  const text = query.trim();
+  return useQuery({
+    queryKey: qk.navTasks(text),
+    queryFn: () => api<TaskSearchResponse>(`/api/search/tasks/?q=${encodeURIComponent(text)}`),
+    enabled: text.replace(/\s/g, "").length >= 2,
+    staleTime: 15000,
   });
 }

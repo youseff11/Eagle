@@ -68,7 +68,7 @@ export function HrRecruitmentSettingsPage() {
 
       <div className="grid grid--main">
         <form onSubmit={submit}>
-          <div className="card">
+          <div className="card" id="rec-identity">
             <div className="card__head">
               <Icon name="shield" />
               <h3>{t("إخفاء هوية الشركة والبوت", "The identity rule and the bot")}</h3>
@@ -116,7 +116,7 @@ export function HrRecruitmentSettingsPage() {
         </form>
 
         <div className="sticky-side">
-          <div className="card card--flat" data-card="line">
+          <div className="card card--flat" data-card="line" id="rec-line">
             <div className="card__head">
               <Icon name="phone" />
               <h3>{t("رقم التوظيف", "The recruitment line")}</h3>

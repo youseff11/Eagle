@@ -93,3 +93,21 @@ button.bub__reacts:disabled { cursor: default; opacity: 1; }
 .cchat__count { flex: none; padding: 0 14px; font-size: 11px; text-align: end; color: var(--muted); }
 .cchat__count.is-over { color: var(--danger, #e5484d); }
 .cthread__problem { display: inline-flex; color: var(--danger, #e5484d); }
+
+/* The menu's sections fold like the classic menu's did (<details> there, a button and a class here): the heading is a button,
+   the open one turns its arrow, and a shut one shows what is waiting in it. */
+button.nav__head {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: start;
+}
+.nav__group.is-open .nav__chev { transform: rotate(180deg); }
+.nav__items[hidden] { display: none; }
+button.nav-tools__btn { appearance: none; }
+
+/* A field the menu's search sent you to stops clear of the sticky top bar, the way the settings cards do (app.css). */
+.field.is-found { scroll-margin-top: 84px; }

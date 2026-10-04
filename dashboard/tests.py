@@ -7278,6 +7278,30 @@ class TaskSearchTests(TestCase):
         self.assertEqual(row["client"], self.acme.code)
         self.assertNotIn("Acme", row["client"])
 
+    def _named_task(self):
+        """A task whose title is the client's own words, the way a letter's subject lands in it."""
+        task = services.create_task(client=self.acme, title="Acme Holdings lease", created_by=self.ops)
+        task.translator = self.tr
+        task.save(update_fields=["translator"])
+        return task
+
+    def test_the_title_is_shown_as_the_viewer_may_read_it(self):
+        task = self._named_task()
+        row = services.search_tasks(self.tr, "lease")[0]
+        self.assertEqual(row["code"], task.code)
+        self.assertNotIn("Acme", row["title"])
+        self.assertIn(self.acme.code, row["title"])
+        self.assertEqual(services.search_tasks(self.admin, task.code)[0]["title"], "Acme Holdings lease")
+
+    def test_a_name_inside_a_title_does_not_find_the_task_for_someone_who_may_not_know_it(self):
+        # Finding the task by the client's name would say which of their tasks the name belongs to.
+        task = self._named_task()
+        self.assertEqual(self._codes(self.tr, "Acme"), [])
+        self.assertEqual(self._codes(self.tr, "holdings"), [])
+        self.assertIn(task.code, self._codes(self.admin, "Acme"))
+        # ...while the words around the name still find it.
+        self.assertEqual(self._codes(self.tr, "lease"), [task.code, self.contract.code])
+
     def test_one_letter_is_not_a_search(self):
         self.assertEqual(services.search_tasks(self.ops, "l"), [])
 

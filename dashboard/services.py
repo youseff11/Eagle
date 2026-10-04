@@ -4250,25 +4250,36 @@ def search_tasks(user, query, limit=8):
     match = Q(code__icontains=query) | Q(title__icontains=query) | Q(
         client__code__icontains=query
     )
-    if user.can_see_client_identity:
+    sees = user.can_see_client_identity
+    if sees:
         match |= Q(client__name__icontains=query) | Q(client__company__icontains=query)
     from .templatetags.eagle_tags import STATUS_MAP
 
-    rows = (
-        visible_tasks(user).filter(match).select_related("client")
-        .order_by("-created_at")[:limit]
-    )
+    rows = visible_tasks(user).filter(match).select_related("client").order_by("-created_at")
+    # The title is free words and is often the client's own (the subject of their letter), so it is shown as this person
+    # may read it (``Task.title_for``) and it is matched as they read it: a query that hits only the client's name
+    # inside a title would otherwise tell a translator which tasks that name belongs to.
+    found = []
+    for task in rows[: limit if sees else limit * 6]:
+        title = task.title_for(user)
+        if not sees:
+            seen = f"{task.code} {task.client.code if task.client_id else ''} {title}"
+            if query.lower() not in seen.lower():
+                continue
+        found.append((task, title))
+        if len(found) == limit:
+            break
     return [
         {
             "code": task.code,
-            "title": task.title,
+            "title": title,
             "origin": task.origin,
             "status_ar": STATUS_MAP.get(task.status, ("", task.status, ""))[1],
             "status_en": task.get_status_display(),
             "client": task.client.label_for(user) if task.client_id else "",
             "href": f"/tasks/{task.code}/",
         }
-        for task in rows
+        for task, title in found
     ]
 
 

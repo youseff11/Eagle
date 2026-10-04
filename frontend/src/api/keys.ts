@@ -117,4 +117,6 @@ export const qk = {
   pending: ["pending-assignment"] as const,
   /** One hand-off read before it is taken. */
   assignment: (id: number) => ["boards", "assignment", id] as const,
+  /** The tasks the menu's search found for what was typed (outside `boards`: an answer to a question, not a board). */
+  navTasks: (query: string) => ["nav-tasks", query] as const,
 };

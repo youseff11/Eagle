@@ -100,6 +100,21 @@ export type Role =
   | "accounting"
   | "sales";
 
+/** GET /api/search/tasks/?q=: the tasks the menu's search found, each as this person may read it (the client by code unless they may know the name). */
+export interface TaskSearchResponse {
+  ok: true;
+  items: {
+    code: string;
+    title: string;
+    origin: string;
+    status_ar: string;
+    status_en: string;
+    client: string;
+    /** The classic address: the app builds its own from `code`. */
+    href: string;
+  }[];
+}
+
 /** GET /api/v1/me/ */
 export interface MeResponse {
   ok: true;
