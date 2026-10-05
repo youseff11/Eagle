@@ -292,7 +292,9 @@ def _read_selected(box, name, state, limit, keep_unread, ours, services):
     for uid in uids:
         status, payload = box.uid("FETCH", str(uid), fetch_type)
         if status == "OK" and payload and isinstance(payload[0], tuple):
-            when = imaplib.Internaldate2tuple(payload[0][0])
+            # Gmail puts INTERNALDATE after the letter, in the next part of the answer.
+            head = b" ".join(part[0] if isinstance(part, tuple) else part for part in payload if part)
+            when = imaplib.Internaldate2tuple(head)
             if when:
                 age = max(0.0, time.time() - time.mktime(when))
                 last_letter_age = age if last_letter_age is None else max(last_letter_age, age)
@@ -470,6 +472,12 @@ def _fetch_and_record(limit=25, keep_unread=False):
 #: line warm with room to spare.
 IDLE_RENEW_SECONDS = 240
 
+#: How often the server is asked outright whether it has new mail, between two
+#: short IDLEs. A mail server is sometimes slow to announce what it already
+#: holds (Gmail was measured announcing a letter nine seconds after storing
+#: it); asking costs one round trip, and a letter is then found within this.
+POLL_SECONDS = 3
+
 #: A command that is answered at all is answered well inside this.
 COMMAND_TIMEOUT = 30
 
@@ -480,6 +488,14 @@ class IdleUnsupported(MailboxError):
 
 class NoJunkFolder(MailboxError):
     """The mailbox has no folder flagged ``\\Junk``: there is no Spam to watch."""
+
+
+def _exists_count(line):
+    """N from an untagged ``* N EXISTS`` line; ``None`` for any other line."""
+    parts = line.split()
+    if len(parts) == 3 and parts[0] == b"*" and parts[2].upper() == b"EXISTS" and parts[1].isdigit():
+        return int(parts[1])
+    return None
 
 
 def _quote(value):
@@ -494,9 +510,15 @@ class IdleWatcher:
     /``close`` can stand in for the TLS socket.
     """
 
+    #: Set by ``watch``: seconds between two short IDLEs, with a NOOP between them. ``None`` is one long IDLE.
+    poll_every = None
+    #: How the last ``wait`` found its mail: the server announced it ("idle") or a NOOP showed it ("poll").
+    how = "idle"
+
     def __init__(self, conf, sock=None, folder=None):
         self._buffer = b""
         self._counter = 0
+        self._exists = 0
         if sock is None:
             raw = socket.create_connection(
                 (conf.imap_host, conf.imap_port or 993), timeout=COMMAND_TIMEOUT
@@ -522,7 +544,9 @@ class IdleWatcher:
                     raise NoJunkFolder(
                         "الميل مفيهوش فولدر سبام.", "This mailbox has no Spam folder."
                     )
-            self._command(f"SELECT {_quote(wanted)}")
+            for line in self._command(f"SELECT {_quote(wanted)}"):
+                if _exists_count(line) is not None:
+                    self._exists = _exists_count(line)
         except Exception:
             self.close()
             raise
@@ -570,6 +594,32 @@ class IdleWatcher:
     # -- the point ---------------------------------------------------------
 
     def wait(self, seconds=IDLE_RENEW_SECONDS):
+        """Wait up to ``seconds`` for new mail; True when there is some.
+
+        Normally one IDLE: the server says ``* N EXISTS`` the moment a letter lands. With ``poll_every`` set
+        (``watch`` sets it) the IDLE is cut into short ones and, between two of them, the server is asked outright
+        with a NOOP. Only a count that went up is mail there: a server that repeats the count it has already
+        given would otherwise have every poll start a fetch.
+        """
+        self.how = "idle"
+        if not self.poll_every:
+            return self._idle(seconds)
+        deadline = time.monotonic() + seconds
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return False
+            if self._idle(min(self.poll_every, left)):
+                return True
+            before = self._exists
+            for line in self._command("NOOP"):
+                if _exists_count(line) is not None:
+                    self._exists = _exists_count(line)
+            if self._exists > before:
+                self.how = "poll"
+                return True
+
+    def _idle(self, seconds):
         """IDLE for up to ``seconds``. True when the server announced new mail.
 
         Only ``EXISTS`` counts. Marking a letter read makes the server send a
@@ -595,7 +645,8 @@ class IdleWatcher:
                 if left <= 0:
                     break
                 line = self._line(left)
-                if line.startswith(b"*") and line.upper().endswith(b" EXISTS"):
+                if _exists_count(line) is not None:
+                    self._exists = _exists_count(line)
                     arrived = True
                     break
         except socket.timeout:
@@ -606,7 +657,8 @@ class IdleWatcher:
         # lines before the tagged answer. Throwing them away would leave it
         # waiting for the next poll, minutes away.
         for line in self._finish(tag):
-            if line.startswith(b"*") and line.upper().endswith(b" EXISTS"):
+            if _exists_count(line) is not None:
+                self._exists = _exists_count(line)
                 arrived = True
         return arrived
 
@@ -665,12 +717,13 @@ def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SE
                 continue
 
             watcher = IdleWatcher(conf) if folder is None else IdleWatcher(conf, folder=folder)
+            watcher.poll_every = POLL_SECONDS
             log(f"mail push{where}: connected, waiting for new mail")
             on_mail()
             pause = 5
             while not stop.is_set():
                 if watcher.wait(renew_seconds):
-                    log(f"mail push{where}: new mail announced")
+                    log(f"mail push{where}: new mail announced ({getattr(watcher, 'how', 'idle')})")
                     on_mail()
                 if folder is not None and not _wants_spam():
                     break

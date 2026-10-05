@@ -96,8 +96,9 @@ class FakeBox:
         assert command == "FETCH", command
         number = int(args[0])
         self.fetched.append((self.selected, number))
-        head = f'{number} (UID {number} INTERNALDATE "05-Oct-2026 00:03:48 +0300" RFC822 {{1}}'.encode()
-        return "OK", [(head, letters[number - 1]), b")"]
+        # Like Gmail: the receipt time comes after the letter, in the next part of the answer.
+        head = f"{number} (UID {number} RFC822 {{1}}".encode()
+        return "OK", [(head, letters[number - 1]), b' INTERNALDATE "05-Oct-2026 00:03:48 +0300")']
 
     def close(self):
         pass
@@ -459,6 +460,68 @@ class IdleOnSpamTests(TestCase):
         self.assertTrue(watcher.wait(60))
 
 
+class PollBetweenIdlesTests(TestCase):
+    """A server that is slow to announce a letter is asked outright, between short IDLEs."""
+
+    HELLO = [
+        "* OK ready", "E0001 OK logged in", "* CAPABILITY IMAP4rev1 IDLE", "E0002 OK",
+        "* 3 EXISTS", "E0003 OK [READ-WRITE] INBOX selected",
+    ]
+
+    def watcher(self, replies, poll_every=3):
+        sock = FakeSock(self.HELLO + replies)
+        watcher = mailbox.IdleWatcher(Conf, sock=sock)
+        watcher.poll_every = poll_every
+        return watcher, sock
+
+    def test_a_letter_the_server_did_not_announce_is_found_by_asking(self):
+        watcher, sock = self.watcher([
+            "+ idling", None, "E0004 OK IDLE terminated", "E0005 OK NOOP completed",                  # nothing yet
+            "+ idling", None, "E0006 OK IDLE terminated", "* 4 EXISTS", "E0007 OK NOOP completed",    # now there is
+        ])
+        self.assertTrue(watcher.wait(60))
+        self.assertEqual(watcher.how, "poll")
+        self.assertEqual([line for line in sock.sent if "NOOP" in line], ["E0005 NOOP", "E0007 NOOP"])
+
+    def test_a_count_the_server_repeats_is_not_a_letter(self):
+        watcher, sock = self.watcher([
+            "+ idling", None, "E0004 OK IDLE terminated", "* 3 EXISTS", "E0005 OK NOOP completed",    # the same count again
+            "+ idling", None, "E0006 OK IDLE terminated", "* 4 EXISTS", "E0007 OK NOOP completed",
+        ])
+        self.assertTrue(watcher.wait(60))
+        self.assertEqual(sock.replies, [])                  # it went on to the second look, not stopped at the first
+
+    def test_a_letter_announced_while_idling_is_found_by_the_idle(self):
+        watcher, sock = self.watcher(["+ idling", "* 4 EXISTS", "E0004 OK IDLE terminated"])
+        self.assertTrue(watcher.wait(60))
+        self.assertEqual(watcher.how, "idle")
+        self.assertEqual([line for line in sock.sent if "NOOP" in line], [])
+
+    def test_a_count_that_went_down_is_not_a_letter(self):
+        watcher, sock = self.watcher([
+            "+ idling", None, "E0004 OK IDLE terminated", "* 2 EXISTS", "E0005 OK NOOP completed",    # one was deleted
+            "+ idling", None, "E0006 OK IDLE terminated", "* 3 EXISTS", "E0007 OK NOOP completed",    # one came: 2 -> 3
+        ])
+        self.assertTrue(watcher.wait(60))
+        self.assertEqual(sock.replies, [])
+
+    def test_without_poll_every_it_is_one_long_idle_and_never_asks(self):
+        watcher, sock = self.watcher(["+ idling", None, "E0004 OK IDLE terminated"], poll_every=None)
+        self.assertFalse(watcher.wait(60))
+        self.assertEqual([line for line in sock.sent if "NOOP" in line], [])
+
+    def test_the_count_a_folder_had_when_selected_is_the_one_to_beat(self):
+        sock = FakeSock(self.HELLO)
+        self.assertEqual(mailbox.IdleWatcher(Conf, sock=sock)._exists, 3)
+
+    def test_only_a_real_exists_line_counts(self):
+        self.assertEqual(mailbox._exists_count(b"* 12 EXISTS"), 12)
+        self.assertEqual(mailbox._exists_count(b"* 12 exists"), 12)
+        self.assertEqual(mailbox._exists_count(b"* 0 EXISTS"), 0)
+        for line in (b"* 3 FETCH (FLAGS (\\Seen))", b"* OK still here", b"E0004 OK EXISTS", b"* x EXISTS", b"+ idling", b""):
+            self.assertIsNone(mailbox._exists_count(line), line)
+
+
 class _Stop:
     """A stop flag whose waits are instant, and which sets itself after ``rounds`` of them.
 
@@ -558,6 +621,27 @@ class SpamWatchTests(TestCase):
         self.assertTrue(watchers[0].closed)
         self.assertEqual(watchers[0].rounds, 1)          # it did not wait again
         self.assertEqual(stop.waits, [60])               # and went back to sleeping
+
+    def test_watch_polls_between_idles_and_says_how_the_mail_was_found(self):
+        stop, logged, made = _Stop(rounds=99), [], []
+
+        class Watcher:
+            how = "poll"
+
+            def __init__(self, _conf):
+                made.append(self)
+
+            def wait(self, _seconds):
+                stop._set = True
+                return True
+
+            def close(self):
+                pass
+
+        with mock.patch.object(mailbox, "IdleWatcher", Watcher), mock.patch("django.db.close_old_connections"):
+            mailbox.watch(on_mail=lambda: None, stop=stop, log=logged.append)
+        self.assertEqual(made[0].poll_every, mailbox.POLL_SECONDS)
+        self.assertIn("mail push: new mail announced (poll)", logged)
 
     def test_the_inbox_watcher_is_built_exactly_as_it_always_was(self):
         stop = _Stop(rounds=99)
