@@ -147,6 +147,9 @@ ROLES_OF = {
     "/clients": (Role.OPERATION, Role.TEAM_LEAD, Role.SALES), "/clients/{code}": (Role.OPERATION, Role.TEAM_LEAD, Role.SALES),
     # A task has a page for whoever works on it; Sales, HR, accounting and the reviewer have none.
     "/tasks/{code}": (Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR),
+    # The employee files answer to recruitment rights (HR and the admin), not to the attendance flag the ``hr`` screen also admits;
+    # a new person is the admin's alone.
+    "/hr/employees": (Role.HR,), "/hr/employees/{pk}": (Role.HR,), "/hr/employees/new": (),
 }
 
 

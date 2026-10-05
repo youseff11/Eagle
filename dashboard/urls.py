@@ -40,6 +40,7 @@ urlpatterns = [
     path("api/v1/me/", api_v1.me, name="v1_me"),
     path("api/v1/me/avatar/", api_profile.avatar_set, name="v1_me_avatar"),
     path("api/v1/me/avatar/remove/", api_profile.avatar_remove, name="v1_me_avatar_remove"),
+    path("api/v1/me/password/", api_profile.password_change, name="v1_me_password"),
     path("api/v1/notifications/", api_v1.notifications, name="v1_notifications"),
     path("api/v1/notifications/read/", api_v1.notifications_read, name="v1_notifications_read"),
     path("api/v1/chats/", api_v1.chats, name="v1_chats"),

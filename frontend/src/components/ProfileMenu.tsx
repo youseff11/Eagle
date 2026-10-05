@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { formErrors } from "../api/adminActions";
 import { ApiError } from "../api/client";
-import { useRemoveAvatar, useSetAvatar } from "../api/profileActions";
+import { useChangePassword, useRemoveAvatar, useSetAvatar } from "../api/profileActions";
 import type { MeResponse } from "../api/types";
 import { usePreferences } from "../i18n/Preferences";
 import { NotAPicture, squareAvatar } from "../lib/avatarImage";
@@ -9,9 +10,106 @@ import { Icon } from "./Icon";
 import { useToasts } from "./Toasts";
 
 /**
+ * The person's own password, changed from their own menu: the one they have, and the new one twice. The password rides in the one
+ * request that changes it and is not kept; every refusal is the server's (the current one wrong, too many tries, the project's
+ * rules for a new one) and is said beside the boxes.
+ */
+function PasswordSection() {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const change = useChangePassword();
+  const [open, setOpen] = useState(false);
+  const [boxes, setBoxes] = useState({ old_password: "", new_password1: "", new_password2: "" });
+  const [problem, setProblem] = useState("");
+  const ready = boxes.old_password !== "" && boxes.new_password1 !== "" && boxes.new_password2 !== "";
+
+  const close = () => {
+    setOpen(false);
+    setProblem("");
+    setBoxes({ old_password: "", new_password1: "", new_password2: "" });
+    change.reset();
+  };
+
+  // What the server refused, in words: the current password, the lock, or the new password's own rules (its messages are Django's).
+  const refused = (error: unknown) => {
+    if (error instanceof ApiError && error.code === "wrong_password") return t("كلمة السر الحالية غلط.", "The current password is wrong.");
+    if (error instanceof ApiError && error.code === "too_many_attempts") {
+      return t("محاولات غلط كتير. جرّب بعد 15 دقيقة.", "Too many wrong tries. Try again in 15 minutes.");
+    }
+    const found = formErrors(error);
+    const messages = found ? Object.values(found).flat() : [];
+    return messages.length > 0 ? messages.join(" ") : t("كلمة السر ماتغيّرتش. جرّب تاني.", "The password was not changed. Try again.");
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setProblem("");
+    change.mutate(boxes, {
+      onSuccess: () => {
+        close();
+        push({ level: "success", title: t("كلمة السر اتغيّرت", "Password changed") });
+      },
+      onError: (error) => {
+        // The boxes keep what was typed, but the request's copy of it does not stay in the mutation.
+        change.reset();
+        setProblem(refused(error));
+      },
+    });
+  };
+
+  const box = (name: keyof typeof boxes, label: string, autoComplete: string) => (
+    <div className="profile__field">
+      <label htmlFor={`profile-${name}`}>{label}</label>
+      <input
+        id={`profile-${name}`}
+        className="input"
+        type="password"
+        dir="ltr"
+        autoComplete={autoComplete}
+        value={boxes[name]}
+        onChange={(event) => setBoxes({ ...boxes, [name]: event.target.value })}
+      />
+    </div>
+  );
+
+  return (
+    <div className="profile__section" data-section="password">
+      <div className="profile__title">{t("كلمة السر", "Password")}</div>
+      {!open ? (
+        <button type="button" className="btn btn--block" onClick={() => setOpen(true)}>
+          <Icon name="lock" size="sm" />
+          {t("غيّر كلمة السر", "Change password")}
+        </button>
+      ) : (
+        <form className="profile__form" onSubmit={submit}>
+          {box("old_password", t("كلمة السر الحالية", "Current password"), "current-password")}
+          {box("new_password1", t("كلمة السر الجديدة", "New password"), "new-password")}
+          {box("new_password2", t("الجديدة تاني", "New password again"), "new-password")}
+          {problem && (
+            <div className="note note--high" role="alert">
+              <Icon name="alert" />
+              <div>{problem}</div>
+            </div>
+          )}
+          <div className="profile__actions">
+            <button type="submit" className="btn btn--primary btn--block" disabled={!ready || change.isPending}>
+              <Icon name="check" size="sm" />
+              {t("احفظ كلمة السر", "Save password")}
+            </button>
+            <button type="button" className="btn btn--ghost btn--block" onClick={close}>
+              {t("إلغاء", "Cancel")}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/**
  * The person's own chip in the top bar, and what opens from it: their picture, with the two things to do to it - put another
- * one there, or take it off. The picture is cut to a square here before it is sent (`squareAvatar`); what may be stored is the
- * server's rule, which answers `bad_file` for anything else.
+ * one there, or take it off - and their password (`PasswordSection`). The picture is cut to a square here before it is sent
+ * (`squareAvatar`); what may be stored is the server's rule, which answers `bad_file` for anything else.
  */
 export function ProfileMenu({ user, roleLabel }: { user: MeResponse["user"]; roleLabel: string }) {
   const { t } = usePreferences();
@@ -100,7 +198,7 @@ export function ProfileMenu({ user, roleLabel }: { user: MeResponse["user"]; rol
       </button>
 
       {open && (
-        <div className="profile__pop" id={panel} role="dialog" aria-label={t("صورة البروفايل", "Profile picture")}>
+        <div className="profile__pop" id={panel} role="dialog" aria-label={t("البروفايل", "Profile")}>
           <div className="profile__head">
             <Avatar src={user.avatar} initials={user.initials} className="profile__face" />
             <div className="profile__who">
@@ -138,6 +236,7 @@ export function ProfileMenu({ user, roleLabel }: { user: MeResponse["user"]; rol
               <div>{problem}</div>
             </div>
           )}
+          <PasswordSection />
         </div>
       )}
     </div>

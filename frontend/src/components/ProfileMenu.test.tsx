@@ -38,6 +38,8 @@ function renderFrame(start: string | null = null, extra: FetchRoutes = {}) {
       avatar = STORED;
       return jsonResponse({ ok: true, avatar });
     },
+    // Before "/api/v1/me/", which every address under it would otherwise match.
+    "/api/v1/me/password/": () => jsonResponse({ ok: true }),
     "/api/v1/me/": () => jsonResponse(me({ role: "translator", short_name: "Mona", name: "Mona Salem", initials: "MS", avatar })),
     ...extra,
   });
@@ -61,14 +63,14 @@ describe("the profile picture, from the person's own chip in the top bar", () =>
     renderFrame();
     expect(await screen.findByText("MS")).toBeInTheDocument();
     expect(chip().querySelector("img")).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "صورة البروفايل" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "البروفايل" })).toBeNull();
   });
 
   it("opens the panel with one thing to do when there is no picture: put one there", async () => {
     renderFrame();
     await screen.findByText("MS");
     await userEvent.click(chip());
-    const panel = screen.getByRole("dialog", { name: "صورة البروفايل" });
+    const panel = screen.getByRole("dialog", { name: "البروفايل" });
     expect(within(panel).getByRole("button", { name: "ارفع صورة" })).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "احذف الصورة" })).toBeNull();
     expect(chip()).toHaveAttribute("aria-expanded", "true");
@@ -80,7 +82,7 @@ describe("the profile picture, from the person's own chip in the top bar", () =>
     expect(chip().querySelector("img")).toHaveAttribute("src", STORED);
     expect(screen.queryByText("MS")).toBeNull();
     await userEvent.click(chip());
-    const panel = screen.getByRole("dialog", { name: "صورة البروفايل" });
+    const panel = screen.getByRole("dialog", { name: "البروفايل" });
     expect(within(panel).getByRole("button", { name: "غيّر الصورة" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "احذف الصورة" })).toBeInTheDocument();
   });
@@ -157,7 +159,7 @@ describe("the profile picture, from the person's own chip in the top bar", () =>
     renderFrame();
     await screen.findByText("MS");
     await userEvent.click(chip());
-    const panel = () => screen.queryByRole("dialog", { name: "صورة البروفايل" });
+    const panel = () => screen.queryByRole("dialog", { name: "البروفايل" });
     expect(panel()).not.toBeNull();
 
     await userEvent.click(within(panel()!).getByText("صورة البروفايل", { selector: ".profile__title" }));
@@ -193,9 +195,156 @@ describe("the profile picture, from the person's own chip in the top bar", () =>
       { lang: "en" },
     );
     await userEvent.click(await screen.findByTitle("Mona"));
-    const panel = screen.getByRole("dialog", { name: "Profile picture" });
+    const panel = screen.getByRole("dialog", { name: "Profile" });
     expect(within(panel).getByRole("button", { name: "Change picture" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
+  });
+});
+
+const PASSWORD = "/api/v1/me/password/";
+const sent = (calls: { url: string; init?: RequestInit }[]) => posts(calls, PASSWORD).map((call) => JSON.parse(String(call.init?.body)));
+
+async function openPassword() {
+  await screen.findByText("MS");
+  await userEvent.click(chip());
+  await userEvent.click(within(screen.getByRole("dialog", { name: "البروفايل" })).getByRole("button", { name: "غيّر كلمة السر" }));
+}
+
+async function fillPassword(old = "old-one-11", fresh = "Quiet-harbour-77", again = fresh) {
+  await userEvent.type(screen.getByLabelText("كلمة السر الحالية"), old);
+  await userEvent.type(screen.getByLabelText("كلمة السر الجديدة"), fresh);
+  await userEvent.type(screen.getByLabelText("الجديدة تاني"), again);
+}
+
+const SAVE = { name: "احفظ كلمة السر" };
+
+describe("a person's own password, from the menu", () => {
+  it("is closed until it is asked for, and then draws three password boxes the browser can fill in", async () => {
+    renderFrame();
+    await screen.findByText("MS");
+    await userEvent.click(chip());
+    expect(screen.queryByLabelText("كلمة السر الحالية")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "غيّر كلمة السر" }));
+    expect(screen.getByLabelText("كلمة السر الحالية")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("كلمة السر الحالية")).toHaveAttribute("autocomplete", "current-password");
+    expect(screen.getByLabelText("كلمة السر الجديدة")).toHaveAttribute("autocomplete", "new-password");
+    expect(screen.getByLabelText("الجديدة تاني")).toHaveAttribute("type", "password");
+  });
+
+  it("keeps Save off until all three boxes have something in them", async () => {
+    renderFrame();
+    await openPassword();
+    const save = screen.getByRole("button", SAVE);
+    expect(save).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("كلمة السر الحالية"), "x");
+    await userEvent.type(screen.getByLabelText("كلمة السر الجديدة"), "y");
+    expect(save).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("الجديدة تاني"), "y");
+    expect(save).toBeEnabled();
+  });
+
+  it("sends the three boxes, says it is done, and closes with the boxes empty", async () => {
+    const view = renderFrame();
+    await openPassword();
+    await fillPassword();
+    await userEvent.click(screen.getByRole("button", SAVE));
+    await waitFor(() => expect(sent(view.calls)).toHaveLength(1));
+    expect(sent(view.calls)[0]).toEqual({ old_password: "old-one-11", new_password1: "Quiet-harbour-77", new_password2: "Quiet-harbour-77" });
+    expect(await screen.findByText("كلمة السر اتغيّرت")).toBeInTheDocument();
+    expect(screen.queryByLabelText("كلمة السر الحالية")).toBeNull();
+    // Opened again, nothing of it is left in the boxes.
+    await userEvent.click(screen.getByRole("button", { name: "غيّر كلمة السر" }));
+    expect(screen.getByLabelText("كلمة السر الحالية")).toHaveValue("");
+    expect(screen.getByLabelText("كلمة السر الجديدة")).toHaveValue("");
+  });
+
+  it("says the current password is wrong, and keeps what was typed", async () => {
+    renderFrame(null, { [PASSWORD]: () => jsonResponse({ ok: false, error: "wrong_password" }, 400) });
+    await openPassword();
+    await fillPassword();
+    await userEvent.click(screen.getByRole("button", SAVE));
+    expect(await screen.findByRole("alert")).toHaveTextContent("كلمة السر الحالية غلط.");
+    expect(screen.getByLabelText("كلمة السر الجديدة")).toHaveValue("Quiet-harbour-77");
+  });
+
+  it("says the door is shut after too many wrong tries", async () => {
+    renderFrame(null, { [PASSWORD]: () => jsonResponse({ ok: false, error: "too_many_attempts" }, 429) });
+    await openPassword();
+    await fillPassword();
+    await userEvent.click(screen.getByRole("button", SAVE));
+    expect(await screen.findByRole("alert")).toHaveTextContent("محاولات غلط كتير. جرّب بعد 15 دقيقة.");
+  });
+
+  it("shows the server's own reasons for a new password it refuses", async () => {
+    renderFrame(null, {
+      [PASSWORD]: () => jsonResponse({ ok: false, error: "invalid", errors: { new_password2: ["The two password fields did not match."] } }, 400),
+    });
+    await openPassword();
+    await fillPassword("old-one-11", "Quiet-harbour-77", "Quiet-harbour-78");
+    await userEvent.click(screen.getByRole("button", SAVE));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The two password fields did not match.");
+    expect(screen.getByLabelText("كلمة السر الجديدة")).toBeInTheDocument();
+  });
+
+  it("says so when it fails for a reason that is not the password's", async () => {
+    renderFrame(null, { [PASSWORD]: () => jsonResponse({ ok: false, error: "server" }, 500) });
+    await openPassword();
+    await fillPassword();
+    await userEvent.click(screen.getByRole("button", SAVE));
+    expect(await screen.findByRole("alert")).toHaveTextContent("كلمة السر ماتغيّرتش. جرّب تاني.");
+  });
+
+  it("is dropped by Cancel, with the boxes emptied and nothing sent", async () => {
+    const view = renderFrame();
+    await openPassword();
+    await fillPassword();
+    await userEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    expect(screen.queryByLabelText("كلمة السر الحالية")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "غيّر كلمة السر" }));
+    expect(screen.getByLabelText("كلمة السر الحالية")).toHaveValue("");
+    expect(sent(view.calls)).toHaveLength(0);
+  });
+
+  it("is on the menu of every role", async () => {
+    for (const role of ["admin", "hr", "operation", "sales", "accounting", "reviewer", "team_lead", "translator"] as const) {
+      const mocked = mockFetch({
+        "/api/prefs/": () => jsonResponse({ ok: true }),
+        "/api/v1/me/": () => jsonResponse(me({ role, short_name: "Mona", name: "Mona Salem", initials: "MS", is_admin: role === "admin" })),
+      });
+      vi.stubGlobal("fetch", mocked.fn);
+      const view = renderWithProviders(
+        <Routes>
+          <Route element={<Shell />}>
+            <Route index element={<div>home page</div>} />
+          </Route>
+        </Routes>,
+      );
+      await userEvent.click(await screen.findByTitle("Mona"));
+      expect(screen.getByRole("button", { name: "غيّر كلمة السر" }), role).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("speaks English when the page does", async () => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ short_name: "Mona" })),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route index element={<div>home page</div>} />
+        </Route>
+      </Routes>,
+      { lang: "en" },
+    );
+    await userEvent.click(await screen.findByTitle("Mona"));
+    await userEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect(screen.getByLabelText("Current password")).toBeInTheDocument();
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByLabelText("New password again")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save password" })).toBeInTheDocument();
   });
 });
 

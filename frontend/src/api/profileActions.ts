@@ -29,6 +29,23 @@ export function useSetAvatar() {
   });
 }
 
+/** What a person types to change their own password: the one they have, and the new one twice. */
+export interface PasswordChange {
+  old_password: string;
+  new_password1: string;
+  new_password2: string;
+}
+
+/**
+ * Change the signed-in person's own password. It rides in this request and in nothing else: the page empties its boxes and
+ * `reset()`s the mutation once the answer is in, so no copy is kept in the cache's state.
+ */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (values: PasswordChange) => api<{ ok: true }>("/api/v1/me/password/", { json: values }),
+  });
+}
+
 /** Take the picture off: the initials are drawn again. */
 export function useRemoveAvatar() {
   return useAvatarWrite<void>(() => api<AvatarAnswer>("/api/v1/me/avatar/remove/", { json: {} }));

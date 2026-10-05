@@ -196,6 +196,28 @@ class AnOldAddressOpenedByTheWrongPersonIsWrittenDownTests(_Door):
             self.assertEqual(answer.status_code, 302, name)
             self.assertEqual(self.denied(who), before + 1, (who.username, name))
 
+    def test_the_employee_files_are_hrs_and_the_admins_not_the_attendance_flags(self):
+        """The ``hr`` screen also admits a person who holds the attendance flag; the files and a new person's form are not theirs."""
+        User.objects.filter(pk=self.ops.pk).update(attendance_manager=True)
+        self.ops.refresh_from_db()
+        for who, name, args in (
+            (self.ops, "hr_employees", None), (self.ops, "hr_employee", [7]), (self.ops, "admin_users", None),
+            (self.ops, "admin_user_edit", [7]), (self.ops, "admin_user_new", None),
+            (self.hr, "admin_user_new", None),
+        ):
+            before = self.denied(who)
+            self.assertEqual(self.go(who, name, args).status_code, 302, name)
+            self.assertEqual(self.denied(who), before + 1, (who.username, name))
+
+    def test_the_employee_files_are_not_written_down_for_who_may_open_them(self):
+        for who, name, args in (
+            (self.hr, "hr_employees", None), (self.hr, "hr_employee", [7]), (self.hr, "admin_users", None),
+            (self.hr, "admin_user_edit", [7]), (self.admin, "admin_user_new", None), (self.admin, "hr_employees", None),
+        ):
+            before = self.denied(who)
+            self.go(who, name, args)
+            self.assertEqual(self.denied(who), before, (who.username, name))
+
     def test_a_page_that_was_for_the_person_writes_nothing(self):
         for who, name, args in (
             (self.ops, "ops_inbox", None), (self.sales, "ops_inbox", None), (self.ops, "ops_tasks", None),
