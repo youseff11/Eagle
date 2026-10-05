@@ -3812,7 +3812,12 @@ def task_reset_counts():
 RESET_WRONG_LIMIT = 5
 RESET_LOCK_MINUTES = 15
 RESET_LOCKED_MESSAGE = "محاولات باسورد غلط كتير. المسح اتقفل 15 دقيقة."
-_RESET_WRONG_ACTIONS = ("task.reset_refused", "mail.reset_refused", "client.reset_refused")
+#: Every row that says "this person typed a wrong password": the clear-outs' and the profile's own change. One count for all of them,
+#: so a person has five wrong tries in the window, not five at each door.
+WRONG_PASSWORD_ACTIONS = (
+    "task.reset_refused", "mail.reset_refused", "staff.reset_refused", "client.reset_refused", "profile.password_refused",
+)
+_RESET_WRONG_ACTIONS = WRONG_PASSWORD_ACTIONS
 
 
 def reset_password_problem(admin, password, kind):
@@ -4007,6 +4012,143 @@ def reset_all_mail(admin, password):
         f"{len(letters)} received, {len(sent)} sent, {removed} stored file(s) removed",
     )
     return True, "", backup, deleted, removed
+
+
+# ---------------------------------------------------------------------------
+# Clearing the staff (admin only)
+# ---------------------------------------------------------------------------
+
+STAFF_RESET_BLOCKED = "فيه تاسكات مبنية على رسايل خط خاص بموظف هيتمسح. اعمل «ريستارت التاسكات» الأول وبعدين ارجع."
+
+
+def _staff_to_clear():
+    """Everybody who is not an admin: the owner's own account, and any other admin, stay."""
+    return User.objects.exclude(role=Role.ADMIN).exclude(is_superuser=True)
+
+
+def _staff_lines(ids):
+    """``(letters, sent)``: the mail and the WhatsApp on these people's private lines (``owner``)."""
+    from .models import OutboundMessage
+
+    return InboundMessage.objects.filter(owner_id__in=ids), OutboundMessage.objects.filter(owner_id__in=ids)
+
+
+def _lines_with_tasks(letters, sent):
+    """How many of those messages (or their files) a task stands on: the same rule as the mail clear-out."""
+    from .models import MessageAttachment
+
+    return (
+        letters.filter(task__isnull=False).count()
+        + sent.filter(task__isnull=False).count()
+        + MessageAttachment.objects.filter(message__in=letters, tasks__isnull=False).values("pk").distinct().count()
+    )
+
+
+def _staff_rooms(ids):
+    """The internal rooms (not a client's) that one of these people is in: their conversations go with them."""
+    found = ChatRoom.objects.exclude(kind=RoomKind.CLIENT).filter(members__in=ids).values_list("pk", flat=True)
+    return ChatRoom.objects.filter(pk__in=list(found))
+
+
+def staff_reset_counts():
+    """What clearing the staff would take - drawn on the page before anybody asks."""
+    from .models import LeaveRequest, PayrollLine, SalaryRecord, Shift, Violation, WorkDay
+
+    staff = _staff_to_clear()
+    ids = list(staff.values_list("pk", flat=True))
+    letters, sent = _staff_lines(ids)
+    return {
+        "people": len(ids),
+        "kept": User.objects.count() - len(ids),
+        "shifts": Shift.objects.filter(user_id__in=ids).count(),
+        "work_days": WorkDay.objects.filter(user_id__in=ids).count(),
+        "leave": LeaveRequest.objects.filter(user_id__in=ids).count(),
+        "salary_records": SalaryRecord.objects.filter(user_id__in=ids).count(),
+        "payroll_lines": PayrollLine.objects.filter(user_id__in=ids).count(),
+        "violations": Violation.objects.filter(user_id__in=ids).count(),
+        "rooms": _staff_rooms(ids).count(),
+        "line_letters": letters.count(),
+        "line_sent": sent.count(),
+        "line_blocked": _lines_with_tasks(letters, sent),
+        "tasks_touched": Task.objects.filter(
+            Q(translator_id__in=ids) | Q(team_lead_id__in=ids) | Q(created_by_id__in=ids),
+        ).count(),
+    }
+
+
+def reset_all_staff(admin, password):
+    """Delete every employee who is not an admin, with what is theirs, so the team can start again with real people.
+
+    Returns ``(ok, error_ar, backup_json, deleted, files_removed)``.
+
+    Guarded the way the other two clear-outs are, because it is just as final: the admin role, the admin's own password typed
+    again (counted with the others' wrong tries), one transaction.
+
+    What goes with a person (CASCADE, as the models say): their shifts, attendance, leave, salary records, payroll lines,
+    violations, rating events, devices, notifications and call history. What goes by this function, because leaving it would be
+    worse: the internal chats they were in (a conversation with nobody left in it), and the mail and WhatsApp on their private
+    line - ``owner`` goes NULL when a person is deleted, and NULL is the company's line, so a Sales person's private letters
+    would otherwise turn up in the operation's inbox. If a task stands on one of those letters nothing is done and the answer
+    says to clear the tasks first. What stays: every admin, the clients and their rooms (a message a deleted person sent there
+    stays, with no name on it), tasks (they lose the people they named), candidates and vacancies, departments, shifts of the
+    company, pay plans and the settings.
+
+    The JSON is a Django fixture of what was deleted, without the password hashes, handed to the admin as a download and never
+    kept on the server.
+    """
+    import json
+
+    from django.core import serializers
+
+    from .models import (
+        LeaveRequest, MessageAttachment, OutboundAttachment, PayrollLine, RatingEvent, SalaryRecord, Shift, Violation, WorkDay,
+    )
+
+    if admin is None or not admin.is_admin_role:
+        return False, "الخطوة دي للأدمن بس.", "", 0, 0
+    problem = reset_password_problem(admin, password, "staff")
+    if problem:
+        return False, problem, "", 0, 0
+
+    with transaction.atomic():
+        people = list(_staff_to_clear())
+        ids = [person.pk for person in people]
+        if not ids:
+            return True, "", "[]", 0, 0
+        letters_qs, sent_qs = _staff_lines(ids)
+        if _lines_with_tasks(letters_qs, sent_qs):
+            return False, STAFF_RESET_BLOCKED, "", 0, 0
+        letters, sent = list(letters_qs), list(sent_qs)
+        rooms = list(_staff_rooms(ids))
+        room_messages = list(ChatMessage.objects.filter(room__in=rooms))
+        letter_files = list(MessageAttachment.objects.filter(message__in=letters))
+        sent_files = list(OutboundAttachment.objects.filter(message__in=sent))
+        chat_files = list(ChatAttachment.objects.filter(message__in=room_messages))
+        # The people without their password hashes: a file that is downloaded is not the place for them.
+        keep = [field.name for field in User._meta.concrete_fields if field.name != "password"]
+        rows = json.loads(serializers.serialize("json", people, fields=keep))
+        rows += json.loads(serializers.serialize("json", [
+            *Shift.objects.filter(user_id__in=ids), *SalaryRecord.objects.filter(user_id__in=ids),
+            *LeaveRequest.objects.filter(user_id__in=ids), *WorkDay.objects.filter(user_id__in=ids),
+            *PayrollLine.objects.filter(user_id__in=ids), *Violation.objects.filter(user_id__in=ids),
+            *RatingEvent.objects.filter(user_id__in=ids),
+            *rooms, *room_messages, *chat_files, *letters, *letter_files, *sent, *sent_files,
+        ]))
+        backup = json.dumps(rows, indent=1, ensure_ascii=False)
+        stored = [(a.file.storage, a.file.name) for a in (*letter_files, *sent_files, *chat_files)]
+        for person in people:
+            if person.avatar:
+                avatars._delete_after_commit(person.avatar.storage, person.avatar.name)
+        letters_qs.delete()
+        sent_qs.delete()
+        ChatRoom.objects.filter(pk__in=[room.pk for room in rooms]).delete()
+        User.objects.filter(pk__in=ids).delete()
+    removed = _remove_unreferenced_files(stored)
+    log(
+        admin, "staff.reset", f"{len(people)} staff",
+        f"{len(rooms)} room(s), {len(letters) + len(sent)} line message(s), {removed} stored file(s) removed",
+    )
+    return True, "", backup, len(people), removed
 
 
 # ---------------------------------------------------------------------------

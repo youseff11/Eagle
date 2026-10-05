@@ -8,13 +8,14 @@ and the password is in no answer and no audit row.
 
 import json
 from datetime import timedelta
+from unittest import mock
 
 from django.test import Client as DjangoClient
 from django.urls import reverse
 from django.utils import timezone
 
-from . import services
-from .models import AuditLog, User
+from . import identity, services
+from .models import AuditLog, Role, User
 from .tests_api_v1 import _Site, _json
 
 URL = "dashboard:v1_me_password"
@@ -154,10 +155,87 @@ class RefusalTests(_Change):
         self.assertEqual(self.stored(self.tr), before)
 
 
+class ShutDoorTests(_Change):
+    """What happens at and past the limit: the guessing session is signed out, one row says so, one count is kept for all doors."""
+
+    def shut(self, person):
+        for _ in range(services.RESET_WRONG_LIMIT):
+            self.post(person, _body(old="not-it"))
+
+    def test_the_session_that_guesses_past_the_limit_is_signed_out(self):
+        self.shut(self.tr)
+        answer, browser = self.post(self.tr, _body(old="not-it"))
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (429, "too_many_attempts"))
+        # A stolen cookie that keeps guessing does not keep its session.
+        self.assertEqual(browser.get(reverse("dashboard:v1_me")).status_code, 401)
+
+    def test_a_signed_in_person_who_has_not_guessed_wrong_is_not_signed_out_by_a_good_change(self):
+        answer, browser = self.post(self.tr, _body())
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(browser.get(reverse("dashboard:v1_me")).status_code, 200)
+
+    def test_every_try_while_shut_is_one_row_and_not_a_row_each(self):
+        self.shut(self.tr)
+        for _ in range(4):
+            self.assertEqual(self.post(self.tr, _body())[0].status_code, 429)
+        self.assertEqual(AuditLog.objects.filter(actor=self.tr, action=identity.PASSWORD_LOCKED).count(), 1)
+
+    def test_the_rows_carry_the_address_and_are_security_rows(self):
+        self.post(self.tr, _body(old="not-it"))
+        self.post(self.tr, _body())
+        for action in (identity.PASSWORD_REFUSED, identity.PASSWORD_CHANGE):
+            row = AuditLog.objects.get(actor=self.tr, action=action)
+            self.assertEqual((row.ip, row.path), ("127.0.0.1", reverse(URL)), action)
+            self.assertIn(action, identity.SECURITY_ACTIONS)
+        self.assertIn(identity.PASSWORD_LOCKED, identity.SECURITY_ACTIONS)
+
+    def test_the_clear_outs_and_the_profile_share_one_count_of_wrong_passwords(self):
+        self.assertIn(identity.PASSWORD_REFUSED, services.WRONG_PASSWORD_ACTIONS)
+        for action in ("task.reset_refused", "mail.reset_refused", "client.reset_refused"):
+            self.assertIn(action, services.WRONG_PASSWORD_ACTIONS)
+        # Wrong passwords typed at the clear-outs count here, and the other way round.
+        for _ in range(services.RESET_WRONG_LIMIT):
+            services.log(self.admin, "task.reset_refused", "", "wrong password")
+        self.assertEqual(self.post(self.admin, _body())[0].status_code, 429)
+        self.shut(self.ops)
+        self.assertEqual(services.reset_password_problem(self.ops, "pw", "task"), services.RESET_LOCKED_MESSAGE)
+
+
+class StaleRowTests(_Change):
+    def test_only_the_password_is_written_so_an_admins_change_in_between_is_not_undone(self):
+        real = User.check_password
+
+        def meanwhile(user, raw):
+            # The admin switches the person off and changes their role while this request is still working.
+            User.objects.filter(pk=user.pk).update(is_active=False, role=Role.SALES, client_identity_access=False)
+            return real(user, raw)
+
+        with mock.patch.object(User, "check_password", autospec=True, side_effect=meanwhile):
+            answer, _browser = self.post(self.tr, _body())
+        self.assertEqual(answer.status_code, 200)
+        fresh = User.objects.get(pk=self.tr.pk)
+        self.assertEqual((fresh.is_active, fresh.role), (False, Role.SALES))
+        self.assertTrue(fresh.check_password(FRESH))
+
+
 class DoorTests(_Change):
     def test_nobody_signed_out_is_answered(self):
         answer, _browser = self.post(None, _body())
         self.assertEqual(answer.status_code, 401)
+
+    def test_a_post_without_the_csrf_token_is_refused_and_changes_nothing(self):
+        browser = DjangoClient(enforce_csrf_checks=True)
+        browser.force_login(self.tr)
+        before = self.stored(self.tr)
+        answer = browser.post(reverse(URL), json.dumps(_body()), content_type="application/json")
+        self.assertEqual(answer.status_code, 403)
+        self.assertEqual(self.stored(self.tr), before)
+
+    def test_a_lone_surrogate_is_a_refused_body_and_not_a_crash(self):
+        before = self.stored(self.tr)
+        answer, _browser = self.post(self.tr, None, raw='{"old_password": "\\ud800", "new_password1": "x", "new_password2": "x"}')
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_body"))
+        self.assertEqual(self.stored(self.tr), before)
 
     def test_it_is_a_post(self):
         browser = DjangoClient()

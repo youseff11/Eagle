@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { sessionRenewed } from "../realtime/RealtimeProvider";
 import { api } from "./client";
 import { qk } from "./keys";
 import type { MeResponse } from "./types";
@@ -37,12 +38,15 @@ export interface PasswordChange {
 }
 
 /**
- * Change the signed-in person's own password. It rides in this request and in nothing else: the page empties its boxes and
- * `reset()`s the mutation once the answer is in, so no copy is kept in the cache's state.
+ * Change the signed-in person's own password. It rides in this request and in nothing else: the page empties its boxes, and the
+ * mutation is not kept (`gcTime: 0`: a mutation's variables stay in the cache for minutes otherwise, and these are the passwords).
+ * The server gives the session a new key, so the socket is told to reconnect with it.
  */
 export function useChangePassword() {
   return useMutation({
+    gcTime: 0,
     mutationFn: (values: PasswordChange) => api<{ ok: true }>("/api/v1/me/password/", { json: values }),
+    onSuccess: sessionRenewed,
   });
 }
 

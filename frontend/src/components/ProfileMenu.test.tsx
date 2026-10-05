@@ -272,7 +272,7 @@ describe("a person's own password, from the menu", () => {
     await openPassword();
     await fillPassword();
     await userEvent.click(screen.getByRole("button", SAVE));
-    expect(await screen.findByRole("alert")).toHaveTextContent("محاولات غلط كتير. جرّب بعد 15 دقيقة.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("محاولات غلط كتير. الباب اتقفل 15 دقيقة واتسجّل خروجك.");
   });
 
   it("shows the server's own reasons for a new password it refuses", async () => {

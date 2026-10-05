@@ -1,7 +1,8 @@
-import type { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { qk } from "../api/keys";
-import { handleEvent } from "./RealtimeProvider";
+import { handleEvent, RealtimeProvider, sessionRenewed } from "./RealtimeProvider";
 
 function spy() {
   const invalidateQueries = vi.fn(async (_filters?: unknown) => undefined);
@@ -30,5 +31,48 @@ describe("handleEvent", () => {
       { queryKey: qk.chats },
       { queryKey: qk.room(12) },
     ]);
+  });
+});
+
+describe("sessionRenewed", () => {
+  const sockets: { closed: boolean; close: () => void; onclose: unknown; onopen: unknown; onmessage: unknown; send: () => void }[] = [];
+
+  class FakeSocket {
+    closed = false;
+    onclose: unknown = null;
+    onopen: unknown = null;
+    onmessage: unknown = null;
+    constructor() {
+      sockets.push(this);
+    }
+    close() {
+      this.closed = true;
+    }
+    send() {}
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    sockets.length = 0;
+  });
+
+  it("closes the socket that carries the old session and opens another with the new one", () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const view = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RealtimeProvider>
+          <div>page</div>
+        </RealtimeProvider>
+      </QueryClientProvider>,
+    );
+    expect(sockets).toHaveLength(1);
+    sessionRenewed();
+    expect(sockets).toHaveLength(2);
+    expect(sockets[0]!.closed).toBe(true);
+    expect(sockets[1]!.closed).toBe(false);
+    // Gone with the page: nothing is listening for it any more.
+    view.unmount();
+    sessionRenewed();
+    expect(sockets).toHaveLength(2);
   });
 });

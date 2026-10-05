@@ -5,6 +5,15 @@ import { redirectToLogin } from "../lib/navigation";
 import { RealtimeConnection, socketUrl, type RealtimeEvent, type RealtimeStatus } from "./connection";
 
 const StatusContext = createContext<RealtimeStatus>("closed");
+const SESSION_RENEWED = "eagle:session-renewed";
+
+/**
+ * The session's key changed under an open page (a password change signs the old key out): the socket still carries it and would be
+ * closed as unauthorised at its next ping, which sends the page to sign in. This reconnects it with the new one first.
+ */
+export function sessionRenewed(): void {
+  window.dispatchEvent(new Event(SESSION_RENEWED));
+}
 
 /** Whether the socket is open: while it is not, the queries poll instead. */
 export function useRealtimeStatus(): RealtimeStatus {
@@ -43,8 +52,16 @@ export function RealtimeProvider({ pingSeconds = 25, children }: { pingSeconds?:
       onEvent: (event) => handleEvent(client, event),
       onUnauthorized: redirectToLogin,
     });
+    const renew = () => {
+      connection.stop();
+      connection.start();
+    };
+    window.addEventListener(SESSION_RENEWED, renew);
     connection.start();
-    return () => connection.stop();
+    return () => {
+      window.removeEventListener(SESSION_RENEWED, renew);
+      connection.stop();
+    };
   }, [client, pingSeconds]);
 
   return <StatusContext.Provider value={status}>{children}</StatusContext.Provider>;

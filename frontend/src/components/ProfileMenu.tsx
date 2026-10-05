@@ -34,7 +34,10 @@ function PasswordSection() {
   const refused = (error: unknown) => {
     if (error instanceof ApiError && error.code === "wrong_password") return t("كلمة السر الحالية غلط.", "The current password is wrong.");
     if (error instanceof ApiError && error.code === "too_many_attempts") {
-      return t("محاولات غلط كتير. جرّب بعد 15 دقيقة.", "Too many wrong tries. Try again in 15 minutes.");
+      return t(
+        "محاولات غلط كتير. الباب اتقفل 15 دقيقة واتسجّل خروجك.",
+        "Too many wrong tries. The door is shut for 15 minutes and you were signed out.",
+      );
     }
     const found = formErrors(error);
     const messages = found ? Object.values(found).flat() : [];

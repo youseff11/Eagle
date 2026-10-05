@@ -90,10 +90,14 @@ ROLE_CHANGE = "user.role_change"
 ACCESS_GRANT = "user.identity_access"
 DATA_EXPORT = "data.export"
 BULK_FILES = "security.bulk_files"
+PASSWORD_CHANGE = "profile.password"
+PASSWORD_REFUSED = "profile.password_refused"
+PASSWORD_LOCKED = "profile.password_locked"
 
 SECURITY_ACTIONS = (
     IDENTITY_VIEW, IDENTITY_LIST, IDENTITY_SEARCH, ACCESS_DENIED,
     ROLE_CHANGE, ACCESS_GRANT, DATA_EXPORT, BULK_FILES,
+    PASSWORD_CHANGE, PASSWORD_REFUSED, PASSWORD_LOCKED,
 )
 
 
