@@ -25,6 +25,7 @@ import type {
   HrOffices,
   HrOvertime,
   HrPerformance,
+  HrPerformanceBoard,
   HrProbation,
   HrQuestions,
   HrRecruitSettings,
@@ -542,6 +543,17 @@ export function useHrPerformance(period: string, user: string, enabled = true) {
   return useQuery({
     queryKey: qk.hrPerformance(period, user),
     queryFn: () => api<HrPerformance>(`/api/v1/hr/performance/${text ? `?${text}` : ""}`),
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    enabled,
+  });
+}
+
+/** Who delivered the most in a month (`period` is `2026-9`, or empty for this month). */
+export function useHrPerformanceBoard(period: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.hrPerformanceBoard(period),
+    queryFn: () => api<HrPerformanceBoard>(`/api/v1/hr/performance/board/${period ? `?period=${encodeURIComponent(period)}` : ""}`),
     refetchOnWindowFocus: false,
     placeholderData: (previous) => previous,
     enabled,

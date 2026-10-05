@@ -58,17 +58,22 @@ def effective_targets(person, conf=None):
 # The four indicators
 # ---------------------------------------------------------------------------
 
-def productivity(person, first_day, last_day, conf=None):
+def productivity(person, first_day, last_day, conf=None, words=None):
     """Words delivered against the target for the month.
 
     Capped at 120 rather than 100: beating the target is worth seeing, but a
     single enormous month should not let somebody coast on the average.
+
+    ``words`` is for a caller that has already added up many people's (the
+    board, the history): the figure and the score still come from this one
+    place, so a number never differs between the board and the person's page.
     """
     conf = conf or PayrollSettings.load()
     target = effective_targets(person, conf)["monthly_words"]
-    words = WorkDay.objects.filter(
-        user=person, date__range=(first_day, last_day), status=DayStatus.PRESENT
-    ).aggregate(total=Sum("words"))["total"] or 0
+    if words is None:
+        words = WorkDay.objects.filter(
+            user=person, date__range=(first_day, last_day), status=DayStatus.PRESENT
+        ).aggregate(total=Sum("words"))["total"] or 0
 
     if not target:
         return {"score": None, "words": words, "target": 0, "reason": "no target set"}
@@ -265,3 +270,87 @@ def team_month(people, year, month, conf=None):
     """The same figures for a list of people, newest month first on screen."""
     conf = conf or PayrollSettings.load()
     return [for_month(person, year, month, conf) for person in people]
+
+
+# ---------------------------------------------------------------------------
+# The board: who delivered the most this month
+# ---------------------------------------------------------------------------
+
+#: How many stand on the podium.
+PODIUM = 3
+
+
+def board(people, year, month, conf=None):
+    """Everybody's productivity for one month, best first: ``{"podium": [...], "rest": [...]}``, a few queries however many people.
+
+    One row per person: ``person``, ``words``, ``target``, ``score`` (the productivity indicator, the same figure the person's own
+    page shows: it is that function's) and ``projects`` delivered. They are ranked by that score, then by words, then by name; a
+    person who has delivered nothing has no rank (an order among zeros would be an invented one), and a person with no target has no
+    score at all (``None``: not measured, never a zero), so neither stands on the podium. ``rest`` is everyone else: the ranked
+    first, then the unranked in name order.
+
+    ``people`` should come with ``select_related("salary_plan")``: a plan can carry its own target.
+    """
+    conf = conf or PayrollSettings.load()
+    first_day, last_day = payroll.month_bounds(year, month)
+    people = list(people)
+    ids = [person.pk for person in people]
+    words = {
+        row["user"]: row["total"] or 0
+        for row in WorkDay.objects.filter(user__in=ids, date__range=(first_day, last_day), status=DayStatus.PRESENT)
+        .values("user").annotate(total=Sum("words"))
+    }
+    projects = {
+        row["translator"]: row["n"]
+        for row in Task.objects.filter(translator__in=ids, translated_at__date__range=(first_day, last_day))
+        .values("translator").annotate(n=Count("id"))
+    }
+    rows = []
+    for person in people:
+        part = productivity(person, first_day, last_day, conf, words=words.get(person.pk, 0))
+        rows.append({
+            "person": person, "words": part["words"], "target": part["target"], "score": part["score"],
+            "projects": projects.get(person.pk, 0), "rank": None,
+        })
+    by_name = lambda row: ((row["person"].short_name or "").lower(), row["person"].pk)
+    ranked = sorted((row for row in rows if row["score"] is not None and row["words"] > 0), key=lambda row: (-row["score"], -row["words"], *by_name(row)))
+    for place, row in enumerate(ranked, start=1):
+        row["rank"] = place
+    unranked = sorted((row for row in rows if row["rank"] is None), key=by_name)
+    return {"podium": ranked[:PODIUM], "rest": ranked[PODIUM:] + unranked}
+
+
+def history(person, year, month, count=6, conf=None):
+    """One person's productivity for the ``count`` months ending at ``year``-``month``, newest first: two queries.
+
+    Each month's score is ``productivity`` over that month's words, against the target the person has now.
+    """
+    from django.db.models.functions import TruncMonth
+
+    conf = conf or PayrollSettings.load()
+    months = []
+    here = (year, month)
+    for _ in range(count):
+        months.append(here)
+        here = (here[0], here[1] - 1) if here[1] > 1 else (here[0] - 1, 12)
+    oldest = payroll.month_bounds(*months[-1])[0]
+    newest = payroll.month_bounds(year, month)[1]
+    words = {
+        (row["month"].year, row["month"].month): row["total"] or 0
+        for row in WorkDay.objects.filter(user=person, date__range=(oldest, newest), status=DayStatus.PRESENT)
+        .annotate(month=TruncMonth("date")).values("month").annotate(total=Sum("words"))
+    }
+    projects = {
+        (row["month"].year, row["month"].month): row["n"]
+        for row in Task.objects.filter(translator=person, translated_at__date__range=(oldest, newest))
+        .annotate(month=TruncMonth("translated_at")).values("month").annotate(n=Count("id"))
+    }
+    out = []
+    for when in months:
+        first_day, last_day = payroll.month_bounds(*when)
+        part = productivity(person, first_day, last_day, conf, words=words.get(when, 0))
+        out.append({
+            "year": when[0], "month": when[1], "words": part["words"], "target": part["target"], "score": part["score"],
+            "projects": projects.get(when, 0),
+        })
+    return out

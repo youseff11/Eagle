@@ -3,41 +3,49 @@ import { useHrPerformance } from "../api/queries";
 import type { HrPart } from "../api/types";
 import { MonthPicker } from "../components/accounts/MonthPicker";
 import { Waiting } from "../components/accounts/shared";
+import { Meter } from "../components/hr/Meter";
+import { PerformanceBoard, personHref } from "../components/hr/PerformanceBoard";
 import { useHrAllowed } from "../components/hr/shared";
 import { Icon } from "../components/Icon";
 import { LeaveStatusBadge } from "../components/leave/shared";
 import { usePreferences } from "../i18n/Preferences";
+import { periodLabel, periodText } from "../lib/payroll";
 
 type Part = HrPart;
 
-/** A score as a bar. No score draws an empty track: a missing indicator must look missing, not like zero. */
-function Meter({ score, band }: { score: number | null; band: string }) {
-  if (score === null) {
-    return (
-      <div className="meter meter--empty" role="img" aria-label="not measured">
-        <i style={{ width: 0 }} />
-      </div>
-    );
-  }
-  const width = Math.max(0, Math.min(100, Math.trunc(score)));
-  return (
-    <div className={`meter meter--${band}`} role="img" aria-label={`${width}%`}>
-      <i style={{ width: `${width}%` }} />
-    </div>
-  );
-}
-
-/** One translator's month: four indicators, each with its band, the weights from the payroll rules, and the overall. */
+/**
+ * The performance page. Without a person in the address it is the board (who delivered the most this month, the best three on
+ * a podium and everybody below); with `?user=` it is that translator's month and record. Both read the month from the address.
+ */
 export function HrPerformancePage() {
-  const { t, lang } = usePreferences();
   const { me, allowed } = useHrAllowed();
   const [params, setParams] = useSearchParams();
   const period = params.get("period") ?? "";
   const user = params.get("user") ?? "";
+
+  if (me.data && !allowed) return <Navigate to="/" replace />;
+  if (!user) {
+    return <PerformanceBoard period={period} allowed={allowed} onPeriod={(next) => setParams(next ? { period: next } : {})} />;
+  }
+  return <PersonPerformance period={period} user={user} allowed={allowed} setParams={setParams} />;
+}
+
+/** One translator's month: four indicators, each with its band, the weights from the payroll rules, the overall - and their last months. */
+function PersonPerformance({
+  period,
+  user,
+  allowed,
+  setParams,
+}: {
+  period: string;
+  user: string;
+  allowed: boolean;
+  setParams: (params: URLSearchParams) => void;
+}) {
+  const { t, lang } = usePreferences();
   const query = useHrPerformance(period, user, allowed);
   const data = query.data;
 
-  if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!data) return <Waiting failed={query.isError} />;
 
   const go = (next: { period?: string; user?: string }) => {
@@ -74,15 +82,19 @@ export function HrPerformancePage() {
     <>
       <div className="page-head">
         <h1>{t("الأداء", "Performance")}</h1>
+        <Link className="btn btn--sm" to={period ? `/hr/performance?period=${encodeURIComponent(period)}` : "/hr/performance"}>
+          <Icon name="chart" size="sm" />
+          <span>{t("الترتيب", "Ranking")}</span>
+        </Link>
         <div className="grow" />
-        <select className="input" aria-label={t("الموظف", "Employee")} value={data.person?.id ?? ""} onChange={(event) => go({ user: event.target.value })}>
+        <select className="input input--inline" aria-label={t("الموظف", "Employee")} value={data.person?.id ?? ""} onChange={(event) => go({ user: event.target.value })}>
           {data.people.map((one) => (
             <option key={one.id} value={one.id}>
               {one.name}
             </option>
           ))}
         </select>
-        <MonthPicker periods={data.periods} year={data.year} month={data.month} onChange={(next) => go({ period: next })} />
+        <MonthPicker periods={data.periods} year={data.year} month={data.month} onChange={(next) => go({ period: next })} className="input input--inline" />
       </div>
 
       {report && data.person ? (
@@ -115,6 +127,53 @@ export function HrPerformancePage() {
                 )}
               </div>
             </div>
+
+            {data.history.length > 0 && (
+              <div className="card" data-card="history">
+                <div className="card__head">
+                  <Icon name="history" />
+                  <h3>{t("سجل الإنتاجية", "Productivity record")}</h3>
+                  <div className="grow" />
+                  <span className="muted">{t("آخر 6 شهور", "Last 6 months")}</span>
+                </div>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{t("الشهر", "Month")}</th>
+                        <th>{t("الإنتاجية", "Productivity")}</th>
+                        <th>{t("الكلمات", "Words")}</th>
+                        <th>{t("المشاريع", "Projects")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.history.map((row) => {
+                        const text = periodText(row.year, row.month);
+                        const current = row.year === data.year && row.month === data.month;
+                        return (
+                          <tr key={text} data-month={text} className={current ? "is-current" : undefined}>
+                            <td className="mono">
+                              {current ? periodLabel(row.year, row.month) : <Link to={personHref(data.person!.id, text)}>{periodLabel(row.year, row.month)}</Link>}
+                            </td>
+                            <td>
+                              <div className="score-row">
+                                <Meter score={row.score} band={row.band.value} />
+                                <span className="score-row__value mono">{percent(row.score)}</span>
+                              </div>
+                            </td>
+                            <td className="mono">
+                              {row.words.toLocaleString("en-US")}
+                              {row.target > 0 && <span className="muted"> / {row.target.toLocaleString("en-US")}</span>}
+                            </td>
+                            <td className="mono">{row.projects}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="sticky-side">

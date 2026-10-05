@@ -10,16 +10,19 @@ export function MonthPicker({
   year,
   month,
   onChange,
+  className = "input",
 }: {
   periods: { year: number; month: number }[];
   year: number;
   month: number;
   onChange: (period: string) => void;
+  /** `input input--inline` for a picker that sits in a page's head and should be as wide as its months, not as the page. */
+  className?: string;
 }) {
   const { t } = usePreferences();
   return (
     <select
-      className="input"
+      className={className}
       aria-label={t("الشهر", "Month")}
       value={periodText(year, month)}
       onChange={(event) => onChange(event.target.value)}

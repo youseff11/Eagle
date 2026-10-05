@@ -421,6 +421,7 @@ function performance(over: Partial<HrPerformance> = {}): HrPerformance {
       returned_projects: 2,
       revision_rate: 20,
     },
+    history: [],
     ...over,
   };
 }
@@ -430,7 +431,7 @@ describe("HrPerformancePage", () => {
 
   it("draws each indicator with its weight, its bar and the figures behind it", async () => {
     serve("hr", page());
-    const { container } = open("/hr/performance");
+    const { container } = open("/hr/performance?user=11");
     await screen.findByText("المؤشرات");
     const productivity = container.querySelector('[data-part="productivity"]') as HTMLElement;
     expect(productivity).toHaveTextContent("40%");
@@ -444,7 +445,7 @@ describe("HrPerformancePage", () => {
 
   it("draws an indicator with no data as an empty bar that says why, not as zero", async () => {
     serve("hr", page());
-    const { container } = open("/hr/performance");
+    const { container } = open("/hr/performance?user=11");
     await screen.findByText("المؤشرات");
     const quality = container.querySelector('[data-part="quality"]') as HTMLElement;
     expect(quality.querySelector(".meter--empty")).not.toBeNull();
@@ -455,7 +456,7 @@ describe("HrPerformancePage", () => {
 
   it("shows the overall and the month in numbers", async () => {
     serve("hr", page());
-    const { container } = open("/hr/performance");
+    const { container } = open("/hr/performance?user=11");
     await screen.findByText("المؤشرات");
     expect(container.querySelector('[data-card="overall"]')).toHaveTextContent("88%");
     const month = (screen.getByText("الشهر في أرقام").closest(".card") as HTMLElement).textContent ?? "";
@@ -468,7 +469,7 @@ describe("HrPerformancePage", () => {
     serve("hr", page());
     const { renderWithProviders } = await import("../test/helpers");
     const { HrPerformancePage } = await import("./HrPerformancePage");
-    const { container } = renderWithProviders(<HrPerformancePage />, { route: "/hr/performance", lang: "en" });
+    const { container } = renderWithProviders(<HrPerformancePage />, { route: "/hr/performance?user=11", lang: "en" });
     await screen.findByText("Indicators");
     expect(container.querySelector('[data-part="quality"]')).toHaveTextContent("Nothing has been marked yet");
   });
@@ -476,7 +477,7 @@ describe("HrPerformancePage", () => {
   it("moves to another person or month through the address", async () => {
     const served = serve("hr", page());
     const user = userEvent.setup();
-    open("/hr/performance");
+    open("/hr/performance?user=11");
     await screen.findByText("المؤشرات");
     await user.selectOptions(screen.getByLabelText("الموظف"), "12");
     await user.selectOptions(screen.getByLabelText("الشهر"), "2026-9");
@@ -485,7 +486,7 @@ describe("HrPerformancePage", () => {
 
   it("asks to pick somebody when there is nobody", async () => {
     serve("hr", page(performance({ person: null, report: null, people: [] })));
-    open("/hr/performance");
+    open("/hr/performance?user=11");
     expect(await screen.findByText("اختار موظف.")).toBeInTheDocument();
   });
 

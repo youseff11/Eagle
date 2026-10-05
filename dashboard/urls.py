@@ -127,6 +127,7 @@ urlpatterns = [
     path("api/v1/hr/probation/<int:pk>/decide/", api_people.probation_decide, name="v1_hr_probation_decide"),
     path("api/v1/hr/probation/open/<int:pk>/", api_people.probation_open, name="v1_hr_probation_open"),
     path("api/v1/hr/performance/", api_people.performance_report, name="v1_hr_performance"),
+    path("api/v1/hr/performance/board/", api_people.performance_board, name="v1_hr_performance_board"),
     path("api/v1/hr/complaints/", api_people.complaints, name="v1_hr_complaints"),
     path("api/v1/hr/complaints/create/", api_people.complaint_create, name="v1_hr_complaint_create"),
     path("api/v1/hr/complaints/<int:pk>/resolve/", api_people.complaint_resolve, name="v1_hr_complaint_resolve"),

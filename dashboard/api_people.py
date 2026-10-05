@@ -19,7 +19,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import api_forms, attendance, employees, identity, payroll, performance, services, shiftpick
+from . import api_forms, attendance, avatars, employees, identity, payroll, performance, services, shiftpick
 from .api_forms import named
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
 from .api_leave import request_json as leave_json
@@ -357,18 +357,62 @@ def _part(part, keys):
     return body
 
 
+def _period_of(request):
+    """``(year, month)`` from ``?period=2026-9`` (this month when there is none), or ``None`` for one that is not a month."""
+    raw = request.GET.get("period", "")
+    if raw:
+        return payroll.parse_period(raw)
+    today = timezone.localdate()
+    return today.year, today.month
+
+
+def _board_row(row):
+    """One translator on the board: who, how much, and how that stands against the target (no score: not measured)."""
+    person = row["person"]
+    return {
+        "rank": row["rank"],
+        "id": person.pk,
+        "name": person.short_name,
+        "initials": person.initials,
+        "avatar": avatars.url_of(person),
+        "words": row["words"],
+        "target": row["target"],
+        "score": row["score"],
+        "band": _badge(BAND_MAP, performance.band(row["score"])),
+        "projects": row["projects"],
+    }
+
+
+@endpoint("GET")
+@can_recruit
+def performance_board(request):
+    """Who delivered the most in a month: ``?period=2026-9`` (this month). The best three apart, then everybody else.
+
+    Only translators have words to count; a person with nothing delivered, or with no target, is listed but not ranked.
+    """
+    parsed = _period_of(request)
+    if parsed is None:
+        return _error(400, "bad_period")
+    year, month = parsed
+    people = User.objects.filter(is_active=True, role=Role.TRANSLATOR).select_related("salary_plan")
+    ranked = performance.board(people, year, month)
+    return JsonResponse({
+        "ok": True,
+        "year": year,
+        "month": month,
+        "periods": [{"year": a, "month": b} for a, b in payroll.period_choices()],
+        "podium": [_board_row(row) for row in ranked["podium"]],
+        "rest": [_board_row(row) for row in ranked["rest"]],
+    })
+
+
 @endpoint("GET")
 @can_recruit
 def performance_report(request):
     """Section 20 for one translator and one month: ``?period=2026-9&user=<id>`` (this month, the first translator)."""
-    raw = request.GET.get("period", "")
-    if raw:
-        parsed = payroll.parse_period(raw)
-        if parsed is None:
-            return _error(400, "bad_period")
-    else:
-        today = timezone.localdate()
-        parsed = (today.year, today.month)
+    parsed = _period_of(request)
+    if parsed is None:
+        return _error(400, "bad_period")
     year, month = parsed
     people = User.objects.filter(is_active=True, role=Role.TRANSLATOR)
     if request.GET.get("user"):
@@ -379,7 +423,10 @@ def performance_report(request):
     else:
         person = people.first()
     report = None
+    record = []
     if person is not None:
+        # His months, newest first: what he delivered and how that stood against his target.
+        record = [dict(row, band=_badge(BAND_MAP, performance.band(row["score"]))) for row in performance.history(person, year, month)]
         figures = performance.for_month(person, year, month)
         parts = figures["parts"]
         report = {
@@ -404,6 +451,7 @@ def performance_report(request):
         "people": [person_json(one) for one in people],
         "person": person_json(person) if person else None,
         "report": report,
+        "history": record,
     })
 
 

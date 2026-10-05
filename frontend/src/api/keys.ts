@@ -94,6 +94,7 @@ export const qk = {
   hrEmployee: (id: number) => ["hr", "employee", id] as const,
   hrProbation: (state: string) => ["hr", "probation", state] as const,
   hrPerformance: (period: string, user: string) => ["hr", "performance", period, user] as const,
+  hrPerformanceBoard: (period: string) => ["hr", "performance", "board", period] as const,
   hrComplaints: (translator: string) => ["hr", "complaints", translator] as const,
   hrSalaryRequests: (user: string) => ["hr", "salary-requests", user] as const,
   hrSalaryPlans: (edit: string) => ["hr", "salary-plans", edit] as const,

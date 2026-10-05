@@ -1778,6 +1778,41 @@ export interface HrPart {
   late_days?: number;
 }
 
+/** One translator on the performance board (`api_people._board_row`): `rank` is null for somebody who delivered nothing, `score` null when there is no target to measure against. */
+export interface HrRankRow {
+  rank: number | null;
+  id: number;
+  name: string;
+  initials: string;
+  avatar: string | null;
+  words: number;
+  target: number;
+  score: number | null;
+  band: DayStatusJson;
+  projects: number;
+}
+
+/** GET /api/v1/hr/performance/board/?period=: the best three apart, then everybody else (the ranked first). */
+export interface HrPerformanceBoard {
+  ok: true;
+  year: number;
+  month: number;
+  periods: { year: number; month: number }[];
+  podium: HrRankRow[];
+  rest: HrRankRow[];
+}
+
+/** One month of a person's productivity record. */
+export interface HrHistoryRow {
+  year: number;
+  month: number;
+  words: number;
+  target: number;
+  score: number | null;
+  band: DayStatusJson;
+  projects: number;
+}
+
 /** GET /api/v1/hr/performance/?period=&user=. */
 export interface HrPerformance {
   ok: true;
@@ -1795,6 +1830,8 @@ export interface HrPerformance {
     returned_projects: number;
     revision_rate: number | null;
   } | null;
+  /** The person's last six months, newest first, the month asked for at the top. */
+  history: HrHistoryRow[];
 }
 
 /** GET /api/v1/hr/complaints/?translator=. */

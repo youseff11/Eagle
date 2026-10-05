@@ -32,6 +32,7 @@ PROBATION = "dashboard:v1_hr_probation"
 PROB_DECIDE = "dashboard:v1_hr_probation_decide"
 PROB_OPEN = "dashboard:v1_hr_probation_open"
 PERFORMANCE = "dashboard:v1_hr_performance"
+PERFORMANCE_BOARD = "dashboard:v1_hr_performance_board"
 COMPLAINTS = "dashboard:v1_hr_complaints"
 COMPLAINT_NEW = "dashboard:v1_hr_complaint_create"
 COMPLAINT_RESOLVE = "dashboard:v1_hr_complaint_resolve"
@@ -76,7 +77,7 @@ class DoorMatrixTests(_People):
     def groups(self):
         """(who is let in, the doors)."""
         recruit = [
-            ("GET", REGISTER, None), ("GET", EMPLOYEE, [self.tr.pk]), ("GET", PERFORMANCE, None), ("GET", COMPLAINTS, None),
+            ("GET", REGISTER, None), ("GET", EMPLOYEE, [self.tr.pk]), ("GET", PERFORMANCE, None), ("GET", PERFORMANCE_BOARD, None), ("GET", COMPLAINTS, None),
             ("POST", COMPLAINT_NEW, None), ("POST", COMPLAINT_RESOLVE, [self.complaint.pk]), ("GET", REQUESTS, None),
             ("POST", REQUEST_NEW, None),
         ]
@@ -116,7 +117,7 @@ class DoorMatrixTests(_People):
 
     def test_the_wrong_method_is_refused(self):
         for name, args, wrong in (
-            (REGISTER, None, "post"), (EMPLOYEE, [1], "post"), (PROBATION, None, "post"), (PERFORMANCE, None, "post"),
+            (REGISTER, None, "post"), (EMPLOYEE, [1], "post"), (PROBATION, None, "post"), (PERFORMANCE, None, "post"), (PERFORMANCE_BOARD, None, "post"),
             (COMPLAINTS, None, "post"), (REQUESTS, None, "post"), (PLANS, None, "post"),
             (EMP_SHIFT, [1], "get"), (EMP_MODE, [1], "get"), (EMP_PLAN, [1], "get"), (PROB_DECIDE, [1], "get"), (PROB_OPEN, [1], "get"),
             (COMPLAINT_NEW, None, "get"), (COMPLAINT_RESOLVE, [1], "get"), (REQUEST_NEW, None, "get"), (REQUEST_DECIDE, [1, "approve"], "get"),
