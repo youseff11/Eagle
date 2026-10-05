@@ -833,6 +833,7 @@ class SettingsForm(forms.ModelForm):
             "webhook_shared_secret",
             "recruit_phone_number_id", "recruit_number_display",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
+            "imap_read_spam",
             "smtp_host", "smtp_port", "smtp_user", "smtp_password",
             "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
             "mail_aliases_hidden", "google_client_id", "google_client_secret",

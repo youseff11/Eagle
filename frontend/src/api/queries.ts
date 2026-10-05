@@ -97,6 +97,53 @@ function useFallbackInterval(): number | false {
   return useRealtimeStatus() === "open" ? false : FALLBACK_POLL_MS;
 }
 
+/**
+ * The key and the fetch of the pages a person opens most. A hook asks with them, and so does `prefetch.ts`, which asks
+ * before the click so the page opens on data instead of on a loading screen. They have to be the same, key and all:
+ * a warm-up under another key warms nothing.
+ */
+export const notificationsOptions = () => ({
+  queryKey: qk.notifications,
+  initialPageParam: null as number | null,
+  queryFn: ({ pageParam }: { pageParam: number | null }) =>
+    api<NotificationsResponse>(`/api/v1/notifications/?limit=${PAGE}${pageParam ? `&before=${pageParam}` : ""}`),
+  getNextPageParam: (last: NotificationsResponse) => last.next_before,
+});
+export const translatorHomeOptions = () => ({
+  queryKey: qk.translatorHome,
+  queryFn: () => api<TranslatorHomeResponse>("/api/v1/translator/home/"),
+});
+export const tasksOptions = (status: string) => ({
+  queryKey: qk.tasks(status),
+  queryFn: () => api<TasksResponse>(`/api/v1/tasks/${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+});
+export const teamOptions = () => ({ queryKey: qk.team, queryFn: () => api<TeamResponse>("/api/v1/team/") });
+export const leadHomeOptions = () => ({ queryKey: qk.lead, queryFn: () => api<LeadHome>("/api/v1/lead/") });
+export const leadBoardOptions = () => ({
+  queryKey: qk.leadBoard,
+  queryFn: () => api<LeadBoard>("/api/v1/lead/translators/"),
+});
+export const adminOverviewOptions = () => ({
+  queryKey: qk.adminOverview,
+  queryFn: () => api<AdminOverview>("/api/v1/admin/overview/"),
+});
+export const adminUsersOptions = () => ({ queryKey: qk.adminUsers, queryFn: () => api<AdminUsers>("/api/v1/admin/users/") });
+export const mailThreadsOptions = (state: string, query: string) => {
+  const params = new URLSearchParams();
+  if (state) params.set("state", state);
+  if (query) params.set("q", query);
+  const text = params.toString();
+  return {
+    queryKey: qk.mail(state, query),
+    queryFn: () => api<MailListResponse>(`/api/v1/mail/threads/${text ? `?${text}` : ""}`),
+  };
+};
+export const chatListOptions = (kind: ChatKind, query: string) => ({
+  queryKey: qk.chatList(kind, query),
+  queryFn: () =>
+    api<ChatListResponse>(`/api/v1/chats/?type=${kind}${query ? `&q=${encodeURIComponent(query)}` : ""}`),
+});
+
 export function useMe() {
   const refetchInterval = useFallbackInterval();
   return useQuery({
@@ -108,16 +155,7 @@ export function useMe() {
 
 export function useNotifications() {
   const refetchInterval = useFallbackInterval();
-  return useInfiniteQuery({
-    queryKey: qk.notifications,
-    initialPageParam: null as number | null,
-    queryFn: ({ pageParam }) =>
-      api<NotificationsResponse>(
-        `/api/v1/notifications/?limit=${PAGE}${pageParam ? `&before=${pageParam}` : ""}`,
-      ),
-    getNextPageParam: (last) => last.next_before,
-    refetchInterval,
-  });
+  return useInfiniteQuery({ ...notificationsOptions(), refetchInterval });
 }
 
 /** How many of the newest notifications the toasts look at: more than can arrive between two looks. */
@@ -150,8 +188,7 @@ export function useMarkRead() {
 export function useTranslatorHome(enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.translatorHome,
-    queryFn: () => api<TranslatorHomeResponse>("/api/v1/translator/home/"),
+    ...translatorHomeOptions(),
     refetchInterval,
     // Everybody else is refused, and every refusal is written to the audit log: a page left
     // open would write a row at every refresh.
@@ -163,8 +200,7 @@ export function useTranslatorHome(enabled = true) {
 export function useTasks(status: string, enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.tasks(status),
-    queryFn: () => api<TasksResponse>(`/api/v1/tasks/${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+    ...tasksOptions(status),
     refetchInterval,
     // Everybody else is refused, and every refusal is written to the audit log.
     enabled,
@@ -202,8 +238,7 @@ export function useOpsTask(code: string, enabled = true) {
 export function useTeam(enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.team,
-    queryFn: () => api<TeamResponse>("/api/v1/team/"),
+    ...teamOptions(),
     refetchInterval,
     enabled,
   });
@@ -242,21 +277,20 @@ export function useChatAiNotes(code: string, enabled = true) {
 /** The team leader's own board: their tasks, their team, what was closed lately. */
 export function useLeadHome(enabled = true) {
   const refetchInterval = useFallbackInterval();
-  return useQuery({ queryKey: qk.lead, queryFn: () => api<LeadHome>("/api/v1/lead/"), refetchInterval, enabled });
+  return useQuery({ ...leadHomeOptions(), refetchInterval, enabled });
 }
 
 /** Who of the leader's team is free and who is busy, and what the busy ones are doing. */
 export function useLeadBoard(enabled = true) {
   const refetchInterval = useFallbackInterval();
-  return useQuery({ queryKey: qk.leadBoard, queryFn: () => api<LeadBoard>("/api/v1/lead/translators/"), refetchInterval, enabled });
+  return useQuery({ ...leadBoardOptions(), refetchInterval, enabled });
 }
 
 /** The admin's overview: the numbers, the letters held back, hand-offs waiting, late tasks, the newest tasks. */
 export function useAdminOverview(enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.adminOverview,
-    queryFn: () => api<AdminOverview>("/api/v1/admin/overview/"),
+    ...adminOverviewOptions(),
     refetchInterval,
     // Everybody else is refused, and every refusal is written to the audit log.
     enabled,
@@ -705,7 +739,7 @@ export function useAdminSettings(enabled = true) {
 /** The staff table: everybody, and whether they are here. */
 export function useAdminUsers(enabled = true) {
   const refetchInterval = useFallbackInterval();
-  return useQuery({ queryKey: qk.adminUsers, queryFn: () => api<AdminUsers>("/api/v1/admin/users/"), refetchInterval, enabled });
+  return useQuery({ ...adminUsersOptions(), refetchInterval, enabled });
 }
 
 /** One person's file. Asked for when it opens and after a save, never on a clock or a doorbell: the form is being typed in. */
@@ -769,13 +803,8 @@ export const MAIL_POLL_MS = 20000;
 
 /** The conversations, newest first: `state` is `""`, `unclaimed`, `mine` or `notask`, `query` a word or two. */
 export function useMailThreads(state: string, query: string, enabled = true) {
-  const params = new URLSearchParams();
-  if (state) params.set("state", state);
-  if (query) params.set("q", query);
-  const text = params.toString();
   return useQuery({
-    queryKey: qk.mail(state, query),
-    queryFn: () => api<MailListResponse>(`/api/v1/mail/threads/${text ? `?${text}` : ""}`),
+    ...mailThreadsOptions(state, query),
     refetchInterval: MAIL_POLL_MS,
     // Keep the list on screen while a new search is on its way: a list that blinks away at every key is not a search.
     placeholderData: (previous) => previous,
@@ -940,9 +969,7 @@ export function useAiCheck(code: string) {
 export function useChatList(kind: ChatKind, query: string, enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.chatList(kind, query),
-    queryFn: () =>
-      api<ChatListResponse>(`/api/v1/chats/?type=${kind}${query ? `&q=${encodeURIComponent(query)}` : ""}`),
+    ...chatListOptions(kind, query),
     refetchInterval,
     // A role has only some of the lists: asking for another is refused, and every refusal is written to the audit log.
     enabled,

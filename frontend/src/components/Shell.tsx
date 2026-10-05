@@ -1,6 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, matchPath, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
+import { warmPages } from "../api/prefetch";
 import { useMe } from "../api/queries";
 import type { Role, ScreenKey } from "../api/types";
 import { useNavSections } from "../hooks/useNavSections";
@@ -333,9 +335,13 @@ export function Shell() {
   );
 }
 
+/** After the page the person is on has had its turn. */
+const WARM_DELAY_MS = 400;
+
 function Frame() {
   const { t, lang, setLang, theme, setTheme } = usePreferences();
   const me = useMe();
+  const queryClient = useQueryClient();
   const realtime = useRealtimeStatus();
   const location = useLocation();
   const [drawer, setDrawer] = useState(false);
@@ -373,6 +379,24 @@ function Frame() {
     () => (known ? menuLines(screens, isAdmin, { recruit: canRecruit, manage: canManage }) : []),
     [known, screensKey, isAdmin, canRecruit, canManage],
   );
+  // The pages in the person's own menu are asked for in the background, so the first click on each opens on data and
+  // not on a loading screen (see `api/prefetch.ts` for which, and why only these).
+  const menuPaths = lines.map((line) => line.path).join(",");
+  const personId = me.data?.user.id;
+  useEffect(() => {
+    const account = me.data;
+    if (!account || !menuPaths) return;
+    let stopped = false;
+    const timer = window.setTimeout(
+      () => void warmPages(queryClient, menuPaths.split(","), account, () => stopped),
+      WARM_DELAY_MS,
+    );
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+    // Once per person and per menu: `me` itself is asked again on every doorbell, so it is not a dependency.
+  }, [personId, menuPaths, queryClient]);
   const searchLines = useMemo(
     () =>
       lines.map((line) => ({

@@ -64,7 +64,7 @@ SECTIONS = (
     {
         "key": "email", "icon": "mail", "ar": "الإيميل", "en": "Email",
         "groups": (
-            {"ar": "استقبال (IMAP)", "en": "Receiving (IMAP)", "fields": ("imap_host", "imap_port", "imap_user", "imap_password", "imap_folder")},
+            {"ar": "استقبال (IMAP)", "en": "Receiving (IMAP)", "fields": ("imap_host", "imap_port", "imap_user", "imap_password", "imap_folder", "imap_read_spam")},
             {
                 "ar": "إرسال (SMTP)", "en": "Sending (SMTP)",
                 "note": ("سيبها فاضية عشان تستخدم نفس بيانات الـ IMAP.", "Leave blank to reuse the IMAP credentials."),
@@ -131,6 +131,13 @@ TEXTS = {
         "hint": ("جيميل: App Password مش الباسورد العادي.", "Gmail: use an App Password, not your normal password."),
     },
     "imap_folder": {"label": ("Folder", "Folder")},
+    "imap_read_spam": {
+        "label": ("اقرا فولدر السبام كمان", "Also read the Spam folder"),
+        "hint": (
+            "جيميل بيحط ميلات عملاء حقيقيين في السبام أحيانًا، وأولها ميل العميل الجديد. لما تفتح الخيار ده الميلات اللي هناك بتنزل زي أي ميل ولحظيًا. بس سبام الغرباء بينزل معاها: كل مرسل جديد بيبقى عميل بكود والأوبريشن بيتنبّه بصوت. لو عارف المرسل، علّمه «مش سبام» في Gmail أحسن.",
+            "Gmail sometimes files a real client's mail as spam, a new client's first letter most of all. When on, what is in that folder arrives like any other mail, instantly. Strangers' spam arrives with it: each new sender becomes a client code and the operation is alerted with a sound. Marking a sender you know as \"not spam\" in Gmail is better.",
+        ),
+    },
     "smtp_host": {"label": ("Host", "Host"), "hint": ("smtp.gmail.com", "smtp.gmail.com")},
     "smtp_port": {"label": ("Port", "Port")},
     "smtp_user": {"label": ("User", "User")},

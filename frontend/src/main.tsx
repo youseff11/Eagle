@@ -20,6 +20,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5000,
+      // A page left for a while still opens on what it showed, and asks again behind it: the default five minutes
+      // would put the loading screen back for any page not opened in that time.
+      gcTime: 30 * 60 * 1000,
       // Asking again will not make a refusal go away; a dropped connection is worth one more try.
       retry: (failures, error) => !(error instanceof ApiError && error.status < 500) && failures < 1,
     },

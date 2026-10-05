@@ -2000,6 +2000,18 @@ class AppSettings(models.Model):
     imap_user = models.CharField(max_length=190, blank=True)
     imap_password = models.CharField(max_length=250, blank=True)
     imap_folder = models.CharField(max_length=60, default="INBOX")
+    #: Also read the server's Spam folder (the one it flags \Junk). Gmail files
+    #: a real client's first letter there now and then; nobody looks, so the
+    #: letter is lost. Off by default: a stranger's spam comes in with it.
+    imap_read_spam = models.BooleanField(
+        default=False,
+        help_text="Also read the mailbox's Spam folder.",
+    )
+    #: How far each mail folder has been read, as JSON: ``{folder: {"validity",
+    #: "last"}}`` (the server's UIDVALIDITY and the highest UID handled). Mail is
+    #: new when its UID is past ``last``, not when it is unread: a letter opened
+    #: in Gmail first is read and was still never recorded here.
+    mail_uid_state = models.TextField(blank=True, default="")
 
     #: Last time the mailbox was actually polled, and how it went. Without
     #: these the mail page can only say "IMAP is filled in", which is not the

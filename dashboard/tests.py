@@ -6545,6 +6545,14 @@ class ClientCleanupTests(TestCase):
             def fetch(self, num, kind):
                 return "OK", [(b"x", mails[int(num) - 1]), b")"]
 
+            def response(self, code):
+                return code, [b"7" if code == "UIDVALIDITY" else b"3"]
+
+            def uid(self, command, *args):
+                if command == "SEARCH":
+                    return "OK", [b"1 2"]
+                return self.fetch(args[0], args[1])
+
             def close(self):
                 pass
 

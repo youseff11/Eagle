@@ -78,6 +78,7 @@ class Command(BaseCommand):
         same second. Two fetches of the same unseen letter would race past the
         duplicate check in ``ingest_message`` and store it twice.
         """
+        started = time.monotonic()
         with self._mail_lock:
             close_old_connections()
             try:
@@ -87,7 +88,11 @@ class Command(BaseCommand):
         if error:
             self._say(f"mail fetch failed: {error}", error=True)
         elif created:
-            self._say(f"mail: {created} new")
+            # How old the letter already was when it was read, and how long the fetch itself took:
+            # between them they tell a slow mail server from a slow worker.
+            age = mailbox.last_letter_age
+            old = "" if age is None else f", {age:.0f}s after the server received it"
+            self._say(f"mail: {created} new{old} (fetch took {time.monotonic() - started:.1f}s)")
         return created
 
     def _sweep(self, stamp):
@@ -103,15 +108,20 @@ class Command(BaseCommand):
             self.stderr.write(f"[{stamp}] sweep failed:\n{traceback.format_exc()}")
 
     def _start_push(self):
-        """The IDLE thread. A daemon: it dies with the worker, never holds it up."""
+        """The IDLE threads. Daemons: they die with the worker, never hold it up.
+
+        One watches the inbox. A second watches the Spam folder and sleeps until
+        the admin ticks "read the Spam folder" in the settings. Either one's push
+        runs the same fetch, which reads both folders.
+        """
         stop = threading.Event()
-        thread = threading.Thread(
-            target=mailbox.watch,
-            kwargs={"on_mail": self._fetch_mail, "stop": stop, "log": self._say},
-            name="eagle-mail-push",
-            daemon=True,
-        )
-        thread.start()
+        for name, folder in (("eagle-mail-push", None), ("eagle-mail-push-spam", mailbox.JUNK)):
+            threading.Thread(
+                target=mailbox.watch,
+                kwargs={"on_mail": self._fetch_mail, "stop": stop, "log": self._say, "folder": folder},
+                name=name,
+                daemon=True,
+            ).start()
         return stop
 
     def handle(self, *args, **options):

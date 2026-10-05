@@ -26,6 +26,8 @@ Two rules worth keeping:
 import email
 import email.utils
 import imaplib
+import json
+import logging
 import re
 import socket
 import ssl
@@ -36,7 +38,9 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from . import lines
-from .models import AppSettings, User
+from .models import AppSettings, InboundMessage, User
+
+logger = logging.getLogger("dashboard")
 
 #: The local part of an address that is a machine writing, not a person:
 #: ``no-reply@``, ``noreply-accounts@``, ``googlecommunityteam-noreply@``,
@@ -174,6 +178,143 @@ def parse_message(message):
     }
 
 
+#: The folder token for "the server's own Spam folder". Gmail names it
+#: ``[Gmail]/Spam`` in English and something else in other languages; what
+#: never changes is the ``\\Junk`` flag the server puts on it in its LIST answer,
+#: which is what is looked for.
+JUNK = "\\Junk"
+
+_LIST_LINE = re.compile(
+    rb'^(?:\*\s+LIST\s+)?\((?P<flags>[^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+(?P<name>.+?)\s*$',
+    re.IGNORECASE,
+)
+
+
+def junk_folder_in(lines):
+    """The name of the folder a LIST answer flags ``\\Junk``, or ``""``.
+
+    ``lines`` is what ``imaplib`` returns for LIST, or the untagged lines of one
+    read off the wire. A name the server sent as a literal arrives as a tuple
+    and is skipped: no real mailbox names its Spam folder that way.
+    """
+    for raw in lines or ():
+        if not isinstance(raw, (bytes, bytearray)):
+            continue
+        found = _LIST_LINE.match(bytes(raw))
+        if not found or b"\\JUNK" not in found.group("flags").upper().split():
+            continue
+        name = found.group("name").decode("utf-8", "ignore")
+        if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+            name = name[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        return name
+    return ""
+
+
+def junk_folder(box):
+    """The Spam folder of the mailbox ``box`` is logged in to, or ``""``."""
+    status, data = box.list()
+    return junk_folder_in(data) if status == "OK" else ""
+
+
+#: How old the oldest letter of the last fetch was when it was read, in seconds:
+#: the mail server's own receipt time against ours, or ``None``. The worker
+#: prints it, so a slow push can be told from a slow server.
+last_letter_age = None
+
+
+def _parse_state(text):
+    try:
+        data = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_uid_state(conf, state):
+    """Write each folder's progress, never moving one backwards (another fetch may have got further)."""
+    if not state:
+        return
+    stored = _parse_state(
+        AppSettings.objects.filter(pk=conf.pk).values_list("mail_uid_state", flat=True).first()
+    )
+    for name, entry in state.items():
+        other = stored.get(name)
+        if (
+            isinstance(other, dict) and other.get("validity") == entry["validity"]
+            and other.get("last", 0) > entry["last"]
+        ):
+            continue
+        stored[name] = entry
+    AppSettings.objects.filter(pk=conf.pk).update(mail_uid_state=json.dumps(stored))
+    AppSettings._cached = None
+
+
+def _uids(box, *criteria):
+    status, data = box.uid("SEARCH", *criteria)
+    if status != "OK":
+        raise MailboxError("البحث في البريد فشل.", "The IMAP search failed.")
+    return sorted(int(n) for n in (data[0] or b"").split())
+
+
+def _untagged_number(box, code):
+    """A number the server announced when the folder was selected (UIDVALIDITY, UIDNEXT), or 0."""
+    try:
+        return int(box.response(code)[1][0])
+    except (TypeError, ValueError, IndexError):
+        return 0
+
+
+def _read_selected(box, name, state, limit, keep_unread, ours, services):
+    """Record the letters of the folder ``box`` has selected that are new to us; how many there were.
+
+    New is decided by UID, not by the unread flag. A letter somebody opened in
+    Gmail before the worker got to it is already read, and was never seen by
+    this program: going by the flag lost it for good. The first look at a
+    folder, or after the server rebuilt it (its UIDVALIDITY changes), has no
+    memory to go on, so there the unread ones are the new ones.
+    """
+    global last_letter_age
+
+    validity = _untagged_number(box, "UIDVALIDITY")
+    known = state.get(name)
+    if validity and isinstance(known, dict) and known.get("validity") == validity:
+        last = int(known.get("last", 0))
+        # ``last+1:*`` always answers with the newest letter, even an old one.
+        uids = [u for u in _uids(box, "UID", f"{last + 1}:*") if u > last][: max(1, int(limit or 25))]
+    else:
+        uids = _uids(box, "UNSEEN")
+        uidnext = _untagged_number(box, "UIDNEXT")
+        last = uidnext - 1 if uidnext else max(_uids(box, "ALL"), default=0)
+
+    fetch_type = "(BODY.PEEK[] INTERNALDATE)" if keep_unread else "(RFC822 INTERNALDATE)"
+    created = 0
+    # Oldest first, so the inbox reads in the order the client wrote.
+    for uid in uids:
+        status, payload = box.uid("FETCH", str(uid), fetch_type)
+        if status == "OK" and payload and isinstance(payload[0], tuple):
+            when = imaplib.Internaldate2tuple(payload[0][0])
+            if when:
+                age = max(0.0, time.time() - time.mktime(when))
+                last_letter_age = age if last_letter_age is None else max(last_letter_age, age)
+            try:
+                parsed = parse_message(email.message_from_bytes(payload[0][1]))
+                sender = parsed["sender_identity"].strip().lower()
+                external = parsed.get("external_id")
+                if sender in ours or is_automated_sender(parsed["sender_identity"]):
+                    pass          # our own mail coming back around, or a robot's notice
+                elif external and InboundMessage.objects.filter(external_id=external).exists():
+                    pass          # already recorded (the page's button got there first)
+                else:
+                    services.ingest_message(**parsed)
+                    created += 1
+            except Exception:  # noqa: BLE001 - one bad letter must not hold up the ones behind it
+                logger.exception("mail: could not record letter uid %s of %s", uid, name)
+        last = max(last, uid)
+    if validity:
+        state[name] = {"validity": validity, "last": last}
+    return created
+
+
 def fetch(limit=25, keep_unread=False, conf=None):
     """Pull unseen mail into the inbox. Returns the number of new messages.
 
@@ -197,6 +338,10 @@ def fetch(limit=25, keep_unread=False, conf=None):
         a.strip().lower() for a in
         User.objects.exclude(mail_alias="").values_list("mail_alias", flat=True)
     )
+    global last_letter_age
+    last_letter_age = None
+    state = _parse_state(getattr(conf, "mail_uid_state", ""))
+    progress = json.dumps(state, sort_keys=True)
     created = 0
     box = None
     try:
@@ -209,24 +354,20 @@ def fetch(limit=25, keep_unread=False, conf=None):
                 f"No such mailbox: {conf.imap_folder or 'INBOX'}.",
             )
 
-        status, data = box.search(None, "UNSEEN")
-        if status != "OK":
-            raise MailboxError("البحث في البريد فشل.", "The IMAP search failed.")
+        created += _read_selected(
+            box, conf.imap_folder or "INBOX", state, limit, keep_unread, ours, services
+        )
 
-        # Oldest first, so the inbox reads in the order the client wrote.
-        ids = data[0].split()[: max(1, int(limit or 25))]
-        for num in ids:
-            fetch_type = "(BODY.PEEK[])" if keep_unread else "(RFC822)"
-            status, payload = box.fetch(num, fetch_type)
-            if status != "OK" or not payload or not payload[0]:
-                continue
-            parsed = parse_message(email.message_from_bytes(payload[0][1]))
-            if parsed["sender_identity"].strip().lower() in ours:
-                continue          # our own mail, coming back around
-            if is_automated_sender(parsed["sender_identity"]):
-                continue          # a robot's notice: no client, nothing to answer
-            services.ingest_message(**parsed)
-            created += 1
+        # Gmail files a real client's first letter under Spam now and then, and
+        # nobody looks there. When the admin asks for it that folder is read the
+        # same way - after the inbox, and never at the inbox's expense.
+        if getattr(conf, "imap_read_spam", False):
+            try:
+                junk = junk_folder(box)
+                if junk and box.select(_quote(junk))[0] == "OK":
+                    created += _read_selected(box, junk, state, limit, keep_unread, ours, services)
+            except (imaplib.IMAP4.error, MailboxError):
+                pass
     except MailboxError:
         raise
     except imaplib.IMAP4.error as exc:
@@ -239,6 +380,11 @@ def fetch(limit=25, keep_unread=False, conf=None):
             f"Could not reach the mail server: {exc}",
         )
     finally:
+        if json.dumps(state, sort_keys=True) != progress:
+            try:
+                _save_uid_state(conf, state)
+            except Exception:  # noqa: BLE001 - only a convenience: Message-ID stops a letter being stored twice
+                logger.exception("mail: could not save how far each folder was read")
         if box is not None:
             try:
                 box.close()
@@ -313,9 +459,10 @@ def _fetch_and_record(limit=25, keep_unread=False):
 #
 # Written on a raw TLS socket rather than on imaplib: imaplib reads through a
 # buffered file object that is unusable after its first timeout, and an IDLE
-# that cannot time out cannot be refreshed. The watcher only ever needs five
-# commands — LOGIN, CAPABILITY, SELECT, IDLE/DONE, LOGOUT — and never reads a
-# message; the fetch itself stays in :func:`fetch`, unchanged.
+# that cannot time out cannot be refreshed. The watcher only ever needs six
+# commands — LOGIN, CAPABILITY, LIST (only to find the Spam folder), SELECT,
+# IDLE/DONE, LOGOUT — and never reads a message; the fetch itself stays in
+# :func:`fetch`.
 
 #: How long one IDLE is held before it is renewed. RFC 2177 allows 29
 #: minutes, but a cloud NAT drops a silent TCP connection much sooner (AWS:
@@ -331,6 +478,10 @@ class IdleUnsupported(MailboxError):
     """The server has no IDLE; the worker falls back to polling."""
 
 
+class NoJunkFolder(MailboxError):
+    """The mailbox has no folder flagged ``\\Junk``: there is no Spam to watch."""
+
+
 def _quote(value):
     """An IMAP quoted string. App passwords are ASCII; that is all LOGIN takes."""
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -343,7 +494,7 @@ class IdleWatcher:
     /``close`` can stand in for the TLS socket.
     """
 
-    def __init__(self, conf, sock=None):
+    def __init__(self, conf, sock=None, folder=None):
         self._buffer = b""
         self._counter = 0
         if sock is None:
@@ -364,7 +515,14 @@ class IdleWatcher:
                 raise IdleUnsupported(
                     "سيرفر البريد مبيدعمش IDLE.", "The mail server does not support IDLE."
                 )
-            self._command(f"SELECT {_quote(conf.imap_folder or 'INBOX')}")
+            wanted = folder or conf.imap_folder or "INBOX"
+            if wanted == JUNK:
+                wanted = junk_folder_in(self._command('LIST "" "*"'))
+                if not wanted:
+                    raise NoJunkFolder(
+                        "الميل مفيهوش فولدر سبام.", "This mailbox has no Spam folder."
+                    )
+            self._command(f"SELECT {_quote(wanted)}")
         except Exception:
             self.close()
             raise
@@ -444,7 +602,12 @@ class IdleWatcher:
             pass
 
         self._send("DONE")
-        self._finish(tag)
+        # A letter that lands while the IDLE is being closed is announced in the
+        # lines before the tagged answer. Throwing them away would leave it
+        # waiting for the next poll, minutes away.
+        for line in self._finish(tag):
+            if line.startswith(b"*") and line.upper().endswith(b" EXISTS"):
+                arrived = True
         return arrived
 
     def close(self):
@@ -458,7 +621,18 @@ class IdleWatcher:
             pass
 
 
-def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SECONDS):
+def _wants_spam():
+    """Whether the admin has asked for the Spam folder to be read, asked fresh."""
+    from django.db import close_old_connections
+
+    close_old_connections()
+    try:
+        return bool(AppSettings.load().imap_read_spam)
+    finally:
+        close_old_connections()
+
+
+def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SECONDS, folder=None):
     """Call ``on_mail()`` the moment new mail lands, until ``stop`` is set.
 
     Runs forever in ``run_worker``'s mail thread. Every (re)connection also
@@ -466,10 +640,15 @@ def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SE
     is picked up then, not at the next push. Any failure reconnects with a
     growing pause — a flaky mailbox must never end the watch — and a server
     without IDLE is simply polled every ``poll_seconds`` instead.
+
+    ``folder=JUNK`` is the second watcher, on the Spam folder. It sleeps while
+    the admin has not asked for Spam (``AppSettings.imap_read_spam``) and, on a
+    server without IDLE, leaves the polling to the first watcher.
     """
     from django.db import close_old_connections
 
     pause = 5
+    where = "" if folder is None else " (spam)"
     while not stop.is_set():
         watcher = None
         try:
@@ -481,15 +660,24 @@ def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SE
             if not (conf.imap_host and conf.imap_user and conf.imap_password):
                 stop.wait(60)
                 continue
+            if folder is not None and not conf.imap_read_spam:
+                stop.wait(60)
+                continue
 
-            watcher = IdleWatcher(conf)
-            log("mail push: connected, waiting for new mail")
+            watcher = IdleWatcher(conf) if folder is None else IdleWatcher(conf, folder=folder)
+            log(f"mail push{where}: connected, waiting for new mail")
             on_mail()
             pause = 5
             while not stop.is_set():
                 if watcher.wait(renew_seconds):
+                    log(f"mail push{where}: new mail announced")
                     on_mail()
+                if folder is not None and not _wants_spam():
+                    break
         except IdleUnsupported as exc:
+            if folder is not None:
+                stop.wait(3600)       # the inbox watcher polls both folders
+                continue
             log(f"mail push: {exc.message_en} Polling every {poll_seconds}s instead.")
             while not stop.is_set():
                 try:
@@ -497,8 +685,11 @@ def watch(on_mail, stop, log=print, poll_seconds=20, renew_seconds=IDLE_RENEW_SE
                 except Exception as err:  # noqa: BLE001 - keep polling
                     log(f"mail poll: {type(err).__name__}: {err}")
                 stop.wait(poll_seconds)
+        except NoJunkFolder:
+            log("mail push (spam): this mailbox has no Spam folder.")
+            stop.wait(900)
         except Exception as exc:  # noqa: BLE001 - reconnect, whatever it was
-            log(f"mail push: {type(exc).__name__}: {exc} — reconnecting in {pause}s")
+            log(f"mail push{where}: {type(exc).__name__}: {exc} — reconnecting in {pause}s")
             stop.wait(pause)
             pause = min(pause * 2, 300)
         finally:
