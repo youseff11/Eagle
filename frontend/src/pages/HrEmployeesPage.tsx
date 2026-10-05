@@ -119,10 +119,8 @@ export function HrEmployeesPage() {
                     <LeaveStatusBadge status={row.status} />
                   </td>
                   <td>{row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
-                  <td className="mono">{row.shifts}</td>
-                  <td>
-                    <Rating value={row.rating} />
-                  </td>
+                  <td className="mono">{row.shifts ?? "—"}</td>
+                  <td>{row.rating === null ? "—" : <Rating value={row.rating} />}</td>
                   {isAdmin && (
                     <td className="mono" dir="ltr">
                       {row.mail_alias || "—"}

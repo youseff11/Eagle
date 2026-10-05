@@ -38,7 +38,7 @@ function handoff(over: { assignment?: Partial<AssignmentResponse["assignment"]>;
       client: "CL-0001",
       source_lang: "English",
       target_lang: "Arabic",
-      due: { ar: "2026-10-30 5:30 م", en: "2026-10-30 5:30 PM" },
+      due: { ar: "2026-10-30 5:30 PM", en: "2026-10-30 5:30 PM" },
       due_iso: new Date(Date.now() + 50 * 3600 * 1000).toISOString(),
       description: "Translate pages 2-4\nKeep the table",
       files: [
@@ -86,7 +86,7 @@ describe("AssignmentPage: reading the job before taking it", () => {
     expect(container.querySelector(".page-head__sub")).toHaveTextContent("TSK-00001 · CL-0001 · English → Arabic");
     const side = container.querySelector(".sticky-side .card") as HTMLElement;
     expect(within(side).getByText("Mona")).toBeInTheDocument();
-    expect(within(side).getByText("2026-10-30 5:30 م")).toBeInTheDocument();
+    expect(within(side).getByText("2026-10-30 5:30 PM")).toBeInTheDocument();
     // How long is left until the deadline, counted from now.
     expect(within(side).getByText(/باقي 2 يوم و\d+ ساعة على الديدلاين/)).toBeInTheDocument();
   });

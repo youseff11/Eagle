@@ -1,9 +1,12 @@
 """Egypt time on a twelve-hour clock - the one way Eagle writes a time of day.
 
 Every time a person reads is Cairo time (``settings.TIME_ZONE``) and runs to
-12, not 24: 17:30 is ``5:30 م`` in Arabic and ``5:30 PM`` in English. The
-JSON doors reach this through :func:`fmt12`, and the notifications through
-:func:`both`.
+12, not 24: 17:30 is ``5:30 PM`` in both languages. Arabic says ``AM`` and
+``PM`` too, not ``ص`` and ``م``: a time in the middle of Arabic text is
+carried by the right-to-left rule, which turns ``9:00 ص - 5:00 م`` into a
+different time on screen, and Latin letters and digits stay in the order
+they were written. The JSON doors reach this through :func:`fmt12`, and the
+notifications through :func:`both`.
 
 Form inputs are the exception and stay 24-hour: ``<input type="time">`` and
 the datetime parser need ``HH:MM``.
@@ -14,7 +17,7 @@ from datetime import datetime, time
 from django.utils import timezone
 
 SUFFIX = {
-    "ar": ("ص", "م"),
+    "ar": ("AM", "PM"),
     "en": ("AM", "PM"),
 }
 
@@ -27,7 +30,7 @@ def local(value):
 
 
 def fmt12(value, lang="ar", date_format=""):
-    """``17:05`` -> ``5:05 م``. ``date_format`` puts a date in front.
+    """``17:05`` -> ``5:05 PM``. ``date_format`` puts a date in front.
 
     ``date_format`` is strftime-style (``%Y-%m-%d``, ``%m-%d``, ``%d/%m``).
     ``None`` and ``""`` come back as ``""`` so a ``|default`` still works.
@@ -51,7 +54,7 @@ def both(value, date_format=""):
 
 
 def window12(start, end, lang="ar"):
-    """``9:00 ص - 5:00 م`` for a shift, or ``—`` when either end is missing."""
+    """``9:00 AM - 5:00 PM`` for a shift, or ``—`` when either end is missing."""
     if not (start and end):
         return "—"
     return f"{fmt12(start, lang)} - {fmt12(end, lang)}"

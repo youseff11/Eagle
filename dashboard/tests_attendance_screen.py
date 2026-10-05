@@ -92,8 +92,8 @@ class CardDoorTests(_Att):
         body = _json(self.card(self.worker))
         plan = body["plan"]
         self.assertTrue(plan["working"])
-        self.assertEqual((plan["start"]["ar"], plan["start"]["en"]), ("9:00 ص", "9:00 AM"))
-        self.assertEqual((plan["end"]["ar"], plan["end"]["en"]), ("5:00 م", "5:00 PM"))
+        self.assertEqual((plan["start"]["ar"], plan["start"]["en"]), ("9:00 AM", "9:00 AM"))
+        self.assertEqual((plan["end"]["ar"], plan["end"]["en"]), ("5:00 PM", "5:00 PM"))
         self.assertEqual(plan["mode"]["value"], "remote")
         self.assertEqual(datetime.fromisoformat(body["day"]["shift_end"]), aware(21, 17))
         self.assertFalse(body["needs_location"])
@@ -110,7 +110,7 @@ class CardDoorTests(_Att):
         attendance.punch(self.worker, PunchKind.CHECK_IN)
         day = _json(self.card(self.worker))["day"]
         self.assertEqual(day["state"], "open")
-        self.assertEqual((day["check_in"]["ar"], day["check_in"]["en"]), ("9:14 ص", "9:14 AM"))
+        self.assertEqual((day["check_in"]["ar"], day["check_in"]["en"]), ("9:14 AM", "9:14 AM"))
         self.assertEqual(day["late_minutes"], 14)
         self.assertIsNone(day["check_out"])
 
@@ -167,14 +167,14 @@ class CardDoorTests(_Att):
         self.freeze(30, 12, 0)
         WorkDay.objects.create(
             user=self.worker, date=aware(28, 0).date(), status="present", late_minutes=12, overtime_minutes=45,
-            work_mode="remote", schedule_label="9:00 ص - 5:00 م",
+            work_mode="remote", schedule_label="9:00 AM - 5:00 PM",
         )
         WorkDay.objects.create(user=self.worker, date=aware(27, 0).date(), status="unexcused", checkout_missed=True)
         recent = {one["date"]: one for one in _json(self.card(self.worker))["recent"]}
         good = recent["2026-09-28"]
         self.assertEqual((good["status"]["value"], good["status"]["tone"], good["late_minutes"], good["overtime_minutes"]), ("present", "ok", 12, 45))
         self.assertEqual(good["mode"]["value"], "remote")
-        self.assertEqual(good["schedule"], "9:00 ص - 5:00 م")
+        self.assertEqual(good["schedule"], "9:00 AM - 5:00 PM")
         bad = recent["2026-09-27"]
         self.assertEqual((bad["status"]["value"], bad["checkout_missed"], bad["mode"]), ("unexcused", True, None))
 

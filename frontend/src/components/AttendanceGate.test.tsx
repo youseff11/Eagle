@@ -14,10 +14,10 @@ const both = (ar: string, en: string) => ({ ar, en });
 const CHECK_IN: Gate = {
   kind: "check_in",
   date: "2026-09-21",
-  shift: "9:00 ص - 5:00 م",
-  start: both("9:00 ص", "9:00 AM"),
-  end: both("5:00 م", "5:00 PM"),
-  grace_until: both("9:10 ص", "9:10 AM"),
+  shift: "9:00 AM - 5:00 PM",
+  start: both("9:00 AM", "9:00 AM"),
+  end: both("5:00 PM", "5:00 PM"),
+  grace_until: both("9:10 AM", "9:10 AM"),
   grace: 10,
   late_now: 0,
   needs_location: false,
@@ -26,18 +26,18 @@ const CHECK_IN: Gate = {
 const CHECK_OUT: Gate = {
   kind: "check_out",
   date: "2026-09-21",
-  shift: "9:00 ص - 5:00 م",
-  end: both("5:00 م", "5:00 PM"),
-  deadline: both("6:00 م", "6:00 PM"),
+  shift: "9:00 AM - 5:00 PM",
+  end: both("5:00 PM", "5:00 PM"),
+  deadline: both("6:00 PM", "6:00 PM"),
   needs_location: false,
 };
 const EXTRA: Gate = {
   kind: "extra",
   date: "2026-09-21",
-  shift: "9:00 ص - 5:00 م",
-  end: both("5:00 م", "5:00 PM"),
-  extra_since: both("5:05 م", "5:05 PM"),
-  deadline: both("1:00 ص", "1:00 AM"),
+  shift: "9:00 AM - 5:00 PM",
+  end: both("5:00 PM", "5:00 PM"),
+  extra_since: both("5:05 PM", "5:05 PM"),
+  deadline: both("1:00 AM", "1:00 AM"),
   needs_location: false,
 };
 
@@ -101,9 +101,9 @@ describe("AttendanceGate: the check-in", () => {
     setup(CHECK_IN);
     const box = screen.getByRole("dialog", { name: "سجّل حضورك" });
     expect(box).toHaveAttribute("data-gate", "check_in");
-    expect(within(box).getByText("9:00 ص - 5:00 م")).toBeInTheDocument();
-    expect(within(box).getByText("9:00 ص")).toHaveClass("mono");
-    expect(within(box).getByText("9:10 ص")).toBeInTheDocument();
+    expect(within(box).getByText("9:00 AM - 5:00 PM")).toBeInTheDocument();
+    expect(within(box).getByText("9:00 AM")).toHaveClass("mono");
+    expect(within(box).getByText("9:10 AM")).toBeInTheDocument();
     expect(within(box).getByText("10")).toBeInTheDocument();
     expect(within(box).getByText("لو نسيت تسجل انصراف، اليوم كله مش هيتحسب.")).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "تسجيل حضور" })).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe("AttendanceGate: the check-in", () => {
     // 06:07 UTC is 9:07 in Cairo (UTC+3 in September).
     vi.setSystemTime(new Date("2026-09-21T06:07:00Z"));
     setup(CHECK_IN);
-    expect(document.querySelector("[data-gate-clock]")).toHaveTextContent("9:07 ص");
+    expect(document.querySelector("[data-gate-clock]")).toHaveTextContent("9:07 AM");
   });
 
   it("cannot be put off: no close button, no later, not by Escape, not by a click outside", async () => {
@@ -166,7 +166,7 @@ describe("AttendanceGate: the check-in", () => {
     expect(form(punches(calls)[0]!).get("device")).toBe(window.localStorage.getItem(DEVICE_KEY));
     expect(form(punches(calls)[0]!).has("lat")).toBe(false);
     expect(geo).not.toHaveBeenCalled();
-    expect(await screen.findByText("اتسجل 9:05 ص")).toBeInTheDocument();
+    expect(await screen.findByText("اتسجل 9:05 AM")).toBeInTheDocument();
   });
 
   it("asks the browser for a position once, at the press, on an office day, and sends it", async () => {
@@ -196,7 +196,7 @@ describe("AttendanceGate: the check-in", () => {
     const user = userEvent.setup();
     setup({ ...CHECK_IN, late_now: 14 }, () => jsonResponse({ ...OK, late_minutes: 14 }));
     await user.click(screen.getByRole("button", { name: "تسجيل حضور" }));
-    const toast = await screen.findByText("اتسجل حضورك 9:05 ص — متأخر 14 دقيقة، والتأخير اتحوّل للـHR.");
+    const toast = await screen.findByText("اتسجل حضورك 9:05 AM — متأخر 14 دقيقة، والتأخير اتحوّل للـHR.");
     expect(toast.closest(".toast")).toHaveClass("toast--warning");
     expect(dialog()).toBeNull();
   });
@@ -265,8 +265,8 @@ describe("AttendanceGate: the reminder after the shift", () => {
   it("says the shift is over and by when to check out, and offers three things", () => {
     setup(CHECK_OUT);
     const box = screen.getByRole("dialog", { name: "الشيفت خلص" });
-    expect(within(box).getByText("5:00 م")).toBeInTheDocument();
-    expect(within(box).getByText("6:00 م")).toBeInTheDocument();
+    expect(within(box).getByText("5:00 PM")).toBeInTheDocument();
+    expect(within(box).getByText("6:00 PM")).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "تسجيل انصراف" })).toHaveClass("btn--danger");
     expect(within(box).getByRole("button", { name: "اكسترا تايم" })).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "بعدين" })).toBeInTheDocument();
@@ -310,7 +310,7 @@ describe("AttendanceGate: the reminder after the shift", () => {
     await waitFor(() => expect(dialog()).toBeNull());
     expect(form(punches(calls)[0]!).get("action")).toBe("extra_start");
     expect(window.sessionStorage.getItem(EXTRA_KEY)).toMatch(/^2026-09-21\|\d+$/);
-    expect(await screen.findByText(/الاكسترا تايم بدأ 5:05 م/)).toBeInTheDocument();
+    expect(await screen.findByText(/الاكسترا تايم بدأ 5:05 PM/)).toBeInTheDocument();
     // The beat that follows now says extra time is running: it is the one that was just put off.
     await tell(EXTRA);
     expect(dialog()).toBeNull();
@@ -330,8 +330,8 @@ describe("AttendanceGate: extra time is running", () => {
   it("says since when and by when to check out", () => {
     setup(EXTRA);
     const box = screen.getByRole("dialog", { name: "الاكسترا تايم شغال" });
-    expect(within(box).getByText("5:05 م")).toBeInTheDocument();
-    expect(within(box).getByText("1:00 ص")).toBeInTheDocument();
+    expect(within(box).getByText("5:05 PM")).toBeInTheDocument();
+    expect(within(box).getByText("1:00 AM")).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "خلّصت — تسجيل انصراف" })).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "لسه شغال" })).toBeInTheDocument();
   });

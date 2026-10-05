@@ -37,7 +37,7 @@ function notes(over: Partial<TaskAiNotes> = {}, check: Partial<NonNullable<TaskA
     check:
       check === null
         ? null
-        : { id: 3, status: "issues", count: 2, at: { ar: "10-02 5:30 م", en: "10-02 5:30 PM" }, automatic: true, old: false, summary: "Mostly fine.", error: "", ...check },
+        : { id: 3, status: "issues", count: 2, at: { ar: "10-02 5:30 PM", en: "10-02 5:30 PM" }, automatic: true, old: false, summary: "Mostly fine.", error: "", ...check },
     issues: [note({ severity: "high" }), note({ severity: "low", location: "", category: null })],
     ...over,
   };
@@ -87,7 +87,7 @@ describe("AiNotesCard", () => {
     const box = document.querySelector("#aiNotes") as HTMLElement;
     expect(box).toHaveClass("ai-notes--issues");
     expect(box.querySelector(".card__head .badge")).toHaveTextContent("2 ملاحظة");
-    expect(box.querySelector(".ai-notes__when")).toHaveTextContent("10-02 5:30 م · تلقائي");
+    expect(box.querySelector(".ai-notes__when")).toHaveTextContent("10-02 5:30 PM · تلقائي");
     expect(within(box).getByText("Mostly fine.")).toBeInTheDocument();
   });
 

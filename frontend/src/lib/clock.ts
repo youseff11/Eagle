@@ -1,14 +1,14 @@
 import type { Lang } from "../api/types";
 
 /**
- * A time of day the server wrote (`8:05 PM`, Cairo, twelve hours), in the page's language.
+ * A time of day the server wrote (`8:05 PM`, Cairo, twelve hours), as the page shows it: the same in both languages.
  *
- * The server writes the English form; Arabic readers see `ص` and `م` instead, as the classic pages draw
- * them (`Eagle.ampm`). Nothing else is done to it: the app never works out a time itself.
+ * Arabic readers see `AM` and `PM` too, not `ص` and `م`: inside Arabic text the right-to-left rule reorders `9:00 ص - 5:00 م`
+ * into another time, and Latin letters keep the order they were written in. Nothing is done to it: the app never works out a
+ * time itself. (`lang` stays in the signature: every caller already passes it.)
  */
-export function clockText(time: string, lang: Lang): string {
-  if (lang === "en") return time;
-  return time.replace(/\bAM\b/, "ص").replace(/\bPM\b/, "م");
+export function clockText(time: string, _lang: Lang): string {
+  return time;
 }
 
 /**

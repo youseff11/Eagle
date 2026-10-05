@@ -100,7 +100,7 @@ describe("AssignmentModal: what it shows", () => {
     expect(box.getByText("CL-0001")).toBeInTheDocument();
     expect(box.getByText("Mona")).toBeInTheDocument();
     // The server writes the English time; an Arabic page shows ص / م.
-    expect(box.getByText("2026-10-30 5:30 م")).toBeInTheDocument();
+    expect(box.getByText("2026-10-30 5:30 PM")).toBeInTheDocument();
     expect(box.getByText("Please take this one")).toBeInTheDocument();
     expect(box.getByRole("timer")).toHaveTextContent("60");
   });

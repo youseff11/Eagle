@@ -16,7 +16,7 @@ function card(over: Partial<AttendanceCard> = {}, day: Partial<AttendanceCard["d
     ok: true,
     enabled: true,
     work_date: "2026-09-21",
-    plan: { working: true, label: "9:00 ص - 5:00 م", mode: { value: "remote", ar: "عن بُعد", en: "Remote" }, start: both("9:00 ص", "9:00 AM"), end: both("5:00 م", "5:00 PM") },
+    plan: { working: true, label: "9:00 AM - 5:00 PM", mode: { value: "remote", ar: "عن بُعد", en: "Remote" }, start: both("9:00 AM", "9:00 AM"), end: both("5:00 PM", "5:00 PM") },
     needs_location: false,
     day: {
       state: "none",
@@ -40,9 +40,9 @@ function card(over: Partial<AttendanceCard> = {}, day: Partial<AttendanceCard["d
       {
         date: "2026-09-20",
         mode: { value: "remote", ar: "عن بُعد", en: "Remote" },
-        schedule: "9:00 ص - 5:00 م",
-        check_in: both("9:12 ص", "9:12 AM"),
-        check_out: both("5:30 م", "5:30 PM"),
+        schedule: "9:00 AM - 5:00 PM",
+        check_in: both("9:12 AM", "9:12 AM"),
+        check_out: both("5:30 PM", "5:30 PM"),
         hours: "8:10",
         status: { value: "present", tone: "ok", ar: "حاضر", en: "Present" },
         late_minutes: 12,
@@ -150,9 +150,9 @@ describe("AttendancePage: today", () => {
     expect(await screen.findByText("حضوري", { selector: "h1" })).toBeInTheDocument();
     await screen.findByText("اليوم", { selector: "h3" });
     const today = cardOf(view.container);
-    expect(within(today).getByText("9:00 ص - 5:00 م", { selector: ".chip" })).toBeInTheDocument();
+    expect(within(today).getByText("9:00 AM - 5:00 PM", { selector: ".chip" })).toBeInTheDocument();
     expect(within(today).getByText("عن بُعد")).toBeInTheDocument();
-    expect(today.querySelector(".punch__meta")).toHaveTextContent("الشيفت 9:00 ص – 5:00 م·سماح 10 دقايق");
+    expect(today.querySelector(".punch__meta")).toHaveTextContent("الشيفت 9:00 AM – 5:00 PM·سماح 10 دقايق");
     expect(Array.from(today.querySelectorAll(".punch__value")).map((cell) => cell.textContent)).toEqual(["—", "—", "0د", "0:00"]);
     expect(view.container.querySelector(".page-head__sub")).toHaveTextContent("2026-09-21");
     expect(buttons(view.container)).toEqual(["check_in"]);
@@ -165,7 +165,7 @@ describe("AttendancePage: today", () => {
   });
 
   it("says office for an office day", async () => {
-    open(() => card({ plan: { working: true, label: "x", mode: { value: "office", ar: "من المكتب", en: "Office" }, start: both("9:00 ص", "9:00 AM"), end: both("5:00 م", "5:00 PM") } }));
+    open(() => card({ plan: { working: true, label: "x", mode: { value: "office", ar: "من المكتب", en: "Office" }, start: both("9:00 AM", "9:00 AM"), end: both("5:00 PM", "5:00 PM") } }));
     expect(await screen.findByText("من المكتب", { selector: ".badge" })).toBeInTheDocument();
   });
 
@@ -173,17 +173,17 @@ describe("AttendancePage: today", () => {
     const view = open(() =>
       card({}, {
         state: "open",
-        check_in: both("9:14 ص", "9:14 AM"),
+        check_in: both("9:14 AM", "9:14 AM"),
         break_minutes: 30,
         hours: "7:20",
         extra_running: true,
-        extra_started_at: both("5:05 م", "5:05 PM"),
+        extra_started_at: both("5:05 PM", "5:05 PM"),
       }),
     );
     await screen.findByText("اكسترا تايم شغال");
     const values = Array.from(cardOf(view.container).querySelectorAll(".punch__value")).map((cell) => cell.textContent);
-    expect(values).toEqual(["9:14 ص", "—", "30د", "7:20"]);
-    expect(view.container.querySelector("[data-extra-line]")).toHaveTextContent("اكسترا تايم شغال من 5:05 م");
+    expect(values).toEqual(["9:14 AM", "—", "30د", "7:20"]);
+    expect(view.container.querySelector("[data-extra-line]")).toHaveTextContent("اكسترا تايم شغال من 5:05 PM");
   });
 
   it("flags a day that needs review, and says when the check-out was missed", async () => {
@@ -206,7 +206,7 @@ describe("AttendancePage: today", () => {
   it("shows extra time only after the shift has ended, and the clock moves it in without a reload", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     vi.setSystemTime(new Date("2026-09-21T13:59:00+00:00"));
-    const view = open(() => card({}, { state: "open", check_in: both("9:00 ص", "9:00 AM") }));
+    const view = open(() => card({}, { state: "open", check_in: both("9:00 AM", "9:00 AM") }));
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
     await screen.findByText("اليوم", { selector: "h3" });
     expect(buttons(view.container)).toEqual(["break_start", "check_out"]);
@@ -221,7 +221,7 @@ describe("AttendancePage: punching", () => {
     let punched = false;
     const view = open(
       // A shift that has not ended: extra time is not offered yet, whatever the day of the test run.
-      () => (punched ? card({}, { state: "open", check_in: both("9:05 ص", "9:05 AM"), hours: "0:00", shift_end: "2099-01-01T00:00:00+00:00" }) : card()),
+      () => (punched ? card({}, { state: "open", check_in: both("9:05 AM", "9:05 AM"), hours: "0:00", shift_end: "2099-01-01T00:00:00+00:00" }) : card()),
       () => {
         punched = true;
         return jsonResponse(OK);
@@ -229,10 +229,10 @@ describe("AttendancePage: punching", () => {
     );
     view.client.setQueryData(qk.gate, { kind: "check_in" });
     await user.click(await screen.findByRole("button", { name: "تسجيل حضور" }));
-    expect(await screen.findByText("اتسجل 9:05 ص", { selector: ".punch__status" })).toHaveClass("ok");
+    expect(await screen.findByText("اتسجل 9:05 AM", { selector: ".punch__status" })).toHaveClass("ok");
     await waitFor(() => expect(buttons(view.container)).toEqual(["break_start", "check_out"]));
     expect(view.client.getQueryData(qk.gate)).toBeNull();
-    expect(cardOf(view.container).querySelector('[data-field="check_in"]')).toHaveTextContent("9:05 ص");
+    expect(cardOf(view.container).querySelector('[data-field="check_in"]')).toHaveTextContent("9:05 AM");
   });
 
   it("sends the action, this browser's token, and no position on a remote day", async () => {
@@ -252,7 +252,7 @@ describe("AttendancePage: punching", () => {
       ok({ coords: { latitude: 30.1, longitude: 31.2, accuracy: 9 } } as GeolocationPosition),
     );
     vi.stubGlobal("navigator", { ...navigator, geolocation: { getCurrentPosition, watchPosition: vi.fn() } });
-    open(() => card({ needs_location: true }, { state: "open", check_in: both("9:00 ص", "9:00 AM") }));
+    open(() => card({ needs_location: true }, { state: "open", check_in: both("9:00 AM", "9:00 AM") }));
     await user.click(await screen.findByRole("button", { name: "ابدأ بريك" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "ابدأ بريك" })).toBeEnabled());
     expect(getCurrentPosition).not.toHaveBeenCalled();
@@ -264,14 +264,14 @@ describe("AttendancePage: punching", () => {
     const user = userEvent.setup();
     open(undefined, () => jsonResponse({ ...OK, late_minutes: 14 }));
     await user.click(await screen.findByRole("button", { name: "تسجيل حضور" }));
-    expect(await screen.findByText("اتسجل حضورك 9:05 ص — متأخر 14 دقيقة، والتأخير اتحوّل للـHR.", { selector: ".punch__status" })).toHaveClass("warn");
+    expect(await screen.findByText("اتسجل حضورك 9:05 AM — متأخر 14 دقيقة، والتأخير اتحوّل للـHR.", { selector: ".punch__status" })).toHaveClass("warn");
   });
 
   it("starts extra time, and the screen over every page is told not to come straight back", async () => {
     const user = userEvent.setup();
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     vi.setSystemTime(new Date("2026-09-21T14:30:00+00:00"));
-    open(() => card({}, { state: "open", check_in: both("9:00 ص", "9:00 AM") }), () => jsonResponse({ ...OK, action: "extra_start", at: "5:30 PM" }));
+    open(() => card({}, { state: "open", check_in: both("9:00 AM", "9:00 AM") }), () => jsonResponse({ ...OK, action: "extra_start", at: "5:30 PM" }));
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
     await user.click(await screen.findByRole("button", { name: "اكسترا تايم" }));
     await waitFor(() => expect(window.sessionStorage.getItem(EXTRA_KEY)).toMatch(/^2026-09-21\|\d+$/));
@@ -318,7 +318,7 @@ describe("AttendancePage: the last fortnight and the month", () => {
     const rows = Array.from(view.container.querySelectorAll("tbody tr")).map((row) => row.getAttribute("data-day"));
     expect(rows).toEqual(["2026-09-20", "2026-09-19"]);
     const first = view.container.querySelector('[data-day="2026-09-20"]') as HTMLElement;
-    expect(Array.from(first.querySelectorAll("td")).slice(0, 6).map((cell) => cell.textContent)).toEqual(["2026-09-20", "عن بُعد", "9:00 ص - 5:00 م", "9:12 ص", "5:30 م", "8:10"]);
+    expect(Array.from(first.querySelectorAll("td")).slice(0, 6).map((cell) => cell.textContent)).toEqual(["2026-09-20", "عن بُعد", "9:00 AM - 5:00 PM", "9:12 AM", "5:30 PM", "8:10"]);
     expect(within(first).getByText("حاضر")).toHaveClass("badge--ok");
     expect(within(first).getByText(/\+12د/)).toHaveClass("badge--wait");
     expect(within(first).getByText(/OT 30د/)).toHaveClass("badge--ok");

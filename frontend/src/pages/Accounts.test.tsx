@@ -474,7 +474,7 @@ function sheet(over: Partial<AccountsSheet> = {}): AccountsSheet {
     ],
     person: { id: 11, name: "Sam", username: "sam", initials: "SA" },
     days: [
-      { id: 1, date: "2026-10-01", status: labelled("present", "حاضر", "Present"), check_in: { ar: "9:00 ص", en: "9:00 AM" }, check_out: { ar: "5:00 م", en: "5:00 PM" }, late_minutes: 4, words: 900, under_floor: true, absence_reason: "", note: "Short day" },
+      { id: 1, date: "2026-10-01", status: labelled("present", "حاضر", "Present"), check_in: { ar: "9:00 AM", en: "9:00 AM" }, check_out: { ar: "5:00 PM", en: "5:00 PM" }, late_minutes: 4, words: 900, under_floor: true, absence_reason: "", note: "Short day" },
       { id: 2, date: "2026-10-02", status: labelled("unexcused", "غياب بدون إذن", "Unexcused", "dead"), check_in: null, check_out: null, late_minutes: 0, words: 0, under_floor: false, absence_reason: "No call. ", note: "" },
     ],
     words: 900,
@@ -504,7 +504,7 @@ describe("AccountsAttendancePage", () => {
     ]);
     expect(container.querySelector(".kpi--danger")).toHaveTextContent("إجازات مستخدمة");
     const first = container.querySelector('[data-day="2026-10-01"]') as HTMLElement;
-    expect(within(first).getByText("9:00 ص")).toBeInTheDocument();
+    expect(within(first).getByText("9:00 AM")).toBeInTheDocument();
     expect(within(first).getByText("900")).toHaveClass("deadline--late");
     expect(within(first).getByText("Short day")).toBeInTheDocument();
     const second = container.querySelector('[data-day="2026-10-02"]') as HTMLElement;

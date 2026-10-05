@@ -486,7 +486,7 @@ class RecordADayTests(_Accounts):
         self.assertEqual(timezone.localtime(WorkDay.objects.get(user=self.tr, date=self.today).check_in).strftime("%H:%M"), "09:00")
         sheet = _json(self.get(self.accounting, SHEET, period=self.period_text))["days"][0]
         self.assertEqual(sheet["check_in"]["en"], "9:00 AM")
-        self.assertEqual(sheet["check_out"]["ar"], "5:00 م")
+        self.assertEqual(sheet["check_out"]["ar"], "5:00 PM")
 
     def test_an_absence_needs_its_reason_and_nothing_is_saved_without_it(self):
         answer = self.save(status="unexcused")

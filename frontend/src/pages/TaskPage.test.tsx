@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const CODE = "TSK-00001";
 const TASK = `/api/v1/translator/tasks/${CODE}/`;
-const stamp = (text: string) => ({ ar: `${text} م`, en: `${text} PM` });
+const stamp = (text: string) => ({ ar: `${text} PM`, en: `${text} PM` });
 
 function task(overrides: Partial<TranslatorTask> = {}): TranslatorTask {
   return {
@@ -23,7 +23,7 @@ function task(overrides: Partial<TranslatorTask> = {}): TranslatorTask {
     client: "CL-0001",
     source_lang: "English",
     target_lang: "Arabic",
-    due: { ar: "2026-10-02 5:30 م", en: "2026-10-02 5:30 PM" },
+    due: { ar: "2026-10-02 5:30 PM", en: "2026-10-02 5:30 PM" },
     due_state: "ok",
     description: "Translate pages 2-4\nKeep the table",
     people: { operation: "Nour", team_lead: "Mona", translator: "Sam" },
@@ -95,7 +95,7 @@ describe("TaskPage: what the translator reads", () => {
     expect(screen.getByText("شغل جاري").closest(".badge")).not.toBeNull();
     expect(screen.getByText("عالية")).toHaveClass("badge--prio-high");
     expect(screen.getByText("واتساب")).toBeInTheDocument();
-    expect(screen.getByText("2026-10-02 5:30 م").closest(".deadline--ok")).not.toBeNull();
+    expect(screen.getByText("2026-10-02 5:30 PM").closest(".deadline--ok")).not.toBeNull();
     expect(container.textContent).toContain("CL-0001 · English → Arabic");
     for (const name of ["Nour", "Mona", "Sam"]) expect(within(container).getAllByText(name).length).toBeGreaterThan(0);
     // The brief keeps its line breaks.
@@ -168,8 +168,8 @@ describe("TaskPage: what the translator reads", () => {
     open();
     const link = await screen.findByRole("link", { name: /translated\.docx/ });
     expect(link).toHaveAttribute("href", "/files/out/translated.docx");
-    expect(link).toHaveTextContent("10-02 4:10 م");
-    expect(link).toHaveAttribute("title", "1.5 KB · 10-02 4:10 م");
+    expect(link).toHaveTextContent("10-02 4:10 PM");
+    expect(link).toHaveAttribute("title", "1.5 KB · 10-02 4:10 PM");
   });
 
   it("says the translation has not been uploaded when it has not", async () => {
@@ -497,7 +497,7 @@ describe("TaskPage: more time", () => {
     expect(await screen.findByText("التيم ليدر رفض الوقت الإضافي.")).toBeInTheDocument();
     expect(screen.getByText("Client needs it today")).toBeInTheDocument();
     expect(screen.getByText("التيم ليدر رفض الوقت الإضافي.").closest(".note")).toHaveClass("note--high");
-    expect(screen.getByText(/10-02 3:00 م · 1 يوم 1 ساعة/)).toBeInTheDocument();
+    expect(screen.getByText(/10-02 3:00 PM · 1 يوم 1 ساعة/)).toBeInTheDocument();
     unmount();
     vi.unstubAllGlobals();
 
@@ -608,7 +608,7 @@ describe("TaskPage: the AI check", () => {
     open();
     const first = (await screen.findByText("Three issues")).closest(".note") as HTMLElement;
     expect(first).toHaveClass("note--warn");
-    expect(first).toHaveTextContent("10-02 1:00 م · 3 · تلقائي");
+    expect(first).toHaveTextContent("10-02 1:00 PM · 3 · تلقائي");
     expect(screen.getByText(/الفحص شغال دلوقتي/).closest(".note")).toHaveClass("note--info");
     expect(screen.getByText("Could not read").closest(".note")).toHaveClass("note--high");
     expect(screen.getByText("All good").closest(".note")).toHaveClass("note--ok");

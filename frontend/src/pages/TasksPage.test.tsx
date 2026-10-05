@@ -26,7 +26,7 @@ function row(code: string, over: Partial<OpsTaskRow> = {}): OpsTaskRow {
     status: STATUSES[1]!,
     team_lead: "Mona",
     translator: "Sam",
-    due: { ar: "10-30 5:30 م", en: "10-30 5:30 PM" },
+    due: { ar: "10-30 5:30 PM", en: "10-30 5:30 PM" },
     due_state: "ok",
     ...over,
   };
@@ -79,7 +79,7 @@ describe("TasksPage", () => {
     expect(within(first).getByText("شغل جاري").closest(".badge")).toHaveClass("badge--work");
     expect(within(first).getByText("Mona")).toBeInTheDocument();
     expect(within(first).getByText("Sam")).toBeInTheDocument();
-    expect(within(first).getByText("10-30 5:30 م")).toHaveClass("deadline--ok");
+    expect(within(first).getByText("10-30 5:30 PM")).toHaveClass("deadline--ok");
   });
 
   it("says nobody and nothing for what is not there yet", async () => {

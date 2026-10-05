@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const CODE = "TSK-00001";
 const DOOR = `/api/v1/tasks/${CODE}/`;
-const stamp = (text: string) => ({ ar: `${text} م`, en: `${text} PM` });
+const stamp = (text: string) => ({ ar: `${text} PM`, en: `${text} PM` });
 
 function task(over: Partial<OpsTask> = {}): OpsTask {
   return {
@@ -24,7 +24,7 @@ function task(over: Partial<OpsTask> = {}): OpsTask {
     client_code: "CL-0001",
     source_lang: "English",
     target_lang: "Arabic",
-    due: { ar: "2026-10-30 5:30 م", en: "2026-10-30 5:30 PM" },
+    due: { ar: "2026-10-30 5:30 PM", en: "2026-10-30 5:30 PM" },
     due_state: "ok",
     translator_due: stamp("10-28 3:00"),
     description: "Translate pages 2-4\nKeep the table",
@@ -101,8 +101,8 @@ describe("OperationTaskPage: what the operation reads", () => {
     expect(screen.getByText("شغل جاري").closest(".badge")).not.toBeNull();
     expect(screen.getByText("عالية")).toHaveClass("badge--prio-high");
     expect(screen.getByText("واتساب")).toBeInTheDocument();
-    expect(screen.getByText("2026-10-30 5:30 م").closest(".deadline--ok")).not.toBeNull();
-    expect(screen.getByTitle("الديدلاين اللي المترجم شايفه")).toHaveTextContent("10-28 3:00 م");
+    expect(screen.getByText("2026-10-30 5:30 PM").closest(".deadline--ok")).not.toBeNull();
+    expect(screen.getByTitle("الديدلاين اللي المترجم شايفه")).toHaveTextContent("10-28 3:00 PM");
     expect(container.textContent).toContain("CL-0001 · English → Arabic");
     for (const name of ["Nour", "Mona", "Sam"]) expect(within(container).getAllByText(name).length).toBeGreaterThan(0);
     const brief = screen.getByText(/Translate pages 2-4/);
@@ -151,7 +151,7 @@ describe("OperationTaskPage: what the operation reads", () => {
     expect(pdf).toHaveAttribute("target", "_blank");
     expect(pdf.getAttribute("rel")).toContain("noopener");
     expect(container.querySelector('a.task-thumb img[alt="photo.png"]')?.getAttribute("src")).toBe("/files/in/photo.png");
-    expect(screen.getByRole("link", { name: /translated\.docx/ })).toHaveTextContent("10-02 4:10 م");
+    expect(screen.getByRole("link", { name: /translated\.docx/ })).toHaveTextContent("10-02 4:10 PM");
   });
 
   it("says the translation has not come when it has not, and has no translation box when nobody has the task", async () => {
@@ -218,8 +218,8 @@ describe("OperationTaskPage: what the operation reads", () => {
     const { container } = open();
     expect(await screen.findByText("Please translate this")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /a\.pdf/ })).toHaveAttribute("href", "/files/in/a.pdf");
-    expect(container.textContent).toContain("WhatsApp · 10-01 9:00 م");
-    expect(container.textContent).toContain("Email · 10-01 9:05 م");
+    expect(container.textContent).toContain("WhatsApp · 10-01 9:00 PM");
+    expect(container.textContent).toContain("Email · 10-01 9:05 PM");
   });
 
   it("lists the delivery log with the state of each, and the reason a send failed", async () => {
@@ -403,7 +403,7 @@ describe("OperationTaskPage: taking over and delivering", () => {
     serve(delivering());
     const { container } = open();
     expect(await screen.findByText("التاسك مستلمة — تقدر تبعتها للعميل.")).toBeInTheDocument();
-    expect(container.querySelector(".note--ok .note__where")).toHaveTextContent("Nour · 10-02 6:00 م");
+    expect(container.querySelector(".note--ok .note__where")).toHaveTextContent("Nour · 10-02 6:00 PM");
     const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     expect(boxes.map((b) => b.checked)).toEqual([true, false]);
     expect(screen.getByText("Sam · 1.5 KB")).toBeInTheDocument();
@@ -783,7 +783,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
       expect(screen.getByText(/شيل لنفسك وقت للمراجعة/)).toBeInTheDocument();
-      expect(screen.getByTitle("ديدلاين العميل")).toHaveTextContent("10-30 5:30 م");
+      expect(screen.getByTitle("ديدلاين العميل")).toHaveTextContent("10-30 5:30 PM");
     });
 
     it("says why it was refused, in the server's own words, and keeps what was typed", async () => {
@@ -845,7 +845,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       open();
       await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
       expect(screen.getByText(/أصفار يعني المترجم يشتغل على ديدلاين العميل/)).toBeInTheDocument();
-      expect(screen.getAllByText(/10-28 3:00 م/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/10-28 3:00 PM/).length).toBeGreaterThan(0);
     });
 
     it("says why it was refused", async () => {
@@ -867,8 +867,8 @@ describe("OperationTaskPage: the team leader's page", () => {
       expect(await screen.findByText("المترجم طالب وقت إضافي")).toBeInTheDocument();
       expect(screen.getByText("يوم و3 ساعات — The file is long")).toBeInTheDocument();
       const dates = screen.getByText("ديدلاينه هيبقى").closest("div") as HTMLElement;
-      expect(dates).toHaveTextContent("11-01 3:00 م");
-      expect(dates).toHaveTextContent("العميل 10-30 5:30 م");
+      expect(dates).toHaveTextContent("11-01 3:00 PM");
+      expect(dates).toHaveTextContent("العميل 10-30 5:30 PM");
     });
 
     it("is approved with one press", async () => {

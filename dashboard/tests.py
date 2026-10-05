@@ -1031,8 +1031,8 @@ class AttendanceTests(TestCase):
         trail = AttendanceEdit.objects.get(work_day=row, field="check_in")
         self.assertEqual(trail.actor, self.hr)
         # Cairo time on a twelve-hour clock, like everything a person reads.
-        self.assertIn("9:40 ص", trail.old_value)
-        self.assertIn("9:00 ص", trail.new_value)
+        self.assertIn("9:40 AM", trail.old_value)
+        self.assertIn("9:00 AM", trail.new_value)
         # The punch itself is untouched - the evidence survives the correction.
         self.assertEqual(
             timezone.localtime(row.events.first().at).strftime("%H:%M"), "09:40"
@@ -1211,8 +1211,8 @@ class AttendanceRulesTests(TestCase):
 
         mine = self.notes(self.person, "attendance.late").get()
         self.assertIn("اتحوّل للـHR", mine.body_ar)
-        self.assertIn("9:14 ص", mine.body_ar)
-        self.assertIn("9:00 ص", mine.body_ar)
+        self.assertIn("9:14 AM", mine.body_ar)
+        self.assertIn("9:00 AM", mine.body_ar)
         self.assertTrue(
             Notification.objects.filter(user=self.hr, title_en__startswith="Late").exists()
         )
@@ -1341,28 +1341,24 @@ class AttendanceRulesTests(TestCase):
             return Notification.objects.filter(user=user, title_en__startswith="Extra time started")
 
         mine = told(lead).get()
-        self.assertIn("5:05 م", mine.body_ar)
+        self.assertIn("5:05 PM", mine.body_ar)
         self.assertIn("ساعة ونص", mine.body_ar)
         self.assertEqual(mine.url, "/lead/translators/")      # a leader has no HR board
         self.assertEqual(told(self.admin).get().url, f"/hr/attendance/{row.pk}/")
         self.assertFalse(told(self.person).exists())          # never the person themselves
         self.assertFalse(told(self.hr).exists())              # the spec names the leader and the admins
 
-    def test_an_admin_on_extra_time_is_not_told_about_themselves(self):
-        from datetime import date
-
+    def test_the_owner_does_not_clock_in_at_all(self):
+        """The owner has no attendance, so there is no extra time of theirs to tell anybody about either."""
         from . import attendance
         from .models import Notification, PunchKind, Shift
 
         for weekday in range(7):
             Shift.objects.create(user=self.admin, weekday=weekday, template=self.morning)
-        attendance.punch(self.admin, PunchKind.CHECK_IN, at=self.at(9, 0))
-        attendance.punch(self.admin, PunchKind.EXTRA_START, at=self.at(17, 5))
-        self.assertFalse(
-            Notification.objects.filter(
-                user=self.admin, title_en__startswith="Extra time started"
-            ).exists()
-        )
+        with self.assertRaises(attendance.PunchRefused) as refused:
+            attendance.punch(self.admin, PunchKind.CHECK_IN, at=self.at(9, 0))
+        self.assertEqual(refused.exception.code, "disabled")
+        self.assertFalse(Notification.objects.filter(user=self.admin, title_en__startswith="Extra time started").exists())
 
     def test_finishing_extra_time_tells_the_team_leader_how_long(self):
         from . import attendance
@@ -1378,7 +1374,7 @@ class AttendanceRulesTests(TestCase):
             user=lead, title_en__startswith="Extra time finished"
         ).get()
         self.assertIn("120", done.body_ar)
-        self.assertIn("7:05 م", done.body_ar)
+        self.assertIn("7:05 PM", done.body_ar)
 
     def test_the_extra_time_screen_stays_until_the_person_checks_out(self):
         from . import attendance
@@ -1391,8 +1387,8 @@ class AttendanceRulesTests(TestCase):
         attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 12))
         gate = attendance.gate_for(self.person, now=self.at(18, 30))
         self.assertEqual(gate["kind"], "extra")
-        self.assertEqual(gate["extra_since"]["ar"], "5:12 م")
-        self.assertEqual(gate["end"]["ar"], "5:00 م")
+        self.assertEqual(gate["extra_since"]["ar"], "5:12 PM")
+        self.assertEqual(gate["end"]["ar"], "5:00 PM")
         self.assertIn("deadline", gate)
 
         attendance.punch(self.person, PunchKind.CHECK_OUT, at=self.at(19, 0))
@@ -1423,7 +1419,7 @@ class AttendanceRulesTests(TestCase):
         attendance.sweep_alerts(now=self.at(18, 10))                # past the hour
         attendance.sweep_alerts(now=self.at(18, 40))                # and once only
         reminder = self.notes(self.person, "attendance.extra_reminder").get()
-        self.assertIn("5:05 م", reminder.body_ar)
+        self.assertIn("5:05 PM", reminder.body_ar)
         self.assertIn("انصراف", reminder.body_ar)
 
     def test_a_late_start_is_not_filled_by_extra_time(self):
@@ -1446,7 +1442,7 @@ class AttendanceRulesTests(TestCase):
         self.assertIsNone(attendance.gate_for(self.person, now=self.at(8, 40)))
         gate = attendance.gate_for(self.person, now=self.at(8, 50))
         self.assertEqual(gate["kind"], "check_in")
-        self.assertEqual(gate["start"]["ar"], "9:00 ص")
+        self.assertEqual(gate["start"]["ar"], "9:00 AM")
         self.assertEqual(gate["grace_until"]["en"], "9:10 AM")
         self.assertEqual(gate["late_now"], 0)
 
@@ -1463,7 +1459,7 @@ class AttendanceRulesTests(TestCase):
         attendance.punch(self.person, PunchKind.CHECK_IN, at=self.at(9, 0))
         gate = attendance.gate_for(self.person, now=self.at(17, 10))
         self.assertEqual(gate["kind"], "check_out")
-        self.assertEqual(gate["deadline"]["ar"], "6:00 م")
+        self.assertEqual(gate["deadline"]["ar"], "6:00 PM")
 
         attendance.punch(self.person, PunchKind.EXTRA_START, at=self.at(17, 12))
         # The "shift is over" reminder is done with; what replaces it is the
@@ -1522,11 +1518,11 @@ class AttendanceRulesTests(TestCase):
         from .clock import fmt12, window12
 
         self.assertEqual(settings.TIME_ZONE, "Africa/Cairo")
-        self.assertEqual(fmt12(time(17, 30)), "5:30 م")
+        self.assertEqual(fmt12(time(17, 30)), "5:30 PM")
         self.assertEqual(fmt12(time(17, 30), "en"), "5:30 PM")
-        self.assertEqual(fmt12(time(0, 5)), "12:05 ص")
-        self.assertEqual(fmt12(time(12, 0)), "12:00 م")
-        self.assertEqual(window12(time(17, 0), time(1, 0)), "5:00 م - 1:00 ص")
+        self.assertEqual(fmt12(time(0, 5)), "12:05 AM")
+        self.assertEqual(fmt12(time(12, 0)), "12:00 PM")
+        self.assertEqual(window12(time(17, 0), time(1, 0)), "5:00 PM - 1:00 AM")
 
         utc = datetime(2026, 9, 21, 14, 30, tzinfo=dt_timezone.utc)
         cairo = utc.astimezone(ZoneInfo("Africa/Cairo"))

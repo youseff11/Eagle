@@ -29,7 +29,7 @@ from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeReque
 from .models import (
     ACTIVE_TASK_STATUSES, ApprovalStatus, ClientComplaint, ComplaintSeverity, Department, EmploymentStatus, OffSitePolicy, OfficeLocation,
     PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, Task, User,
-    WorkMode,
+    WorkMode, rule_followers,
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
@@ -144,8 +144,9 @@ def register(request):
                 "status": _badge(EMPLOYMENT_STATUS_MAP, one.employment_status),
                 "state": _state(one, translators, leaders),
                 "seen": _seen_json(one),
-                "shifts": len(one.shifts.all()),
-                "rating": float(one.rating),
+                # The owner has no roster and no rating: there is nothing to count, which is not a nought.
+                "shifts": len(one.shifts.all()) if one.follows_company_rules else None,
+                "rating": float(one.rating) if one.follows_company_rules else None,
                 **({"username": one.username, "mail_alias": one.mail_alias} if admin else {}),
             }
             for one in rows
@@ -190,10 +191,13 @@ def employee(request, pk):
         }
     application = getattr(person, "candidate_record", None)
     plan = person.salary_plan
+    # The owner's file is who they are and nothing of the company's rules: no attendance, roster, leave, probation or pay.
+    bound = person.follows_company_rules
     return JsonResponse({
         "ok": True,
         "person": {
             **person_json(person),
+            "exempt": not bound,
             "initials": person.initials,
             "avatar": avatars.url_of(person),
             "role": _two(ROLE_MAP, person.role),
@@ -212,9 +216,9 @@ def employee(request, pk):
             "attendance_enabled": person.attendance_enabled,
         },
         "summary": summary,
-        "shifts": [_roster_json(one) for one in person.shifts.select_related("template").all()],
-        "picker": shiftpick.picker_json(person) if viewer.can_manage_attendance else None,
-        "work_mode_card": _work_mode_card(person) if viewer.can_manage_attendance else None,
+        "shifts": [_roster_json(one) for one in person.shifts.select_related("template").all()] if bound else [],
+        "picker": shiftpick.picker_json(person) if bound and viewer.can_manage_attendance else None,
+        "work_mode_card": _work_mode_card(person) if bound and viewer.can_manage_attendance else None,
         "probation": [
             {
                 "stage": {"value": one.stage, "ar": STAGE_MAP[one.stage][0], "en": STAGE_MAP[one.stage][1]},
@@ -222,15 +226,15 @@ def employee(request, pk):
                 "outcome": _badge(PROBATION_MAP, one.outcome),
             }
             for one in person.probation_reviews.all()
-        ],
-        "leave": [leave_json(one) for one in person.leave_requests.all()[:MAX_FILE_ROWS]],
+        ] if bound else [],
+        "leave": [leave_json(one) for one in person.leave_requests.all()[:MAX_FILE_ROWS]] if bound else [],
         "plan": {
-            "current": {"id": plan.pk, "name": plan.name, "overrides": plan.overrides()} if plan else None,
-            "options": [{"id": one.pk, "name": one.name} for one in SalaryPlan.objects.filter(is_active=True)] if viewer.is_admin_role else [],
+            "current": {"id": plan.pk, "name": plan.name, "overrides": plan.overrides()} if plan and bound else None,
+            "options": [{"id": one.pk, "name": one.name} for one in SalaryPlan.objects.filter(is_active=True)] if bound and viewer.is_admin_role else [],
         },
         "application": {"code": application.code, "applied_on": application.applied_at.date().isoformat()} if application else None,
-        "salary": [{"effective_from": one.effective_from.isoformat(), "amount": str(one.amount)} for one in person.salary_records.all()[:MAX_FILE_ROWS]],
-        "can": {"edit": viewer.is_admin_role, "shift": viewer.can_manage_attendance, "plan": viewer.is_admin_role},
+        "salary": [{"effective_from": one.effective_from.isoformat(), "amount": str(one.amount)} for one in person.salary_records.all()[:MAX_FILE_ROWS]] if bound else [],
+        "can": {"edit": viewer.is_admin_role, "shift": bound and viewer.can_manage_attendance, "plan": bound and viewer.is_admin_role},
     })
 
 
@@ -239,6 +243,8 @@ def employee(request, pk):
 def employee_shift(request, pk):
     """Put a person on one of the company's shifts for some weekdays, on none, or on a new one (``shiftpick``)."""
     person = get_object_or_404(User, pk=pk)
+    if not person.follows_company_rules:
+        return _error(400, "owner")
     try:
         choice = shiftpick.read_choice(_object(request))
     except BadBody:
@@ -259,6 +265,8 @@ def employee_shift(request, pk):
 def employee_workmode(request, pk):
     """Home or office (``{"work_mode": "office"|"remote"}``); hybrid is kept for somebody already on it, never offered fresh."""
     person = get_object_or_404(User, pk=pk)
+    if not person.follows_company_rules:
+        return _error(400, "owner")
     try:
         mode = _object(request).get("work_mode", "")
     except BadBody:
@@ -281,6 +289,8 @@ def employee_workmode(request, pk):
 def employee_plan(request, pk):
     """Give a person a salary plan, or take it off so they are on the company's rules (``{"plan": id | null}``). The admin's alone."""
     person = get_object_or_404(User, pk=pk)
+    if not person.follows_company_rules:
+        return _error(400, "owner")
     try:
         which = _object(request).get("plan")
     except BadBody:
@@ -317,13 +327,13 @@ def _review_json(review):
 def probation(request):
     """The three reviews each person on probation has: ``?state=due`` (come due and undecided), ``all``, or the open ones."""
     today = timezone.localdate()
-    rows = ProbationReview.objects.select_related("user", "reviewer").filter(user__is_active=True)
+    rows = rule_followers(ProbationReview.objects.select_related("user", "reviewer").filter(user__is_active=True), prefix="user__")
     state = request.GET.get("state") or ""
     if state == "due":
         rows = rows.filter(outcome=ProbationOutcome.PENDING, due_date__lte=today)
     elif state != "all":
         rows = rows.filter(outcome=ProbationOutcome.PENDING)
-    on_probation = User.objects.filter(is_active=True, employment_status=EmploymentStatus.PROBATION).select_related("department").annotate(
+    on_probation = rule_followers(User.objects.filter(is_active=True, employment_status=EmploymentStatus.PROBATION)).select_related("department").annotate(
         review_count=Count("probation_reviews")
     )
     form = named(
@@ -612,7 +622,7 @@ def _salary_request_json(row):
 @can_recruit
 def salary_requests(request):
     """What waits for the owner, the decisions so far, and the form that asks for a change for the person ``?user=<id>`` names."""
-    people = User.objects.filter(is_active=True)
+    people = rule_followers(User.objects.filter(is_active=True))
     person = None
     if request.GET.get("user"):
         who = _digits(request.GET["user"])

@@ -1708,8 +1708,9 @@ export interface HrRegister {
     status: DayStatusJson;
     state: StaffState;
     seen: Stamp;
-    shifts: number;
-    rating: number;
+    /** `null` for the owner: they have no roster and no rating, which is not a nought. */
+    shifts: number | null;
+    rating: number | null;
     username?: string;
     mail_alias?: string;
   }[];
@@ -1722,6 +1723,8 @@ export interface HrEmployee {
   person: {
     id: number;
     name: string;
+    /** The owner: their file is who they are and none of the company's rules (no attendance, roster, leave, probation or pay). */
+    exempt: boolean;
     initials: string;
     avatar?: string | null;
     role: Labelled;

@@ -87,6 +87,7 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
     person: {
       id: 11,
       name: "Sam",
+      exempt: false,
       initials: "S",
       avatar: null,
       role: { value: "translator", ar: "مترجم", en: "Translator" },
@@ -105,11 +106,11 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
       attendance_enabled: true,
     },
     summary: { scheduled_days: 22, present_days: 18, office_days: 12, remote_days: 6, leave_days: 1, absent_days: 2, late_days: 3, work_minutes: 9000, overtime_minutes: 90 },
-    shifts: [{ id: 1, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: "الصبح", start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true }],
+    shifts: [{ id: 1, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: "الصبح", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true }],
     picker: {
       current: 3,
       has_custom: false,
-      templates: [{ id: 3, label: "الصبح", start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM") }],
+      templates: [{ id: 3, label: "الصبح", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM") }],
       days: [
         { num: 5, ar: "السبت", en: "Saturday", checked: true },
         { num: 0, ar: "الاتنين", en: "Monday", checked: true },
@@ -161,7 +162,7 @@ describe("HrEmployeePage", () => {
     const { container } = open("/hr/employees/11");
     await screen.findByText("البيانات");
     const roster = container.querySelector('[data-card="roster"]') as HTMLElement;
-    expect(roster).toHaveTextContent("9:00 ص–5:00 م");
+    expect(roster).toHaveTextContent("9:00 AM–5:00 PM");
     expect(within(roster).getByRole("link", { name: /عدّل الجدول/ })).toHaveAttribute("href", "/hr/schedules?user=11");
     expect(container.querySelector('[data-card="probation"]')).toHaveTextContent("مراجعة 30 يوم");
     expect(container.querySelector('[data-card="leave"]')).toHaveTextContent("إجازة اعتيادية");

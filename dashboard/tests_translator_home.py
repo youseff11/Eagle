@@ -201,7 +201,7 @@ class SwitchTests(_Desk):
         self.assertEqual(_json(self.get(self.accounting, "v1_me"))["screens"], ["accounts", "attendance", "leave", "performance", "chats"])
         self.assertEqual(_json(self.get(self.hr, "v1_me"))["screens"], ["hr", "attendance", "leave", "performance", "chats"])
         # The admin oversees: the panel, the money, HR, the operation, and not another role's own desk.
-        self.assertEqual(_json(self.get(self.admin, "v1_me"))["screens"], ["admin", "accounts", "hr", "operation", "attendance", "chats"])
+        self.assertEqual(_json(self.get(self.admin, "v1_me"))["screens"], ["admin", "accounts", "hr", "operation", "chats"])
 
     def test_the_data_does_not_depend_on_the_switch(self):
         # The switch decides the page. Who may see the work is the role: a

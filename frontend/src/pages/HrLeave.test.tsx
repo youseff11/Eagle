@@ -46,8 +46,8 @@ function mine(over: Partial<MyLeave> = {}): MyLeave {
         end_date: null,
         days: 0,
         minutes: 150,
-        start_time: stampOf("10:00 ص", "10:00 AM"),
-        end_time: stampOf("12:30 م", "12:30 PM"),
+        start_time: stampOf("10:00 AM", "10:00 AM"),
+        end_time: stampOf("12:30 PM", "12:30 PM"),
         status: approved,
         is_open: false,
       }),
@@ -226,7 +226,7 @@ function queue(over: Partial<HrLeave> = {}): HrLeave {
     ok: true,
     waiting: [
       { ...request(11, { status: waiting, reason: "Wedding" }), user: { id: 21, name: "Sam" }, manager: "Mona", can_decide: true },
-      { ...request(12, { status: managerOk, kind: { value: "permission", ar: "إذن (ساعات)", en: "Permission (hours)" }, is_permission: true, end_date: null, days: 0, minutes: 120, start_time: stampOf("10:00 ص", "10:00 AM"), end_time: stampOf("12:00 م", "12:00 PM") }), user: { id: 22, name: "Nada" }, manager: null, can_decide: true },
+      { ...request(12, { status: managerOk, kind: { value: "permission", ar: "إذن (ساعات)", en: "Permission (hours)" }, is_permission: true, end_date: null, days: 0, minutes: 120, start_time: stampOf("10:00 AM", "10:00 AM"), end_time: stampOf("12:00 PM", "12:00 PM") }), user: { id: 22, name: "Nada" }, manager: null, can_decide: true },
     ],
     rows: [
       { ...request(13, { status: approved, is_open: false }), user: { id: 21, name: "Sam" }, decided_by: "Hala", applied: true },
@@ -252,7 +252,7 @@ describe("HrLeavePage", () => {
     expect(first).toHaveTextContent("Wedding");
     expect(first.querySelector("[data-manager]")).toHaveTextContent("Mona");
     const second = container.querySelector('[data-waiting="12"]') as HTMLElement;
-    expect(second).toHaveTextContent("10:00 ص–12:00 م");
+    expect(second).toHaveTextContent("10:00 AM–12:00 PM");
     expect(second.querySelector("[data-manager]")).toBeNull();
   });
 

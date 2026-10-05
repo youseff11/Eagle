@@ -316,6 +316,14 @@ WEEKDAYS = (
 # Helpers
 # ---------------------------------------------------------------------------
 
+def rule_followers(queryset, prefix=""):
+    """The people the company's attendance and pay rules apply to: everybody but the owner (the admin), who has neither.
+
+    ``prefix`` is the way from the rows to the person (``"user__"`` for a person's reviews), when the queryset is not of people.
+    """
+    return queryset.exclude(**{f"{prefix}role": Role.ADMIN}).exclude(**{f"{prefix}is_superuser": True})
+
+
 def span_minutes(start, end):
     """Minutes from ``start`` to ``end``, counting midnight as a crossing.
 
@@ -514,12 +522,21 @@ class User(AbstractUser):
         # And the mail address, for anyone who no longer answers clients.
         if self.role not in MAIL_ALIAS_ROLES:
             self.mail_alias = ""
+        # The owner has no attendance and no pay: those rules are for the people who work for the company, whichever screen (ours,
+        # Django's admin, a script) made this person an admin. A bulk ``update()`` does not come through here; the migration did it once.
+        if self.is_admin_role:
+            self.attendance_enabled = False
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.get_full_name() or self.username
 
     # -- role helpers ------------------------------------------------------
+    @property
+    def follows_company_rules(self):
+        """False for the owner: attendance, leave, salary and the pay plans are not theirs."""
+        return not self.is_admin_role
+
     @property
     def is_admin_role(self):
         return self.role == Role.ADMIN or self.is_superuser

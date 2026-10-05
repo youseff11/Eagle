@@ -141,10 +141,10 @@ function candidate(over: Partial<HrCandidate> = {}, who: Partial<HrCandidate["ca
       ...who,
     },
     form: [field("full_name", "الاسم", { value: "Sara" }), field("hr_notes", "ملاحظات HR", { kind: "textarea" })],
-    answers: [{ order: 1, question: "اسمك إيه؟", value: "Sara", file: null, at: stampOf("10-01 3:00 م", "10-01 3:00 PM") }],
+    answers: [{ order: 1, question: "اسمك إيه؟", value: "Sara", file: null, at: stampOf("10-01 3:00 PM", "10-01 3:00 PM") }],
     interviews: [
-      { id: 21, at: stampOf("2026-10-05 3:00 م", "2026-10-05 3:00 PM"), kind: online, interviewer: "Mona", meeting_link: "", location: "", notes: "", evaluated: true, marks: {}, total: 41, max: 50, comments: "" },
-      { id: 22, at: stampOf("2026-10-06 1:00 م", "2026-10-06 1:00 PM"), kind: online, interviewer: null, meeting_link: "", location: "", notes: "", evaluated: false, marks: {}, total: 0, max: 50, comments: "" },
+      { id: 21, at: stampOf("2026-10-05 3:00 PM", "2026-10-05 3:00 PM"), kind: online, interviewer: "Mona", meeting_link: "", location: "", notes: "", evaluated: true, marks: {}, total: 41, max: 50, comments: "" },
+      { id: 22, at: stampOf("2026-10-06 1:00 PM", "2026-10-06 1:00 PM"), kind: online, interviewer: null, meeting_link: "", location: "", notes: "", evaluated: false, marks: {}, total: 0, max: 50, comments: "" },
     ],
     tests: [
       { id: 31, title: "Sample test", department: null, brief: "", language_pair: "EN-AR", word_count: 300, assignment: { url: "/files/recruitment/tests/x.docx", name: "test.docx" }, submission: null, submitted_at: null, deadline: null, overdue: true, reviewer: "Nour", marked: true, marks: {}, total: 38, max: 50, comments: "" },
@@ -290,12 +290,12 @@ describe("HrCandidatePage", () => {
   });
 
   it("shows who revealed the company and when, and no button to do it again", async () => {
-    serve("hr", page(candidate({}, { identity: { revealed: true, at: stampOf("2026-10-02 1:00 م", "2026-10-02 1:00 PM"), by: "Mona" } })));
+    serve("hr", page(candidate({}, { identity: { revealed: true, at: stampOf("2026-10-02 1:00 PM", "2026-10-02 1:00 PM"), by: "Mona" } })));
     const { container } = open("/hr/candidates/CAN-0007");
     await screen.findByText("إجابات المرشح");
     const card = container.querySelector('[data-card="identity"]') as HTMLElement;
     expect(card).toHaveTextContent("Mona");
-    expect(card).toHaveTextContent("2026-10-02 1:00 م");
+    expect(card).toHaveTextContent("2026-10-02 1:00 PM");
     expect(within(card).queryByRole("button")).toBeNull();
     expect(container.querySelector('[data-badge="revealed"]')).not.toBeNull();
   });
@@ -481,7 +481,7 @@ describe("HrCandidatePage", () => {
 function interview(): HrInterview {
   return {
     ok: true,
-    interview: { id: 21, at: stampOf("2026-10-05 3:00 م", "2026-10-05 3:00 PM"), kind: online, interviewer: "Mona", meeting_link: "https://meet.example/abc", location: "", notes: "", evaluated: true, marks: { communication: 8 }, total: 8, max: 50, comments: "" },
+    interview: { id: 21, at: stampOf("2026-10-05 3:00 PM", "2026-10-05 3:00 PM"), kind: online, interviewer: "Mona", meeting_link: "https://meet.example/abc", location: "", notes: "", evaluated: true, marks: { communication: 8 }, total: 8, max: 50, comments: "" },
     candidate: { code: "CAN-0007", name: "Sara" },
     form: [field("communication", "التواصل", { kind: "number", value: 8, min: 0, max: 10 }), field("experience", "الخبرة", { kind: "number", min: 0, max: 10 }), field("comments", "ملاحظات", { kind: "textarea" })],
   };
@@ -647,7 +647,7 @@ function approvals(over: Partial<HrApprovals> = {}): HrApprovals {
     ok: true,
     waiting: [{ ...row({ code: "CAN-0009", name: "Laila", status: waitingOwner }), interview_score: { total: 41, max: 50 }, test_score: null, expected_salary: "7000", hr_recommendation: "Hire", hr_notes: "Strong", cv: file, department: "الترجمة" }],
     decided: [
-      { ...row({ code: "CAN-0010", name: "Karim", status: approved }), decided_at: stampOf("2026-10-02 1:00 م", "2026-10-02 1:00 PM"), can_hire: true },
+      { ...row({ code: "CAN-0010", name: "Karim", status: approved }), decided_at: stampOf("2026-10-02 1:00 PM", "2026-10-02 1:00 PM"), can_hire: true },
       { ...row({ code: "CAN-0011", name: "Hala", status: badge("hired", "ok", "اتعيّن", "Hired") }), decided_at: null, can_hire: false },
     ],
     ...over,
@@ -724,7 +724,7 @@ function queue(over: Partial<ReviewerQueue> = {}): ReviewerQueue {
       { id: 5, candidate: "CAN-0007", title: "Sample", department: "الترجمة", overdue: true, submitted: true, submitted_at: stampOf("10-03", "10-03"), marked_at: null, total: null, max: 50 },
       { id: 6, candidate: "CAN-0008", title: "Other", department: null, overdue: false, submitted: false, submitted_at: null, marked_at: null, total: null, max: 50 },
     ],
-    done: [{ id: 4, candidate: "CAN-0006", title: "Old", department: null, overdue: false, submitted: true, submitted_at: stampOf("09-30", "09-30"), marked_at: stampOf("2026-10-01 1:00 م", "2026-10-01 1:00 PM"), total: 38, max: 50 }],
+    done: [{ id: 4, candidate: "CAN-0006", title: "Old", department: null, overdue: false, submitted: true, submitted_at: stampOf("09-30", "09-30"), marked_at: stampOf("2026-10-01 1:00 PM", "2026-10-01 1:00 PM"), total: 38, max: 50 }],
     ...over,
   };
 }

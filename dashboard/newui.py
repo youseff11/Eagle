@@ -93,6 +93,8 @@ SCREENS = {
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
                 Role.ACCOUNTING, Role.SALES,
             ),
+            # The owner does not clock in.
+            admin_menu=False,
         ),
         # A person's own leave: the balance, the requests, asking for time off. Every role has one (the page is only ever the
         # person's own).

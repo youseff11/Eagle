@@ -110,6 +110,8 @@ def aliases_sync(request):
 def shift_add(request, pk):
     """One roster row of typed times: a weekday, from, to (``shiftpick.typed_shift_form``, the classic box's rule too)."""
     person = get_object_or_404(User, pk=pk)
+    if not person.follows_company_rules:
+        return _error(400, "owner")
     try:
         body = _object(request)
     except BadBody:

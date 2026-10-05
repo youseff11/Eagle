@@ -19,8 +19,8 @@ function row(id: number, name: string, over: Partial<HrBoardRow> = {}): HrBoardR
     date: "2026-10-03",
     work_mode: { value: "office", ar: "من المكتب", en: "Office" },
     schedule: "9 AM - 5 PM",
-    check_in: stampOf("9:05 ص", "9:05 AM"),
-    check_out: stampOf("5:01 م", "5:01 PM"),
+    check_in: stampOf("9:05 AM", "9:05 AM"),
+    check_out: stampOf("5:01 PM", "5:01 PM"),
     is_open: false,
     work_minutes: 476,
     status: present,
@@ -56,7 +56,7 @@ function board(over: Partial<HrBoard> = {}): HrBoard {
         short_minutes: 30,
         overtime_minutes: 15,
         off_site: true,
-        extra_started_at: stampOf("5:30 م", "5:30 PM"),
+        extra_started_at: stampOf("5:30 PM", "5:30 PM"),
         needs_review: true,
         work_minutes: 424,
       }),
@@ -89,17 +89,17 @@ function dayJson(over: Partial<HrDay> = {}): HrDay {
     day: {
       ...row(5, "Sam", { needs_review: true, checkout_missed: true }),
       review_reason: "Odd place",
-      scheduled_start: stampOf("9:00 ص", "9:00 AM"),
-      scheduled_end: stampOf("5:00 م", "5:00 PM"),
+      scheduled_start: stampOf("9:00 AM", "9:00 AM"),
+      scheduled_end: stampOf("5:00 PM", "5:00 PM"),
       scheduled_minutes: 480,
       grace_minutes: 10,
     },
     events: [
-      { kind: { value: "check_in", ar: "حضور", en: "Check in" }, at: stampOf("2026-10-03 9:05 ص", "2026-10-03 9:05 AM"), within_geofence: true, distance_m: 40, accuracy_m: 12, office: "المقر", device: "Phone", ip: "10.1.2.3" },
-      { kind: { value: "check_out", ar: "انصراف", en: "Check out" }, at: stampOf("2026-10-03 5:01 م", "2026-10-03 5:01 PM"), within_geofence: false, distance_m: 900, accuracy_m: null, office: "", device: "", ip: "" },
+      { kind: { value: "check_in", ar: "حضور", en: "Check in" }, at: stampOf("2026-10-03 9:05 AM", "2026-10-03 9:05 AM"), within_geofence: true, distance_m: 40, accuracy_m: 12, office: "المقر", device: "Phone", ip: "10.1.2.3" },
+      { kind: { value: "check_out", ar: "انصراف", en: "Check out" }, at: stampOf("2026-10-03 5:01 PM", "2026-10-03 5:01 PM"), within_geofence: false, distance_m: 900, accuracy_m: null, office: "", device: "", ip: "" },
       { kind: { value: "extra_start", ar: "بداية اكسترا تايم", en: "Extra time start" }, at: null, within_geofence: null, distance_m: null, accuracy_m: null, office: "", device: "", ip: "" },
     ],
-    edits: [{ actor: "Mona", field: "note", old: "", new: "Traffic", reason: "Told us", at: stampOf("2026-10-03 6:00 م", "2026-10-03 6:00 PM") }],
+    edits: [{ actor: "Mona", field: "note", old: "", new: "Traffic", reason: "Told us", at: stampOf("2026-10-03 6:00 PM", "2026-10-03 6:00 PM") }],
     conf: { grace_minutes: 10 },
     form: [
       field("status", "Status", {
@@ -151,7 +151,7 @@ function report(over: Partial<HrReport> = {}): HrReport {
       overtime_minutes: 90,
       needs_review: 2,
       days: [
-        { date: "2026-10-01", status: present, work_mode: { value: "office", ar: "من المكتب", en: "Office" }, check_in: stampOf("9:05 ص", "9:05 AM"), check_out: stampOf("5:00 م", "5:00 PM"), break_minutes: 30, work_minutes: 450, late_minutes: 5, short_minutes: 0, overtime_minutes: 0 },
+        { date: "2026-10-01", status: present, work_mode: { value: "office", ar: "من المكتب", en: "Office" }, check_in: stampOf("9:05 AM", "9:05 AM"), check_out: stampOf("5:00 PM", "5:00 PM"), break_minutes: 30, work_minutes: 450, late_minutes: 5, short_minutes: 0, overtime_minutes: 0 },
         { date: "2026-10-02", status: absent, work_mode: null, check_in: null, check_out: null, break_minutes: 0, work_minutes: 0, late_minutes: 0, short_minutes: 480, overtime_minutes: 0 },
       ],
     },
@@ -176,8 +176,8 @@ describe("HrAttendancePage", () => {
     await screen.findByText("السجل");
     expect(Array.from(container.querySelectorAll(".kpi")).map((one) => one.textContent)).toEqual(["حاضر2", "تأخير1", "بره النطاق1", "ساعات15:00"]);
     const first = container.querySelector('[data-day="1"]') as HTMLElement;
-    expect(within(first).getByText("9:05 ص")).toBeInTheDocument();
-    expect(within(first).getByText("5:01 م")).toBeInTheDocument();
+    expect(within(first).getByText("9:05 AM")).toBeInTheDocument();
+    expect(within(first).getByText("5:01 PM")).toBeInTheDocument();
     expect(within(first).getByText("7:56")).toBeInTheDocument();
     expect(within(first).getByRole("link", { name: /عدّل/ })).toHaveAttribute("href", "/hr/attendance/1");
   });
@@ -192,7 +192,7 @@ describe("HrAttendancePage", () => {
     expect(within(nada).getByText("ناقص 30د")).toHaveClass("badge--dead");
     expect(within(nada).getByText("OT 15د")).toHaveClass("badge--ok");
     expect(within(nada).getByText("بره النطاق")).toBeInTheDocument();
-    expect(within(nada).getByText(/اكسترا من/)).toHaveTextContent("5:30 م");
+    expect(within(nada).getByText(/اكسترا من/)).toHaveTextContent("5:30 PM");
     expect(within(nada).getByText("لسه شغال")).toBeInTheDocument();
     expect(within(nada).getByText("مراجعة")).toHaveClass("badge--wait");
     const omar = container.querySelector('[data-day="3"]') as HTMLElement;
@@ -359,7 +359,7 @@ describe("HrDayPage", () => {
     const { container } = open("/hr/attendance/5");
     await screen.findByText("الجدول المجمّد");
     const card = (screen.getByText("الجدول المجمّد").closest(".card") as HTMLElement).textContent ?? "";
-    expect(card).toContain("9:00 ص");
+    expect(card).toContain("9:00 AM");
     expect(card).toContain("8:00");
     expect(card).toContain("10د");
     expect(container.querySelector('[data-note="missed"]')).not.toBeNull();
@@ -479,7 +479,7 @@ describe("HrReportPage", () => {
     await screen.findByText("يوم بيوم");
     expect(Array.from(container.querySelectorAll(".kpi")).map((one) => one.textContent)).toEqual(["أيام مجدولة22", "أيام حضور18", "إجمالي الساعات150:00", "أوفرتايم1:30"]);
     const first = container.querySelector('[data-day="2026-10-01"]') as HTMLElement;
-    expect(within(first).getByText("9:05 ص")).toBeInTheDocument();
+    expect(within(first).getByText("9:05 AM")).toBeInTheDocument();
     expect(within(first).getByText("7:30")).toBeInTheDocument();
     expect(within(first).getByText("5")).toHaveClass("deadline--late");
     const second = container.querySelector('[data-day="2026-10-02"]') as HTMLElement;

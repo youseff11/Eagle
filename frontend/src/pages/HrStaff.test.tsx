@@ -50,6 +50,7 @@ function hrHalf(over: Partial<HrEmployee> = {}): HrEmployee {
     person: {
       id: 5,
       name: "Sam Adel",
+      exempt: false,
       initials: "SA",
       role: translator,
       status: confirmed,
@@ -68,12 +69,12 @@ function hrHalf(over: Partial<HrEmployee> = {}): HrEmployee {
     },
     summary: null,
     shifts: [
-      { id: 31, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: null, start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true },
+      { id: 31, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: null, start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true },
     ],
     picker: {
       current: 3,
       has_custom: false,
-      templates: [{ id: 3, label: "الشيفت 1", start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM") }],
+      templates: [{ id: 3, label: "الشيفت 1", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM") }],
       days: [
         { num: 5, ar: "السبت", en: "Saturday", checked: true },
         { num: 0, ar: "الاتنين", en: "Monday", checked: false },
@@ -94,8 +95,8 @@ function register(): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 م", "5:30 PM"), shifts: 3, rating: 4.5, username: "sam", mail_alias: "" },
-      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 م", "5:31 PM"), shifts: 0, rating: 5, username: "nour", mail_alias: "ops1@example.com" },
+      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 PM", "5:30 PM"), shifts: 3, rating: 4.5, username: "sam", mail_alias: "" },
+      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 PM", "5:31 PM"), shifts: 0, rating: 5, username: "nour", mail_alias: "ops1@example.com" },
       { id: 7, code: "", name: "Old Timer", initials: "OT", role: { value: "hr", ar: "موارد بشرية", en: "HR" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "disabled", seen: stampOf("من يومين", "2 d ago"), shifts: 1, rating: 3.25, username: "old", mail_alias: "" },
     ],
     options: { departments: [], statuses: [confirmed] },
@@ -389,7 +390,7 @@ describe("a person's file: the roster rows", () => {
     await screen.findByText("البيانات");
     const row = container.querySelector('[data-shift="31"]') as HTMLElement;
     expect(within(row).getByText("الاتنين")).toBeInTheDocument();
-    expect(within(row).getByText("9:00 ص–5:00 م")).toHaveClass("mono");
+    expect(within(row).getByText("9:00 AM–5:00 PM")).toHaveClass("mono");
     await user.click(within(row).getByRole("button", { name: "امسح الشيفت" }));
     await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/admin/users/5/shifts/31/delete/")).toBe(true));
     // The roster is HR's answer, so it is asked again.
@@ -425,7 +426,7 @@ describe("a person's file: the roster rows", () => {
     const { container } = open("/hr/employees/5");
     await screen.findByText("البيانات");
     const roster = container.querySelector('[data-card="roster"]') as HTMLElement;
-    expect(roster).toHaveTextContent("9:00 ص–5:00 م");
+    expect(roster).toHaveTextContent("9:00 AM–5:00 PM");
     expect(within(roster).queryByRole("button", { name: "امسح الشيفت" })).toBeNull();
     expect(within(roster).queryByRole("button", { name: /ضيف شيفت/ })).toBeNull();
     expect(within(roster).getByRole("link", { name: /عدّل الجدول/ })).toHaveAttribute("href", "/hr/schedules?user=5");
@@ -490,5 +491,53 @@ describe("a new person", () => {
     open("/hr/employees/new");
     expect(await screen.findByText("home page")).toBeInTheDocument();
     expect(served.calls.some((call) => call.url.startsWith("/api/v1/admin/"))).toBe(false);
+  });
+});
+
+describe("the owner is not bound by the company's rules", () => {
+  const ownerFile = () =>
+    hrHalf({
+      person: { ...hrHalf().person, exempt: true, name: "Eagle Admin", role: { value: "admin", ar: "أدمن", en: "Admin" } },
+      shifts: [],
+      picker: null,
+      work_mode_card: null,
+      can: { edit: true, shift: false, plan: false },
+    });
+
+  it("draws the owner's file without attendance, roster, penalties or a pay plan, and says why", async () => {
+    serve("admin", { "/api/v1/hr/employees/5/": () => jsonResponse(ownerFile()) });
+    const { container } = open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    expect(container.querySelector('[data-note="exempt"]')).toHaveTextContent("مالوش حضور ولا جدول ولا إجازات ولا راتب");
+    for (const card of ["attendance", "roster", "penalties", "plan", "picker", "work-mode", "probation", "salary"]) {
+      expect(container.querySelector(`[data-card="${card}"]`), card).toBeNull();
+    }
+    // The account form is still the admin's to open.
+    expect(screen.getByRole("button", { name: /عدّل$/ })).toBeInTheDocument();
+  });
+
+  it("keeps the attendance, roster and pay plan on an employee's file", async () => {
+    serve("admin", {
+      "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ summary: { scheduled_days: 22, present_days: 18, office_days: 12, remote_days: 6, leave_days: 1, absent_days: 2, late_days: 3, work_minutes: 9000, overtime_minutes: 90 } })),
+    });
+    const { container } = open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    expect(container.querySelector('[data-note="exempt"]')).toBeNull();
+    for (const card of ["attendance", "roster", "plan"]) expect(container.querySelector(`[data-card="${card}"]`), card).not.toBeNull();
+  });
+
+  it("shows a dash for the owner's shifts and rating in the list, and the figures for everybody else", async () => {
+    const list = register();
+    list.rows.push({ id: 1, code: "", name: "Eagle Admin", initials: "EA", role: { value: "admin", ar: "أدمن", en: "Admin" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: null, rating: null, username: "boss", mail_alias: "" });
+    serve("admin", { "/api/v1/hr/employees/": () => jsonResponse(list) });
+    const { container } = open("/hr/employees");
+    await screen.findByText("Eagle Admin");
+    const owner = container.querySelector('[data-person="1"]') as HTMLElement;
+    expect(owner.querySelector(".rating")).toBeNull();
+    const cells = Array.from(owner.querySelectorAll("td")).map((cell) => cell.textContent);
+    expect(cells.filter((text) => text === "—").length).toBeGreaterThanOrEqual(2);
+    const sam = container.querySelector('[data-person="5"]') as HTMLElement;
+    expect(sam.querySelector(".rating")).not.toBeNull();
+    expect(within(sam).getByText("3")).toHaveClass("mono");
   });
 });

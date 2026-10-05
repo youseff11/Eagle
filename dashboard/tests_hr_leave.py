@@ -83,7 +83,7 @@ class MineTests(_Leave):
         self.ask_for(kind="permission", end_date=None, start_time=time(10), end_time=time(12), days=1)
         entry = _json(self.read(MINE, self.tr))["rows"][0]
         self.assertEqual((entry["is_permission"], entry["end_date"], entry["days"], entry["minutes"]), (True, None, 0, 120))
-        self.assertEqual((entry["start_time"]["ar"], entry["end_time"]["en"]), ("10:00 ص", "12:00 PM"))
+        self.assertEqual((entry["start_time"]["ar"], entry["end_time"]["en"]), ("10:00 AM", "12:00 PM"))
 
     def test_the_form_speaks_both_languages_and_the_kinds_have_their_words(self):
         fields = {one["name"]: one for one in _json(self.read(MINE, self.tr))["form"]}

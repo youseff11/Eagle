@@ -9,7 +9,7 @@ import { AdminOverviewPage } from "./AdminOverviewPage";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const stamp = (text: string) => ({ ar: `${text} م`, en: `${text} PM` });
+const stamp = (text: string) => ({ ar: `${text} PM`, en: `${text} PM` });
 const STATUS = (value: string, ar: string, en: string, tone = "work") => ({ value, tone, ar, en });
 
 function overview(over: Partial<AdminOverview> = {}): AdminOverview {
@@ -110,7 +110,7 @@ describe("AdminOverviewPage", () => {
     expect(letter).toHaveClass("is-blocked");
     expect(within(letter).getByText("CL-0003")).toHaveClass("mono");
     expect(within(letter).getByText("What is your price per page")).toBeInTheDocument();
-    expect(within(letter).getByText("10-02 4:10 م")).toBeInTheDocument();
+    expect(within(letter).getByText("10-02 4:10 PM")).toBeInTheDocument();
     expect(within(letter).getByRole("link", { name: /rates\.pdf/ })).toHaveAttribute("href", "/files/rates.pdf");
     expect(within(letter).getByText("buyer@example.com · price")).toBeInTheDocument();
   });
@@ -151,7 +151,7 @@ describe("AdminOverviewPage", () => {
     const late = (await screen.findByText("تاسكات عدّت الديدلاين")).closest(".card") as HTMLElement;
     expect(within(late).getByText("Nada")).toBeInTheDocument();
     expect(within(late).getByText("—")).toBeInTheDocument();
-    expect(within(late).getByText("10-01 2:00 م")).toHaveClass("badge--dead");
+    expect(within(late).getByText("10-01 2:00 PM")).toHaveClass("badge--dead");
   });
 
   it("lists the newest tasks with where each came from and where it stands", async () => {
@@ -191,7 +191,7 @@ describe("AdminAuditPage", () => {
     const { container } = open("/admin/audit");
     await screen.findByText("client.identity.view");
     const row = container.querySelector('[data-entry="12"]') as HTMLElement;
-    expect(within(row).getByText("2026-10-02 4:10 م")).toBeInTheDocument();
+    expect(within(row).getByText("2026-10-02 4:10 PM")).toBeInTheDocument();
     expect(within(row).getByText("Mona")).toBeInTheDocument();
     expect(within(row).getByText("CL-0001")).toHaveClass("mono");
     expect(within(row).getByText("client_detail")).toBeInTheDocument();

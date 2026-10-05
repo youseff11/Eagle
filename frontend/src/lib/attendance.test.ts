@@ -169,7 +169,7 @@ describe("outcome", () => {
 
   it("is plain on time, in the page's language and with the page's AM and PM", () => {
     expect(outcome("check_in", ok(), "en")).toEqual({ ok: true, level: "success", text: "Recorded 9:05 AM" });
-    expect(outcome("check_in", ok({ at: "5:05 PM" }), "ar")).toEqual({ ok: true, level: "success", text: "اتسجل 5:05 م" });
+    expect(outcome("check_in", ok({ at: "5:05 PM" }), "ar")).toEqual({ ok: true, level: "success", text: "اتسجل 5:05 PM" });
   });
 
   it("says how late, and that it went to HR", () => {

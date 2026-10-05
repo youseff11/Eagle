@@ -278,6 +278,8 @@ def effective_leave_allowance(person, conf=None):
 def request_leave(person, *, kind, start_date, end_date=None, start_time=None,
                   end_time=None, reason="", actor=None):
     """Raise a request. Validation here, decisions elsewhere."""
+    if person.is_admin_role:
+        raise LifecycleError("الأدمن صاحب الشركة: مالوش إجازات.", "The owner has no leave to ask for.")
     conf = PayrollSettings.load()
     end_date = end_date or start_date
 
@@ -516,6 +518,8 @@ def apply_leave(request_row, actor=None):
 @transaction.atomic
 def request_salary_change(person, *, new_amount, effective_from, reason="", actor=None):
     """HR's ask. It is the only way a salary can start moving."""
+    if person.is_admin_role:
+        raise LifecycleError("الأدمن صاحب الشركة: مالوش راتب في النظام.", "The owner has no salary in the system.")
     new_amount = Decimal(new_amount)
     if new_amount < 0:
         raise LifecycleError("الراتب مايكونش بالسالب.", "A salary cannot be negative.")

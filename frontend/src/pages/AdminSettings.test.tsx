@@ -398,10 +398,10 @@ describe("AdminSettingsPage: the mail and Google", () => {
   });
 
   it("when linked: says so, shows the last sync and its error, and the alias list is Google's", async () => {
-    serve("admin", () => settings({ status: { ...settings().status, google_connected: true, google_sync_at: { ar: "10/03 5:00 م", en: "10/03 5:00 PM" }, google_sync_error: "Google said no" } }));
+    serve("admin", () => settings({ status: { ...settings().status, google_connected: true, google_sync_at: { ar: "10/03 5:00 PM", en: "10/03 5:00 PM" }, google_sync_error: "Google said no" } }));
     open();
     expect(await screen.findByText("مربوط")).toBeInTheDocument();
-    expect(screen.getByText("10/03 5:00 م")).toHaveClass("mono");
+    expect(screen.getByText("10/03 5:00 PM")).toHaveClass("mono");
     expect(screen.getByText("Google said no")).toHaveClass("errorlist");
     expect(screen.getByRole("link", { name: "اربط تاني" })).toBeInTheDocument();
     expect(screen.getByText(/مربوطة بـ Google: القايمة بتتحدّث لوحدها/)).toBeInTheDocument();

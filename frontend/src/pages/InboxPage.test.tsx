@@ -17,7 +17,7 @@ function row(key: string, over: Partial<MailRow> = {}): MailRow {
     from: "CL-0001",
     code: "CL-0001",
     count: 1,
-    at: { ar: "2026-10-02 5:30 م", en: "2026-10-02 5:30 PM" },
+    at: { ar: "2026-10-02 5:30 PM", en: "2026-10-02 5:30 PM" },
     subject: `Subject of ${key}`,
     snippet: `Snippet of ${key}`,
     unread: false,
@@ -39,7 +39,7 @@ function list(over: Partial<MailListResponse> = {}): MailListResponse {
     unseen: 1,
     unclaimed: 2,
     blocked: 0,
-    mail: { configured: true, last_fetch: { ar: "2026-10-02 5:00 م", en: "2026-10-02 5:00 PM" }, last_count: 4, last_error: "" },
+    mail: { configured: true, last_fetch: { ar: "2026-10-02 5:00 PM", en: "2026-10-02 5:00 PM" }, last_count: 4, last_error: "" },
     ...over,
   };
 }
@@ -84,7 +84,7 @@ describe("InboxPage", () => {
     const first = container.querySelector('[data-thread="k1"]') as HTMLElement;
     expect(within(first).getByText("CL-0001")).toHaveClass("mail__from");
     expect(within(first).getByText("3")).toHaveClass("mail__count");
-    expect(within(first).getByText("2026-10-02 5:30 م")).toHaveClass("mono");
+    expect(within(first).getByText("2026-10-02 5:30 PM")).toHaveClass("mono");
     expect(within(first).getByText("Snippet of k1")).toBeInTheDocument();
     expect(first).toHaveClass("is-unread");
     const second = container.querySelector('[data-thread="k2"]') as HTMLElement;
@@ -219,7 +219,7 @@ describe("InboxPage", () => {
     serve(() => jsonResponse(list()));
     open();
     expect(await screen.findByText("آخر جلب:")).toBeInTheDocument();
-    expect(screen.getByText("2026-10-02 5:00 م")).toBeInTheDocument();
+    expect(screen.getByText("2026-10-02 5:00 PM")).toBeInTheDocument();
     expect(screen.getByText("4")).toHaveClass("mono");
   });
 

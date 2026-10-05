@@ -26,7 +26,7 @@ from .api_v1 import BadBody, _day_status_json, _error, _object, _stamp, _two, en
 from .forms import AttendanceEditForm, OfficeLocationForm, ScheduleOverrideForm, ShiftForm, ShiftTemplateForm
 from .models import (
     DAY_WORK_MODES, ApprovalStatus, AuthorizedDevice, DayStatus, LeaveRequest, LeaveStatus, OffSitePolicy, OfficeLocation, OvertimeClaim,
-    PayrollSettings, PunchKind, Role, ScheduleOverride, Shift, ShiftTemplate, User, WorkDay,
+    PayrollSettings, PunchKind, Role, ScheduleOverride, Shift, ShiftTemplate, User, WorkDay, rule_followers,
 )
 from .permissions import api_gate
 from .templatetags.eagle_tags import DAY_STATUS_MAP, EMPLOYMENT_MAP, ROLE_MAP, WORK_MODE_MAP
@@ -478,7 +478,7 @@ def schedules(request):
     ``?user=<id>`` (the first active person when left out). The roster lists every row, switched off ones too, with a flag:
     a row saved switched off counts for nothing, and the person looking at the roster needs to see that.
     """
-    people = User.objects.filter(is_active=True)
+    people = rule_followers(User.objects.filter(is_active=True))
     if request.GET.get("user"):
         who = _digits(request.GET["user"])
         if who is None:
@@ -966,7 +966,7 @@ def leave_queue(request):
             for one in rows[:MAX_LEAVE_ROWS]
         ],
         "options": {
-            "people": [person_json(one) for one in User.objects.filter(is_active=True)],
+            "people": [person_json(one) for one in rule_followers(User.objects.filter(is_active=True))],
             "statuses": [status_json(value) for value, _label in LeaveStatus.choices],
         },
     })

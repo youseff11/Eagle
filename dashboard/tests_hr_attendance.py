@@ -125,7 +125,7 @@ class BoardTests(_Hr):
         self.assertEqual(entry["id"], row.pk)
         self.assertEqual(entry["user"], {"id": self.tr.pk, "name": self.tr.short_name})
         self.assertEqual(entry["work_mode"], {"value": "office", "ar": "من المكتب", "en": "Office"})
-        self.assertEqual(entry["check_in"], {"ar": "9:20 ص", "en": "9:20 AM"})
+        self.assertEqual(entry["check_in"], {"ar": "9:20 AM", "en": "9:20 AM"})
         self.assertIsNone(entry["check_out"])
         self.assertTrue(entry["is_open"])
         self.assertEqual((entry["late_minutes"], entry["short_minutes"], entry["overtime_minutes"], entry["needs_review"]), (20, 30, 15, True))
@@ -270,7 +270,7 @@ class DayTests(_Hr):
     def test_the_frozen_schedule_and_the_state_of_the_day_are_there(self):
         day = _json(self.read())["day"]
         self.assertEqual((day["scheduled_minutes"], day["grace_minutes"], day["work_minutes"]), (480, 10, 460))
-        self.assertEqual(day["scheduled_start"], {"ar": "9:00 ص", "en": "9:00 AM"})
+        self.assertEqual(day["scheduled_start"], {"ar": "9:00 AM", "en": "9:00 AM"})
         self.assertEqual(day["schedule"], "9 AM - 5 PM")
 
     def test_the_trail_names_who_changed_what_and_why(self):
@@ -424,7 +424,7 @@ class ReportTests(_Hr):
         self.assertEqual((body["year"], body["month"]), (self.today.year, self.today.month))
         entry = body["summary"]["days"][0]
         self.assertEqual((entry["date"], entry["late_minutes"], entry["overtime_minutes"]), (self.today.isoformat(), 20, 15))
-        self.assertEqual(entry["check_in"], {"ar": "9:20 ص", "en": "9:20 AM"})
+        self.assertEqual(entry["check_in"], {"ar": "9:20 AM", "en": "9:20 AM"})
 
     def test_a_month_is_asked_for_as_text_and_a_typo_is_an_error(self):
         self.assertEqual(_json(self.get_report(period="2026-9"))["month"], 9)

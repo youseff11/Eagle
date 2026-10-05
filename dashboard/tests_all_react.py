@@ -31,7 +31,7 @@ class WhatEachPersonHasTests(_Site):
         self.assertEqual(self.keys(self.lead), ["lead", "reviewer", "attendance", "leave", "performance", "chats"])
 
     def test_the_admin_has_the_panel_the_money_hr_and_the_operation_and_not_another_roles_desk(self):
-        self.assertEqual(self.keys(self.admin), ["admin", "accounts", "hr", "operation", "attendance", "chats"])
+        self.assertEqual(self.keys(self.admin), ["admin", "accounts", "hr", "operation", "chats"])
 
     def test_the_performance_board_is_every_employees_and_the_admin_reaches_it_through_the_hr_screen(self):
         # Seven roles carry the board in their own menu; the admin's menu carries HR, whose people section has the same line.

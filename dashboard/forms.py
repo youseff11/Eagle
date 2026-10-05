@@ -538,6 +538,10 @@ class StaffEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["team_lead"].queryset = User.objects.filter(role=Role.TEAM_LEAD)
         self.fields["team_lead"].required = False
+        if self.instance.pk and self.instance.is_admin_role:
+            # Not a box to tick: the owner does not clock in, and a posted value is ignored for a disabled field.
+            self.fields["attendance_enabled"].disabled = True
+            self.fields["attendance_enabled"].help_text = "The owner does not clock in: attendance is always off."
         self._alias_as_list()
 
     def _alias_as_list(self):

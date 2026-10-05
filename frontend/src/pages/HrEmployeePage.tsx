@@ -54,6 +54,7 @@ export function HrEmployeePage() {
   }
   if (!data) return <Waiting failed={query.isError} />;
   const { person, summary } = data;
+  const exempt = person.exempt;
   const kv = (ar: string, en: string, value: string | number | null | undefined, mono = false) => (
     <div className="kv" key={en}>
       <span>{t(ar, en)}</span>
@@ -124,7 +125,12 @@ export function HrEmployeePage() {
             </div>
           </div>
 
-          {summary ? (
+          {exempt ? (
+            <div className="note note--info" data-note="exempt">
+              <Icon name="info" />
+              <div>{t("الأدمن صاحب الشركة: مالوش حضور ولا جدول ولا إجازات ولا راتب.", "The owner has no attendance, roster, leave or pay: the company's rules are for the people who work for it.")}</div>
+            </div>
+          ) : summary ? (
             <div className="card" data-card="attendance">
               <div className="card__head">
                 <Icon name="timer" />
@@ -181,8 +187,8 @@ export function HrEmployeePage() {
           {data.picker && <ShiftPicker picker={data.picker} save={(choice, options) => pickShift.mutate(choice, options)} pending={pickShift.isPending} />}
           {data.work_mode_card && <WorkModeCard id={person.id} card={data.work_mode_card} />}
 
-          <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />
-          {admin.data && <PenaltiesCard events={admin.data.events} />}
+          {!exempt && <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />}
+          {!exempt && admin.data && <PenaltiesCard events={admin.data.events} />}
 
           {data.probation.length > 0 && (
             <div className="card" data-card="probation">
@@ -222,36 +228,38 @@ export function HrEmployeePage() {
             </div>
           )}
 
-          <div className="card card--flat" data-card="plan">
-            <div className="card__head">
-              <Icon name="sliders" />
-              <h3>{t("خطة الراتب", "Salary plan")}</h3>
+          {!exempt && (
+            <div className="card card--flat" data-card="plan">
+              <div className="card__head">
+                <Icon name="sliders" />
+                <h3>{t("خطة الراتب", "Salary plan")}</h3>
+              </div>
+              {data.plan.current ? (
+                <div className="kv">
+                  <span>{data.plan.current.name}</span>
+                  <span className="muted mono">{data.plan.current.overrides.join(" · ")}</span>
+                </div>
+              ) : (
+                <div className="muted">{t("على قواعد الشركة.", "On the company rules.")}</div>
+              )}
+              {data.can.plan && (
+                <div className="mt">
+                  <select className="input" aria-label={t("خطة الراتب", "Salary plan")} value={chosenPlan} onChange={(event) => setPlan(event.target.value)}>
+                    <option value="">{t("قواعد الشركة", "Company rules")}</option>
+                    {data.plan.options.map((one) => (
+                      <option key={one.id} value={one.id}>
+                        {one.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="btn btn--sm btn--block mt" type="button" disabled={assign.isPending} onClick={savePlan}>
+                    <Icon name="check" size="sm" />
+                    <span>{t("اربطه", "Assign")}</span>
+                  </button>
+                </div>
+              )}
             </div>
-            {data.plan.current ? (
-              <div className="kv">
-                <span>{data.plan.current.name}</span>
-                <span className="muted mono">{data.plan.current.overrides.join(" · ")}</span>
-              </div>
-            ) : (
-              <div className="muted">{t("على قواعد الشركة.", "On the company rules.")}</div>
-            )}
-            {data.can.plan && (
-              <div className="mt">
-                <select className="input" aria-label={t("خطة الراتب", "Salary plan")} value={chosenPlan} onChange={(event) => setPlan(event.target.value)}>
-                  <option value="">{t("قواعد الشركة", "Company rules")}</option>
-                  {data.plan.options.map((one) => (
-                    <option key={one.id} value={one.id}>
-                      {one.name}
-                    </option>
-                  ))}
-                </select>
-                <button className="btn btn--sm btn--block mt" type="button" disabled={assign.isPending} onClick={savePlan}>
-                  <Icon name="check" size="sm" />
-                  <span>{t("اربطه", "Assign")}</span>
-                </button>
-              </div>
-            )}
-          </div>
+          )}
 
           {data.application && (
             <div className="card card--flat" data-card="application">

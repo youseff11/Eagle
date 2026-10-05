@@ -121,7 +121,7 @@ class BoardTests(_Recruit):
         Interview.objects.create(candidate=candidate, scheduled_at=timezone.now() + timedelta(days=3), kind="office")
         today = _json(self.read(BOARD))["today_interviews"]
         self.assertEqual(len(today), 1)
-        self.assertEqual((today[0]["candidate"]["name"], today[0]["kind"]["en"], today[0]["at"]["ar"]), ("Mona Candidate", "Online", "2:00 م"))
+        self.assertEqual((today[0]["candidate"]["name"], today[0]["kind"]["en"], today[0]["at"]["ar"]), ("Mona Candidate", "Online", "2:00 PM"))
 
     def test_it_says_when_the_identity_rule_is_not_armed_and_when_it_is(self):
         conf = RecruitmentSettings.load()

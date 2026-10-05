@@ -47,7 +47,7 @@ function board(over: Partial<HrRecruitment> = {}): HrRecruitment {
     ok: true,
     counts: { open_vacancies: 2, total_applicants: 9, screening: 3, pending_owner: 1, interviews_today: 2, pending_tests: 4, hired: 5, on_probation: 6 },
     recent: [candidate(), candidate({ code: "CAN-0008", name: "Omar", vacancy: null, vacancy_code: null })],
-    today_interviews: [{ candidate: { code: "CAN-0007", name: "Sara" }, kind: { value: "online", ar: "أونلاين", en: "Online" }, at: stampOf("3:00 م", "3:00 PM") }],
+    today_interviews: [{ candidate: { code: "CAN-0007", name: "Sara" }, kind: { value: "online", ar: "أونلاين", en: "Online" }, at: stampOf("3:00 PM", "3:00 PM") }],
     waiting_owner: [candidate({ code: "CAN-0009", name: "Laila", status: owner })],
     privacy_armed: true,
     bot_enabled: true,
@@ -80,7 +80,7 @@ describe("HrRecruitmentPage", () => {
     expect(first).toHaveTextContent("مترجم عربي");
     expect(within(first).getByText("جديد")).toHaveClass("badge--info");
     expect(container.querySelector('[data-candidate="CAN-0008"]')).toHaveTextContent("—");
-    expect(container.querySelector('[data-card="today"]')).toHaveTextContent("3:00 م");
+    expect(container.querySelector('[data-card="today"]')).toHaveTextContent("3:00 PM");
     expect(container.querySelector('[data-card="owner"]')).toHaveTextContent("Laila");
   });
 

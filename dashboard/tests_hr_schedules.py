@@ -135,7 +135,7 @@ class ScheduleTests(_Sched):
         body = _json(self.read(SCHEDULES, user=self.tr.pk))
         first, second = body["shifts"]
         self.assertEqual(first["weekday"], {"value": 0, "ar": "الاتنين", "en": "Monday"})
-        self.assertEqual((first["template"], first["start"]["ar"], first["end"]["en"], first["minutes"]), ("الصبح", "9:00 ص", "5:00 PM", 480))
+        self.assertEqual((first["template"], first["start"]["ar"], first["end"]["en"], first["minutes"]), ("الصبح", "9:00 AM", "5:00 PM", 480))
         self.assertEqual((second["id"], second["crosses_midnight"], second["minutes"], second["work_mode"]["en"]), (night.pk, True, 300, "Remote"))
         self.assertIsNone(second["template"])
         self.assertEqual(body["person"]["id"], self.tr.pk)
@@ -322,7 +322,7 @@ class TemplateAddTests(_Sched):
 
     def test_a_shift_with_no_name_is_named_by_its_hours(self):
         self.add({"start_time": "05:00", "end_time": "13:00"})
-        self.assertEqual(ShiftTemplate.objects.get(name="5:00 ص - 1:00 م").start_time, time(5))
+        self.assertEqual(ShiftTemplate.objects.get(name="5:00 AM - 1:00 PM").start_time, time(5))
 
     def test_hours_that_are_the_same_are_not_a_shift(self):
         before = ShiftTemplate.objects.count()
@@ -356,7 +356,7 @@ class CompanyShiftTests(_Sched):
         rows = {one["id"]: one for one in _json(self.read(SHIFTS))["rows"]}
         used = rows[self.morning.pk]
         self.assertEqual((used["people"], used["overrides"], used["vacancies"], used["in_use"]), (2, 1, 1, True))
-        self.assertEqual((used["hours"], used["label"], used["start"]["ar"]), ("8", "الصبح", "9:00 ص"))
+        self.assertEqual((used["hours"], used["label"], used["start"]["ar"]), ("8", "الصبح", "9:00 AM"))
         self.assertEqual((rows[free.pk]["in_use"], rows[free.pk]["hours"]), (False, "8"))
 
     def test_a_shift_that_crosses_midnight_says_so(self):

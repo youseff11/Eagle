@@ -17,7 +17,7 @@ function task(code: string, overrides: Partial<DeskTask> = {}): DeskTask {
     client: "CL-0001",
     source_lang: "English",
     target_lang: "Arabic",
-    due: { ar: "2026-10-02 5:30 م", en: "2026-10-02 5:30 PM" },
+    due: { ar: "2026-10-02 5:30 PM", en: "2026-10-02 5:30 PM" },
     due_state: "ok",
     can_ask_more_time: true,
     url: `/tasks/${code}/`,
@@ -56,7 +56,7 @@ describe("TranslatorHomePage", () => {
     expect(within(row).getByText("شغل جاري")).toBeInTheDocument();
     expect(within(row).getByText("عالية")).toBeInTheDocument();
     expect(within(row).getByText("واتساب")).toBeInTheDocument();
-    expect(within(row).getByText(/2026-10-02 5:30 م/)).toBeInTheDocument();
+    expect(within(row).getByText(/2026-10-02 5:30 PM/)).toBeInTheDocument();
     expect(row).toHaveTextContent("CL-0001 · English → Arabic");
     // The task page is a route of this app now, made from the code.
     expect(within(row).getByRole("link", { name: /افتح التاسك/ })).toHaveAttribute("href", "/tasks/TSK-00001");

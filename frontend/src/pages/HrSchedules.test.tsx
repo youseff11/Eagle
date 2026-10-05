@@ -24,20 +24,20 @@ function schedules(over: Partial<HrSchedules> = {}): HrSchedules {
     ],
     person: { id: 11, name: "Sam", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, work_mode: { value: "office", ar: "من المكتب", en: "Office" }, schedule_kind: "Fixed" },
     shifts: [
-      { id: 1, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: "الصبح", start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true },
-      { id: 2, weekday: { value: 2, ar: "الأربع", en: "Wednesday" }, template: null, start: stampOf("10:00 م", "10:00 PM"), end: stampOf("6:00 ص", "6:00 AM"), crosses_midnight: true, minutes: 300, work_mode: { value: "remote", ar: "عن بُعد", en: "Remote" }, is_active: false },
+      { id: 1, weekday: { value: 0, ar: "الاتنين", en: "Monday" }, template: "الصبح", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM"), crosses_midnight: false, minutes: 480, work_mode: null, is_active: true },
+      { id: 2, weekday: { value: 2, ar: "الأربع", en: "Wednesday" }, template: null, start: stampOf("10:00 PM", "10:00 PM"), end: stampOf("6:00 AM", "6:00 AM"), crosses_midnight: true, minutes: 300, work_mode: { value: "remote", ar: "عن بُعد", en: "Remote" }, is_active: false },
     ],
     overrides: [
       { id: 7, date: "2026-10-05", is_day_off: true, label: "", work_mode: null, reason: "Wedding" },
       { id: 8, date: "2026-10-06", is_day_off: false, label: "الصبح", work_mode: null, reason: "" },
     ],
     preview: [
-      { date: "2026-10-03", working: true, label: "الصبح", start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM"), mode: { value: "office", ar: "من المكتب", en: "Office" }, source: "roster" },
+      { date: "2026-10-03", working: true, label: "الصبح", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM"), mode: { value: "office", ar: "من المكتب", en: "Office" }, source: "roster" },
       { date: "2026-10-04", working: false, label: "", start: null, end: null, mode: null, source: "roster" },
     ],
     templates: [
-      { id: 3, label: "الصبح", is_active: true, start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM") },
-      { id: 4, label: "القديم", is_active: false, start: stampOf("1:00 م", "1:00 PM"), end: stampOf("9:00 م", "9:00 PM") },
+      { id: 3, label: "الصبح", is_active: true, start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM") },
+      { id: 4, label: "القديم", is_active: false, start: stampOf("1:00 PM", "1:00 PM"), end: stampOf("9:00 PM", "9:00 PM") },
     ],
     shift_form: [
       field("weekday", "Weekday", { kind: "select", value: "", label_ar: "اليوم", label_en: "Weekday", choices: WEEKDAYS }),
@@ -68,7 +68,7 @@ describe("HrSchedulesPage", () => {
     await screen.findByText("الجدول الأسبوعي");
     const first = container.querySelector('[data-roster="1"]') as HTMLElement;
     expect(within(first).getByText("الاتنين")).toBeInTheDocument();
-    expect(within(first).getByText("9:00 ص – 5:00 م")).toBeInTheDocument();
+    expect(within(first).getByText("9:00 AM – 5:00 PM")).toBeInTheDocument();
     expect(within(first).getByText("8:00")).toBeInTheDocument();
     const night = container.querySelector('[data-roster="2"]') as HTMLElement;
     expect(within(night).getByText("لليوم التالي")).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("HrSchedulesPage", () => {
     expect(within(container.querySelector('[data-override="7"]') as HTMLElement).getByText("Wedding")).toBeInTheDocument();
     expect(within(container.querySelector('[data-override="8"]') as HTMLElement).getByText("الصبح")).toHaveClass("mono");
     const working = container.querySelector('[data-plan="2026-10-03"]') as HTMLElement;
-    expect(within(working).getByText("9:00 ص – 5:00 م")).toBeInTheDocument();
+    expect(within(working).getByText("9:00 AM – 5:00 PM")).toBeInTheDocument();
     const off = container.querySelector('[data-plan="2026-10-04"]') as HTMLElement;
     expect(within(off).getByText("أجازة")).toHaveClass("muted");
     expect(off).toHaveTextContent("—");
@@ -99,7 +99,7 @@ describe("HrSchedulesPage", () => {
     serve("hr", page());
     const { container } = open("/hr/schedules");
     await screen.findByText("الجدول الأسبوعي");
-    expect(within(container.querySelector('[data-template="3"]') as HTMLElement).getByText("9:00 ص–5:00 م")).toBeInTheDocument();
+    expect(within(container.querySelector('[data-template="3"]') as HTMLElement).getByText("9:00 AM–5:00 PM")).toBeInTheDocument();
     expect(within(container.querySelector('[data-template="4"]') as HTMLElement).getByText("مقفول")).toBeInTheDocument();
   });
 
@@ -238,8 +238,8 @@ function shifts(over: Partial<HrShifts> = {}): HrShifts {
   return {
     ok: true,
     rows: [
-      { id: 3, label: "الصبح", name: "Morning", name_ar: "الصبح", is_active: true, start: stampOf("9:00 ص", "9:00 AM"), end: stampOf("5:00 م", "5:00 PM"), crosses_midnight: false, hours: "8", people: 2, overrides: 1, vacancies: 1, in_use: true },
-      { id: 4, label: "ليلي", name: "Night", name_ar: "ليلي", is_active: false, start: stampOf("10:00 م", "10:00 PM"), end: stampOf("6:00 ص", "6:00 AM"), crosses_midnight: true, hours: "8", people: 0, overrides: 0, vacancies: 0, in_use: false },
+      { id: 3, label: "الصبح", name: "Morning", name_ar: "الصبح", is_active: true, start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM"), crosses_midnight: false, hours: "8", people: 2, overrides: 1, vacancies: 1, in_use: true },
+      { id: 4, label: "ليلي", name: "Night", name_ar: "ليلي", is_active: false, start: stampOf("10:00 PM", "10:00 PM"), end: stampOf("6:00 AM", "6:00 AM"), crosses_midnight: true, hours: "8", people: 0, overrides: 0, vacancies: 0, in_use: false },
     ],
     editing: null,
     form: [
@@ -519,8 +519,8 @@ function device(id: number, over: Partial<HrDevice> = {}): HrDevice {
     browser: "Mozilla/5.0 (Windows NT 10.0)",
     status: "pending",
     decided_by: null,
-    first_seen: stampOf("2026-10-02 9:05 ص", "2026-10-02 9:05 AM"),
-    last_seen: stampOf("2026-10-03 8:00 ص", "2026-10-03 8:00 AM"),
+    first_seen: stampOf("2026-10-02 9:05 AM", "2026-10-02 9:05 AM"),
+    last_seen: stampOf("2026-10-03 8:00 AM", "2026-10-03 8:00 AM"),
     ...over,
   };
 }

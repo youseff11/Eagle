@@ -9,7 +9,7 @@ import { LeadHomePage } from "./LeadHomePage";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const stamp = (text: string) => ({ ar: `${text} م`, en: `${text} PM` });
+const stamp = (text: string) => ({ ar: `${text} PM`, en: `${text} PM` });
 const STATUS = (value: string, ar: string, en: string, tone = "work") => ({ value, tone, ar, en });
 
 function person(id: number, name: string, over: Partial<LeadPerson> = {}): LeadPerson {
@@ -98,10 +98,10 @@ describe("LeadHomePage", () => {
     expect(within(first).getByText("واتساب")).toBeInTheDocument();
     expect(within(first).getByText("شغل جاري").closest(".badge")).toHaveClass("badge--work");
     expect(within(first).getByText("Sam")).toBeInTheDocument();
-    expect(within(first).getByText("10-30 5:30 م")).toHaveClass("deadline--ok");
+    expect(within(first).getByText("10-30 5:30 PM")).toHaveClass("deadline--ok");
     const second = container.querySelector('[data-task="TSK-00002"]') as HTMLElement;
     expect(within(second).getByText("—", { selector: "td" })).toBeInTheDocument();
-    expect(within(second).getByText("10-30 5:30 م")).toHaveClass("deadline--soon");
+    expect(within(second).getByText("10-30 5:30 PM")).toHaveClass("deadline--soon");
   });
 
   it("says on each button what the leader does next: hand it out, review it, or open it", async () => {
@@ -262,7 +262,7 @@ describe("LeadBoardPage", () => {
     open("/lead/translators");
     const link = await screen.findByRole("link", { name: /TSK-00020/ });
     expect(link).toHaveClass("deadline--soon");
-    expect(link).toHaveTextContent("10-30 5:30 م");
+    expect(link).toHaveTextContent("10-30 5:30 PM");
     expect(link.getAttribute("href")).toBe("/tasks/TSK-00020");
     expect(screen.getByText("تاسكات مستنية توزيع")).toBeInTheDocument();
   });
@@ -286,7 +286,7 @@ describe("LeadBoardPage", () => {
     expect(within(sam).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/tasks/TSK-00001", "/tasks/TSK-00002", "/tasks/TSK-00003"]);
     // Five tasks: three are named and the rest are counted.
     expect(within(sam).getByText("+2")).toHaveClass("chip");
-    expect(within(sam).getByText("10-29 1:00 م")).toHaveClass("deadline--late");
+    expect(within(sam).getByText("10-29 1:00 PM")).toHaveClass("deadline--late");
     expect(within(sam).getByText("مستني يرد على عرض تاسك")).toBeInTheDocument();
   });
 
