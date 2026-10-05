@@ -77,7 +77,7 @@ class DoorMatrixTests(_People):
     def groups(self):
         """(who is let in, the doors)."""
         recruit = [
-            ("GET", REGISTER, None), ("GET", EMPLOYEE, [self.tr.pk]), ("GET", PERFORMANCE, None), ("GET", PERFORMANCE_BOARD, None), ("GET", COMPLAINTS, None),
+            ("GET", REGISTER, None), ("GET", EMPLOYEE, [self.tr.pk]), ("GET", PERFORMANCE, None), ("GET", COMPLAINTS, None),
             ("POST", COMPLAINT_NEW, None), ("POST", COMPLAINT_RESOLVE, [self.complaint.pk]), ("GET", REQUESTS, None),
             ("POST", REQUEST_NEW, None),
         ]

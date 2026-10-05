@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats";
+export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats" | "performance";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -1786,7 +1786,8 @@ export interface HrRankRow {
   initials: string;
   avatar: string | null;
   words: number;
-  target: number;
+  /** The pay plan's target: only HR and the admin are told it (null for everybody else). */
+  target: number | null;
   score: number | null;
   band: DayStatusJson;
   projects: number;

@@ -490,11 +490,13 @@ describe("HrPerformancePage", () => {
     expect(await screen.findByText("اختار موظف.")).toBeInTheDocument();
   });
 
-  it("is HR's and the admin's", async () => {
-    const served = serve("accounting", page());
-    open("/hr/performance");
-    expect(await screen.findByText("home page")).toBeInTheDocument();
-    expect(served.calls.some((call) => call.url.startsWith("/api/v1/hr/"))).toBe(false);
+  it("is HR's and the admin's: anybody else who types a person's address is shown the board, and nothing of the person is asked for", async () => {
+    const board = { ok: true, year: 2026, month: 10, periods: [{ year: 2026, month: 10 }], podium: [], rest: [] };
+    const served = serve("accounting", { "/api/v1/hr/performance/board/": () => jsonResponse(board), ...page() });
+    open("/hr/performance?user=11");
+    expect(await screen.findByText("مفيش مترجمين.")).toBeInTheDocument();
+    expect(served.calls.some((call) => call.url.startsWith("/api/v1/hr/performance/?"))).toBe(false);
+    expect(screen.queryByText("المؤشرات")).toBeNull();
   });
 });
 

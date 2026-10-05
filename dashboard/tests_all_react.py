@@ -20,18 +20,26 @@ class WhatEachPersonHasTests(_Site):
         return newui.enabled_keys(user)
 
     def test_a_role_has_its_own_screens_then_the_attendance_leave_and_chats(self):
-        self.assertEqual(self.keys(self.tr), ["translator_home", "attendance", "leave", "chats"])
-        self.assertEqual(self.keys(self.ops), ["operation", "attendance", "leave", "chats"])
-        self.assertEqual(self.keys(self.sales), ["sales", "attendance", "leave", "chats"])
-        self.assertEqual(self.keys(self.accounting), ["accounts", "attendance", "leave", "chats"])
-        self.assertEqual(self.keys(self.hr), ["hr", "attendance", "leave", "chats"])
-        self.assertEqual(self.keys(self.reviewer), ["reviewer", "attendance", "leave", "chats"])
+        self.assertEqual(self.keys(self.tr), ["translator_home", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(self.keys(self.ops), ["operation", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(self.keys(self.sales), ["sales", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(self.keys(self.accounting), ["accounts", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(self.keys(self.hr), ["hr", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(self.keys(self.reviewer), ["reviewer", "attendance", "leave", "performance", "chats"])
 
     def test_a_team_leader_also_has_the_candidate_tests_they_may_mark(self):
-        self.assertEqual(self.keys(self.lead), ["lead", "reviewer", "attendance", "leave", "chats"])
+        self.assertEqual(self.keys(self.lead), ["lead", "reviewer", "attendance", "leave", "performance", "chats"])
 
     def test_the_admin_has_the_panel_the_money_hr_and_the_operation_and_not_another_roles_desk(self):
         self.assertEqual(self.keys(self.admin), ["admin", "accounts", "hr", "operation", "attendance", "chats"])
+
+    def test_the_performance_board_is_every_employees_and_the_admin_reaches_it_through_the_hr_screen(self):
+        # Seven roles carry the board in their own menu; the admin's menu carries HR, whose people section has the same line.
+        for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales, self.flagged):
+            self.assertIn("performance", self.keys(user), user.username)
+        self.assertNotIn("performance", self.keys(self.admin))
+        self.assertTrue(newui.SCREENS["performance"].allows(self.admin))
+        self.assertEqual(newui.SCREENS["performance"].path, "/hr/performance")
 
     def test_a_person_who_manages_attendance_has_the_hr_screen_and_nobody_else_of_another_role_does(self):
         self.assertIn("hr", self.keys(self.flagged))
@@ -62,4 +70,4 @@ class WhatEachPersonHasTests(_Site):
         self.client.force_login(self.tr)
         with mock.patch("dashboard.spa.built_assets", return_value={"js": "x.js", "css": []}):
             body = self.client.get("/api/v1/me/").json()
-        self.assertEqual(body["screens"], ["translator_home", "attendance", "leave", "chats"])
+        self.assertEqual(body["screens"], ["translator_home", "attendance", "leave", "performance", "chats"])

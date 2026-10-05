@@ -1,4 +1,4 @@
-import { Link, Navigate, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useHrPerformance } from "../api/queries";
 import type { HrPart } from "../api/types";
 import { MonthPicker } from "../components/accounts/MonthPicker";
@@ -15,7 +15,8 @@ type Part = HrPart;
 
 /**
  * The performance page. Without a person in the address it is the board (who delivered the most this month, the best three on
- * a podium and everybody below); with `?user=` it is that translator's month and record. Both read the month from the address.
+ * a podium and everybody below), which every employee reads. With `?user=` it is that translator's month and record, which is
+ * HR's and the admin's: anybody else who types such an address is shown the board.
  */
 export function HrPerformancePage() {
   const { me, allowed } = useHrAllowed();
@@ -23,11 +24,10 @@ export function HrPerformancePage() {
   const period = params.get("period") ?? "";
   const user = params.get("user") ?? "";
 
-  if (me.data && !allowed) return <Navigate to="/" replace />;
-  if (!user) {
-    return <PerformanceBoard period={period} allowed={allowed} onPeriod={(next) => setParams(next ? { period: next } : {})} />;
-  }
-  return <PersonPerformance period={period} user={user} allowed={allowed} setParams={setParams} />;
+  // Until the server has said who this is nobody is known to be HR: the board and a person's page must not trade places.
+  if (!me.data) return <Waiting failed={me.isError} />;
+  if (user && allowed) return <PersonPerformance period={period} user={user} allowed={allowed} setParams={setParams} />;
+  return <PerformanceBoard period={period} linkPeople={allowed} onPeriod={(next) => setParams(next ? { period: next } : {})} />;
 }
 
 /** One translator's month: four indicators, each with its band, the weights from the payroll rules, the overall - and their last months. */

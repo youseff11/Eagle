@@ -224,6 +224,9 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "mine", order: 10 },
   leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"], section: "mine", order: 20 },
   chats: { path: "/chats", icon: "message", label: ["الشات", "Chats"], section: "work", order: 20 },
+  // The honour board is every employee's: who delivered the most this month. HR and the admin have the same address in their own
+  // «people» section (the menu draws an address once, in the first section that has it), where it also opens a person's figures.
+  performance: { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"], section: "mine", order: 15 },
 };
 
 /** One line of the menu: a screen's first line or one of its other pages, with the section it is drawn in. */

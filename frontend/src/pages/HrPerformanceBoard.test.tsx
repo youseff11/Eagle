@@ -184,14 +184,72 @@ describe("the performance board", () => {
     expect(screen.getByText("The rest")).toBeInTheDocument();
   });
 
-  it("is HR's and the admin's: anybody else goes home and nothing is asked of the server", async () => {
-    for (const who of ["accounting", "operation", "translator", "team_lead"] as const) {
-      const served = serve(who, page());
+  it("is every employee's: the podium and the list are drawn for any role", async () => {
+    for (const who of ["accounting", "operation", "translator", "team_lead", "sales", "reviewer", "hr", "admin"] as const) {
+      serve(who, page());
       const view = open("/hr/performance");
-      expect(await screen.findByText("home page")).toBeInTheDocument();
-      expect(served.calls.some((call) => call.url.startsWith("/api/v1/hr/performance"))).toBe(false);
+      expect(await screen.findByText("Dan"), who).toBeInTheDocument();
+      expect(view.container.querySelector('[data-board="podium"]'), who).not.toBeNull();
+      expect(view.container.querySelector('[data-board="rest"]'), who).not.toBeNull();
       view.unmount();
     }
+  });
+
+  it("opens a person's figures only for HR and the admin: for anybody else the names are not links", async () => {
+    for (const who of ["accounting", "operation", "translator", "team_lead", "sales", "reviewer"] as const) {
+      serve(who, page());
+      const view = open("/hr/performance");
+      await screen.findByText("Dan");
+      expect(view.container.querySelectorAll('[data-board="podium"] a'), who).toHaveLength(0);
+      expect(view.container.querySelectorAll('[data-board="rest"] a'), who).toHaveLength(0);
+      expect(view.container.querySelectorAll('[data-board="podium"] [data-rank]'), who).toHaveLength(3);
+      expect(view.container.querySelector('[data-user="10"]'), who).toHaveTextContent("Cara");
+      view.unmount();
+    }
+    for (const who of ["hr", "admin"] as const) {
+      serve(who, page());
+      const view = open("/hr/performance");
+      await screen.findByText("Dan");
+      expect(view.container.querySelectorAll('[data-board="podium"] a'), who).toHaveLength(3);
+      expect(view.container.querySelectorAll('[data-board="rest"] a').length, who).toBeGreaterThan(0);
+      view.unmount();
+    }
+  });
+
+  it("does not tell anybody but HR to press a name, and does not show a target that was not sent", async () => {
+    const hidden = board();
+    hidden.rest = hidden.rest.map((row) => ({ ...row, target: null }));
+    serve("translator", page(hidden));
+    const { container } = open("/hr/performance");
+    await screen.findByText("Cara");
+    expect(screen.queryByText(/دوس على أي اسم/)).toBeNull();
+    const cara = container.querySelector('[data-user="10"]') as HTMLElement;
+    expect(cara).toHaveTextContent("600");
+    expect(cara).not.toHaveTextContent("/ 1,000");
+    expect(cara).toHaveTextContent("60%");
+  });
+
+  it("tells HR that a name opens the person", async () => {
+    serve("hr", page());
+    open("/hr/performance");
+    expect(await screen.findByText(/دوس على أي اسم/)).toBeInTheDocument();
+  });
+
+  it("shows anybody else the board even when the address names a person, and asks nothing of that person's door", async () => {
+    const served = serve("translator", page());
+    const { container } = open("/hr/performance?user=7");
+    await screen.findByText("Dan");
+    expect(container.querySelector('[data-board="podium"]')).not.toBeNull();
+    expect(served.calls.some((call) => call.url.startsWith("/api/v1/hr/performance/?"))).toBe(false);
+  });
+
+  it("waits to know who is asking before drawing anything", async () => {
+    const nobody: HrPerformance = { ok: true, year: 2026, month: 10, periods: [{ year: 2026, month: 10 }], people: [], person: null, report: null, history: [] };
+    serve("hr", { ...page(), "/api/v1/hr/performance/": () => jsonResponse(nobody) });
+    const { container } = open("/hr/performance?user=7");
+    // Never the board for the moment it takes to learn that this is HR, who opened a person's page.
+    expect(container.querySelector('[data-board="podium"]')).toBeNull();
+    await screen.findByText("اختار موظف.");
   });
 });
 

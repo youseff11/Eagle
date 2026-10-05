@@ -244,20 +244,37 @@ class PicturesTests(_Board):
 
 
 class AccessTests(_Board):
-    def test_hr_and_the_admin_read_it_and_nobody_else_does(self):
-        for who, status in (
-            (self.hr, 200), (self.admin, 200), (self.ops, 403), (self.lead, 403), (self.tr, 403),
-            (self.reviewer, 403), (self.accounting, 403), (self.sales, 403), (None, 401),
-        ):
-            browser_answer = self.board(who) if who is not None else self.client.get(reverse(BOARD))
-            self.assertEqual(browser_answer.status_code, status, who and who.role)
+    """The board is every employee's; a person's own page of figures is HR's and the admin's."""
 
-    def test_a_translator_learns_nothing_about_anybody_from_a_refusal(self):
-        self.translator("Secret", 700)
-        answer = self.board(self.tr)
-        self.assertEqual(answer.status_code, 403)
-        self.assertNotIn(b"Secret", answer.content)
-        self.assertNotIn(b"700", answer.content)
+    def setUp(self):
+        super().setUp()
+        self.plan = SalaryPlan.objects.create(name="Plan", monthly_target_words=2500)
+        self.translator("Seen", 700, salary_plan=self.plan)
+
+    def test_every_role_reads_the_board_and_only_a_signed_out_request_does_not(self):
+        for who in self.everyone:
+            answer = self.board(who)
+            self.assertEqual(answer.status_code, 200, who.role)
+            self.assertEqual(self.names(_json(answer)["podium"]), ["Seen Board"], who.role)
+        self.assertEqual(self.client.get(reverse(BOARD)).status_code, 401)
+
+    def test_the_pay_plans_target_is_read_by_hr_and_the_admin_only(self):
+        for who, sees in ((self.hr, True), (self.admin, True), (self.ops, False), (self.lead, False), (self.tr, False), (self.reviewer, False), (self.accounting, False), (self.sales, False)):
+            row = _json(self.board(who))["podium"][0]
+            self.assertEqual(row["target"], 2500 if sees else None, who.role)
+            # The words and the percentage are what the board is for: everybody has them.
+            self.assertEqual((row["words"], row["score"]), (700, 28), who.role)
+
+    def test_a_persons_own_figures_stay_with_hr_and_the_admin(self):
+        person = User.objects.get(first_name="Seen")
+        for who, status in ((self.hr, 200), (self.admin, 200), (self.ops, 403), (self.lead, 403), (self.tr, 403), (self.reviewer, 403), (self.accounting, 403), (self.sales, 403)):
+            self.assertEqual(self.read(PERSON, who, user=person.pk).status_code, status, who.role)
+
+    def test_nothing_of_a_clients_rides_on_the_board(self):
+        body = _json(self.board(self.tr))
+        text = str(body)
+        for secret in (self.client_obj.name, self.client_obj.phone, "password", "mail_alias", "wa_phone"):
+            self.assertNotIn(secret, text)
 
 
 class HistoryTests(_Board):

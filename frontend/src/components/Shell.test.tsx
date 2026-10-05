@@ -790,3 +790,52 @@ describe("Shell: my leave", () => {
     expect(view.container.querySelector('.sidebar a[href="/leave"]')).toBeNull();
   });
 });
+
+describe("Shell: the performance board", () => {
+  const at = (route: string, screens: string[], role: "translator" | "hr" | "operation" = "translator") => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role }, 0, screens as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="hr/performance" element={<div>the board</div>} />
+        </Route>
+      </Routes>,
+      { route },
+    );
+  };
+
+  it("is a line in anybody's own section, titled and lit on its page", async () => {
+    for (const role of ["translator", "operation"] as const) {
+      const view = at("/hr/performance", ["translator_home", "performance", "chats"], role);
+      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("الأداء"));
+      const line = await waitFor(() => {
+        const found = view.container.querySelector('.sidebar a[href="/hr/performance"]');
+        expect(found).not.toBeNull();
+        return found as HTMLElement;
+      });
+      expect(line).toHaveClass("is-active");
+      expect(line.closest("[data-nav-group]")).toHaveAttribute("data-nav-group", "mine");
+      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
+      view.unmount();
+    }
+  });
+
+  it("is one line, in the people section, for HR, who have it twice over", async () => {
+    const view = at("/hr/performance", ["hr", "performance", "chats"], "hr");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/performance"]')).not.toBeNull());
+    const lines = view.container.querySelectorAll('.sidebar a[href="/hr/performance"]');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.closest("[data-nav-group]")).toHaveAttribute("data-nav-group", "people");
+    expect(view.container.querySelector(".topbar__title")).toHaveTextContent("الأداء");
+  });
+
+  it("is not drawn for a person it has not been switched on for", async () => {
+    const view = at("/hr/performance", ["translator_home", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/hr/performance"]')).toBeNull();
+  });
+});

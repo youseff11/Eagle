@@ -366,8 +366,12 @@ def _period_of(request):
     return today.year, today.month
 
 
-def _board_row(row):
-    """One translator on the board: who, how much, and how that stands against the target (no score: not measured)."""
+def _board_row(row, sees_target):
+    """One translator on the board: who, how much, and how that stands against the target (no score: not measured).
+
+    The target is a figure of their pay plan: only those who run the people (HR, the admin) read it; everybody else reads
+    the words and the percentage the board is for.
+    """
     person = row["person"]
     return {
         "rank": row["rank"],
@@ -376,7 +380,7 @@ def _board_row(row):
         "initials": person.initials,
         "avatar": avatars.url_of(person),
         "words": row["words"],
-        "target": row["target"],
+        "target": row["target"] if sees_target else None,
         "score": row["score"],
         "band": _badge(BAND_MAP, performance.band(row["score"])),
         "projects": row["projects"],
@@ -384,11 +388,12 @@ def _board_row(row):
 
 
 @endpoint("GET")
-@can_recruit
 def performance_board(request):
     """Who delivered the most in a month: ``?period=2026-9`` (this month). The best three apart, then everybody else.
 
-    Only translators have words to count; a person with nothing delivered, or with no target, is listed but not ranked.
+    Every signed-in employee reads it (the owner's decision: it is the company's honour board); a person's own page of figures
+    (``performance_report``) stays HR's and the admin's. Only translators have words to count; a person with nothing delivered,
+    or with no target, is listed but not ranked.
     """
     parsed = _period_of(request)
     if parsed is None:
@@ -401,8 +406,8 @@ def performance_board(request):
         "year": year,
         "month": month,
         "periods": [{"year": a, "month": b} for a, b in payroll.period_choices()],
-        "podium": [_board_row(row) for row in ranked["podium"]],
-        "rest": [_board_row(row) for row in ranked["rest"]],
+        "podium": [_board_row(row, request.user.can_recruit) for row in ranked["podium"]],
+        "rest": [_board_row(row, request.user.can_recruit) for row in ranked["rest"]],
     })
 
 

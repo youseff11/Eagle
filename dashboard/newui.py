@@ -105,6 +105,17 @@ SCREENS = {
             ),
             admin_menu=False,
         ),
+        # Who delivered the most this month: the honour board is every employee's to look at. A person's own figures page
+        # (quality, attendance, complaints) is HR's and the admin's: the board links to it only for them.
+        Screen(
+            "performance", "لوحة الأداء (ترتيب المترجمين بالإنتاجية)", "The performance board (translators ranked by productivity)",
+            path="/hr/performance",
+            roles=(
+                Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
+                Role.ACCOUNTING, Role.SALES,
+            ),
+            admin_menu=False,
+        ),
         Screen(
             "chats", "الشات", "Chats",
             path="/chats",
