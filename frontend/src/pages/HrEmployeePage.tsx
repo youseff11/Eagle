@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { useSyncAliases } from "../api/adminActions";
@@ -35,14 +36,16 @@ export function HrEmployeePage() {
   const [plan, setPlan] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const data = query.data;
-  // The admin's half of the file is asked for only once HR's says this person may be edited by the one looking.
   const canEdit = data?.can.edit === true;
-  const admin = useAdminUser(id, canEdit);
+  // The admin's half of the file is asked for with HR's, at the same time, by whoever is the admin (`/me/` says so): not after
+  // HR's answer has come, which would be a second wait before the page is whole.
+  const isAdmin = me.data?.user.is_admin === true;
+  const admin = useAdminUser(id, isAdmin);
   // The address list is Google's: refreshed as the file opens (at most once a minute, the server decides), then read again.
   const asked = useSyncAliases(id).mutate;
   useEffect(() => {
-    if (canEdit) asked();
-  }, [canEdit, id, asked]);
+    if (isAdmin) asked();
+  }, [isAdmin, id, asked]);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!Number.isInteger(id) || id <= 0 || (query.error instanceof ApiError && query.error.status === 404)) {
@@ -97,10 +100,14 @@ export function HrEmployeePage() {
             (admin.data ? (
               <AccountCard id={id} data={admin.data} onClose={() => setEditing(false)} />
             ) : (
-              <div className="card empty" role={admin.isError ? "alert" : undefined}>
-                <Icon name={admin.isError ? "alert" : "refresh"} size="xl" />
-                <span>{admin.isError ? t("حصلت مشكلة في التحميل.", "Could not load.") : t("بيحمّل...", "Loading...")}</span>
-              </div>
+              admin.isError ? (
+                <div className="card empty" role="alert">
+                  <Icon name="alert" size="xl" />
+                  <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
+                </div>
+              ) : (
+                <Loading className="card empty" />
+              )
             ))}
           <div className="card">
             <div className="card__head">

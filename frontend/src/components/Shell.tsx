@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, matchPath, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
 import { warmPages } from "../api/prefetch";
+import { useAskAhead } from "../hooks/useAskAhead";
 import { useMe } from "../api/queries";
 import type { Role, ScreenKey } from "../api/types";
 import { useNavSections } from "../hooks/useNavSections";
@@ -16,6 +17,7 @@ import { CallOverlay } from "./CallOverlay";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { NavSearch } from "./NavSearch";
+import { TopProgress } from "./TopProgress";
 import { NotificationToasts } from "./NotificationToasts";
 import { ProfileMenu } from "./ProfileMenu";
 import { ToastProvider } from "./Toasts";
@@ -345,6 +347,7 @@ const WARM_DELAY_MS = 400;
 function Frame() {
   const { t, lang, setLang, theme, setTheme } = usePreferences();
   const me = useMe();
+  useAskAhead(me.data);
   const queryClient = useQueryClient();
   const realtime = useRealtimeStatus();
   const location = useLocation();
@@ -469,6 +472,7 @@ function Frame() {
 
   return (
     <div className="shell">
+      <TopProgress />
       <aside className={`sidebar${drawer ? " is-open" : ""}`} id="sidebar">
         <button
           className="icon-btn sidebar__close"

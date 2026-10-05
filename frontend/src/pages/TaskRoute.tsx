@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Navigate } from "react-router";
 import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
@@ -24,10 +25,7 @@ export function TaskRoute() {
             <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
       </div>
     );

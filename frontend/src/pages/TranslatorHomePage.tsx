@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
 import { useMe, useTranslatorHome } from "../api/queries";
 import type { DeskTask, TranslatorHomeResponse } from "../api/types";
@@ -142,10 +143,7 @@ export function TranslatorHomePage() {
               <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
             </div>
           ) : (
-            <div className="empty">
-              <Icon name="refresh" size="xl" />
-              <span>{t("بيحمّل...", "Loading...")}</span>
-            </div>
+            <Loading className="empty" />
           )}
         </div>
       )}

@@ -1,3 +1,4 @@
+import { Loading } from "../Loading";
 import { Link } from "react-router";
 import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
@@ -135,10 +136,7 @@ export function ChatList({
 
       <div className="cchat__threads">
         {state === "loading" && (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
         {state === "error" && (
           <div className="empty" role="alert">

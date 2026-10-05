@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { jsonResponse, me, mockFetch } from "../test/helpers";
 import { qk } from "./keys";
-import { WARM, warmPages } from "./prefetch";
+import { WARM, WARM_URLS, warmPages } from "./prefetch";
 import { useMailThreads, useTasks } from "./queries";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -72,8 +72,8 @@ describe("warmPages", () => {
   it("never warms a page that writes something when it is read", async () => {
     const calls = serve();
     // The client records and the client codes write an identity row at every GET; the attendance card settles days.
-    const never = ["/clients", "/clients/CL-0001", "/admin/clients", "/admin/clients/new", "/attendance", "/hr/attendance"];
-    expect(never.filter((path) => Object.hasOwn(WARM, path))).toEqual([]);
+    const never = ["/clients", "/clients/CL-0001", "/admin/clients", "/admin/clients/new", "/attendance"];
+    expect(never.filter((path) => Object.hasOwn(WARM, path) || Object.hasOwn(WARM_URLS, path))).toEqual([]);
     await warmPages(newClient(), never, me());
     expect(calls).toEqual([]);
   });
@@ -111,5 +111,33 @@ describe("warmPages", () => {
     const client = newClient();
     await expect(warmPages(client, ["/tasks", "/team"], me())).resolves.toBeUndefined();
     expect(client.getQueryData(qk.tasks(""))).toBeUndefined();
+  });
+});
+
+describe("WARM_URLS: the rest of the menu, by address", () => {
+  it("asks for the address a page reads first, and only for a page of the person's menu", async () => {
+    const calls = serve();
+    await warmPages(newClient(), ["/accounts", "/hr/leave", "/not-in-the-lists"], me());
+    expect(calls.map((call) => call.url)).toEqual(["/api/v1/accounts/overview/", "/api/v1/hr/leave/"]);
+  });
+
+  it("lists only reads of the API, and nothing the identity rule keeps from being read ahead", () => {
+    for (const [path, urls] of Object.entries(WARM_URLS)) {
+      expect(urls.length, path).toBeGreaterThan(0);
+      for (const url of urls) {
+        expect(url, path).toMatch(/^\/api\/v1\/[a-z/-]+\/$/);
+        expect(url, path).not.toMatch(/clients|^\/api\/v1\/attendance\/$/);
+      }
+    }
+    // The HR board is the one attendance address listed: its read settles days the way the clock does (idempotent).
+    expect(WARM_URLS["/hr/attendance"]).toEqual(["/api/v1/hr/attendance/"]);
+  });
+
+  it("takes what was asked ahead when the page asks for the same address, and asks the server once", async () => {
+    const calls = serve();
+    await warmPages(newClient(), ["/accounts/rules"], me());
+    const { api } = await import("./client");
+    await api("/api/v1/accounts/rules/");
+    expect(calls.map((call) => call.url)).toEqual(["/api/v1/accounts/rules/"]);
   });
 });

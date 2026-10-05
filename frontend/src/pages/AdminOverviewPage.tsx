@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
 import { useAdminOverview, useMe } from "../api/queries";
 import type { AdminOverview, Stamp } from "../api/types";
@@ -156,10 +157,7 @@ export function AdminOverviewPage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
     </>
   );

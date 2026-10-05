@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError, api } from "../api/client";
@@ -227,10 +228,7 @@ export function AssignmentPage() {
           <span>{missing ? t("التسليم ده مش متاح ليك.", "This hand-off is not available to you.") : t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="empty" />
       )}
     </div>
   );

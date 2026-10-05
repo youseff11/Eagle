@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useMarkRead, useNotifications } from "../api/queries";
 import type { NotificationItem, NotificationLevel } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -72,10 +73,7 @@ export function NotificationsPage() {
 
       <div className="card">
         {query.isPending && (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
         {query.isError && (
           <div className="empty" role="alert">

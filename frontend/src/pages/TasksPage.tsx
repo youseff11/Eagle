@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import type { ReactNode } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { useMe, useTasks } from "../api/queries";
@@ -139,10 +140,7 @@ export function TasksPage() {
             <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
       </div>
     </>

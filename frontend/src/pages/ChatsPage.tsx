@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useChatList, useMe } from "../api/queries";
@@ -97,10 +98,7 @@ export function ChatsPage() {
         <Lists allowed={allowed} />
       ) : (
         <div className="card">
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         </div>
       )}
     </>

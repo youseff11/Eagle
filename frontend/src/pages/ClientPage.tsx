@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Link, Navigate, useParams } from "react-router";
 import { ApiError } from "../api/client";
 import { useAddClientRequirement } from "../api/opsActions";
@@ -185,10 +186,7 @@ export function ClientPage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
     </>
   );

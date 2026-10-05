@@ -161,10 +161,17 @@ describe("TranslatorHomePage", () => {
     expect(screen.getByText("تم التسليم")).toBeInTheDocument();
   });
 
-  it("shows a loading state, then an error that can be read by a screen reader", async () => {
-    serve(jsonResponse({ ok: false, error: "server" }, 500));
+  it("says it is loading only when the server is slow, then shows an error that can be read by a screen reader", async () => {
+    serve(jsonResponse({ ok: false, error: "server" }, 500), {
+      "/api/v1/translator/home/": async () => {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        return jsonResponse({ ok: false, error: "server" }, 500);
+      },
+    });
     renderWithProviders(<TranslatorHomePage />);
-    expect(screen.getByText("بيحمّل...")).toBeInTheDocument();
+    // Nothing for the first moments: a page that opens at once never flashes a loading card.
+    expect(screen.queryByText("بيحمّل...")).toBeNull();
+    expect(await screen.findByText("بيحمّل...")).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في التحميل.");
   });
 

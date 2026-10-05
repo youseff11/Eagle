@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { qk } from "../api/keys";
@@ -338,10 +339,7 @@ export function AttendancePage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
     </>
   );

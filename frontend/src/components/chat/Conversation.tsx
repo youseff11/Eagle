@@ -1,3 +1,4 @@
+import { Loading } from "../Loading";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
@@ -506,10 +507,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
       </header>
 
       {known && thread.isPending && (
-        <div className="empty cchat__blank">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="empty cchat__blank" />
       )}
       {(thread.isError || !known) && (
         <div className="empty cchat__blank" role="alert">

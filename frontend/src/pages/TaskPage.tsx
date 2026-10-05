@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router";
 import { ApiError } from "../api/client";
@@ -523,10 +524,7 @@ export function TaskPage() {
             <span>{missing ? t("التاسك دي مش متاحة ليك.", "This task is not available to you.") : t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
       </div>
     </>

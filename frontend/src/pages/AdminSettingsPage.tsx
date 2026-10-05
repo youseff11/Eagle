@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useMemo, useState, type FormEvent } from "react";
 import { Navigate } from "react-router";
 import { formErrors, useConnectionTest, useGoogleDisconnect, useGoogleSync, useSaveSettings } from "../api/adminActions";
@@ -225,10 +226,7 @@ export function AdminSettingsPage() {
         <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
       </div>
     ) : (
-      <div className="card empty">
-        <Icon name="refresh" size="xl" />
-        <span>{t("بيحمّل...", "Loading...")}</span>
-      </div>
+      <Loading className="card empty" />
     );
   }
 

@@ -197,6 +197,7 @@ describe("App: the staff panel's saved addresses", () => {
     const server = serveAdmin();
     renderWithProviders(<App pollMs={4000} />, { route: "/admin/users/5" });
     await waitFor(() => expect(server.calls.some((call) => call.url === "/api/v1/hr/employees/5/")).toBe(true));
-    expect(server.calls.some((call) => call.url.startsWith("/api/v1/admin/users/5"))).toBe(false);
+    // The old list door is not asked for any more (the admin's half of the file is, beside HR's).
+    expect(server.calls.some((call) => call.url === "/api/v1/admin/users/")).toBe(false);
   });
 });

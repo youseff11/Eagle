@@ -1,3 +1,4 @@
+import { Loading } from "../Loading";
 import { ApiError } from "../../api/client";
 import { useMe } from "../../api/queries";
 import type { AccountsViolation } from "../../api/types";
@@ -39,8 +40,6 @@ export function Waiting({ failed }: { failed: boolean }) {
       <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
     </div>
   ) : (
-    <div className="card empty">
-      <span>{t("بيحمّل...", "Loading...")}</span>
-    </div>
+    <Loading className="card empty" />
   );
 }

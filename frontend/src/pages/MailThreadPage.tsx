@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../api/client";
@@ -507,10 +508,7 @@ export function MailThreadPage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
     </>
   );

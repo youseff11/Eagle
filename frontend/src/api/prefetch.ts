@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { askAheadUrl } from "./client";
 import {
   adminOverviewOptions,
   chatListOptions,
@@ -46,6 +47,57 @@ export const WARM: Record<string, Warm> = {
 };
 
 /**
+ * The other pages of the menu, by the address each one reads first (what it asks with nothing chosen yet). Not through a query's
+ * own key: the answer waits by address (`askAheadUrl`) for the page that asks for it, so a page needs no registering to be warm.
+ * The same rules as `WARM`: only reads that write nothing, and only for a person whose menu has the page. Left out on purpose:
+ * the client records and the client codes (an identity row at every read) and the attendance card (it settles days when read).
+ */
+export const WARM_URLS: Record<string, readonly string[]> = {
+  "/admin/settings": ["/api/v1/admin/settings/"],
+  "/admin/simulate": ["/api/v1/admin/simulate/"],
+  "/admin/audit": ["/api/v1/admin/audit/"],
+  "/admin/reset-mail": ["/api/v1/admin/reset/mail/"],
+  "/admin/reset-tasks": ["/api/v1/admin/reset/tasks/"],
+  "/admin/reset-staff": ["/api/v1/admin/reset/staff/"],
+  "/accounts": ["/api/v1/accounts/overview/"],
+  "/accounts/attendance": ["/api/v1/accounts/attendance/"],
+  "/accounts/violations": ["/api/v1/accounts/violations/"],
+  "/accounts/rules": ["/api/v1/accounts/rules/"],
+  "/hr/recruitment": ["/api/v1/hr/recruitment/"],
+  "/hr/vacancies": ["/api/v1/hr/vacancies/"],
+  "/hr/candidates": ["/api/v1/hr/candidates/"],
+  "/hr/questions": ["/api/v1/hr/questions/"],
+  "/hr/recruitment/settings": ["/api/v1/hr/recruitment/settings/"],
+  "/hr/approvals": ["/api/v1/hr/approvals/"],
+  "/reviewer/tests": ["/api/v1/reviewer/tests/"],
+  "/hr/attendance": ["/api/v1/hr/attendance/"],
+  "/hr/schedules": ["/api/v1/hr/schedules/"],
+  "/hr/shifts": ["/api/v1/hr/shifts/"],
+  "/hr/leave": ["/api/v1/hr/leave/"],
+  "/hr/overtime": ["/api/v1/hr/overtime/"],
+  "/hr/report": ["/api/v1/hr/report/"],
+  "/hr/probation": ["/api/v1/hr/probation/"],
+  "/hr/performance": ["/api/v1/hr/performance/board/"],
+  "/hr/complaints": ["/api/v1/hr/complaints/"],
+  "/hr/salary-requests": ["/api/v1/hr/salary-requests/"],
+  "/hr/salary-plans": ["/api/v1/hr/salary-plans/"],
+  "/hr/offices": ["/api/v1/hr/offices/"],
+  "/hr/devices": ["/api/v1/hr/devices/"],
+  "/payroll": ["/api/v1/translator/payroll/"],
+  "/line": ["/api/v1/sales/line/"],
+  "/leave": ["/api/v1/leave/"],
+};
+
+/** Warm one menu address, by whichever way it is listed; an address in neither list is left to open cold. */
+export async function warmPath(client: QueryClient, path: string, me: MeResponse): Promise<void> {
+  if (Object.hasOwn(WARM, path)) {
+    await WARM[path]!(client, me);
+  } else if (Object.hasOwn(WARM_URLS, path)) {
+    await Promise.all(WARM_URLS[path]!.map((url) => askAheadUrl(url)));
+  }
+}
+
+/**
  * Warm these addresses one after the other (not all at once: the page the person is on comes first). `stopped` is
  * asked before each, so a person who has gone or whose menu changed stops it.
  */
@@ -56,11 +108,10 @@ export async function warmPages(
   stopped: () => boolean = () => false,
 ): Promise<void> {
   for (const path of paths) {
-    const warm = Object.hasOwn(WARM, path) ? WARM[path] : undefined;
-    if (!warm) continue;
+    if (!Object.hasOwn(WARM, path) && !Object.hasOwn(WARM_URLS, path)) continue;
     if (stopped()) return;
     try {
-      await warm(client, me);
+      await warmPath(client, path, me);
     } catch {
       // A warm-up that fails is a page that opens cold, as before.
     }

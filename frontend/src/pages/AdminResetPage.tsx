@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { useRunReset } from "../api/adminActions";
@@ -155,10 +156,7 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
             <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
 
         {mail && (

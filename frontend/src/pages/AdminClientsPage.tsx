@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { useClientDeletePlan, useDeleteClients } from "../api/adminActions";
@@ -367,10 +368,7 @@ export function AdminClientsPage() {
             <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
       </div>
 

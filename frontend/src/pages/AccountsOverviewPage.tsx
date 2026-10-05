@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { useApprovePeriod, useDecideViolation, useRunMonth } from "../api/accountsActions";
@@ -309,10 +310,7 @@ export function AccountsOverviewPage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
 
       {locking && (

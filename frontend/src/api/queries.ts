@@ -517,11 +517,16 @@ export function useHrRegister(search: string, enabled = true) {
   });
 }
 
+/** One person's file: the key and the fetch, for the page and for the warm-up before the click (`intent.ts`). */
+export const hrEmployeeOptions = (id: number) => ({
+  queryKey: qk.hrEmployee(id),
+  queryFn: () => api<HrEmployee>(`/api/v1/hr/employees/${id}/`),
+});
+
 /** One person's file. */
 export function useHrEmployee(id: number, enabled = true) {
   return useQuery({
-    queryKey: qk.hrEmployee(id),
-    queryFn: () => api<HrEmployee>(`/api/v1/hr/employees/${id}/`),
+    ...hrEmployeeOptions(id),
     refetchOnWindowFocus: false,
     enabled: enabled && Number.isInteger(id) && id > 0,
   });
@@ -752,11 +757,16 @@ export function useAdminSettings(enabled = true) {
   });
 }
 
+/** The admin's half of a person's file: the key and the fetch (see `hrEmployeeOptions`). */
+export const adminUserOptions = (id: number) => ({
+  queryKey: qk.adminUser(id),
+  queryFn: () => api<AdminUser>(`/api/v1/admin/users/${id}/`),
+});
+
 /** The admin's half of a person's file. Asked for when it opens and after a save, never on a clock or a doorbell: the form is being typed in. */
 export function useAdminUser(id: number, enabled = true) {
   return useQuery({
-    queryKey: qk.adminUser(id),
-    queryFn: () => api<AdminUser>(`/api/v1/admin/users/${id}/`),
+    ...adminUserOptions(id),
     refetchOnWindowFocus: false,
     enabled: enabled && Number.isInteger(id) && id > 0,
   });

@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
 import { useLeadHome, useMe } from "../api/queries";
 import type { LeadHome, OpsTaskRow } from "../api/types";
@@ -165,10 +166,7 @@ export function LeadHomePage() {
           <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
         </div>
       ) : (
-        <div className="card empty">
-          <Icon name="refresh" size="xl" />
-          <span>{t("بيحمّل...", "Loading...")}</span>
-        </div>
+        <Loading className="card empty" />
       )}
     </>
   );

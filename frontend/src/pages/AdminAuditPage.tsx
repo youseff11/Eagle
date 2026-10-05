@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { useOlderAudit } from "../api/adminActions";
@@ -136,10 +137,7 @@ export function AdminAuditPage() {
             <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
           </div>
         ) : (
-          <div className="empty">
-            <Icon name="refresh" size="xl" />
-            <span>{t("بيحمّل...", "Loading...")}</span>
-          </div>
+          <Loading className="empty" />
         )}
       </div>
     </>

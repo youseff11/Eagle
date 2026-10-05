@@ -97,7 +97,54 @@ export async function apiDownload(path: string, json: unknown, fallbackName: str
   return { blob: await response.blob(), filename: match?.[1] ?? fallbackName, headers: response.headers };
 }
 
-export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/**
+ * What was asked for ahead of a click (`askAheadUrl`), by address: the answer, or the ask still on its way. Each is for the
+ * next page that asks for the same address, once; an unused one goes stale after `AHEAD_TTL_MS`.
+ */
+const ahead = new Map<string, { at: number; promise: Promise<unknown> }>();
+const AHEAD_TTL_MS = 10 * 60 * 1000;
+/** An answer older than this is drawn at once and then asked for again behind the page (`AHEAD_AGED_EVENT`). */
+const AHEAD_AGED_MS = 10_000;
+/** Said on `window` when a page was opened on an answer that has had time to go stale: the app asks again, quietly. */
+export const AHEAD_AGED_EVENT = "eagle:ahead-aged";
+
+/**
+ * Ask for a read now, for the page that will want it: the pointer is on its link, or the person's menu is being warmed. The
+ * answer waits for that page's own `api()` call for the same address, which takes it instead of asking again, so the page
+ * opens on data and not on a wait. A failure is forgotten (the page asks for itself, and says what went wrong).
+ */
+export function askAheadUrl(path: string): Promise<unknown> {
+  const held = ahead.get(path);
+  if (held && Date.now() - held.at < AHEAD_TTL_MS) return held.promise.catch(() => undefined);
+  const promise = fetchJson<unknown>(path, {});
+  ahead.set(path, { at: Date.now(), promise });
+  return promise.catch(() => {
+    if (ahead.get(path)?.promise === promise) ahead.delete(path);
+  });
+}
+
+export function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const read = options.json === undefined && options.form === undefined && options.multipart === undefined && !options.signal;
+  if (read && (options.method ?? "GET") === "GET") {
+    const held = ahead.get(path);
+    if (held) {
+      ahead.delete(path);
+      const age = Date.now() - held.at;
+      if (age < AHEAD_TTL_MS) {
+        if (age > AHEAD_AGED_MS) window.dispatchEvent(new Event(AHEAD_AGED_EVENT));
+        return held.promise as Promise<T>;
+      }
+    }
+  }
+  if (read) return fetchJson<T>(path, options);
+  // A write changes what was asked ahead: what is held for a page was true before it, so it is dropped (the page asks for itself).
+  return fetchJson<T>(path, options).then((answer) => {
+    ahead.clear();
+    return answer;
+  });
+}
+
+async function fetchJson<T>(path: string, options: RequestOptions): Promise<T> {
   const writes = options.json !== undefined || options.form !== undefined || options.multipart !== undefined;
   const method = options.method ?? (writes ? "POST" : "GET");
   const headers: Record<string, string> = { Accept: "application/json" };

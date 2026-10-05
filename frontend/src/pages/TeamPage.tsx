@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
 import { useMe, useTeam } from "../api/queries";
 import type { TeamResponse } from "../api/types";
@@ -135,10 +136,7 @@ export function TeamPage() {
               <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
             </div>
           ) : (
-            <div className="empty">
-              <Icon name="refresh" size="xl" />
-              <span>{t("بيحمّل...", "Loading...")}</span>
-            </div>
+            <Loading className="empty" />
           )}
         </div>
       )}

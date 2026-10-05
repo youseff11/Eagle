@@ -1,3 +1,4 @@
+import { Loading } from "../components/Loading";
 import { Navigate, useSearchParams } from "react-router";
 import { useMe, usePayroll } from "../api/queries";
 import type { PayrollResponse } from "../api/types";
@@ -196,10 +197,7 @@ export function PayrollPage() {
               <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
             </div>
           ) : (
-            <div className="empty">
-              <Icon name="refresh" size="xl" />
-              <span>{t("بيحمّل...", "Loading...")}</span>
-            </div>
+            <Loading className="empty" />
           )}
         </div>
       )}
