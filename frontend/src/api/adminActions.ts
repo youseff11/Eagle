@@ -29,7 +29,7 @@ export function useCreateUser() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (values: FormChanges) => api<{ ok: true; id: number }>("/api/v1/admin/users/create/", { json: { values } }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: qk.adminUsers }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: qk.hrRegisterAll }),
   });
 }
 
@@ -38,48 +38,36 @@ export function useSaveUser(id: number) {
   return useMutation({
     mutationFn: (values: FormChanges) => api<{ ok: true }>(`/api/v1/admin/users/${id}/save/`, { json: { values } }),
     onSuccess: () => {
+      // The person's file is two answers (the admin's and HR's) and the register shows their name, role and whether they work here.
       void client.invalidateQueries({ queryKey: qk.adminUser(id) });
-      void client.invalidateQueries({ queryKey: qk.adminUsers });
+      void client.invalidateQueries({ queryKey: qk.hr });
+      void client.invalidateQueries({ queryKey: qk.hrRegisterAll });
       // A name or a role changed may be the signed-in person's own.
       void client.invalidateQueries({ queryKey: qk.me });
     },
   });
 }
 
-function useShiftWrite<V, R = unknown>(id: number, run: (values: V) => Promise<R>) {
+/** A roster row is part of HR's answer (the file, and the count in the register): the admin's writes ask for it again. */
+function useShiftWrite<V>(run: (values: V) => Promise<unknown>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: qk.adminUser(id) });
-      void client.invalidateQueries({ queryKey: qk.adminUsers });
+      void client.invalidateQueries({ queryKey: qk.hr });
+      void client.invalidateQueries({ queryKey: qk.hrRegisterAll });
     },
   });
 }
 
 export function useAddShift(id: number) {
-  return useShiftWrite<{ weekday: number; start_time: string; end_time: string }>(id, (values) =>
+  return useShiftWrite<{ weekday: number; start_time: string; end_time: string }>((values) =>
     api(`/api/v1/admin/users/${id}/shifts/add/`, { json: values }),
   );
 }
 
 export function useDeleteShift(id: number) {
-  return useShiftWrite<number>(id, (shift) => api(`/api/v1/admin/users/${id}/shifts/${shift}/delete/`, { json: {} }));
-}
-
-/** One of the company's shifts for some weekdays, none, or a new one (`template` is its id, `""`, or `"new"`). */
-export interface ShiftChoice {
-  template: string;
-  weekdays: number[];
-  new_name?: string;
-  new_start?: string;
-  new_end?: string;
-}
-
-export function usePickShift(id: number) {
-  return useShiftWrite<ShiftChoice, { ok: true; label: string }>(id, (choice) =>
-    api<{ ok: true; label: string }>(`/api/v1/admin/users/${id}/shift/`, { json: choice }),
-  );
+  return useShiftWrite<number>((shift) => api(`/api/v1/admin/users/${id}/shifts/${shift}/delete/`, { json: {} }));
 }
 
 /** Ask Google for the company mailbox's addresses: made as a person's file opens, then the file is asked for again. */

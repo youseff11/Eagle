@@ -47,7 +47,6 @@ import type {
   AdminOverview,
   AdminUser,
   AdminUserNew,
-  AdminUsers,
   AiCheckAnswer,
   AttendanceCard,
   AttendanceGate,
@@ -128,7 +127,11 @@ export const adminOverviewOptions = () => ({
   queryKey: qk.adminOverview,
   queryFn: () => api<AdminOverview>("/api/v1/admin/overview/"),
 });
-export const adminUsersOptions = () => ({ queryKey: qk.adminUsers, queryFn: () => api<AdminUsers>("/api/v1/admin/users/") });
+/** The register: `search` is `department=&status=`. The same key and fetch for the hook and for the warm-up before the click. */
+export const hrRegisterOptions = (search: string) => ({
+  queryKey: qk.hrRegister(search),
+  queryFn: () => api<HrRegister>(`/api/v1/hr/employees/${search ? `?${search}` : ""}`),
+});
 export const mailThreadsOptions = (state: string, query: string) => {
   const params = new URLSearchParams();
   if (state) params.set("state", state);
@@ -502,11 +505,12 @@ export function useHrOvertime(enabled = true) {
   });
 }
 
-/** Everybody active (`search` is `department=&status=`). */
+/** Everybody on the staff, and whether they are here (`search` is `department=&status=`): the socket's bell asks again. */
 export function useHrRegister(search: string, enabled = true) {
+  const refetchInterval = useFallbackInterval();
   return useQuery({
-    queryKey: qk.hrRegister(search),
-    queryFn: () => api<HrRegister>(`/api/v1/hr/employees/${search ? `?${search}` : ""}`),
+    ...hrRegisterOptions(search),
+    refetchInterval,
     refetchOnWindowFocus: false,
     placeholderData: (previous) => previous,
     enabled,
@@ -748,13 +752,7 @@ export function useAdminSettings(enabled = true) {
   });
 }
 
-/** The staff table: everybody, and whether they are here. */
-export function useAdminUsers(enabled = true) {
-  const refetchInterval = useFallbackInterval();
-  return useQuery({ ...adminUsersOptions(), refetchInterval, enabled });
-}
-
-/** One person's file. Asked for when it opens and after a save, never on a clock or a doorbell: the form is being typed in. */
+/** The admin's half of a person's file. Asked for when it opens and after a save, never on a clock or a doorbell: the form is being typed in. */
 export function useAdminUser(id: number, enabled = true) {
   return useQuery({
     queryKey: qk.adminUser(id),

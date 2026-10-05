@@ -61,7 +61,6 @@ export const qk = {
   /** The audit log, by filter: outside the boards on purpose, a log that moves under the eye is harder to read (it has a refresh button). */
   adminAudit: (only: string) => ["admin-audit", only] as const,
   /** The staff table: with the boards (who is here moves). A person's file and the new-person form are outside them, so a doorbell never refills a form being typed in. */
-  adminUsers: ["boards", "admin", "users"] as const,
   adminUser: (id: number) => ["admin-user", id] as const,
   adminUserNew: ["admin-user-new"] as const,
   /** The client records (by search and filter) and one client's identity form: outside the boards, read when opened. */
@@ -90,7 +89,9 @@ export const qk = {
   hrShifts: (edit: string) => ["hr", "shifts", edit] as const,
   hrOffices: (edit: string) => ["hr", "offices", edit] as const,
   hrDevices: ["hr", "devices"] as const,
-  hrRegister: (search: string) => ["hr", "register", search] as const,
+  // Under "boards": who is here changes while the list is open, and the socket rings that bell for every board.
+  hrRegisterAll: ["boards", "hr-register"] as const,
+  hrRegister: (search: string) => ["boards", "hr-register", search] as const,
   hrEmployee: (id: number) => ["hr", "employee", id] as const,
   hrProbation: (state: string) => ["hr", "probation", state] as const,
   hrPerformance: (period: string, user: string) => ["hr", "performance", period, user] as const,

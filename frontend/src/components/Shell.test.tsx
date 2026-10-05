@@ -537,14 +537,14 @@ describe("Shell: the admin's panel", () => {
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
       "/admin", "/chats", "/admin/clients",
-      "/admin/users", "/admin/settings", "/admin/simulate", "/admin/audit",
+      "/admin/settings", "/admin/simulate", "/admin/audit",
       "/notifications", "/admin/reset-mail", "/admin/reset-tasks",
     ]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
       "الشغل", "الإعدادات", "حسابي", "منطقة خطر",
     ]);
     const words: [string, string][] = [
-      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/admin/users", "المستخدمين والشيفتات"],
+      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"],
       ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"],
     ];
@@ -554,15 +554,15 @@ describe("Shell: the admin's panel", () => {
     for (const href of ["/admin/reset-mail", "/admin/reset-tasks"]) {
       expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toHaveClass("nav__item--danger");
     }
-    expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).not.toHaveClass("nav__item--danger");
+    expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toHaveClass("nav__item--danger");
+    // The staff panel is the employee files now: it has no line of its own on the panel.
+    expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).toBeNull();
   });
 
   it("titles every page and lights exactly one line on each", async () => {
     for (const [route, title, lit] of [
       ["/admin", "نظرة عامة", "/admin"],
       ["/admin/audit", "سجل النشاط", "/admin/audit"],
-      ["/admin/users", "المستخدمين والشيفتات", "/admin/users"],
-      ["/admin/users/5", "المستخدمين والشيفتات", "/admin/users"],
       ["/admin/clients/CL-0001/edit", "بيانات العملاء", "/admin/clients"],
       ["/admin/settings", "الإعدادات و AI", "/admin/settings"],
       ["/admin/simulate", "محاكاة رسالة", "/admin/simulate"],

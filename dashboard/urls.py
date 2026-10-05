@@ -176,12 +176,10 @@ urlpatterns = [
     path("api/v1/leave/<int:pk>/<str:action>/", api_leave.decide, name="v1_leave_decide"),
     path("api/v1/admin/overview/", api_admin.overview, name="v1_admin_overview"),
     path("api/v1/admin/audit/", api_admin.audit, name="v1_admin_audit"),
-    path("api/v1/admin/users/", api_admin_users.users, name="v1_admin_users"),
     path("api/v1/admin/users/new/", api_admin_users.user_new, name="v1_admin_user_new"),
     path("api/v1/admin/users/create/", api_admin_users.user_create, name="v1_admin_user_create"),
     path("api/v1/admin/users/<int:pk>/", api_admin_users.user, name="v1_admin_user"),
     path("api/v1/admin/users/<int:pk>/save/", api_admin_users.user_save, name="v1_admin_user_save"),
-    path("api/v1/admin/users/<int:pk>/shift/", api_admin_users.user_shift, name="v1_admin_user_shift"),
     path("api/v1/admin/users/<int:pk>/shifts/add/", api_admin_users.shift_add, name="v1_admin_shift_add"),
     path(
         "api/v1/admin/users/<int:pk>/shifts/<int:shift_id>/delete/", api_admin_users.shift_delete,

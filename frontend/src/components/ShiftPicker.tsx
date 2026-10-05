@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../api/client";
-import type { AdminUser } from "../api/types";
+import type { ShiftPickerData } from "../api/types";
 import { Icon } from "./Icon";
 import { useToasts } from "./Toasts";
 import { usePreferences } from "../i18n/Preferences";
@@ -29,7 +29,7 @@ export function ShiftPicker({
   save,
   pending,
 }: {
-  picker: AdminUser["picker"];
+  picker: ShiftPickerData;
   save: (choice: ShiftChoice, options: { onSuccess: (answer: { label: string }) => void; onError: (error: unknown) => void }) => void;
   pending: boolean;
 }) {

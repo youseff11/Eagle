@@ -21,7 +21,11 @@ function useWrite<V, R>(run: (values: V) => Promise<R>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: run,
-    onSettled: () => void client.invalidateQueries({ queryKey: qk.hr }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.hr });
+      // The register counts a person's shifts, and it lives with the boards (the socket asks it again).
+      void client.invalidateQueries({ queryKey: qk.hrRegisterAll });
+    },
   });
 }
 

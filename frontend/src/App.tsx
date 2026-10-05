@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useParams } from "react-router";
 import { qk } from "./api/keys";
 import { Shell } from "./components/Shell";
 import { calls } from "./lib/calls";
@@ -20,6 +20,7 @@ import { HrOvertimePage } from "./pages/HrOvertimePage";
 import { HrReportPage } from "./pages/HrReportPage";
 import { HrSchedulesPage } from "./pages/HrSchedulesPage";
 import { HrComplaintsPage } from "./pages/HrComplaintsPage";
+import { HrEmployeeNewPage } from "./pages/HrEmployeeNewPage";
 import { HrEmployeePage } from "./pages/HrEmployeePage";
 import { HrEmployeesPage } from "./pages/HrEmployeesPage";
 import { HrPerformancePage } from "./pages/HrPerformancePage";
@@ -46,8 +47,6 @@ import { AdminOverviewPage } from "./pages/AdminOverviewPage";
 import { AdminResetPage } from "./pages/AdminResetPage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
 import { AdminSimulatePage } from "./pages/AdminSimulatePage";
-import { AdminUserNewPage, AdminUserPage } from "./pages/AdminUserPage";
-import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AssignmentPage } from "./pages/AssignmentPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { ClientPage } from "./pages/ClientPage";
@@ -67,6 +66,12 @@ import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { TeamPage } from "./pages/TeamPage";
 import { TranslatorHomePage } from "./pages/TranslatorHomePage";
+
+/** An address saved from the staff panel (`/admin/users/5`) opens the same person's file in the employee files. */
+function UserFile() {
+  const { id } = useParams();
+  return <Navigate to={`/hr/employees/${encodeURIComponent(id ?? "")}`} replace />;
+}
 
 export function App({ pollMs }: { pollMs: number }) {
   const client = useQueryClient();
@@ -96,6 +101,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="hr/schedules" element={<HrSchedulesPage />} />
         <Route path="hr/shifts" element={<HrShiftsPage />} />
         <Route path="hr/employees" element={<HrEmployeesPage />} />
+        <Route path="hr/employees/new" element={<HrEmployeeNewPage />} />
         <Route path="hr/employees/:id" element={<HrEmployeePage />} />
         <Route path="hr/probation" element={<HrProbationPage />} />
         <Route path="hr/performance" element={<HrPerformancePage />} />
@@ -128,9 +134,10 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="admin/simulate" element={<AdminSimulatePage />} />
         <Route path="admin/reset-tasks" element={<AdminResetPage kind="tasks" />} />
         <Route path="admin/reset-mail" element={<AdminResetPage kind="mail" />} />
-        <Route path="admin/users" element={<AdminUsersPage />} />
-        <Route path="admin/users/new" element={<AdminUserNewPage />} />
-        <Route path="admin/users/:id" element={<AdminUserPage />} />
+        {/* The staff panel was folded into the employee files: the addresses that were saved still arrive. */}
+        <Route path="admin/users" element={<Navigate to="/hr/employees" replace />} />
+        <Route path="admin/users/new" element={<Navigate to="/hr/employees/new" replace />} />
+        <Route path="admin/users/:id" element={<UserFile />} />
         <Route path="translator" element={<TranslatorHomePage />} />
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="assignments/:id" element={<AssignmentPage />} />

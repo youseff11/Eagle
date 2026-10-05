@@ -166,3 +166,37 @@ describe("App: a call that rings is drawn by this app", () => {
     calls.reset();
   });
 });
+
+describe("App: the staff panel's saved addresses", () => {
+  function serveAdmin() {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/heartbeat/": () => jsonResponse({ ok: true, attendance: null, pending: null, call: null, live: "a" }),
+      "/api/v1/me/": () => jsonResponse(me({ role: "admin", is_admin: true }, 0, ["hr"])),
+      "/api/v1/hr/employees/": () => jsonResponse({ ok: true, rows: [], options: { departments: [], statuses: [] } }),
+      "/api/v1/admin/users/new/": () => jsonResponse({ ok: true, form: [] }),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    return mocked;
+  }
+
+  it("opens the list of the employee files from /admin/users", async () => {
+    const server = serveAdmin();
+    renderWithProviders(<App pollMs={4000} />, { route: "/admin/users" });
+    expect(await screen.findByText("مفيش موظفين.")).toBeInTheDocument();
+    expect(server.calls.some((call) => call.url.startsWith("/api/v1/hr/employees/"))).toBe(true);
+  });
+
+  it("opens the form for a new person from /admin/users/new", async () => {
+    serveAdmin();
+    renderWithProviders(<App pollMs={4000} />, { route: "/admin/users/new" });
+    expect(await screen.findByRole("link", { name: "كل الموظفين" })).toHaveAttribute("href", "/hr/employees");
+  });
+
+  it("opens the same person's file from /admin/users/5", async () => {
+    const server = serveAdmin();
+    renderWithProviders(<App pollMs={4000} />, { route: "/admin/users/5" });
+    await waitFor(() => expect(server.calls.some((call) => call.url === "/api/v1/hr/employees/5/")).toBe(true));
+    expect(server.calls.some((call) => call.url.startsWith("/api/v1/admin/users/5"))).toBe(false);
+  });
+});

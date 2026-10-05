@@ -213,9 +213,9 @@ PAGES = (
     # -- the admin panel ------------------------------------------------------
     ("panel/", "admin_overview", "/admin", None, None),
     ("panel/settings/", "admin_settings", "/admin/settings", None, None),
-    ("panel/users/", "admin_users", "/admin/users", None, None),
-    ("panel/users/new/", "admin_user_new", "/admin/users/new", None, None),
-    ("panel/users/<int:pk>/", "admin_user_edit", "/admin/users/{pk}", None, None),
+    ("panel/users/", "admin_users", "/hr/employees", None, None),
+    ("panel/users/new/", "admin_user_new", "/hr/employees/new", None, None),
+    ("panel/users/<int:pk>/", "admin_user_edit", "/hr/employees/{pk}", None, None),
     ("panel/clients/", "admin_clients", "/admin/clients", _both(_robots, _search), None),
     ("panel/clients/new/", "admin_client_new", "/admin/clients/new", None, None),
     ("panel/clients/<str:code>/edit/", "admin_client_edit", "/admin/clients/{code}/edit", None, None),

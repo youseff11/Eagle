@@ -117,16 +117,18 @@ class GroupTests(_Faces):
 
 class AdminPanelTests(_Faces):
     def test_the_staff_list_and_a_persons_file_carry_their_picture(self):
-        rows = {row["id"]: row for row in self.json(self.admin, "dashboard:v1_admin_users")["users"]}
+        rows = {row["id"]: row for row in self.json(self.admin, "dashboard:v1_hr_register")["rows"]}
         self.assertEqual(rows[self.tr.pk]["avatar"], self.face(self.tr))
         self.assertIsNone(rows[self.plain.pk]["avatar"])
+        self.assertEqual(self.json(self.admin, "dashboard:v1_hr_employee", self.tr.pk)["person"]["avatar"], self.face(self.tr))
         self.assertEqual(self.json(self.admin, "dashboard:v1_admin_user", self.tr.pk)["user"]["avatar"], self.face(self.tr))
 
-    def test_the_staff_panel_is_still_the_admins_alone(self):
+    def test_the_employee_files_are_still_for_hr_and_the_admin_alone(self):
         for viewer in (self.ops, self.lead, self.tr):
-            response = self.get(viewer, "dashboard:v1_admin_users")
-            self.assertEqual(response.status_code, 403, viewer.role)
-            self.assertNotIn(b"avatars/", response.content)
+            for name, args in (("dashboard:v1_hr_register", ()), ("dashboard:v1_hr_employee", (self.tr.pk,))):
+                response = self.get(viewer, name, *args)
+                self.assertEqual(response.status_code, 403, (viewer.role, name))
+                self.assertNotIn(b"avatars/", response.content)
 
 
 class NeverToAClientTests(_Faces):

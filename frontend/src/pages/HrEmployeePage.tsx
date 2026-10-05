@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
+import { useSyncAliases } from "../api/adminActions";
 import { ApiError } from "../api/client";
 import { useAssignPlan, usePickHrShift } from "../api/hrActions";
-import { useHrEmployee } from "../api/queries";
+import { useAdminUser, useHrEmployee } from "../api/queries";
 import { Waiting, refusal } from "../components/accounts/shared";
-import { useHrAllowed, useStamp } from "../components/hr/shared";
+import { AccountCard, PenaltiesCard } from "../components/hr/AccountCard";
+import { RosterCard } from "../components/hr/RosterCard";
+import { useHrAllowed } from "../components/hr/shared";
 import { WorkModeCard } from "../components/hr/WorkModeCard";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { ShiftPicker } from "../components/ShiftPicker";
@@ -14,13 +18,13 @@ import { usePreferences } from "../i18n/Preferences";
 import { minutesHm } from "../lib/payroll";
 
 /**
- * One person's file: who they are, this month's attendance, the roster and the cards HR keeps up (the shift, home or office),
- * probation, recent leave, the pay plan and the salary history. Editing the person is the admin's; assigning a pay plan is too.
+ * One person's file, the only one: who they are, this month's attendance, the roster and the cards HR keeps up (the shift, home or
+ * office), probation, recent leave, the pay plan and the salary history. What only the admin does is on the same page: the account
+ * form (the button in the head), the roster rows typed by hand, the rating penalties, assigning a pay plan.
  */
 export function HrEmployeePage() {
   const { t } = usePreferences();
   const words = useLeaveWords();
-  const stamp = useStamp();
   const { push } = useToasts();
   const { me, allowed } = useHrAllowed();
   const params = useParams();
@@ -29,7 +33,16 @@ export function HrEmployeePage() {
   const pickShift = usePickHrShift(id);
   const assign = useAssignPlan(id);
   const [plan, setPlan] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const data = query.data;
+  // The admin's half of the file is asked for only once HR's says this person may be edited by the one looking.
+  const canEdit = data?.can.edit === true;
+  const admin = useAdminUser(id, canEdit);
+  // The address list is Google's: refreshed as the file opens (at most once a minute, the server decides), then read again.
+  const asked = useSyncAliases(id).mutate;
+  useEffect(() => {
+    if (canEdit) asked();
+  }, [canEdit, id, asked]);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!Number.isInteger(id) || id <= 0 || (query.error instanceof ApiError && query.error.status === 404)) {
@@ -60,20 +73,34 @@ export function HrEmployeePage() {
   return (
     <>
       <div className="page-head">
+        <Avatar src={person.avatar} initials={person.initials} tone="" className="avatar--lg" />
         <h1>{person.name}</h1>
+        {admin.data && <small className="muted mono">{admin.data.user.username}</small>}
         <span className="chip">{words(person.role)}</span>
         <LeaveStatusBadge status={person.status} />
         <div className="grow" />
+        <Link className="btn btn--sm" to="/hr/employees">
+          {t("كل الموظفين", "All staff")}
+        </Link>
         {data.can.edit && (
-          <Link className="btn btn--sm btn--ghost" to={`/admin/users/${person.id}`}>
+          <button className="btn btn--sm btn--ghost" type="button" aria-pressed={editing} onClick={() => setEditing(!editing)}>
             <Icon name="pen" size="sm" />
             <span>{t("عدّل", "Edit")}</span>
-          </Link>
+          </button>
         )}
       </div>
 
       <div className="grid grid--main">
         <div className="stack">
+          {editing &&
+            (admin.data ? (
+              <AccountCard id={id} data={admin.data} onClose={() => setEditing(false)} />
+            ) : (
+              <div className="card empty" role={admin.isError ? "alert" : undefined}>
+                <Icon name={admin.isError ? "alert" : "refresh"} size="xl" />
+                <span>{admin.isError ? t("حصلت مشكلة في التحميل.", "Could not load.") : t("بيحمّل...", "Loading...")}</span>
+              </div>
+            ))}
           <div className="card">
             <div className="card__head">
               <Icon name="contact" />
@@ -154,25 +181,8 @@ export function HrEmployeePage() {
           {data.picker && <ShiftPicker picker={data.picker} save={(choice, options) => pickShift.mutate(choice, options)} pending={pickShift.isPending} />}
           {data.work_mode_card && <WorkModeCard id={person.id} card={data.work_mode_card} />}
 
-          <div className="card" data-card="roster">
-            <div className="card__head">
-              <Icon name="calendar" />
-              <h3>{t("الجدول", "Roster")}</h3>
-            </div>
-            {data.shifts.map((row) => (
-              <div className="kv" key={row.id}>
-                <span>{words(row.weekday)}</span>
-                <b className="mono">
-                  {stamp(row.start)}–{stamp(row.end)}
-                </b>
-              </div>
-            ))}
-            {data.shifts.length === 0 && <div className="muted">{t("مفيش جدول لسه.", "No roster yet.")}</div>}
-            <Link className="btn btn--sm btn--block mt" to={`/hr/schedules?user=${person.id}`}>
-              <Icon name="pen" size="sm" />
-              <span>{t("عدّل الجدول", "Edit the roster")}</span>
-            </Link>
-          </div>
+          <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />
+          {admin.data && <PenaltiesCard events={admin.data.events} />}
 
           {data.probation.length > 0 && (
             <div className="card" data-card="probation">

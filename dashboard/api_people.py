@@ -23,11 +23,13 @@ from . import api_forms, attendance, avatars, employees, identity, payroll, perf
 from .api_forms import named
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
 from .api_leave import request_json as leave_json
+from .api_ops import _seen_json
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeRequestForm, SalaryPlanForm
 from .models import (
-    ApprovalStatus, ClientComplaint, ComplaintSeverity, Department, EmploymentStatus, OffSitePolicy, OfficeLocation, PayrollSettings,
-    ProbationOutcome, ProbationReview, ProbationStage, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, User, WorkMode,
+    ACTIVE_TASK_STATUSES, ApprovalStatus, ClientComplaint, ComplaintSeverity, Department, EmploymentStatus, OffSitePolicy, OfficeLocation,
+    PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, Task, User,
+    WorkMode,
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
@@ -86,11 +88,37 @@ def _label(department):
 # The register and a person's file
 # ---------------------------------------------------------------------------
 
+def _busy_people():
+    """The ids of the translators and team leaders who hold a task being worked: ``User.is_busy`` for all of them at once."""
+    active = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
+    translators = set(active.filter(translator__isnull=False).values_list("translator_id", flat=True))
+    leaders = set(active.filter(team_lead__isnull=False).values_list("team_lead_id", flat=True))
+    return translators, leaders
+
+
+def _state(person, translators, leaders):
+    """The dot beside a person: disabled, free, busy, rostered but not open, or away (the staff table's own rule)."""
+    if not person.is_active:
+        return "disabled"
+    if not person.is_online:
+        return "shift" if person.on_shift else "off"
+    busy = (person.is_translator and person.pk in translators) or (person.is_team_lead and person.pk in leaders)
+    return "busy" if busy else "free"
+
+
 @endpoint("GET")
 @can_recruit
 def register(request):
-    """Everybody active, with their department, kind of work and status: ``?department=<id>&status=``."""
-    rows = User.objects.filter(is_active=True).select_related("department")
+    """Everybody on the staff, one row each: ``?department=<id>&status=``.
+
+    The register is the one list of people: HR's columns (code, department, kind of work, status) and the staff table's (leader,
+    whether they are here, shifts, rating). HR sees the people who work here; the admin sees everybody, the switched-off too, and
+    alone is told the sign-in name and the address a person receives mail for.
+    """
+    admin = request.user.is_admin_role
+    rows = User.objects.select_related("department", "team_lead").prefetch_related("shifts")
+    if not admin:
+        rows = rows.filter(is_active=True)
     if request.GET.get("department"):
         which = _digits(request.GET["department"])
         if which is None:
@@ -98,6 +126,7 @@ def register(request):
         rows = rows.filter(department_id=which)
     if request.GET.get("status"):
         rows = rows.filter(employment_status=request.GET["status"])
+    translators, leaders = _busy_people()
     return JsonResponse({
         "ok": True,
         "rows": [
@@ -105,11 +134,19 @@ def register(request):
                 "id": one.pk,
                 "code": one.employee_code or "",
                 "name": one.short_name,
+                "initials": one.initials,
+                "avatar": avatars.url_of(one),
                 "role": _two(ROLE_MAP, one.role),
                 "department": _label(one.department),
+                "team_lead": one.team_lead.short_name if one.team_lead_id else None,
                 "employment": _two(EMPLOYMENT_MAP, one.employment_type),
                 "joining_date": one.joining_date.isoformat() if one.joining_date else None,
                 "status": _badge(EMPLOYMENT_STATUS_MAP, one.employment_status),
+                "state": _state(one, translators, leaders),
+                "seen": _seen_json(one),
+                "shifts": len(one.shifts.all()),
+                "rating": float(one.rating),
+                **({"username": one.username, "mail_alias": one.mail_alias} if admin else {}),
             }
             for one in rows
         ],
@@ -157,6 +194,8 @@ def employee(request, pk):
         "ok": True,
         "person": {
             **person_json(person),
+            "initials": person.initials,
+            "avatar": avatars.url_of(person),
             "role": _two(ROLE_MAP, person.role),
             "status": _badge(EMPLOYMENT_STATUS_MAP, person.employment_status),
             "code": person.employee_code or "",

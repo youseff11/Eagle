@@ -1,10 +1,10 @@
-"""``/api/v1/admin/users/`` - the admin panel's staff pages: who works here, a person's file, their shifts.
+"""``/api/v1/admin/users/`` - what only the admin does to a person: the account form, a new person, the typed roster rows.
 
-The pages are ``views.admin_users``, ``admin_user_new``, ``admin_user_edit`` and the two shift endpoints. The form is the
-classic form (``StaffCreateForm``, ``StaffEditForm``): this layer asks it what its fields are and gives it the request's
-values as its input (``api_forms``), so every rule - who may hold a mail address, who may be given client identity, which
-role a leader can have - stays where it was. What the classic page wrote down is written down here too: a created person,
-a saved file, a changed mail address, a changed role or identity grant.
+The people are listed and opened on the employee files (``api_people``: the register and a person's file); these doors are
+the admin's half of that screen. The form is the classic form (``StaffCreateForm``, ``StaffEditForm``): this layer asks it what
+its fields are and gives it the request's values as its input (``api_forms``), so every rule - who may hold a mail address,
+who may be given client identity, which role a leader can have - stays where it was. What the classic page wrote down is
+written down here too: a created person, a saved file, a changed mail address, a changed role or identity grant.
 
 Only the admin is answered. A GET changes nothing.
 """
@@ -12,48 +12,15 @@ Only the admin is answered. A GET changes nothing.
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
-from . import api_forms, attendance, avatars, clock, galiases, identity, services, shiftpick
-from .api_ops import _seen_json
+from . import api_forms, avatars, galiases, identity, services, shiftpick
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import StaffCreateForm, StaffEditForm
-from .models import ACTIVE_TASK_STATUSES, Role, Shift, ShiftTemplate, Task, User
+from .models import Role, Shift, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ROLE_MAP
 
 #: How many rating penalties a person's file lists: the classic page's own number.
 MAX_EVENTS = 20
-#: The most weekdays a shift choice may name (there are seven; a longer list is not one).
-MAX_DAYS = 14
-#: The longest name or time typed for a new shift.
-MAX_SHIFT_TEXT = 60
-
-
-def _time_json(value):
-    """A time of day in both languages (Cairo, twelve hours), or ``None``."""
-    return {"ar": clock.fmt12(value, "ar"), "en": clock.fmt12(value, "en")} if value else None
-
-
-def _weekday_json(day):
-    ar, en = attendance.WEEKDAY_NAMES[day]
-    return {"num": day, "ar": ar, "en": en}
-
-
-def _busy_people():
-    """The ids of the translators and team leaders who hold a task being worked: ``User.is_busy`` for all of them at once."""
-    active = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
-    translators = set(active.filter(translator__isnull=False).values_list("translator_id", flat=True))
-    leaders = set(active.filter(team_lead__isnull=False).values_list("team_lead_id", flat=True))
-    return translators, leaders
-
-
-def _state(person, translators, leaders):
-    """The dot in the staff list: disabled, free, busy, rostered but not open, or away (the classic table's own rule)."""
-    if not person.is_active:
-        return "disabled"
-    if not person.is_online:
-        return "shift" if person.on_shift else "off"
-    busy = (person.is_translator and person.pk in translators) or (person.is_team_lead and person.pk in leaders)
-    return "busy" if busy else "free"
 
 
 def _person_head(person):
@@ -69,29 +36,6 @@ def _person_head(person):
 
 @endpoint("GET")
 @api_role_required(Role.ADMIN)
-def users(request):
-    """Every person, with their role, leader, mail address, whether they are here, how many shifts and their rating."""
-    translators, leaders = _busy_people()
-    people = User.objects.select_related("team_lead").prefetch_related("shifts")
-    return JsonResponse({
-        "ok": True,
-        "users": [
-            {
-                **_person_head(person),
-                "team_lead": person.team_lead.short_name if person.team_lead_id else None,
-                "mail_alias": person.mail_alias,
-                "state": _state(person, translators, leaders),
-                "seen": _seen_json(person),
-                "shifts": len(person.shifts.all()),
-                "rating": float(person.rating),
-            }
-            for person in people
-        ],
-    })
-
-
-@endpoint("GET")
-@api_role_required(Role.ADMIN)
 def user_new(request):
     """The form for a new person: its fields and what each may be. A password is typed here and never read back."""
     return JsonResponse({"ok": True, "form": api_forms.describe(StaffCreateForm())})
@@ -100,7 +44,9 @@ def user_new(request):
 @endpoint("GET")
 @api_role_required(Role.ADMIN)
 def user(request, pk):
-    """One person's file: the form (with the addresses to pick from), their shifts, the company shifts, their penalties.
+    """The admin's half of a person's file: the form (with the addresses to pick from) and their rating penalties.
+
+    The roster rows are the other half's (``api_people.employee``): the page draws them once and the admin's buttons write them.
 
     A GET changes nothing: the classic page asked Google for the address list as it opened; here that is its own POST
     (``aliases_sync``) that the page makes and then asks again.
@@ -110,15 +56,10 @@ def user(request, pk):
         "ok": True,
         "user": _person_head(person),
         "form": api_forms.describe(StaffEditForm(instance=person)),
-        "shifts": [
-            {"id": row.pk, "weekday": _weekday_json(row.weekday), "start": _time_json(row.start), "end": _time_json(row.end)}
-            for row in person.shifts.select_related("template")
-        ],
         "events": [
             {"delta": str(event.delta), "reason": event.reason_ar, "at": _stamp(event.created_at, "%m-%d")}
             for event in person.rating_events.all()[:MAX_EVENTS]
         ],
-        "picker": shiftpick.picker_json(person),
     })
 
 
@@ -190,24 +131,3 @@ def shift_add(request, pk):
 def shift_delete(request, pk, shift_id):
     deleted, _rows = Shift.objects.filter(pk=shift_id, user_id=pk).delete()
     return JsonResponse({"ok": True, "deleted": deleted})
-
-
-@endpoint("POST")
-@api_role_required(Role.ADMIN)
-def user_shift(request, pk):
-    """Put a person on one of the company's shifts for some weekdays, on none, or on a new one (``shiftpick``)."""
-    person = get_object_or_404(User, pk=pk)
-    try:
-        body = _object(request)
-    except BadBody:
-        return _error(400, "bad_body")
-    choice = shiftpick.read_choice(body)
-    if choice is None:
-        return _error(400, "bad_body")
-    template, days, new_name, new_start, new_end = choice
-    problem, chosen = shiftpick.choose(
-        person, template, days, new_name=new_name, new_start=new_start, new_end=new_end, actor=request.user,
-    )
-    if problem:
-        return _error(400, problem)
-    return JsonResponse({"ok": True, "label": chosen.label if chosen else ""})

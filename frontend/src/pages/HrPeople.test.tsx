@@ -30,8 +30,8 @@ function register(over: Partial<HrRegister> = {}): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 11, code: "EMP-0042", name: "Sam", role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed },
-      { id: 12, code: "", name: "Nada", role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation },
+      { id: 11, code: "EMP-0042", name: "Sam", initials: "S", avatar: null, role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", team_lead: "Mona", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: 2, rating: 4.5 },
+      { id: 12, code: "", name: "Nada", initials: "N", avatar: null, role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, team_lead: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation, state: "off", seen: stampOf("من ساعة", "1 h ago"), shifts: 0, rating: 5 },
     ],
     options: { departments: [{ id: 3, label: "اللغويات" }], statuses: [confirmed, onProbation] },
     ...over,
@@ -41,16 +41,18 @@ function register(over: Partial<HrRegister> = {}): HrRegister {
 describe("HrEmployeesPage", () => {
   const page = (data: HrRegister = register()) => ({ "/api/v1/hr/employees/": () => jsonResponse(data) });
 
-  it("lists everybody active with a link to the file", async () => {
+  it("lists everybody with a link to the file from the name, and the code beside it", async () => {
     serve("hr", page());
     const { container } = open("/hr/employees");
     await screen.findByText("السجل");
     const first = container.querySelector('[data-person="11"]') as HTMLElement;
-    expect(within(first).getByRole("link", { name: "EMP-0042" })).toHaveAttribute("href", "/hr/employees/11");
+    expect(within(first).getByRole("link", { name: "Sam" })).toHaveAttribute("href", "/hr/employees/11");
+    expect(within(first).getByText("EMP-0042")).toHaveClass("mono");
     expect(first).toHaveTextContent("اللغويات");
+    expect(first).toHaveTextContent("Mona");
     expect(within(first).getByText("مثبّت")).toHaveClass("badge--ok");
     const second = container.querySelector('[data-person="12"]') as HTMLElement;
-    expect(within(second).getByRole("link", { name: "—" })).toHaveAttribute("href", "/hr/employees/12");
+    expect(within(second).getByRole("link", { name: "Nada" })).toHaveAttribute("href", "/hr/employees/12");
     expect(within(second).getByText("تحت الاختبار")).toHaveClass("badge--wait");
   });
 
@@ -85,6 +87,8 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
     person: {
       id: 11,
       name: "Sam",
+      initials: "S",
+      avatar: null,
       role: { value: "translator", ar: "مترجم", en: "Translator" },
       status: onProbation,
       code: "EMP-0042",
@@ -122,6 +126,12 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
     ...over,
   };
 }
+
+/** What the file asks of the admin's side when the one looking may edit the person (the form, the penalties, the address list). */
+const adminHalf = (id: number): Record<string, Handler> => ({
+  [`/api/v1/admin/users/${id}/`]: () => jsonResponse({ ok: true, user: { id, username: "sam", name: "Sam", initials: "S", role: { value: "translator", ar: "مترجم", en: "Translator" } }, form: [], events: [] }),
+  "/api/v1/admin/aliases/sync/": () => jsonResponse({ ok: true, ran: false }),
+});
 
 describe("HrEmployeePage", () => {
   const page = (data: HrEmployee = employee()) => ({ "/api/v1/hr/employees/11/": () => jsonResponse(data) });
@@ -163,19 +173,20 @@ describe("HrEmployeePage", () => {
     serve("hr", page());
     const view = open("/hr/employees/11");
     await screen.findByText("البيانات");
-    expect(screen.queryByRole("link", { name: /عدّل$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /عدّل$/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "اربطه" })).toBeNull();
     view.unmount();
-    serve("admin", page(employee({ can: { edit: true, shift: true, plan: true } })));
+    serve("admin", { ...page(employee({ can: { edit: true, shift: true, plan: true } })), ...adminHalf(11) });
     open("/hr/employees/11");
     await screen.findByText("البيانات");
-    expect(screen.getByRole("link", { name: /عدّل$/ })).toHaveAttribute("href", "/admin/users/11");
+    expect(screen.getByRole("button", { name: /عدّل$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "اربطه" })).toBeInTheDocument();
   });
 
   it("assigns a plan, or takes it off", async () => {
     const served = serve("admin", {
       ...page(employee({ can: { edit: true, shift: true, plan: true } })),
+      ...adminHalf(11),
       "/api/v1/hr/employees/11/plan/": (url, init) => served.record(url, init, { ok: true }),
     });
     const user = userEvent.setup();

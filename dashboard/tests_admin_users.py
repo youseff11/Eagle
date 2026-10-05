@@ -1,6 +1,7 @@
-"""The admin panel's staff pages in the new app: the list, a person's file, a new person, the shifts.
+"""What only the admin does to a person, in the new app: the account form, a new person, the typed roster rows.
 
-Only the admin is answered. The forms are the classic forms, so what they refuse is refused here and what the classic page
+The people are listed (``api_people.register``) and opened (``api_people.employee``) on the employee files; the register is
+tested here beside the admin's half of it. Only the admin is answered by the doors of this module. The forms are the classic forms, so what they refuse is refused here and what the classic page
 wrote down is written down here. A password is accepted on the one request that makes a person and appears nowhere else.
 """
 
@@ -20,12 +21,12 @@ from .models import AppSettings, AuditLog, Role, Shift, ShiftTemplate, Task, Tas
 from .tests_admin_screen import _Admin
 from .tests_api_v1 import _json
 
-LIST = "dashboard:v1_admin_users"
+REGISTER = "dashboard:v1_hr_register"
 NEW = "dashboard:v1_admin_user_new"
 CREATE = "dashboard:v1_admin_user_create"
 ONE = "dashboard:v1_admin_user"
 SAVE = "dashboard:v1_admin_user_save"
-PICK = "dashboard:v1_admin_user_shift"
+PICK = "dashboard:v1_hr_employee_shift"
 SHIFT_ADD = "dashboard:v1_admin_shift_add"
 SHIFT_DELETE = "dashboard:v1_admin_shift_delete"
 SYNC = "dashboard:v1_admin_aliases_sync"
@@ -53,8 +54,8 @@ class _Staff(_Admin):
 class DoorMatrixTests(_Staff):
     def doors(self):
         return [
-            ("GET", LIST, None), ("GET", NEW, None), ("GET", ONE, [self.tr.pk]),
-            ("POST", CREATE, None), ("POST", SAVE, [self.tr.pk]), ("POST", PICK, [self.tr.pk]),
+            ("GET", NEW, None), ("GET", ONE, [self.tr.pk]),
+            ("POST", CREATE, None), ("POST", SAVE, [self.tr.pk]),
             ("POST", SHIFT_ADD, [self.tr.pk]), ("POST", SHIFT_DELETE, [self.tr.pk, 1]), ("POST", SYNC, None),
         ]
 
@@ -86,9 +87,18 @@ class DoorMatrixTests(_Staff):
             self.assertEqual(self.call(self.admin, method, name, args)["Cache-Control"], "private, no-store", name)
 
 
-class ListTests(_Staff):
+class RegisterTests(_Staff):
+    """The one list of people (``api_people.register``): HR's columns and the staff table's, in one row."""
+
+    def rows(self, who=None, **query):
+        browser = DjangoClient()
+        browser.force_login(who or self.admin)
+        answer = browser.get(reverse(REGISTER), query)
+        self.assertEqual(answer.status_code, 200)
+        return _json(answer)["rows"]
+
     def test_every_person_is_a_row_with_what_the_classic_table_shows(self):
-        rows = {row["username"]: row for row in _json(self.get(self.admin, LIST))["users"]}
+        rows = {row["username"]: row for row in self.rows()}
         self.assertEqual(set(rows), {user.username for user in self.everyone})
         row = rows[self.tr.username]
         self.assertEqual((row["name"], row["team_lead"], row["role"]["value"], row["shifts"]), (self.tr.short_name, self.lead.short_name, "translator", 0))
@@ -101,7 +111,7 @@ class ListTests(_Staff):
         self.ops.save()
         Shift.objects.create(user=self.ops, weekday=0, start_time=time(9), end_time=time(17))
         Shift.objects.create(user=self.ops, weekday=1, start_time=time(9), end_time=time(17))
-        row = next(one for one in _json(self.get(self.admin, LIST))["users"] if one["id"] == self.ops.pk)
+        row = next(one for one in self.rows() if one["id"] == self.ops.pk)
         self.assertEqual((row["mail_alias"], row["shifts"]), ("ops1@example.com", 2))
 
     def test_the_state_of_each_person_is_what_the_model_says(self):
@@ -111,7 +121,7 @@ class ListTests(_Staff):
             person.save()
         self.hr.is_active = False
         self.hr.save()
-        rows = {row["id"]: row for row in _json(self.get(self.admin, LIST))["users"]}
+        rows = {row["id"]: row for row in self.rows()}
         self.assertEqual(rows[self.hr.pk]["state"], "disabled")
         # The translator and the leader hold the task in progress; the operation is just here.
         self.assertEqual(rows[self.tr.pk]["state"], "busy")
@@ -124,7 +134,7 @@ class ListTests(_Staff):
         for person in self.everyone:
             person.last_seen = now
             person.save()
-        rows = {row["id"]: row for row in _json(self.get(self.admin, LIST))["users"]}
+        rows = {row["id"]: row for row in self.rows()}
         for person in User.objects.all():
             self.assertEqual(rows[person.pk]["state"] == "busy", person.is_busy, person.username)
 
@@ -134,13 +144,13 @@ class ListTests(_Staff):
             user=self.reviewer, weekday=local.weekday(),
             start_time=(local - timedelta(hours=1)).time(), end_time=(local + timedelta(hours=1)).time(),
         )
-        rows = {row["id"]: row for row in _json(self.get(self.admin, LIST))["users"]}
+        rows = {row["id"]: row for row in self.rows()}
         self.assertEqual(rows[self.reviewer.pk]["state"], "shift" if self.reviewer.on_shift else "off")
 
     def test_the_number_of_questions_does_not_grow_with_the_people(self):
         def questions():
             with CaptureQueriesContext(connection) as seen:
-                self.assertEqual(self.get(self.admin, LIST).status_code, 200)
+                self.assertEqual(self.get(self.admin, REGISTER).status_code, 200)
             return len(seen)
 
         few = questions()
@@ -152,13 +162,41 @@ class ListTests(_Staff):
 
     def test_a_get_changes_nothing(self):
         before = (AuditLog.objects.count(), User.objects.count())
-        self.get(self.admin, LIST)
+        self.get(self.admin, REGISTER)
         self.assertEqual((AuditLog.objects.count(), User.objects.count()), before)
 
     def test_no_password_hash_is_in_the_answer(self):
-        text = self.get(self.admin, LIST).content.decode("utf-8")
+        text = self.get(self.admin, REGISTER).content.decode("utf-8")
         self.assertNotIn("pbkdf2", text)
         self.assertNotIn(self.admin.password, text)
+
+    def test_the_admin_sees_the_switched_off_and_hr_sees_only_the_people_who_work_here(self):
+        User.objects.filter(pk=self.tr.pk).update(is_active=False)
+        self.assertIn(self.tr.pk, [row["id"] for row in self.rows()])
+        self.assertNotIn(self.tr.pk, [row["id"] for row in self.rows(self.hr)])
+
+    def test_the_sign_in_name_and_the_mail_address_are_the_admins_alone(self):
+        self.ops.mail_alias = "ops1@example.com"
+        self.ops.save()
+        for row in self.rows(self.hr):
+            self.assertNotIn("username", row)
+            self.assertNotIn("mail_alias", row)
+        text = self.get(self.hr, REGISTER).content.decode("utf-8")
+        self.assertNotIn("ops1@example.com", text)
+        self.assertNotIn('"username"', text)
+        self.assertNotIn('"mail_alias"', text)
+        for row in self.rows():
+            self.assertIn("username", row)
+
+    def test_a_person_carries_their_picture_and_initials(self):
+        row = next(one for one in self.rows(self.hr) if one["id"] == self.tr.pk)
+        self.assertEqual((row["initials"], row["avatar"]), (self.tr.initials, None))
+
+    def test_only_who_may_open_the_employee_files_is_answered(self):
+        for user in (self.ops, self.lead, self.tr, self.reviewer, self.accounting, self.sales):
+            denied = self.get(user, REGISTER)
+            self.assertEqual((denied.status_code, _json(denied)), (403, {"ok": False, "error": "forbidden"}), user.username)
+        self.assertEqual(self.get(self.hr, REGISTER).status_code, 200)
 
 
 class FileTests(_Staff):
@@ -191,16 +229,16 @@ class FileTests(_Staff):
         self.assertIn("person_operation_two", labels["ops2@example.com"])
         self.assertIn("", labels)
 
-    def test_the_shifts_and_the_penalties_are_listed(self):
+    def test_the_penalties_are_listed_and_the_roster_is_the_employee_files(self):
         Shift.objects.create(user=self.tr, weekday=0, start_time=time(9), end_time=time(17))
         self.tr.apply_penalty(self.task, "Late", "اتأخر")
         body = _json(self.get(self.admin, ONE, [self.tr.pk]))
-        self.assertEqual(len(body["shifts"]), 1)
-        self.assertEqual(body["shifts"][0]["weekday"]["en"], "Monday")
-        self.assertEqual(body["shifts"][0]["start"]["en"], "9:00 AM")
-        self.assertEqual(body["shifts"][0]["end"]["ar"], "5:00 م")
+        self.assertNotIn("shifts", body)
         self.assertEqual(len(body["events"]), 1)
         self.assertEqual(body["events"][0]["reason"], "اتأخر")
+        roster = _json(self.get(self.admin, "dashboard:v1_hr_employee", [self.tr.pk]))["shifts"]
+        self.assertEqual(len(roster), 1)
+        self.assertEqual(roster[0]["weekday"]["en"], "Monday")
 
     def test_a_person_that_does_not_exist_is_a_404(self):
         self.assertEqual(self.get(self.admin, ONE, [999999]).status_code, 404)
@@ -595,12 +633,12 @@ class FormToolTests(_Staff):
 
 
 class HandOnTests(_Staff):
-    def test_the_staff_pages_go_on_with_the_switch(self):
+    def test_the_old_staff_pages_land_on_the_employee_files(self):
         self.turn_on()
         pairs = (
-            (self.get(self.admin, "dashboard:admin_users"), "/app/admin/users"),
-            (self.get(self.admin, "dashboard:admin_user_new"), "/app/admin/users/new"),
-            (self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk]), f"/app/admin/users/{self.tr.pk}"),
+            (self.get(self.admin, "dashboard:admin_users"), "/app/hr/employees"),
+            (self.get(self.admin, "dashboard:admin_user_new"), "/app/hr/employees/new"),
+            (self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk]), f"/app/hr/employees/{self.tr.pk}"),
         )
         for answer, target in pairs:
             self.assertEqual((answer.status_code, answer["Location"]), (302, target))

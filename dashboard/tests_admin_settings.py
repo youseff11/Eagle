@@ -107,7 +107,7 @@ class NoSecretLeavesTests(_Settings):
         said.append(self.save(nothing_like_this="1").content.decode("utf-8"))
         with mock.patch("dashboard.galiases.sync", return_value=(True, "", ([], [], []))):
             said.append(self.post(self.admin, SYNC, {}).content.decode("utf-8"))
-        said.append(self.get(self.admin, "dashboard:v1_admin_users").content.decode("utf-8"))
+        said.append(self.get(self.admin, "dashboard:v1_hr_register").content.decode("utf-8"))
         return "\n".join(said)
 
     def test_no_stored_secret_is_in_any_answer(self):

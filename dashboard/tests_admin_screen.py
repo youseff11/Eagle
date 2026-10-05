@@ -293,7 +293,7 @@ class HandOnTests(_Admin):
         """The whole panel is in the new app: nothing the admin used to open is left only in the classic interface."""
         pages = {
             "dashboard:admin_overview": "/app/admin", "dashboard:admin_audit": "/app/admin/audit",
-            "dashboard:admin_users": "/app/admin/users", "dashboard:admin_user_new": "/app/admin/users/new",
+            "dashboard:admin_users": "/app/hr/employees", "dashboard:admin_user_new": "/app/hr/employees/new",
             "dashboard:admin_clients": "/app/admin/clients", "dashboard:admin_client_new": "/app/admin/clients/new",
             "dashboard:admin_settings": "/app/admin/settings", "dashboard:admin_simulate": "/app/admin/simulate",
             "dashboard:admin_reset_tasks": "/app/admin/reset-tasks", "dashboard:admin_reset_mail": "/app/admin/reset-mail",
@@ -304,7 +304,7 @@ class HandOnTests(_Admin):
             # The old way back to the classic page is not a thing any more.
             self.assertEqual(self.get(self.admin, name, classic=1)["Location"], target, name)
         # The pages that take an argument.
-        self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk])["Location"], f"/app/admin/users/{self.tr.pk}")
+        self.assertEqual(self.get(self.admin, "dashboard:admin_user_edit", [self.tr.pk])["Location"], f"/app/hr/employees/{self.tr.pk}")
         self.assertEqual(self.get(self.admin, "dashboard:admin_client_edit", [self.client_obj.code])["Location"], f"/app/admin/clients/{self.client_obj.code}/edit")
 
     def test_the_new_address_serves_the_app_to_the_admin(self):

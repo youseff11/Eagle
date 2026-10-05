@@ -1,8 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
   adminOverviewOptions,
-  adminUsersOptions,
   chatListOptions,
+  hrRegisterOptions,
   leadBoardOptions,
   leadHomeOptions,
   mailThreadsOptions,
@@ -37,7 +37,7 @@ export const WARM: Record<string, Warm> = {
   "/lead": (client) => client.prefetchQuery(leadHomeOptions()),
   "/lead/translators": (client) => client.prefetchQuery(leadBoardOptions()),
   "/admin": (client) => client.prefetchQuery(adminOverviewOptions()),
-  "/admin/users": (client) => client.prefetchQuery(adminUsersOptions()),
+  "/hr/employees": (client) => client.prefetchQuery(hrRegisterOptions("")),
   "/chats": (client, me) => {
     // The list the chats page opens on: the first of the person's own kinds.
     const kind = me.chats.types.find((type) => CHAT_KINDS.includes(type)) as ChatKind | undefined;

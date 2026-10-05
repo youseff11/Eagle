@@ -1061,44 +1061,26 @@ export type AdminTime = Stamp;
 
 export type StaffState = "disabled" | PresenceState;
 
-/** GET /api/v1/admin/users/: everybody, with what the staff table shows. */
-export interface AdminUsers {
-  ok: true;
-  users: {
-    id: number;
-    username: string;
-    name: string;
-    initials: string;
-    avatar?: string | null;
-    role: Labelled;
-    team_lead: string | null;
-    mail_alias: string;
-    state: StaffState;
-    seen: Stamp;
-    shifts: number;
-    rating: number;
-  }[];
-}
-
 /** GET /api/v1/admin/users/new/. */
 export interface AdminUserNew {
   ok: true;
   form: FormField[];
 }
 
-/** GET /api/v1/admin/users/<id>/: a person's file. */
+/** GET /api/v1/admin/users/<id>/: the admin's half of a person's file (the other half is `HrEmployee`). */
 export interface AdminUser {
   ok: true;
   user: { id: number; username: string; name: string; initials: string; avatar?: string | null; role: Labelled };
   form: FormField[];
-  shifts: { id: number; weekday: { num: number; ar: string; en: string }; start: AdminTime | null; end: AdminTime | null }[];
   events: { delta: string; reason: string; at: Stamp | null }[];
-  picker: {
-    current: number | null;
-    has_custom: boolean;
-    templates: { id: number; label: string; start: AdminTime | null; end: AdminTime | null }[];
-    days: { num: number; ar: string; en: string; checked: boolean }[];
-  };
+}
+
+/** The company's shifts to pick from and the days a person works: what the shift picker draws (`shiftpick.picker_json`). */
+export interface ShiftPickerData {
+  current: number | null;
+  has_custom: boolean;
+  templates: { id: number; label: string; start: AdminTime | null; end: AdminTime | null }[];
+  days: { num: number; ar: string; en: string; checked: boolean }[];
 }
 
 /** GET /api/v1/admin/clients/: every client with the real details (`api_admin_clients.clients`). */
@@ -1685,18 +1667,30 @@ export interface HrLeave {
 // HR: the people already hired (api_people.py)
 // ---------------------------------------------------------------------------
 
-/** GET /api/v1/hr/employees/?department=&status=. */
+/**
+ * GET /api/v1/hr/employees/?department=&status=: one row a person. HR gets the people who work here; the admin gets everybody and
+ * alone is told the sign-in name and the address a person receives mail for.
+ */
 export interface HrRegister {
   ok: true;
   rows: {
     id: number;
     code: string;
     name: string;
+    initials: string;
+    avatar?: string | null;
     role: Labelled;
     department: string | null;
+    team_lead: string | null;
     employment: Labelled;
     joining_date: string | null;
     status: DayStatusJson;
+    state: StaffState;
+    seen: Stamp;
+    shifts: number;
+    rating: number;
+    username?: string;
+    mail_alias?: string;
   }[];
   options: { departments: { id: number; label: string }[]; statuses: DayStatusJson[] };
 }
@@ -1707,6 +1701,8 @@ export interface HrEmployee {
   person: {
     id: number;
     name: string;
+    initials: string;
+    avatar?: string | null;
     role: Labelled;
     status: DayStatusJson;
     code: string;
@@ -1724,7 +1720,7 @@ export interface HrEmployee {
   };
   summary: Record<"scheduled_days" | "present_days" | "office_days" | "remote_days" | "leave_days" | "absent_days" | "late_days" | "work_minutes" | "overtime_minutes", number> | null;
   shifts: HrRosterRow[];
-  picker: AdminUser["picker"] | null;
+  picker: ShiftPickerData | null;
   work_mode_card: {
     work_mode: Labelled | null;
     is_hybrid: boolean;

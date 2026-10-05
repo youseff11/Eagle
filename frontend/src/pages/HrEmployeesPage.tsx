@@ -1,18 +1,26 @@
 import { Link, Navigate, useSearchParams } from "react-router";
 import { useHrRegister } from "../api/queries";
 import { Waiting } from "../components/accounts/shared";
+import { Avatar } from "../components/Avatar";
+import { Rating } from "../components/Badges";
 import { useHrAllowed } from "../components/hr/shared";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { Icon } from "../components/Icon";
+import { Presence } from "../components/Presence";
 import { usePreferences } from "../i18n/Preferences";
 
 const FILTERS = ["department", "status"] as const;
 
-/** Everybody active, with their department, kind of work and status. The filters live in the address. */
+/**
+ * Everybody on the staff, in one list: HR's columns (role, department, kind of work, status) and the staff table's (leader, whether they
+ * are here, shifts, rating). The file opens from the name. The admin also sees the switched-off, the address a person receives mail for,
+ * and makes a new person from the button. The filters live in the address.
+ */
 export function HrEmployeesPage() {
   const { t } = usePreferences();
   const words = useLeaveWords();
   const { me, allowed } = useHrAllowed();
+  const isAdmin = me.data?.user.is_admin === true;
   const [params, setParams] = useSearchParams();
   const kept = new URLSearchParams();
   for (const name of FILTERS) {
@@ -31,6 +39,7 @@ export function HrEmployeesPage() {
     else next.delete(name);
     setParams(next);
   };
+  const columns = isAdmin ? 11 : 10;
 
   return (
     <>
@@ -53,6 +62,12 @@ export function HrEmployeesPage() {
             </option>
           ))}
         </select>
+        {isAdmin && (
+          <Link className="btn btn--primary" to="/hr/employees/new">
+            <Icon name="plus" size="sm" />
+            <span>{t("موظف جديد", "New staff member")}</span>
+          </Link>
+        )}
       </div>
 
       <div className="card">
@@ -64,26 +79,38 @@ export function HrEmployeesPage() {
           <table className="table" data-table="register">
             <thead>
               <tr>
-                <th>{t("الكود", "Code")}</th>
                 <th>{t("الموظف", "Employee")}</th>
                 <th>{t("الدور", "Role")}</th>
                 <th>{t("القسم", "Department")}</th>
+                <th>{t("التيم ليدر", "Team leader")}</th>
                 <th>{t("نوع التوظيف", "Type")}</th>
                 <th>{t("تاريخ الانضمام", "Joined")}</th>
                 <th>{t("الحالة", "Status")}</th>
+                <th>{t("التواجد", "Presence")}</th>
+                <th>{t("الشيفتات", "Shifts")}</th>
+                <th>{t("التقييم", "Rating")}</th>
+                {isAdmin && <th>{t("بيستقبل ميلات", "Receives mail for")}</th>}
               </tr>
             </thead>
             <tbody>
               {data.rows.map((row) => (
                 <tr key={row.id} data-person={row.id}>
-                  <td className="mono">
-                    <Link to={`/hr/employees/${row.id}`}>{row.code || "—"}</Link>
+                  <td>
+                    <div className="row row--tight">
+                      <Avatar src={row.avatar} initials={row.initials} tone="" className="avatar--sm" />
+                      <div>
+                        <Link to={`/hr/employees/${row.id}`}>{row.name}</Link>
+                        <div>
+                          <small className="muted mono">{[row.code, row.username].filter(Boolean).join(" · ") || "—"}</small>
+                        </div>
+                      </div>
+                    </div>
                   </td>
-                  <td>{row.name}</td>
                   <td>
                     <span className="chip">{words(row.role)}</span>
                   </td>
                   <td className="muted">{row.department ?? "—"}</td>
+                  <td>{row.team_lead ?? "—"}</td>
                   <td>
                     <span className="chip">{words(row.employment)}</span>
                   </td>
@@ -91,11 +118,21 @@ export function HrEmployeesPage() {
                   <td>
                     <LeaveStatusBadge status={row.status} />
                   </td>
+                  <td>{row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
+                  <td className="mono">{row.shifts}</td>
+                  <td>
+                    <Rating value={row.rating} />
+                  </td>
+                  {isAdmin && (
+                    <td className="mono" dir="ltr">
+                      {row.mail_alias || "—"}
+                    </td>
+                  )}
                 </tr>
               ))}
               {data.rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="empty">
+                  <td colSpan={columns} className="empty">
                     {t("مفيش موظفين.", "Nobody yet.")}
                   </td>
                 </tr>

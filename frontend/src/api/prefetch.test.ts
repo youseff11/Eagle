@@ -29,7 +29,7 @@ describe("warmPages", () => {
     ["/lead", "/api/v1/lead/"],
     ["/lead/translators", "/api/v1/lead/translators/"],
     ["/admin", "/api/v1/admin/overview/"],
-    ["/admin/users", "/api/v1/admin/users/"],
+    ["/hr/employees", "/api/v1/hr/employees/"],
     ["/chats", "/api/v1/chats/?type=clients"],
   ];
 

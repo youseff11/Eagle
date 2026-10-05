@@ -11,6 +11,7 @@ import { HrReportPage } from "../pages/HrReportPage";
 import { HrSchedulesPage } from "../pages/HrSchedulesPage";
 import { HrShiftsPage } from "../pages/HrShiftsPage";
 import { HrComplaintsPage } from "../pages/HrComplaintsPage";
+import { HrEmployeeNewPage } from "../pages/HrEmployeeNewPage";
 import { HrEmployeePage } from "../pages/HrEmployeePage";
 import { HrEmployeesPage } from "../pages/HrEmployeesPage";
 import { HrPerformancePage } from "../pages/HrPerformancePage";
@@ -66,7 +67,7 @@ export function Where() {
   return <div data-testid="where">{where.pathname + where.search}</div>;
 }
 
-export function openHr(route: string) {
+export function openHr(route: string, lang: "ar" | "en" = "ar") {
   return renderWithProviders(
     <ToastProvider>
       <Routes>
@@ -79,6 +80,7 @@ export function openHr(route: string) {
         <Route path="/hr/offices" element={<HrOfficesPage />} />
         <Route path="/hr/devices" element={<HrDevicesPage />} />
         <Route path="/hr/complaints" element={<HrComplaintsPage />} />
+        <Route path="/hr/employees/new" element={<HrEmployeeNewPage />} />
         <Route path="/hr/employees/:id" element={<HrEmployeePage />} />
         <Route path="/hr/employees" element={<HrEmployeesPage />} />
         <Route path="/hr/performance" element={<HrPerformancePage />} />
@@ -103,7 +105,7 @@ export function openHr(route: string) {
       </Routes>
       <Where />
     </ToastProvider>,
-    { route },
+    { route, lang },
   );
 }
 

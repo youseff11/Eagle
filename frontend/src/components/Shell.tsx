@@ -103,7 +103,6 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     order: 0,
     extra: [
       { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], order: 100 },
-      { path: "/admin/users", icon: "lock", label: ["المستخدمين والشيفتات", "Users & shifts"], section: "settings", order: 10 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
