@@ -469,6 +469,7 @@
 }
 
 .bub__time { font-size: 10.5px; }
+.bub__sender { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 
 /* Ticks: grey while it is on its way, blue once it has been read. */
 .tick { display: inline-flex; align-items: center; color: var(--muted); }

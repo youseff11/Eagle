@@ -177,7 +177,7 @@ class FileTests(_Staff):
         body = _json(self.get(self.admin, ONE, [self.tr.pk]))
         self.assertEqual(body["user"], {
             "id": self.tr.pk, "username": self.tr.username, "name": self.tr.short_name, "initials": self.tr.initials,
-            "role": {"value": "translator", "ar": "مترجم", "en": "Translator"},
+            "avatar": None, "role": {"value": "translator", "ar": "مترجم", "en": "Translator"},
         })
 
     def test_the_mail_address_choices_say_who_holds_each(self):

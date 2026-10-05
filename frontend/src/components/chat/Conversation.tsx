@@ -10,6 +10,7 @@ import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget
 import { safeInternalPath } from "../../lib/safeUrl";
 import { AiNotesPanel } from "../ai/AiNotesPanel";
 import { CallButtons } from "./CallButtons";
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { AddMembersDialog } from "./AddMembersDialog";
 import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
@@ -32,9 +33,13 @@ function Header({ row, code }: { row: ChatRow; code: string }) {
 
   return (
     <>
-      <span className={`avatar ${row.staff ? "avatar--staff" : row.group ? "avatar--group" : "avatar--brand"}`}>
-        {row.group ? <Icon name="users" size="sm" /> : row.staff ? row.initials : code.slice(3)}
-      </span>
+      {row.staff ? (
+        <Avatar src={row.avatar} initials={row.initials ?? ""} tone="staff" />
+      ) : (
+        <span className={`avatar ${row.group ? "avatar--group" : "avatar--brand"}`}>
+          {row.group ? <Icon name="users" size="sm" /> : code.slice(3)}
+        </span>
+      )}
       <div>
         <div className={`cchat__who${row.staff || row.group ? "" : " mono"}`}>{row.label}</div>
         <div className="cchat__meta muted">

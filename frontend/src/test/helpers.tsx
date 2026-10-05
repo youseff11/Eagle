@@ -23,6 +23,7 @@ export function me(
       name: "Nour Operation",
       short_name: "Nour",
       initials: "NO",
+      avatar: null,
       role: "operation",
       is_admin: false,
       lang: "ar",

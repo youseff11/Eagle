@@ -3,6 +3,7 @@ import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
 import { useOutboxProblems } from "../../lib/outbox";
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 
@@ -13,7 +14,7 @@ export const TAB_LABELS: Record<ChatKind, [string, string]> = {
   staff: ["الزمايل", "Colleagues"],
 };
 
-function Avatar({ row }: { row: ChatRow }) {
+function RowAvatar({ row }: { row: ChatRow }) {
   if (row.group) {
     return (
       <span className="avatar avatar--group">
@@ -21,7 +22,7 @@ function Avatar({ row }: { row: ChatRow }) {
       </span>
     );
   }
-  if (row.staff) return <span className="avatar avatar--staff">{row.initials}</span>;
+  if (row.staff) return <Avatar src={row.avatar} initials={row.initials ?? ""} tone="staff" />;
   // "CL-0001": the number is what tells clients apart at a glance.
   return <span className="avatar avatar--brand">{row.code.slice(3)}</span>;
 }
@@ -35,7 +36,7 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
       to={`/chats/${row.code}?type=${kind}`}
       data-code={row.code}
     >
-      <Avatar row={row} />
+      <RowAvatar row={row} />
       <span className="cthread__body">
         <span className="cthread__top">
           <b className={monospaced ? "mono" : undefined}>{row.label}</b>

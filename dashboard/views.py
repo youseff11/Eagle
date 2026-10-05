@@ -99,7 +99,8 @@ def serve_file(request, name):
     allowed, owner = files.may_open(request.user, name)
     if not allowed:
         identity.hidden(request, "file")
-    if not identity.count_file_open(request):
+    # A face drawn on every page is not a file somebody is carrying out: it does not count toward the hour's limit.
+    if not (owner and owner[0] == "avatar") and not identity.count_file_open(request):
         return HttpResponse("Too many files opened this hour.", status=429)
     if request.GET.get("preview") == "1":
         from django.core.cache import cache

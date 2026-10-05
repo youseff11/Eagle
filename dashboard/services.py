@@ -12,7 +12,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import clock
+from . import avatars, clock
 from .models import (
     ACTIVE_TASK_STATUSES,
     AICheckResult,
@@ -1079,6 +1079,7 @@ def group_thread(room, user, limit=200):
             "error": row.relay_error,
             "sender": row.sender.short_name if row.sender_id else "",
             "sender_id": row.sender_id or 0,
+            "sender_avatar": avatars.url_of(row.sender) if row.sender_id else None,
             "is_delivery": False,
             # The task this message is work on (a file handed in from the
             # group), else the old room's own task.
@@ -3188,6 +3189,7 @@ def client_thread(client, user, limit=200):
             "task_code": row.task.code if row.task_id else "",
             "sender": row.created_by.short_name if row.created_by_id else "",
             "sender_id": row.created_by_id or 0,
+            "sender_avatar": avatars.url_of(row.created_by) if row.created_by_id else None,
             "wamid": row.provider_id or "",
             "reply_to": row.reply_to_wamid or "",
             "quote": row.reply_preview or "",

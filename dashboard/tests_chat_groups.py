@@ -74,7 +74,7 @@ class PeopleTests(_Groups):
         )
         self.assertEqual(ids, expected)
         first = body["people"][0]
-        self.assertEqual(set(first), {"id", "name", "initials", "role"})
+        self.assertEqual(set(first), {"id", "name", "initials", "avatar", "role"})
 
     def test_no_client_and_no_secret_in_it(self):
         answer = self.browser(self.ops).get(reverse("dashboard:v1_people"))

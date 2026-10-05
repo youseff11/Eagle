@@ -37,7 +37,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, audio, clock, identity, newui, payroll, services
+from . import api, audio, avatars, clock, identity, newui, payroll, services
 from .models import (
     ACTIVE_TASK_STATUSES, AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
     Role, RoomKind, Task, TaskStatus, User, Violation, WorkDay,
@@ -217,6 +217,8 @@ def me(request):
             "name": user.get_full_name() or user.username,
             "short_name": user.short_name,
             "initials": user.initials,
+            # Their own picture's address (``/files/...``), or null: the page draws the initials then.
+            "avatar": avatars.url_of(user),
             "role": user.role,
             "is_admin": user.is_admin_role,
             "lang": user.ui_lang,
@@ -368,7 +370,7 @@ def staff_messages(request, user_id):
         "client": {
             "code": f"u{other.pk}", "group": False, "staff": True, "room": 0,
             "url": f"/ops/chats/u/{other.pk}/", "label": other.short_name, "initials": other.initials,
-            "client_code": "", "text": "", "outgoing": False, "status": "", "receipt": "",
+            "avatar": avatars.url_of(other), "client_code": "", "text": "", "outgoing": False, "status": "", "receipt": "",
             "time": "", "date": "", "channel": "", "window_open": False, "minutes_left": 0, "unread": 0,
         },
         "messages": [],
@@ -744,7 +746,10 @@ PEOPLE_LISTED = 200
 
 
 def _person_json(person):
-    return {"id": person.pk, "name": person.short_name, "initials": person.initials, "role": person.role}
+    return {
+        "id": person.pk, "name": person.short_name, "initials": person.initials, "avatar": avatars.url_of(person),
+        "role": person.role,
+    }
 
 
 def _as_form(request, **lists):

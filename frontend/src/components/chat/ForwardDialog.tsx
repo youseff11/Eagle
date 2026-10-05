@@ -3,6 +3,7 @@ import { ApiError } from "../../api/client";
 import { useChatList, useForward } from "../../api/queries";
 import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 
 /** The longest note that goes with a forward (the server cuts at the same number). */
@@ -180,9 +181,13 @@ export function ForwardDialog({
               {rows.map((row) => (
                 <label className={`fwd-row${row.code === chosen ? " is-on" : ""}`} key={row.code}>
                   <input type="radio" name="forward-target" value={row.code} checked={row.code === chosen} onChange={() => setChosen(row.code)} />
-                  <span className={`avatar ${row.group ? "avatar--group" : row.staff ? "avatar--staff" : "avatar--brand"}`}>
-                    {row.group ? <Icon name="users" size="sm" /> : row.staff ? row.initials : row.code.slice(3)}
-                  </span>
+                  {row.staff && !row.group ? (
+                    <Avatar src={row.avatar} initials={row.initials ?? ""} tone="staff" />
+                  ) : (
+                    <span className={`avatar ${row.group ? "avatar--group" : "avatar--brand"}`}>
+                      {row.group ? <Icon name="users" size="sm" /> : row.code.slice(3)}
+                    </span>
+                  )}
                   <span className="fwd-row__body">
                     <b>{row.label || row.code}</b>
                     <span className="muted">{kindText(row, t)}</span>

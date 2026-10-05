@@ -6,6 +6,7 @@ import type { Outgoing } from "../../lib/outbox";
 import { formatSeconds } from "../../lib/recorder";
 import { prettySize } from "../../lib/size";
 import { safeInternalPath } from "../../lib/safeUrl";
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 import { VoiceNote } from "./VoiceNote";
@@ -278,7 +279,12 @@ export function Bubble({
         <div className="bub__foot">
           {entry.is_delivery && <span className="chip chip--sm">{t("تسليم تاسك", "Task delivery")}</span>}
           {entry.task_code && <span className="mono muted">{entry.task_code}</span>}
-          {entry.sender && <span className="muted">{entry.sender}</span>}
+          {entry.sender && (
+            <span className="bub__sender muted">
+              {entry.sender_avatar && <Avatar src={entry.sender_avatar} initials={entry.sender.slice(0, 1)} tone="staff" className="avatar--xs" />}
+              {entry.sender}
+            </span>
+          )}
           <span className="bub__time mono">{clockText(entry.time, lang)}</span>
           {out && <Ticks status={entry.status} receipt={entry.receipt} mine={entry.mine} seenBy={entry.seen_by} />}
         </div>

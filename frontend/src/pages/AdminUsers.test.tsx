@@ -432,3 +432,38 @@ describe("AdminUserNewPage", () => {
     expect(served.calls.some((call) => call.url.startsWith("/api/v1/admin/"))).toBe(false);
   });
 });
+
+describe("the colleagues' pictures in the staff panel", () => {
+  const FACE = "/files/avatars/2026/10/cccccccccccccccc.jpg";
+
+  it("draws a person's picture in the list, and the initials for one who has none", async () => {
+    const list = usersList();
+    list.users[0]!.avatar = FACE;
+    serve("admin", { "/api/v1/admin/users/": () => jsonResponse(list) });
+    const { container } = open("/admin/users");
+    await screen.findByText("Sam Adel");
+    const sam = container.querySelector('[data-user="5"]') as HTMLElement;
+    expect(sam.querySelector("img")).toHaveAttribute("src", FACE);
+    expect(within(sam).queryByText("SA")).toBeNull();
+    const nour = container.querySelector('[data-user="6"]') as HTMLElement;
+    expect(nour.querySelector("img")).toBeNull();
+    expect(within(nour).getByText("NO")).toBeInTheDocument();
+  });
+
+  it("draws the picture at the head of a person's file, and the initials when there is none", async () => {
+    const withFace = userFile();
+    withFace.user.avatar = FACE;
+    serve("admin", { "/api/v1/admin/users/5/": () => jsonResponse(withFace) });
+    const first = open("/admin/users/5");
+    await screen.findByRole("heading", { name: "Sam Adel" });
+    expect(first.container.querySelector(".page-head img")).toHaveAttribute("src", FACE);
+    first.unmount();
+
+    serve("admin");
+    const second = open("/admin/users/5");
+    await screen.findByRole("heading", { name: "Sam Adel" });
+    expect(second.container.querySelector(".page-head img")).toBeNull();
+    expect(within(second.container.querySelector(".page-head") as HTMLElement).getByText("SA")).toBeInTheDocument();
+  });
+});
+

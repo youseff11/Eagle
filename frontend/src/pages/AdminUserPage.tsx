@@ -12,6 +12,7 @@ import {
 import { useAdminUser, useAdminUserNew, useMe } from "../api/queries";
 import type { AdminUser, FormErrors } from "../api/types";
 import { DjangoForm, useFormEdits } from "../components/admin/DjangoForm";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { ShiftPicker } from "../components/ShiftPicker";
 import { useToasts } from "../components/Toasts";
@@ -177,6 +178,7 @@ export function AdminUserPage() {
   return (
     <>
       <div className="page-head">
+        <Avatar src={data.user.avatar} initials={data.user.initials} tone="" className="avatar--lg" />
         <h1>{data.user.name}</h1>
         <span className="chip">{lang === "ar" ? data.user.role.ar : data.user.role.en}</span>
         <div className="grow" />

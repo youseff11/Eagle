@@ -125,6 +125,8 @@ export interface MeResponse {
     name: string;
     short_name: string;
     initials: string;
+    /** The person's own picture (a `/files/...` address), or null: the initials are drawn then. */
+    avatar: string | null;
     role: Role;
     is_admin: boolean;
     lang: Lang;
@@ -545,6 +547,8 @@ export interface ChatRow {
   /** A client code, never a name, unless the person may know the name. */
   label: string;
   initials?: string;
+  /** A colleague's own picture (`/files/...`), when they put one: a staff row only, never a client's or a group's. */
+  avatar?: string | null;
   client_code?: string;
   text: string;
   outgoing: boolean;
@@ -596,6 +600,8 @@ export interface ThreadEntry {
   sender: string;
   /** Who wrote it, by id (0: the client, or nobody). A name is not unique. */
   sender_id: number;
+  /** The picture of the colleague who wrote it, when they have one (never a client's). */
+  sender_avatar?: string | null;
   task_code: string;
   is_delivery: boolean;
   quote: string;
@@ -658,6 +664,7 @@ export interface Person {
   id: number;
   name: string;
   initials: string;
+  avatar?: string | null;
   role: Role;
 }
 
@@ -1062,6 +1069,7 @@ export interface AdminUsers {
     username: string;
     name: string;
     initials: string;
+    avatar?: string | null;
     role: Labelled;
     team_lead: string | null;
     mail_alias: string;
@@ -1081,7 +1089,7 @@ export interface AdminUserNew {
 /** GET /api/v1/admin/users/<id>/: a person's file. */
 export interface AdminUser {
   ok: true;
-  user: { id: number; username: string; name: string; initials: string; role: Labelled };
+  user: { id: number; username: string; name: string; initials: string; avatar?: string | null; role: Labelled };
   form: FormField[];
   shifts: { id: number; weekday: { num: number; ar: string; en: string }; start: AdminTime | null; end: AdminTime | null }[];
   events: { delta: string; reason: string; at: Stamp | null }[];

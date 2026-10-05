@@ -320,6 +320,34 @@ strong, b { font-weight: 620; }
    same thing at its foot, which is off-screen on any page worth scrolling. */
 .topbar__user { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .topbar__face { width: 28px; height: 28px; font-size: .68rem; border-radius: 8px; }
+
+/* The chip is a button: it opens the person's picture (put another one, take it off). */
+.profile { position: relative; flex: none; }
+.profile__btn {
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 3px 6px; font: inherit; color: inherit; cursor: pointer; text-align: start;
+  transition: background .14s, border-color .14s;
+}
+.profile__btn:hover, .profile__btn[aria-expanded="true"] { background: var(--surface-2); border-color: var(--border); }
+.profile__pop {
+  position: absolute; inset-block-start: calc(100% + 8px); inset-inline-end: 0; z-index: 60;
+  width: min(300px, calc(100vw - 24px)); padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.profile__head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.profile__face { width: 64px; height: 64px; font-size: 1.3rem; border-radius: 16px; }
+.profile__who { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.profile__name {
+  font-weight: 620; color: var(--heading); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profile__title {
+  margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--border);
+  font-size: .74rem; font-weight: 600; color: var(--muted);
+}
+.profile__actions { display: flex; flex-direction: column; gap: 8px; }
+.profile__hint { margin-top: 10px; font-size: .72rem; color: var(--faint); }
 .topbar__who { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .topbar__who-name {
   font-weight: 600; font-size: .84rem; color: var(--heading);
@@ -551,6 +579,10 @@ select.input { appearance: none; padding-inline-end: 30px;
   background: var(--surface-3); color: var(--muted); direction: ltr; letter-spacing: .03em;
 }
 .avatar--sm { width: 26px; height: 26px; font-size: .64rem; border-radius: 7px; }
+.avatar__img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+/* A face beside a name in a line of small print (a message's sender), and at the head of a person's file. */
+.avatar--xs { width: 18px; height: 18px; font-size: .55rem; border-radius: 5px; }
+.avatar--lg { width: 44px; height: 44px; font-size: .95rem; border-radius: 12px; }
 .avatar--brand { background: var(--brand-soft); color: var(--brand); }
 
 .rating {
@@ -1680,6 +1712,8 @@ img, video, canvas, svg:not(.ic) { max-width: 100%; }
    in the width of an icon. Tapping it still shows the full name. */
 @media (max-width: 720px) {
   .topbar__who { display: none; }
+  /* The chip is a face and no more here, far from the edge: the panel takes the width of the screen instead of hanging off it. */
+  .profile__pop { position: fixed; inset-block-start: 66px; inset-inline: 12px; width: auto; }
 }
 
 /* Two stat tiles still fit a 360px phone and read better than one stretched

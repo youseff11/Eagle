@@ -379,6 +379,13 @@ def upload_test(instance, filename):
     return storage_name("recruitment/tests", instance, filename)
 
 
+def upload_avatar(instance, filename):
+    # A random name, always ``.jpg``: avatars.py keeps only a JPEG and the person's own file name is never used.
+    from .files import storage_name
+
+    return storage_name("avatars", instance, filename)
+
+
 def upload_hr_doc(instance, filename):
     # Contracts and IDs. `media/` is git-ignored, which is where these belong.
     return f"hr/{timezone.now():%Y/%m}/{filename}"
@@ -409,6 +416,8 @@ class User(AbstractUser):
     last_seen = models.DateTimeField(null=True, blank=True)
     ui_lang = models.CharField(max_length=5, default="ar")
     ui_theme = models.CharField(max_length=10, default="dark")
+    #: The person's own profile picture, put there and taken off by them (``avatars.py``). Shown to the staff, never to a client.
+    avatar = models.FileField(upload_to=upload_avatar, blank=True, null=True)
 
     # -- workforce ---------------------------------------------------------
     # These three describe the contract, not any one day. The day's own shape

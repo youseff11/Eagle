@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Person } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { ROLE_LABELS } from "../../lib/roles";
+import { Avatar } from "../Avatar";
 
 /**
  * A list of people to tick, with a search box: one row each, with their role beside the name so two people of the
@@ -44,7 +45,7 @@ export function PeoplePicker({
           return (
             <label className={`fwd-row${on ? " is-on" : ""}`} key={person.id}>
               <input type="checkbox" checked={on} onChange={() => toggle(person.id)} />
-              <span className="avatar avatar--staff">{person.initials}</span>
+              <Avatar src={person.avatar} initials={person.initials} tone="staff" />
               <span className="fwd-row__body">
                 <b>{person.name}</b>
                 <span className="muted">{t(...(ROLE_LABELS[person.role] ?? [person.role, person.role]))}</span>

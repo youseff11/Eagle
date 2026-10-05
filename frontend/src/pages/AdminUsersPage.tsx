@@ -1,5 +1,6 @@
 import { Link, Navigate } from "react-router";
 import { useAdminUsers, useMe } from "../api/queries";
+import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { Presence } from "../components/Presence";
 import { Rating } from "../components/Badges";
@@ -50,7 +51,7 @@ export function AdminUsersPage() {
                   <tr key={person.id} data-user={person.id}>
                     <td>
                       <div className="row row--tight">
-                        <div className="avatar avatar--sm">{person.initials}</div>
+                        <Avatar src={person.avatar} initials={person.initials} tone="" className="avatar--sm" />
                         <div>
                           <div>{person.name}</div>
                           <small className="muted mono">{person.username}</small>

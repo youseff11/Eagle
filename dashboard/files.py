@@ -234,6 +234,11 @@ def owner_of(name):
         MessageAttachment, OutboundAttachment, User,
     )
 
+    # A picture is a picture: the only row that can own a name under ``avatars/`` is a person's, so the eight other tables
+    # (this is the hottest file on every page of the chats) are not asked.
+    if name.startswith("avatars/"):
+        return [("avatar", r) for r in User.objects.filter(avatar=name)[:1]]
+
     found = []
     found += [("inbound", r) for r in _rows(MessageAttachment, name, "message", "message__task")]
     found += [("chat", r) for r in _rows(ChatAttachment, name, "message", "message__room")]
@@ -243,6 +248,7 @@ def owner_of(name):
     found += [("test", r) for r in CandidateTest.objects.filter(assignment=name)[:5]]
     found += [("test", r) for r in CandidateTest.objects.filter(submission=name)[:5]]
     found += [("contract", r) for r in User.objects.filter(contract=name)[:5]]
+    found += [("avatar", r) for r in User.objects.filter(avatar=name)[:5]]
     return found
 
 
@@ -262,6 +268,11 @@ def may_open(user, name):
             return True, (kind, row)
         if kind == "test" and (user.can_recruit or (user.can_review_tests and row.reviewer_id in (None, user.pk))):
             # A reviewer opens their own tests and the ones nobody has taken: another reviewer's is not there for them.
+            return True, (kind, row)
+        if kind == "avatar" and name.startswith("avatars/"):
+            # A colleague's face is for the colleagues: any signed-in person of the staff (a client has no account here, and
+            # no payload that reaches one carries an address of this kind). The inactive were refused above. Only a file
+            # stored as a picture: a row that points anywhere else (a client's document) opens nothing through this door.
             return True, (kind, row)
         if kind == "contract" and (
             user.is_admin_role or user.is_hr or row.pk == user.pk

@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, chatlists, clock, identity, services
+from . import ai, attendance, avatars, chatlists, clock, identity, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -678,6 +678,8 @@ def _message_json(message, viewer):
         "sender_id": message.sender_id or 0,
         "role": message.sender.role if message.sender_id else "",
         "initials": message.sender.initials if message.sender_id else "•",
+        # The colleague's own picture, drawn by the staff's pages only (nothing here is relayed to a client).
+        "avatar": avatars.url_of(message.sender) if message.sender_id else None,
         "mine": message.sender_id == viewer.id,
         "time": clock.fmt12(message.created_at, "en"),
         "date": timezone.localtime(message.created_at).strftime("%Y-%m-%d"),
@@ -889,6 +891,8 @@ def _thread_entry_json(entry, viewer):
         "sender": entry.get("sender", ""),
         # By id as well: a name is not unique, and the page uses it to tell its own messages from a colleague's.
         "sender_id": entry.get("sender_id", 0),
+        # Their picture, when a colleague wrote it: for the staff's own screen, never a part of anything relayed.
+        "sender_avatar": entry.get("sender_avatar"),
         "task_code": entry.get("task_code", ""),
         "is_delivery": entry.get("is_delivery", False),
         "quote": entry.get("quote", ""),
@@ -964,6 +968,7 @@ def _group_json(room, viewer, unread=0, facts=None):
             "url": f"/ops/chats/u/{person.pk}/" if person else "",
             "label": room.title_for(viewer),
             "initials": person.initials if person else "?",
+            "avatar": avatars.url_of(person) if person else None,
             "client_code": "",
             "text": preview["text"],
             "outgoing": preview["outgoing"],
@@ -1029,6 +1034,7 @@ def client_chat_list(request):
                 "url": f"/ops/chats/u/{person.pk}/",
                 "label": person.short_name,
                 "initials": person.initials,
+                "avatar": avatars.url_of(person),
                 "client_code": "",
                 "text": preview["text"],
                 "outgoing": preview["outgoing"],

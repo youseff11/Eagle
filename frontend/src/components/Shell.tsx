@@ -17,6 +17,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { NavSearch } from "./NavSearch";
 import { NotificationToasts } from "./NotificationToasts";
+import { ProfileMenu } from "./ProfileMenu";
 import { ToastProvider } from "./Toasts";
 
 /** The same labels the classic pages show beside a name (`ROLE_MAP` in eagle_tags). */
@@ -591,15 +592,7 @@ function Frame() {
             {unread > 0 && <span className="icon-btn__dot">{unread}</span>}
           </NavLink>
           <div className="topbar__divider" />
-          {user && (
-            <div className="topbar__user" title={user.short_name}>
-              <span className="avatar avatar--brand topbar__face">{user.initials}</span>
-              <span className="topbar__who">
-                <span className="topbar__who-name">{user.short_name}</span>
-                <span className="chip">{ROLE_LABELS[user.role]?.[lang === "ar" ? 0 : 1] ?? user.role}</span>
-              </span>
-            </div>
-          )}
+          {user && <ProfileMenu user={user} roleLabel={ROLE_LABELS[user.role]?.[lang === "ar" ? 0 : 1] ?? user.role} />}
           <button className="icon-btn" type="button" title={t("خروج", "Log out")} onClick={logout}>
             <Icon name="logout" />
           </button>

@@ -12,7 +12,7 @@ Only the admin is answered. A GET changes nothing.
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
-from . import api_forms, attendance, clock, galiases, identity, services, shiftpick
+from . import api_forms, attendance, avatars, clock, galiases, identity, services, shiftpick
 from .api_ops import _seen_json
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import StaffCreateForm, StaffEditForm
@@ -62,6 +62,7 @@ def _person_head(person):
         "username": person.username,
         "name": person.short_name,
         "initials": person.initials,
+        "avatar": avatars.url_of(person),
         "role": _two(ROLE_MAP, person.role),
     }
 
