@@ -4018,7 +4018,8 @@ def reset_all_mail(admin, password):
 # Clearing the staff (admin only)
 # ---------------------------------------------------------------------------
 
-STAFF_RESET_BLOCKED = "فيه تاسكات مبنية على رسايل خط خاص بموظف هيتمسح. اعمل «ريستارت التاسكات» الأول وبعدين ارجع."
+STAFF_RESET_BLOCKED = "فيه تاسكات مبنية على رسايل أو ملفات تخص موظف هيتمسح (خط خاص أو ملف ترجمة). اعمل «ريستارت التاسكات» الأول وبعدين ارجع."
+STAFF_RESET_RACE = "وصلت رسالة جديدة على خط خاص أثناء المسح. ماتمسحش حاجة، جرّب تاني."
 
 
 def _staff_to_clear():
@@ -4050,6 +4051,11 @@ def _staff_rooms(ids):
     return ChatRoom.objects.filter(pk__in=list(found))
 
 
+def _task_files_in(rooms):
+    """The files shared in these rooms as work on a task (a translator's deliverable, a file sent for review): the task still needs them."""
+    return ChatAttachment.objects.filter(message__room__in=rooms, message__task__isnull=False)
+
+
 def staff_reset_counts():
     """What clearing the staff would take - drawn on the page before anybody asks."""
     from .models import LeaveRequest, PayrollLine, SalaryRecord, Shift, Violation, WorkDay
@@ -4070,6 +4076,8 @@ def staff_reset_counts():
         "line_letters": letters.count(),
         "line_sent": sent.count(),
         "line_blocked": _lines_with_tasks(letters, sent),
+        "task_files_blocked": _task_files_in(_staff_rooms(ids)).count(),
+        "lines_released": User.objects.filter(pk__in=ids).filter(~Q(wa_phone_number_id="") | ~Q(mail_alias="")).count(),
         "tasks_touched": Task.objects.filter(
             Q(translator_id__in=ids) | Q(team_lead_id__in=ids) | Q(created_by_id__in=ids),
         ).count(),
@@ -4088,20 +4096,26 @@ def reset_all_staff(admin, password):
     violations, rating events, devices, notifications and call history. What goes by this function, because leaving it would be
     worse: the internal chats they were in (a conversation with nobody left in it), and the mail and WhatsApp on their private
     line - ``owner`` goes NULL when a person is deleted, and NULL is the company's line, so a Sales person's private letters
-    would otherwise turn up in the operation's inbox. If a task stands on one of those letters nothing is done and the answer
-    says to clear the tasks first. What stays: every admin, the clients and their rooms (a message a deleted person sent there
-    stays, with no name on it), tasks (they lose the people they named), candidates and vacancies, departments, shifts of the
-    company, pay plans and the settings.
+    would otherwise turn up in the operation's inbox. If a task stands on one of those letters, or on a file shared in one of
+    those chats (a translator's deliverable), nothing is done and the answer says to clear the tasks first; the same if a new
+    letter reaches a private line while this runs (the whole run is undone). What stays: every admin, the clients and their rooms
+    (a message a deleted person sent there stays, with no name on it), tasks (they lose the people they named), candidates and
+    vacancies, departments, shifts of the company, pay plans and the settings. A deleted person's audit rows stay, with their
+    sign-in name written into the detail (the row's own link to the person goes NULL with them).
 
     The JSON is a Django fixture of what was deleted, without the password hashes, handed to the admin as a download and never
-    kept on the server.
+    kept on the server. It leaves out on purpose: the words and files of a one-to-one staff chat (the admin may not open those
+    chats, so the file must not carry them either), and where people clocked in from, their devices, notifications and call history.
     """
     import json
 
     from django.core import serializers
+    from django.db.models import Value
+    from django.db.models.functions import Concat
 
     from .models import (
-        LeaveRequest, MessageAttachment, OutboundAttachment, PayrollLine, RatingEvent, SalaryRecord, Shift, Violation, WorkDay,
+        LeaveRequest, MessageAttachment, OutboundAttachment, OvertimeClaim, PayrollLine, ProbationReview, RatingEvent,
+        SalaryChangeRequest, SalaryRecord, ScheduleOverride, Shift, Violation, WorkDay,
     )
 
     if admin is None or not admin.is_admin_role:
@@ -4116,32 +4130,46 @@ def reset_all_staff(admin, password):
         if not ids:
             return True, "", "[]", 0, 0
         letters_qs, sent_qs = _staff_lines(ids)
-        if _lines_with_tasks(letters_qs, sent_qs):
+        rooms_qs = _staff_rooms(ids)
+        if _lines_with_tasks(letters_qs, sent_qs) or _task_files_in(rooms_qs).exists():
             return False, STAFF_RESET_BLOCKED, "", 0, 0
         letters, sent = list(letters_qs), list(sent_qs)
-        rooms = list(_staff_rooms(ids))
-        room_messages = list(ChatMessage.objects.filter(room__in=rooms))
+        rooms = list(rooms_qs)
+        # A one-to-one staff chat is the two people's and nobody else's, the admin included: its words are not in the file.
+        shared = [room for room in rooms if room.kind != RoomKind.STAFF]
+        room_messages = list(ChatMessage.objects.filter(room__in=shared))
         letter_files = list(MessageAttachment.objects.filter(message__in=letters))
         sent_files = list(OutboundAttachment.objects.filter(message__in=sent))
         chat_files = list(ChatAttachment.objects.filter(message__in=room_messages))
+        stored_chat_files = list(ChatAttachment.objects.filter(message__room__in=rooms))
         # The people without their password hashes: a file that is downloaded is not the place for them.
         keep = [field.name for field in User._meta.concrete_fields if field.name != "password"]
         rows = json.loads(serializers.serialize("json", people, fields=keep))
+        mine = {"user_id__in": ids}
         rows += json.loads(serializers.serialize("json", [
-            *Shift.objects.filter(user_id__in=ids), *SalaryRecord.objects.filter(user_id__in=ids),
-            *LeaveRequest.objects.filter(user_id__in=ids), *WorkDay.objects.filter(user_id__in=ids),
-            *PayrollLine.objects.filter(user_id__in=ids), *Violation.objects.filter(user_id__in=ids),
-            *RatingEvent.objects.filter(user_id__in=ids),
+            *Shift.objects.filter(**mine), *SalaryRecord.objects.filter(**mine), *SalaryChangeRequest.objects.filter(**mine),
+            *LeaveRequest.objects.filter(**mine), *OvertimeClaim.objects.filter(**mine), *ScheduleOverride.objects.filter(**mine),
+            *WorkDay.objects.filter(**mine), *PayrollLine.objects.filter(**mine), *Violation.objects.filter(**mine),
+            *RatingEvent.objects.filter(**mine), *ProbationReview.objects.filter(**mine),
             *rooms, *room_messages, *chat_files, *letters, *letter_files, *sent, *sent_files,
         ]))
         backup = json.dumps(rows, indent=1, ensure_ascii=False)
-        stored = [(a.file.storage, a.file.name) for a in (*letter_files, *sent_files, *chat_files)]
+        stored = [(a.file.storage, a.file.name) for a in (*letter_files, *sent_files, *stored_chat_files)]
         for person in people:
-            if person.avatar:
-                avatars._delete_after_commit(person.avatar.storage, person.avatar.name)
-        letters_qs.delete()
-        sent_qs.delete()
+            for held in (person.avatar, person.contract):
+                if held:
+                    avatars._delete_after_commit(held.storage, held.name)
+            # The row's link to the person goes NULL with them: what it was about is kept, and so is who did it.
+            AuditLog.objects.filter(actor_id=person.pk).update(detail=Concat("detail", Value(f" [by {person.username}]")))
+        # By id, from the snapshot the backup was made from, and in pieces (a long list is more than a query may hold).
+        for model, pks in ((InboundMessage, [row.pk for row in letters]), (OutboundMessage, [row.pk for row in sent])):
+            for start in range(0, len(pks), 500):
+                model.objects.filter(pk__in=pks[start:start + 500]).delete()
         ChatRoom.objects.filter(pk__in=[room.pk for room in rooms]).delete()
+        if InboundMessage.objects.filter(owner_id__in=ids).exists() or OutboundMessage.objects.filter(owner_id__in=ids).exists():
+            # A letter reached a private line after the snapshot: deleting the person now would hand it to the company's line.
+            transaction.set_rollback(True)
+            return False, STAFF_RESET_RACE, "", 0, 0
         User.objects.filter(pk__in=ids).delete()
     removed = _remove_unreferenced_files(stored)
     log(

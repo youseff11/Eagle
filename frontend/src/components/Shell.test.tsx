@@ -538,7 +538,7 @@ describe("Shell: the admin's panel", () => {
     expect(links(view.container)).toEqual([
       "/admin", "/chats", "/admin/clients",
       "/admin/settings", "/admin/simulate", "/admin/audit",
-      "/notifications", "/admin/reset-mail", "/admin/reset-tasks",
+      "/notifications", "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
       "الشغل", "الإعدادات", "حسابي", "منطقة خطر",
@@ -546,12 +546,12 @@ describe("Shell: the admin's panel", () => {
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"],
       ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
-      ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"],
+      ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];
     for (const [href, label] of words) {
       expect(within(view.container.querySelector(`.sidebar a[href="${href}"]`) as HTMLElement).getByText(label), href).toBeInTheDocument();
     }
-    for (const href of ["/admin/reset-mail", "/admin/reset-tasks"]) {
+    for (const href of ["/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff"]) {
       expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toHaveClass("nav__item--danger");
     }
     expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toHaveClass("nav__item--danger");
@@ -567,6 +567,7 @@ describe("Shell: the admin's panel", () => {
       ["/admin/settings", "الإعدادات و AI", "/admin/settings"],
       ["/admin/simulate", "محاكاة رسالة", "/admin/simulate"],
       ["/admin/reset-tasks", "ريستارت التاسكات", "/admin/reset-tasks"],
+      ["/admin/reset-staff", "ريستارت الموظفين", "/admin/reset-staff"],
     ] as const) {
       const view = at(route, ["admin"]);
       await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));

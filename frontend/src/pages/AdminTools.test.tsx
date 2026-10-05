@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AdminSimulate, MailResetCounts, Role, TaskResetCounts } from "../api/types";
+import type { AdminSimulate, MailResetCounts, Role, StaffResetCounts, TaskResetCounts } from "../api/types";
 import { download } from "../lib/download";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { AdminResetPage } from "./AdminResetPage";
@@ -17,6 +17,10 @@ type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<R
 
 const taskCounts: TaskResetCounts = { tasks: 12, open: 4, assignments: 9, deliveries: 3, ai_checks: 5, rooms: 7 };
 const mailCounts: MailResetCounts = { letters: 30, sent: 8, files: 21, kept_letters: 2, kept_sent: 1 };
+const staffCounts: StaffResetCounts = {
+  people: 14, kept: 1, shifts: 40, work_days: 210, leave: 6, salary_records: 14, payroll_lines: 28, violations: 3, rooms: 9,
+  line_letters: 5, line_sent: 2, line_blocked: 0, task_files_blocked: 0, lines_released: 0, tasks_touched: 0,
+};
 
 function simulateData(over: Partial<AdminSimulate> = {}): AdminSimulate {
   return {
@@ -56,6 +60,14 @@ function serve(who: Role, over: Record<string, Handler> = {}) {
         headers: { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="eagle-mail-backup-20261003-1200.json"', "X-Eagle-Deleted": "38", "X-Eagle-Files": "21" },
       });
     },
+    "/api/v1/admin/reset/staff/run/": (url, init) => {
+      sent.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="eagle-staff-backup-20261006-1200.json"', "X-Eagle-Deleted": "14", "X-Eagle-Files": "3" },
+      });
+    },
+    "/api/v1/admin/reset/staff/": () => jsonResponse({ ok: true, counts: staffCounts }),
     "/api/v1/admin/reset/tasks/": () => jsonResponse({ ok: true, counts: taskCounts }),
     "/api/v1/admin/reset/mail/": () => jsonResponse({ ok: true, counts: mailCounts }),
   };
@@ -72,6 +84,8 @@ function open(route: string) {
       <Route path="/admin/simulate" element={<AdminSimulatePage />} />
       <Route path="/admin/reset-tasks" element={<AdminResetPage kind="tasks" />} />
       <Route path="/admin/reset-mail" element={<AdminResetPage kind="mail" />} />
+      <Route path="/admin/reset-staff" element={<AdminResetPage kind="staff" />} />
+      <Route path="/hr/employees" element={<div>the employee files</div>} />
       <Route path="/tasks" element={<div>the task list</div>} />
       <Route path="/inbox" element={<div>the inbox</div>} />
       <Route path="/" element={<div>home page</div>} />
@@ -310,6 +324,150 @@ describe("AdminResetPage: the run", () => {
   it("sends anybody who is not the admin home and asks the server for nothing", async () => {
     const served = serve("sales");
     open("/admin/reset-mail");
+    expect(await screen.findByText("home page")).toBeInTheDocument();
+    expect(served.calls.some((call) => call.url.startsWith("/api/v1/admin/"))).toBe(false);
+  });
+});
+
+describe("AdminResetPage: the staff clear-out", () => {
+  const press = async (user: ReturnType<typeof userEvent.setup>, password = "my-admin-password") => {
+    await user.type(await screen.findByLabelText("باسورد الأدمن بتاعك"), password);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /امسح كل الموظفين/ }));
+  };
+
+  it("counts the people and what goes with them, and says how many admins stay", async () => {
+    serve("admin");
+    const { container } = open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    const counts = container.querySelector('[data-counts="staff"]') as HTMLElement;
+    for (const number of ["14", "40", "210", "28"]) expect(counts.textContent).toContain(number);
+    expect(within(counts).getByText("1 أدمن هيفضلوا")).toHaveClass("chip");
+    // The private lines: the received and the sent together.
+    expect(within(counts).getByText("رسالة على خط Sales خاص").parentElement).toHaveTextContent("7");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ريستارت الموظفين");
+  });
+
+  it("says what stays, and that the Sales private lines go with their people", async () => {
+    serve("admin");
+    open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(screen.getByText(/كل حسابات الأدمن/)).toBeInTheDocument();
+    expect(screen.getByText(/خطهم الخاص بتتمسح كمان/)).toBeInTheDocument();
+  });
+
+  it("warns about tasks that lose their people, only when there are some", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/": () => jsonResponse({ ok: true, counts: { ...staffCounts, tasks_touched: 6 } }) });
+    const view = open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(view.container.querySelector('[data-note="tasks-touched"]')).toHaveTextContent("6");
+    view.unmount();
+    serve("admin");
+    const quiet = open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(quiet.container.querySelector('[data-note="tasks-touched"]')).toBeNull();
+  });
+
+  it("will not let it be pressed while tasks stand on a private line, and says to clear the tasks first", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/": () => jsonResponse({ ok: true, counts: { ...staffCounts, line_blocked: 2 } }) });
+    const user = userEvent.setup();
+    const { container } = open("/admin/reset-staff");
+    expect(await screen.findByRole("alert")).toHaveTextContent("ريستارت التاسكات");
+    expect(container.querySelector('[data-note="blocked"]')).not.toBeNull();
+    await user.type(screen.getByLabelText("باسورد الأدمن بتاعك"), "x");
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: /امسح كل الموظفين/ })).toBeDisabled();
+  });
+
+  it("blocks it too when a task needs a file from a chat that would go", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/": () => jsonResponse({ ok: true, counts: { ...staffCounts, task_files_blocked: 1 } }) });
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    expect(await screen.findByRole("alert")).toHaveTextContent("ملف ترجمة");
+    await user.type(screen.getByLabelText("باسورد الأدمن بتاعك"), "x");
+    await user.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: /امسح كل الموظفين/ })).toBeDisabled();
+  });
+
+  it("warns to detach a number or an address first, only when somebody has one", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/": () => jsonResponse({ ok: true, counts: { ...staffCounts, lines_released: 2 } }) });
+    const view = open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(view.container.querySelector('[data-note="lines-released"]')).toHaveTextContent("Meta");
+    view.unmount();
+    serve("admin");
+    const quiet = open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(quiet.container.querySelector('[data-note="lines-released"]')).toBeNull();
+  });
+
+  it("says one-to-one staff chats are not in the backup", async () => {
+    serve("admin");
+    open("/admin/reset-staff");
+    await screen.findByText("موظف");
+    expect(screen.getByText(/من غير كلام الشاتات الخاصة بين اتنين موظفين/)).toBeInTheDocument();
+  });
+
+  it("cannot be pressed without the password and the tick, together", async () => {
+    const served = serve("admin");
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    const button = await screen.findByRole("button", { name: /امسح كل الموظفين/ });
+    expect(button).toBeDisabled();
+    await user.type(screen.getByLabelText("باسورد الأدمن بتاعك"), "some-password");
+    expect(button).toBeDisabled();
+    await user.click(screen.getByRole("checkbox"));
+    expect(button).toBeEnabled();
+    expect(served.sent).toEqual([]);
+  });
+
+  it("sends the password with the explicit yes, saves the backup, and moves on to the employee files", async () => {
+    const served = serve("admin");
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    await press(user);
+    await waitFor(() => expect(served.sent.length).toBe(1));
+    expect(served.sent[0]).toEqual({ url: "/api/v1/admin/reset/staff/run/", body: { password: "my-admin-password", confirm: true } });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1]).toBe("eagle-staff-backup-20261006-1200.json");
+    expect(await screen.findByText("the employee files")).toBeInTheDocument();
+  });
+
+  it("shows the server's reason for a wrong password, empties the box, saves nothing and stays", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/run/": () => jsonResponse({ ok: false, error: "refused", message: "الباسورد غلط." }, 400) });
+    const save = vi.spyOn(download, "save").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    await press(user, "wrong-guess");
+    expect(await screen.findByRole("alert")).toHaveTextContent("الباسورد غلط.");
+    expect(screen.getByLabelText("باسورد الأدمن بتاعك")).toHaveValue("");
+    expect(screen.queryByText("the employee files")).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("wrong-guess");
+  });
+
+  it("says the server's reason when tasks are in the way after all", async () => {
+    serve("admin", {
+      "/api/v1/admin/reset/staff/run/": () => jsonResponse({ ok: false, error: "refused", message: "فيه تاسكات مبنية على رسايل خط خاص. اعمل ريستارت للتاسكات الأول." }, 400),
+    });
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    await press(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("اعمل ريستارت للتاسكات الأول");
+  });
+
+  it("says it does not know the result when the connection drops before the answer", async () => {
+    serve("admin", { "/api/v1/admin/reset/staff/run/": () => Promise.reject(new TypeError("Failed to fetch")) });
+    const user = userEvent.setup();
+    open("/admin/reset-staff");
+    await press(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent("ممكن يكون اتمسح");
+  });
+
+  it("sends anybody who is not the admin home and asks the server for nothing", async () => {
+    const served = serve("hr");
+    open("/admin/reset-staff");
     expect(await screen.findByText("home page")).toBeInTheDocument();
     expect(served.calls.some((call) => call.url.startsWith("/api/v1/admin/"))).toBe(false);
   });

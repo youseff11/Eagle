@@ -1182,6 +1182,10 @@ export interface StaffResetCounts {
   line_letters: number;
   line_sent: number;
   line_blocked: number;
+  /** Files a task still needs from an internal chat that would go with a person (a translator's deliverable). */
+  task_files_blocked: number;
+  /** People who have their own WhatsApp number or mail address: messages to them land on the company line once they are gone. */
+  lines_released: number;
   tasks_touched: number;
 }
 

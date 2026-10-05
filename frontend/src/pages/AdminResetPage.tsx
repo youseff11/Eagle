@@ -43,8 +43,9 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
   const tasks = kind === "tasks";
   const mail = kind === "mail";
   const staff = kind === "staff";
-  // People with a task standing on a private line cannot be cleared until the tasks are: the server refuses, and the page says so first.
-  const blocked = staff && data !== undefined && data.line_blocked > 0;
+  // People with a task standing on their private line or on a file they shared cannot be cleared until the tasks are: the server
+  // refuses, and the page says so first.
+  const blocked = staff && data !== undefined && data.line_blocked + data.task_files_blocked > 0;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -232,6 +233,18 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
             </div>
           </div>
         )}
+        {staff && data && data.lines_released > 0 && (
+          <div className="note note--warn mt" data-note="lines-released">
+            <Icon name="alert" />
+            <div>
+              <b className="mono">{data.lines_released}</b>{" "}
+              {t(
+                "منهم عنده رقم واتساب أو عنوان ميل خاص. افصله من Meta ومن Google قبل المسح، وإلا أي رسالة جديدة عليه هتنزل على خط الشركة ويشوفها الأوبريشن.",
+                "of them have their own WhatsApp number or mail address. Detach it at Meta and Google first, or any new message to it lands on the company line, where Operation reads it.",
+              )}
+            </div>
+          </div>
+        )}
         {staff && data && data.tasks_touched > 0 && (
           <div className="note note--warn mt" data-note="tasks-touched">
             <Icon name="alert" />
@@ -244,8 +257,8 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
         {blocked && (
           <div className="reset-error mt" role="alert" data-note="blocked">
             {t(
-              "فيه تاسكات مبنية على رسايل خط خاص بموظف هيتمسح. اعمل «ريستارت التاسكات» الأول وبعدين ارجع.",
-              "Tasks stand on messages from a private line of somebody who would be deleted. Reset all tasks first, then come back.",
+              "فيه تاسكات مبنية على رسايل أو ملفات تخص موظف هيتمسح (خط خاص أو ملف ترجمة). اعمل «ريستارت التاسكات» الأول وبعدين ارجع.",
+              "Tasks stand on messages or files of somebody who would be deleted (a private line or a translation file). Reset all tasks first, then come back.",
             )}
           </div>
         )}
@@ -298,8 +311,8 @@ export function AdminResetPage({ kind }: { kind: Kind }) {
               ? t("مع المسح بينزل لك ملف JSON فيه كل اللي اتمسح. مابيتحفظش على السيرفر.", "A JSON file of everything deleted downloads to you as it goes. It is not kept on the server.")
               : staff
                 ? t(
-                    "مع المسح بينزل لك ملف JSON فيه الموظفين وبياناتهم (من غير الباسوردات). مابيتحفظش على السيرفر.",
-                    "A JSON file of the staff and their data (without the passwords) downloads to you as it goes. It is not kept on the server.",
+                    "مع المسح بينزل لك ملف JSON فيه الموظفين وبياناتهم (من غير الباسوردات ومن غير كلام الشاتات الخاصة بين اتنين موظفين، ومن غير مواقع الحضور). مابيتحفظش على السيرفر.",
+                    "A JSON file of the staff and their data downloads to you as it goes: without the passwords, the words of one-to-one staff chats, or where people clocked in from. It is not kept on the server.",
                   )
                 : t(
                   "مع المسح بينزل لك ملف JSON فيه نص كل ميل اتمسح وبيانات مرفقاته (من غير الملفات نفسها). مابيتحفظش على السيرفر.",

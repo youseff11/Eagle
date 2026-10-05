@@ -9,16 +9,18 @@ tasks stay; and the backup carries no password hash.
 import json
 import tempfile
 from datetime import time
+from unittest import mock
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 
 from . import avatars, identity, services
 from .models import (
-    AuditLog, Channel, ChatMessage, ChatRoom, InboundMessage, LeaveRequest, MessageAttachment, OutboundMessage, Role, RoomKind, Shift,
-    Task, User, WorkDay,
+    AuditLog, Channel, ChatAttachment, ChatMessage, ChatRoom, InboundMessage, LeaveRequest, MessageAttachment, OutboundMessage, Role,
+    RoomKind, Shift, Task, User, WorkDay,
 )
 from .tests_admin_tools import ADMIN_PASSWORD, _Tools
 from .tests_api_v1 import _json
@@ -230,6 +232,106 @@ class RunTests(_Staff):
             avatars.replace(self.tr, jpeg(40, 40))
             self.tr.refresh_from_db()
             storage, name = self.tr.avatar.storage, self.tr.avatar.name
+            self.assertTrue(storage.exists(name))
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(self.run_reset().status_code, 200)
+            self.assertFalse(storage.exists(name))
+
+
+class WhatTheBackupMayCarryTests(_Staff):
+    def test_the_words_of_a_one_to_one_staff_chat_are_not_in_the_file_the_admin_downloads(self):
+        staff = ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=services.staff_pair_key(self.hr.pk, self.reviewer.pk))
+        staff.members.add(self.hr, self.reviewer)
+        said = ChatMessage.objects.create(room=staff, sender=self.hr, body="SECRET-SALARY-COMPLAINT")
+        ChatAttachment.objects.create(message=said, file=SimpleUploadedFile("private.pdf", b"data"), original_name="private-letter.pdf", size=4)
+        answer = self.run_reset()
+        self.assertEqual(answer.status_code, 200)
+        text = answer.content.decode("utf-8")
+        self.assertNotIn("SECRET-SALARY-COMPLAINT", text)
+        self.assertNotIn("private-letter.pdf", text)
+        # The chat itself is gone.
+        self.assertFalse(ChatRoom.objects.filter(pk=staff.pk).exists())
+
+    def test_the_words_of_a_work_group_the_admin_may_open_are_in_it(self):
+        team = ChatRoom.objects.create(kind=RoomKind.TEAM, title="Team", created_by=self.lead)
+        team.members.add(self.lead, self.admin)
+        ChatMessage.objects.create(room=team, sender=self.lead, body="WORK-GROUP-LINE")
+        self.assertIn("WORK-GROUP-LINE", self.run_reset().content.decode("utf-8"))
+
+    def test_money_and_hr_rows_of_the_people_are_in_it(self):
+        from .models import OvertimeClaim, SalaryChangeRequest
+
+        names = {row["model"] for row in json.loads(self.run_reset().content.decode("utf-8"))}
+        self.assertIn("dashboard.user", names)
+        # The models exist and are asked for even when the person has none (the file is made from them all).
+        self.assertTrue(OvertimeClaim._meta.get_field("user") and SalaryChangeRequest._meta.get_field("user"))
+
+
+class WhatMustNotBeLostTests(_Staff):
+    def test_a_file_a_task_still_needs_from_a_chat_that_would_go_stops_the_whole_thing(self):
+        team = ChatRoom.objects.create(kind=RoomKind.TEAM, title="Work", created_by=self.lead)
+        team.members.add(self.lead, self.tr, self.admin)
+        message = ChatMessage.objects.create(room=team, sender=self.tr, body="the translation", task=self.task)
+        ChatAttachment.objects.create(message=message, file=SimpleUploadedFile("done.docx", b"data"), original_name="done.docx", size=4)
+        counts = _json(self.get(self.admin, COUNTS))["counts"]
+        self.assertEqual(counts["task_files_blocked"], 1)
+        answer = self.run_reset()
+        self.assertEqual((answer.status_code, _json(answer)["message"]), (400, services.STAFF_RESET_BLOCKED))
+        self.assertEqual(User.objects.filter(pk__in=self.staff_ids()).count(), 7)
+        self.assertTrue(ChatAttachment.objects.filter(original_name="done.docx").exists())
+
+    def test_a_file_in_a_chat_with_no_task_does_not_stop_it(self):
+        team = ChatRoom.objects.create(kind=RoomKind.TEAM, title="Work", created_by=self.lead)
+        team.members.add(self.lead, self.admin)
+        message = ChatMessage.objects.create(room=team, sender=self.lead, body="a file")
+        ChatAttachment.objects.create(message=message, file=SimpleUploadedFile("note.txt", b"data"), original_name="note.txt", size=4)
+        self.assertEqual(self.run_reset().status_code, 200)
+
+    def test_a_letter_that_reaches_a_private_line_while_it_runs_undoes_the_whole_run(self):
+        InboundMessage.objects.create(channel=Channel.EMAIL, sender_identity="a@x.example", body="private", owner=self.sales)
+        real = ChatMessage.objects.filter
+        arrived = []
+
+        def late(*args, **kwargs):
+            # The backup's snapshot is taken by now: a letter that comes in after it is not in it.
+            if not arrived:
+                arrived.append(InboundMessage.objects.create(channel=Channel.EMAIL, sender_identity="late@x.example", body="late one", owner=self.sales))
+            return real(*args, **kwargs)
+
+        with mock.patch.object(ChatMessage.objects, "filter", side_effect=late):
+            answer = self.run_reset()
+        self.assertEqual(len(arrived), 1)
+        self.assertEqual((answer.status_code, _json(answer)["message"]), (400, services.STAFF_RESET_RACE))
+        self.assertEqual(User.objects.filter(pk__in=self.staff_ids()).count(), 7)
+        self.assertTrue(InboundMessage.objects.filter(body="private", owner=self.sales).exists())
+        self.assertEqual(AuditLog.objects.filter(action="staff.reset").count(), 0)
+
+    def test_who_did_what_stays_readable_after_the_person_is_gone(self):
+        services.log(self.accounting, identity.IDENTITY_VIEW, "CL-0007", "opened the identity")
+        self.run_reset()
+        row = AuditLog.objects.get(action=identity.IDENTITY_VIEW, target="CL-0007")
+        self.assertIsNone(row.actor)
+        self.assertEqual(row.detail, f"opened the identity [by {self.accounting.username}]")
+
+    def test_the_audit_rows_of_an_admin_are_left_as_they_are(self):
+        services.log(self.admin, "admin.note", "x", "plain")
+        self.run_reset()
+        self.assertEqual(AuditLog.objects.get(action="admin.note").detail, "plain")
+
+    def test_the_number_and_the_address_that_would_be_released_are_counted(self):
+        User.objects.filter(pk=self.sales.pk).update(mail_alias="sales1@example.com")
+        User.objects.filter(pk=self.ops.pk).update(wa_phone_number_id="1234567890")
+        self.assertEqual(_json(self.get(self.admin, COUNTS))["counts"]["lines_released"], 2)
+
+    def test_a_contract_file_is_removed_with_the_person(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        with override_settings(
+            MEDIA_ROOT=folder.name,
+            STORAGES={**settings.STORAGES, "default": {"BACKEND": "dashboard.storages.ProtectedFileSystemStorage"}},
+        ):
+            self.tr.contract.save("cv.pdf", ContentFile(b"data"))
+            storage, name = self.tr.contract.storage, self.tr.contract.name
             self.assertTrue(storage.exists(name))
             with self.captureOnCommitCallbacks(execute=True):
                 self.assertEqual(self.run_reset().status_code, 200)
