@@ -1168,6 +1168,23 @@ export interface MailResetCounts {
   kept_sent: number;
 }
 
+/** GET /api/v1/admin/reset/staff/: what clearing the staff would take, and what is in the way (`line_blocked`). */
+export interface StaffResetCounts {
+  people: number;
+  kept: number;
+  shifts: number;
+  work_days: number;
+  leave: number;
+  salary_records: number;
+  payroll_lines: number;
+  violations: number;
+  rooms: number;
+  line_letters: number;
+  line_sent: number;
+  line_blocked: number;
+  tasks_touched: number;
+}
+
 /** GET /api/v1/admin/settings/: everything the settings page draws. A secret has `saved` and never a value. */
 export interface AdminSettings {
   ok: true;

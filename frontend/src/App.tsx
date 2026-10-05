@@ -133,6 +133,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="admin/settings" element={<AdminSettingsPage />} />
         <Route path="admin/simulate" element={<AdminSimulatePage />} />
         <Route path="admin/reset-tasks" element={<AdminResetPage kind="tasks" />} />
+        <Route path="admin/reset-staff" element={<AdminResetPage kind="staff" />} />
         <Route path="admin/reset-mail" element={<AdminResetPage kind="mail" />} />
         {/* The staff panel was folded into the employee files: the addresses that were saved still arrive. */}
         <Route path="admin/users" element={<Navigate to="/hr/employees" replace />} />

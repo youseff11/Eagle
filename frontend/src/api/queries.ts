@@ -348,8 +348,8 @@ export function useAdminSimulate(enabled = true) {
   });
 }
 
-/** What a clear-out would take (`kind` is `tasks` or `mail`). Counted when the page opens, not on a clock. */
-export function useResetCounts<T>(kind: "tasks" | "mail", enabled = true) {
+/** What a clear-out would take (`kind` is `tasks`, `mail` or `staff`). Counted when the page opens, not on a clock. */
+export function useResetCounts<T>(kind: "tasks" | "mail" | "staff", enabled = true) {
   return useQuery({
     queryKey: qk.adminResetCounts(kind),
     queryFn: () => api<{ ok: true; counts: T }>(`/api/v1/admin/reset/${kind}/`),

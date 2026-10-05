@@ -80,10 +80,11 @@ class CountsTests(_Staff):
     def test_it_counts_the_people_and_what_is_theirs(self):
         Shift.objects.create(user=self.tr, weekday=0, start_time=time(9), end_time=time(17))
         WorkDay.objects.create(user=self.tr, date=self.today if hasattr(self, "today") else __import__("datetime").date.today(), status="present")
-        ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=services.staff_pair_key(self.ops.pk, self.lead.pk)).members.add(self.ops, self.lead)
+        rooms_before = _json(self.get(self.admin, COUNTS))["counts"]["rooms"]
+        ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=services.staff_pair_key(self.hr.pk, self.reviewer.pk)).members.add(self.hr, self.reviewer)
         counts = _json(self.get(self.admin, COUNTS))["counts"]
         self.assertEqual((counts["people"], counts["kept"]), (7, 1))
-        self.assertEqual((counts["shifts"], counts["work_days"], counts["rooms"]), (1, 1, 1))
+        self.assertEqual((counts["shifts"], counts["work_days"], counts["rooms"]), (1, 1, rooms_before + 1))
         # The task in the fixture names the operation, the leader and the translator.
         self.assertEqual(counts["tasks_touched"], 1)
 
@@ -168,9 +169,9 @@ class RunTests(_Staff):
         self.assertEqual(LeaveRequest.objects.count(), 0)
 
     def test_the_internal_chats_they_were_in_go_and_a_clients_room_stays(self):
-        staff = ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=services.staff_pair_key(self.ops.pk, self.lead.pk))
-        staff.members.add(self.ops, self.lead)
-        ChatMessage.objects.create(room=staff, sender=self.ops, body="internal talk")
+        staff = ChatRoom.objects.create(kind=RoomKind.STAFF, pair_key=services.staff_pair_key(self.hr.pk, self.reviewer.pk))
+        staff.members.add(self.hr, self.reviewer)
+        ChatMessage.objects.create(room=staff, sender=self.hr, body="internal talk")
         team = ChatRoom.objects.create(kind=RoomKind.TEAM, title="Team", created_by=self.lead)
         team.members.add(self.lead, self.admin)
         client_room = ChatRoom.objects.create(kind=RoomKind.CLIENT, client=self.client_obj, title="Client group", created_by=self.ops)
@@ -187,7 +188,7 @@ class RunTests(_Staff):
     def test_a_sales_persons_private_letters_go_with_them_and_never_become_the_companys(self):
         mine = InboundMessage.objects.create(channel=Channel.EMAIL, sender_identity="a@x.example", body="private", owner=self.sales)
         MessageAttachment.objects.create(message=mine, file=SimpleUploadedFile("p.pdf", b"data"), original_name="p.pdf", size=4)
-        reply = OutboundMessage.objects.create(channel=Channel.EMAIL, body="private reply", owner=self.sales, created_by=self.sales)
+        reply = OutboundMessage.objects.create(client=self.client_obj, channel=Channel.EMAIL, body="private reply", owner=self.sales, created_by=self.sales)
         company = InboundMessage.objects.create(channel=Channel.EMAIL, sender_identity="b@x.example", body="company mail")
         self.run_reset()
         self.assertFalse(InboundMessage.objects.filter(pk=mine.pk).exists())

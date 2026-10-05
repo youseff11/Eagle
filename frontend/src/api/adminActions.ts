@@ -175,11 +175,11 @@ export interface ResetDone {
 }
 
 /**
- * Run a clear-out (`tasks` or `mail`) with the admin's own password and the explicit yes. The answer is the backup of what
+ * Run a clear-out (`tasks`, `mail` or `staff`) with the admin's own password and the explicit yes. The answer is the backup of what
  * was deleted: it is saved as a file before anything else happens, because it is the only copy. The password is in this
  * one request and is not kept anywhere here.
  */
-export function useRunReset(kind: "tasks" | "mail") {
+export function useRunReset(kind: "tasks" | "mail" | "staff") {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (password: string): Promise<ResetDone> => {
@@ -194,6 +194,11 @@ export function useRunReset(kind: "tasks" | "mail") {
     onSettled: () => {
       void client.invalidateQueries({ queryKey: qk.adminResetCounts(kind) });
       void client.invalidateQueries({ queryKey: qk.boards });
+      if (kind === "staff") {
+        // The people, and everything that names one: the files, the chat lists.
+        void client.invalidateQueries({ queryKey: qk.hr });
+        void client.invalidateQueries({ queryKey: qk.chats });
+      }
     },
   });
 }

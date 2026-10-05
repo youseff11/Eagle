@@ -73,6 +73,7 @@ export const KEYWORDS: Record<string, string> = {
   "/payroll": "مستحقاتي فلوسي مرتبي my payroll",
   "/notifications": "تنبيهات اشعارات notifications",
   "/admin/reset-tasks": "ريستارت مسح كل التاسكات ابدأ من الاول ترقيم reset delete all tasks",
+  "/admin/reset-staff": "ريستارت مسح كل الموظفين ابدأ ببيانات حقيقية بيانات تجريبية reset delete all staff employees",
   "/admin/reset-mail": "مسح الميلات الايميلات البريد الوارد الصادر حذف delete all mail emails inbox",
 };
 

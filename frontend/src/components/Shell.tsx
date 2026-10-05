@@ -108,6 +108,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
       { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true, section: "danger" },
       { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true, section: "danger" },
+      { path: "/admin/reset-staff", icon: "users", label: ["ريستارت الموظفين", "Reset all staff"], danger: true, section: "danger" },
     ],
   },
   // The money screens: the month's sheet, the deductions, and (the admin's only) attendance and output; the payroll rules are
