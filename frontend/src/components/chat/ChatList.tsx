@@ -42,6 +42,7 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
         <span className="cthread__top">
           <b className={monospaced ? "mono" : undefined}>{row.label}</b>
           {row.reaches_client && <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>}
+          {row.staff && row.role === "support" && <span className="chip chip--sm cthread__tag">{t("دعم فني", "Technical support")}</span>}
           {problem && (
             <span className="cthread__problem" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
               <Icon name="alert" size="sm" />

@@ -12,6 +12,7 @@ export const LANDING: Record<Role, string> = {
   reviewer: "/reviewer/tests",
   accounting: "/accounts",
   sales: "/clients",
+  support: "/tasks",
 };
 
 /**

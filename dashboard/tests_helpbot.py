@@ -107,12 +107,23 @@ class CatalogTests(SimpleTestCase):
                 self.assertEqual(helpbot.scrub(text).count("[removed]"), 0, "a guide holds something that looks like a contact")
 
 
+class IconTests(SimpleTestCase):
+    def test_every_icon_the_assistant_draws_is_in_the_sprite(self):
+        # An icon missing from the sprite draws an empty box and says nothing (see Icon.tsx).
+        sprite = (ROOT / "templates" / "partials" / "icons.html").read_text(encoding="utf-8")
+        source = (FRONT / "components" / "HelpBot.tsx").read_text(encoding="utf-8")
+        names = set(re.findall(r'<Icon\s+name="([a-z-]+)"', source)) | set(re.findall(r'name=\{[^}]*"([a-z-]+)"', source))
+        self.assertIn("robot", names)
+        for name in names:
+            self.assertIn(f'id="i-{name}"', sprite, name)
+
+
 class WhoSeesWhatTests(SimpleTestCase):
     #: Guides that are the owner's alone: nobody else is told how, and the prompt of nobody else carries them.
     OWNER_ONLY = (
         "admin-overview", "admin-employee-new", "admin-mail-alias", "admin-identity-access", "admin-hire-approve",
         "admin-settings", "admin-ai-assistant", "admin-assistant-orders", "admin-google", "admin-clients", "admin-delete-clients", "admin-simulate",
-        "admin-audit", "admin-reset", "acc-rules",
+        "admin-audit", "admin-reset", "acc-rules", "admin-support-account",
     )
 
     def ids(self, role, **flags):
@@ -130,7 +141,7 @@ class WhoSeesWhatTests(SimpleTestCase):
 
     def test_a_translator_is_not_told_how_the_client_desk_or_the_people_work(self):
         seen = self.ids(Role.TRANSLATOR)
-        for prefix in ("ops-", "lead-", "hr-", "acc-", "admin-", "sales-", "reviewer-"):
+        for prefix in ("ops-", "lead-", "hr-", "acc-", "admin-", "sales-", "reviewer-", "support-"):
             self.assertEqual({one for one in seen if one.startswith(prefix)}, set(), prefix)
         self.assertTrue({"tr-accept", "tr-work", "tr-deliver", "tr-payroll", "attendance-checkin"} <= seen)
 
@@ -156,9 +167,10 @@ class WhoSeesWhatTests(SimpleTestCase):
         self.assertIn("reviewer-mark-test", self.ids(Role.TEAM_LEAD))
         self.assertNotIn("reviewer-mark-test", self.ids(Role.OPERATION))
 
-    def test_everybody_but_the_owner_is_told_how_to_check_in(self):
+    def test_everybody_on_the_companys_rules_is_told_how_to_check_in_and_the_owner_and_support_are_not(self):
         for role in ROLES:
-            self.assertEqual("attendance-checkin" in self.ids(role), role != Role.ADMIN, role)
+            for guide_id in ("attendance-checkin", "attendance-checkout", "leave-ask", "performance-board"):
+                self.assertEqual(guide_id in self.ids(role), role not in (Role.ADMIN, Role.SUPPORT), (role, guide_id))
 
     def test_every_role_is_offered_questions_and_their_own_come_first(self):
         for role in ROLES:

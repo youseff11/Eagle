@@ -264,7 +264,8 @@ def ranked(visible, question, page=""):
 
 def starters(user):
     """The first questions to offer this person: their own role's guides first, the ones everybody has after them."""
-    mine = [guide for guide in guides.for_user(user) if guide.starter]
+    role = Role.ADMIN if user.is_admin_role else user.role
+    mine = [guide for guide in guides.for_user(user) if guide.starter_for(role)]
 
     def order(guide):
         if user.is_admin_role and guide.roles == (Role.ADMIN,):

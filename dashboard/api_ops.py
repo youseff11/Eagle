@@ -67,7 +67,7 @@ def _list_row(task, user, warning_minutes):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SUPPORT)
 def tasks(request):
     """The tasks, newest first: ``?status=open`` or one status; nothing for all (the newest 200).
 
@@ -106,7 +106,7 @@ def _seen_json(person):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.SUPPORT)
 def team(request):
     """The team leaders and who works under each: who is free, who is busy, who is offline, and with what.
 
@@ -247,7 +247,7 @@ def _lead_json(task, user):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD, Role.SUPPORT)
 def task(request, code):
     """One task as the operation reads it: the page ``/tasks/<code>/`` without the translator's tools.
 
@@ -267,8 +267,11 @@ def task(request, code):
         Task.objects.select_related("client", "team_lead", "translator", "created_by", "handover_ack_by"), code=code,
     )
     user = request.user
-    if not task.can_view(user):
+    if not (task.can_view(user) or task.can_watch(user)):
         identity.hidden(request, "task")
+    # Technical support reads where the task stands and who has it, as the operation does, and nothing that belongs to the client or to
+    # the work: no files, no requirements, no deliveries (and no messages: those are the operation's alone, below).
+    watching = user.is_support and not user.is_admin_role
     conf = AppSettings.load()
     due = task.deadline_for(user)
     pending = task.pending_assignment
@@ -290,6 +293,7 @@ def task(request, code):
             "origin": _origin_json(task.origin),
             "client": task.client.label_for(user) if task.client_id else "-",
             "client_code": task.client.code if task.client_id else "",
+            "watching": watching,
             "source_lang": task.source_lang,
             "target_lang": task.target_lang,
             "due": _stamp(due, "%Y-%m-%d"),
@@ -307,8 +311,8 @@ def task(request, code):
                 {"name": pending.assignee.short_name, "seconds_left": pending.seconds_left} if pending else None
             ),
             "files": {
-                "original": [_task_file_json(a) for a in services.task_source_files(task)],
-                "translation": [
+                "original": [] if watching else [_task_file_json(a) for a in services.task_source_files(task)],
+                "translation": [] if watching else [
                     dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"))
                     for a in services.translator_files(task)
                 ],
@@ -348,14 +352,14 @@ def task(request, code):
                 "state": task.word_count_state,
                 "value": task.word_count if task.word_count_state == "confirmed" else None,
             },
-            "requirements": [_requirement_json(r, task.client, user) for r in task.client.requirements.select_related("author")],
+            "requirements": [] if watching else [_requirement_json(r, task.client, user) for r in task.client.requirements.select_related("author")],
             "deliveries": [
                 {
                     "id": d.pk, "at": _stamp(d.created_at, "%m-%d"), "channel": d.channel, "files": d.file_count,
                     "by": d.created_by.short_name if d.created_by_id else None, "status": d.status,
                     "error": identity.for_viewer(d.error_message, user),
                 }
-                for d in task.deliveries.select_related("created_by")[:5]
+                for d in task.deliveries.select_related("created_by")[:5] if not watching
             ],
             "messages": [
                 {

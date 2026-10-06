@@ -52,6 +52,7 @@ ROLE_MAP = {
     "reviewer": ("مراجع", "Reviewer"),
     "accounting": ("حسابات", "Accounting"),
     "sales": ("مبيعات", "Sales"),
+    "support": ("دعم فني", "Technical support"),
 }
 
 PRIORITY_MAP = {

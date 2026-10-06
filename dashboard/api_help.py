@@ -11,7 +11,7 @@ from django.http import JsonResponse
 
 from . import guides, helpactions, helpbot
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import AppSettings, Role
+from .models import AppSettings, Role, User
 from .permissions import api_role_required
 
 #: The longest the front end's conversation may be, and the most one request may carry of it.
@@ -33,8 +33,11 @@ def home(request):
     user = request.user
     lang = _lang(request, user)
     conf = AppSettings.load()
+    # Whoever is not technical support themselves may write to the support account (the first one, when there are several).
+    support = None if user.is_support else User.objects.filter(role=Role.SUPPORT, is_active=True).order_by("pk").first()
     return JsonResponse({
         "ok": True,
+        "support": {"id": support.pk, "name": support.short_name} if support else None,
         # Whether the owner has put the AI to work is the owner's to know.
         "ai": helpbot.ai_available(conf) if user.is_admin_role else False,
         # Whether this person may give orders: only the owner, only when they switched it on.

@@ -25,7 +25,9 @@ from .models import Role
 STAFF = (
     Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SALES,
 )
-EVERYONE = (Role.ADMIN, *STAFF)
+EVERYONE = (Role.ADMIN, *STAFF, Role.SUPPORT)
+#: Who has the chats: everybody on the company's rules and technical support.
+CHAT = (*STAFF, Role.SUPPORT)
 #: The people who work the client mailbox and chat.
 CLIENT_DESK = (Role.OPERATION, Role.SALES, Role.ADMIN)
 
@@ -46,8 +48,8 @@ class Guide:
     note: tuple = ("", "")
     #: The ``User`` property that also opens the guide to a person of another role.
     cap: str = ""
-    #: Offered as a first question to the roles that can read it.
-    starter: bool = False
+    #: Offered as a first question: to every role that can read it (``True``), or only to the roles named.
+    starter: object = False
 
     def shown_to(self, user):
         """Is this guide for this person: their role, or a capability they were given."""
@@ -55,6 +57,10 @@ class Guide:
         if role in self.roles:
             return True
         return bool(self.cap) and bool(getattr(user, self.cap, False))
+
+    def starter_for(self, role):
+        """Is this one of the first questions offered to a person of this role."""
+        return self.starter is True or (isinstance(self.starter, tuple) and role in self.starter)
 
     def text(self, lang):
         """The guide as one block of words, in one language."""
@@ -96,6 +102,7 @@ GUIDES = (
             "Above the menu there is a search box: type the page's name and pick it, or press Ctrl+K anywhere in the system.",
             "A page that is not in your menu is not part of your role.",
         ],
+        starter=(Role.SUPPORT,),
     ),
     _guide(
         "attendance-checkin", STAFF, "/attendance",
@@ -266,9 +273,10 @@ GUIDES = (
             "Press «Open» on a notification to go to the page it is about.",
             "«Mark all read» clears the counter. «Load more» brings the older ones.",
         ],
+        starter=(Role.SUPPORT,),
     ),
     _guide(
-        "chat-send", STAFF, "/chats",
+        "chat-send", CHAT, "/chats",
         ("إزاي أبعت رسالة في الشات", "How do I send a chat message"),
         (
             "شات، الشات، ابعت رسالة، كلّم زميل، رسالة لزميل، محادثة، كلم التيم ليدر، ابعت لزميل",
@@ -286,9 +294,10 @@ GUIDES = (
             "Search the name or code in the search box and press the conversation.",
             "Write in «Write a message...» and press «Send».",
         ],
+        starter=(Role.SUPPORT,),
     ),
     _guide(
-        "chat-attach", STAFF, "/chats",
+        "chat-attach", CHAT, "/chats",
         ("إزاي أبعت ملف في الشات", "How do I send a file in a chat"),
         (
             "ملف، ابعت ملف، ارفع ملف في الشات، مرفق، مرفقات، صورة في الشات، ملفات",
@@ -306,7 +315,7 @@ GUIDES = (
         ],
     ),
     _guide(
-        "chat-voice", STAFF, "/chats",
+        "chat-voice", CHAT, "/chats",
         ("إزاي أبعت رسالة صوتية", "How do I send a voice note"),
         (
             "رسالة صوتية، فويس، صوت، سجل صوت، ريكورد، ميكروفون",
@@ -326,7 +335,27 @@ GUIDES = (
         ],
     ),
     _guide(
-        "chat-call", STAFF, "/chats",
+        "chat-emoji", CHAT, "/chats",
+        ("إزاي أحط إيموجي في رسالة", "How do I put an emoji in a message"),
+        (
+            "ايموجي، إيموجي، سمايل، وش ضاحك، قلب، رموز، استيكر، حط ايموجي، ازاي ابعت ايموجي",
+            "emoji, smiley, smile, heart, symbols, put an emoji, send an emoji",
+        ),
+        [
+            "افتح المحادثة من «الشات».",
+            "اضغط زرار «إيموجي» اللي جنب خانة الكتابة.",
+            "اختار المجموعة من فوق (اللي استخدمتهم، أو وشوش، أو إيدين، أو قلوب، أو شغل) واضغط على الإيموجي. بيتحط عند المؤشر وتقدر تحط أكتر من واحد.",
+            "اضغط «إرسال».",
+        ],
+        [
+            "Open the conversation from «Chats».",
+            "Press the «Emoji» button beside the box you write in.",
+            "Pick a group at the top (recent, faces, hands, hearts or work) and press an emoji. It goes in at the cursor and you can add several.",
+            "Press «Send».",
+        ],
+    ),
+    _guide(
+        "chat-call", CHAT, "/chats",
         ("إزاي أكلم زميل صوت أو فيديو", "How do I call a colleague"),
         (
             "مكالمة، اتصل بزميل، كلم زميل، مكالمة فيديو، مكالمة صوتية، كول، فيديو كول",
@@ -344,7 +373,7 @@ GUIDES = (
         ],
     ),
     _guide(
-        "chat-forward", STAFF, "/chats",
+        "chat-forward", CHAT, "/chats",
         ("إزاي أحوّل رسايل لشات تاني", "How do I forward messages to another chat"),
         (
             "حوّل رسالة، تحويل رسايل، فورورد، ابعت الرسالة لحد تاني، انقل الرسالة",
@@ -386,6 +415,49 @@ GUIDES = (
             "ده جروب داخلي: مفيش حاجة فيه بتوصل العميل.",
             "This is an internal group: nothing in it reaches a client.",
         ),
+    ),
+    _guide(
+        "contact-support", (Role.ADMIN, *STAFF), "/chats",
+        ("إزاي أتواصل مع الدعم الفني", "How do I contact technical support"),
+        (
+            "الدعم الفني، كلم الدعم، تواصل مع الدعم، عندي مشكلة، مشكلة في السيستم، السيستم مش شغال، مش شغال، بايظ، مساعدة، عطل",
+            "technical support, contact support, talk to support, I have a problem, the system is not working, broken, help",
+        ),
+        [
+            "اضغط «المساعد» في الشريط اللي فوق وبعدها «تواصل مع الدعم الفني». بتتفتح محادثة معاه.",
+            "اكتب مشكلتك (وقول كنت بتعمل إيه ولقيت إيه) واضغط «إرسال».",
+            "أو من «الشات» افتح تبويب «الزمايل» وادوّر على الدعم الفني؛ عليه شارة «دعم فني».",
+        ],
+        [
+            "Press «Assistant» in the bar at the top and then «Contact technical support». A chat with them opens.",
+            "Write your problem (what you were doing and what you found) and press «Send».",
+            "Or open «Chats», the «Colleagues» tab, and look for technical support; they carry a «Technical support» tag.",
+        ],
+    ),
+    _guide(
+        "support-tasks", (Role.SUPPORT,), "/tasks",
+        ("إزاي أتابع التاسكات وأتأكد إن كله ماشي", "How do I follow the tasks and check everything is running"),
+        (
+            "التاسكات، متابعة التاسكات، اتأكد إن كله ماشي، تاسك متأخرة، تاسكات واقفة، حالة التاسك، شوف التاسكات، الدعم الفني",
+            "tasks, follow the tasks, check everything is running, late tasks, stuck tasks, task state, look at the tasks, technical support",
+        ),
+        [
+            "من قسم «الشغل» افتح «التاسكات».",
+            "الأرقام اللي فوق والتبويبات بيقولوا فين التاسكات؛ والمتأخرة بتبان في حالة الديدلاين.",
+            "اضغط «افتح» على تاسك تشوف مين عليها (الأوبريشن والتيم ليدر والمترجم) وحالتها وديدلاينها وسجل التوزيع.",
+            "«حالة الفرق» بتوريك مين فاضي ومين مشغول.",
+        ],
+        [
+            "In the «Work» section open «Tasks».",
+            "The numbers at the top and the tabs tell you where the tasks are; late ones show in the deadline's state.",
+            "Press «Open» on a task to see who has it (operation, team leader, translator), its state, its deadlines and the hand-off history.",
+            "«Team status» shows who is free and who is busy.",
+        ],
+        note=(
+            "انت بتتفرج بس: ماتقدرش تعدّل ولا تسلّم ولا تلغي، ومش بتشوف ملفات العميل ولا رسايله ولا اسمه (بتشتغل بالكود).",
+            "You only look: you cannot change, deliver or cancel, and you do not see the client's files, messages or name (you work by code).",
+        ),
+        starter=True,
     ),
     _guide(
         "performance-board", STAFF, "/hr/performance",
@@ -1491,6 +1563,28 @@ GUIDES = (
             "Press «Save». Give the employee the password yourself; they can change it from their profile.",
         ],
         starter=True,
+    ),
+    _guide(
+        "admin-support-account", (Role.ADMIN,), "/hr/employees",
+        ("إزاي أعمل حساب الدعم الفني", "How do I make the technical-support account"),
+        (
+            "الدعم الفني، حساب الدعم، حساب دعم فني، موظف دعم، سبورت، ادّي حد دعم فني، account الدعم",
+            "technical support, support account, make a support account, support staff, give someone support",
+        ),
+        [
+            "من قسم «الموظفين» افتح «ملفات الموظفين» واضغط «موظف جديد».",
+            "اكتب اسم المستخدم والاسم وكلمة السر، واختار الدور «دعم فني».",
+            "اضغط «حفظ». الموظفين كلهم هيلاقوا الحساب ده في «الشات» تحت «الزمايل» وعليه شارة «دعم فني»، وفي المساعد زرار «تواصل مع الدعم الفني».",
+        ],
+        [
+            "In the «People» section open «Employee files» and press «New staff member».",
+            "Write the username, name and password, and pick the role «Technical support».",
+            "Press «Save». Everybody will find the account in «Chats» under «Colleagues» with a «Technical support» tag, and the assistant has a «Contact technical support» button.",
+        ],
+        note=(
+            "الحساب ده بيشوف التاسكات (مين عليها وحالتها وديدلاينها) من غير ملفات العميل ولا رسايله ولا اسمه، ومابيعدّلش حاجة. ومالوش حضور ولا جدول ولا إجازات ولا حسابات، وريستارت الموظفين مابيمسحوش.",
+            "This account reads the tasks (who has them, their state and deadlines) without the client's files, messages or name, and changes nothing. It has no attendance, schedule, leave or pay, and the staff reset leaves it alone.",
+        ),
     ),
     _guide(
         "admin-mail-alias", (Role.ADMIN,), "/hr/employees",

@@ -148,7 +148,7 @@ function Task({ task }: { task: OpsTask }) {
             </Link>
           </div>
         )}
-        <Files task={task} />
+        {!task.watching && <Files task={task} />}
       </div>
 
       {task.waiting_for && (
@@ -182,7 +182,7 @@ function Task({ task }: { task: OpsTask }) {
               </div>
             </div>
           )}
-          <MessagesCard task={task} />
+          {!task.watching && <MessagesCard task={task} />}
         </div>
 
         <div className="sticky-side">
@@ -205,8 +205,8 @@ function Task({ task }: { task: OpsTask }) {
             </div>
           )}
           {can.set_words && <WordCountCard task={task} />}
-          <RequirementsCard task={task} />
-          <DeliveriesCard task={task} />
+          {!task.watching && <RequirementsCard task={task} />}
+          {!task.watching && <DeliveriesCard task={task} />}
           <HistoryCard task={task} />
         </div>
       </div>
@@ -220,7 +220,8 @@ export function OperationTaskPage() {
   const { code = "" } = useParams();
   const me = useMe();
   // The same people the server lets in (`api_role_required`: the operation, the team leader of the task, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "team_lead" || me.data.user.is_admin);
+  const allowed =
+    me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "team_lead" || me.data.user.role === "support" || me.data.user.is_admin);
   const query = useOpsTask(code, allowed && code !== "");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;

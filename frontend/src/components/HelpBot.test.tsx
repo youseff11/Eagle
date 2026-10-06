@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router";
+import { Route, Routes, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HelpAnswer, HelpGuide, HelpHome, HelpOrder } from "../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "../test/helpers";
@@ -24,7 +24,7 @@ const STEPS = [
 ].join("\n");
 
 function home(overrides: Partial<HelpHome> = {}): HelpHome {
-  return { ok: true, ai: false, orders: false, starters: [ACCEPT, WORK, CHECKIN], ...overrides };
+  return { ok: true, support: null, ai: false, orders: false, starters: [ACCEPT, WORK, CHECKIN], ...overrides };
 }
 
 function answer(overrides: Partial<HelpAnswer> = {}): HelpAnswer {
@@ -228,6 +228,46 @@ describe("asking", () => {
     await user.type(screen.getByRole("textbox"), "how do I check in{Enter}");
     await screen.findAllByRole("listitem");
     expect(screen.getByText("how do I check in")).toHaveAttribute("dir", "auto");
+  });
+});
+
+describe("technical support", () => {
+  it("is one button away: it opens the chat with them and puts the assistant away", async () => {
+    renderBot({ home: home({ support: { id: 9, name: "Sami" } }) });
+    const user = await openIt();
+    await user.click(await screen.findByRole("button", { name: "تواصل مع الدعم الفني" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("goes to the staff chat with that person", async () => {
+    const mocked = mockFetch({ "/api/v1/help/": () => jsonResponse(home({ support: { id: 9, name: "Sami" } })) });
+    vi.stubGlobal("fetch", mocked.fn);
+    function Where() {
+      const here = useLocation();
+      return <div data-testid="where">{here.pathname + here.search}</div>;
+    }
+    renderWithProviders(
+      <>
+        <HelpBot />
+        <Where />
+      </>,
+    );
+    const user = await openIt();
+    await user.click(await screen.findByRole("button", { name: "تواصل مع الدعم الفني" }));
+    expect(screen.getByTestId("where")).toHaveTextContent("/chats/u9?type=staff");
+  });
+
+  it("is not offered when there is no support account, or to the support person themself", async () => {
+    renderBot({ home: home({ support: null }) });
+    await openIt();
+    await screen.findByRole("button", { name: ACCEPT.title });
+    expect(screen.queryByRole("button", { name: "تواصل مع الدعم الفني" })).toBeNull();
+  });
+
+  it("says it in English too", async () => {
+    renderBot({ lang: "en", home: home({ support: { id: 9, name: "Sami" } }) });
+    await userEvent.click(screen.getByTitle("System assistant: ask how to do anything"));
+    expect(await screen.findByRole("button", { name: "Contact technical support" })).toBeInTheDocument();
   });
 });
 

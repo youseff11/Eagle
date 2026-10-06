@@ -33,6 +33,7 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
   reviewer: ["مراجع", "Reviewer"],
   accounting: ["حسابات", "Accounting"],
   sales: ["مبيعات", "Sales"],
+  support: ["دعم فني", "Technical support"],
 };
 
 /**
@@ -223,6 +224,15 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], order: 90 },
     ],
+  },
+  // Technical support: the tasks (read as the operation reads them, with every tool left out) and who is free. No attendance, no leave.
+  support: {
+    path: "/tasks",
+    icon: "layers",
+    label: ["التاسكات", "Tasks"],
+    section: "work",
+    order: 10,
+    extra: [{ path: "/team", icon: "users", label: ["حالة الفرق", "Team status"], order: 40 }],
   },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "mine", order: 10 },
   leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"], section: "mine", order: 20 },

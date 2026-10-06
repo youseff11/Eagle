@@ -382,7 +382,8 @@ strong, b { font-weight: 620; }
 .card--flat { background: var(--surface-2); }
 
 .grid { display: grid; gap: 14px; }
-.grid--2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+/* min(): a column never asks for more than the screen has (a phone narrower than 354px pushed the cards off its edge). */
+.grid--2 { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }
 .grid--3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 .grid--4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .grid--main { grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); align-items: start; }

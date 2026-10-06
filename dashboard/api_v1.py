@@ -368,7 +368,7 @@ def staff_messages(request, user_id):
     return JsonResponse({
         "ok": True,
         "client": {
-            "code": f"u{other.pk}", "group": False, "staff": True, "room": 0,
+            "code": f"u{other.pk}", "group": False, "staff": True, "role": other.role, "room": 0,
             "url": f"/ops/chats/u/{other.pk}/", "label": other.short_name, "initials": other.initials,
             "avatar": avatars.url_of(other), "client_code": "", "text": "", "outgoing": False, "status": "", "receipt": "",
             "time": "", "date": "", "channel": "", "window_open": False, "minutes_left": 0, "unread": 0,

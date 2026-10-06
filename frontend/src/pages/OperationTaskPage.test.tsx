@@ -248,6 +248,35 @@ describe("OperationTaskPage: what the operation reads", () => {
     expect(container.querySelector("#wordCount .kv .mono")).toHaveTextContent("1200");
   });
 
+  it("leaves out everything of the client's and the work's when technical support reads it, and keeps who has it and where it is", async () => {
+    // The server sends none of it to support; the page does not draw its cards either, so a door that sent too much would show nothing.
+    serve(
+      task({
+        watching: true,
+        // The door gives support no tool at all.
+        can: { assign_lead: false, take_over: false, deliver: false, cancel: false, add_member: false, new_request: false, set_deadline: false, set_words: false },
+        chat: null,
+        client_chat_url: null,
+        messages: [{ id: 5, channel: "whatsapp", at: stamp("10-01 9:00"), body: "Please translate the lease", files: [] }],
+        deliveries: [{ id: 3, at: stamp("10-02 5:00"), channel: "email", files: 1, by: "Nour", status: "sent", error: "" }],
+      }),
+      {},
+      "support",
+    );
+    const { container } = open();
+    await loaded();
+    expect(screen.queryByText("الملف الأصلي (من العميل)")).toBeNull();
+    expect(screen.queryByText("متطلبات العميل")).toBeNull();
+    expect(screen.queryByText("سجل التسليم")).toBeNull();
+    expect(screen.queryByText("Please translate the lease")).toBeNull();
+    expect(container.querySelector(".task-files")).toBeNull();
+    // What support is there for: who has it, its state, its dates and the hand-off history.
+    expect(screen.getByText("سجل التوزيع")).toBeInTheDocument();
+    expect(screen.getAllByText("Mona").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("شغل جاري").length).toBeGreaterThan(0);
+    expect(screen.queryByText("الإجراءات")).toBeNull();
+  });
+
   it("is for the operation and the admin: anybody else is sent home without asking for the task", async () => {
     const mocked = serve(task(), {}, "translator");
     open();

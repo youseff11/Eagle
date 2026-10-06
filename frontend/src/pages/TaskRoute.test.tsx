@@ -52,6 +52,14 @@ describe("TaskRoute: /tasks/<code> is two pages", () => {
     expect(mocked.calls.some((c) => c.url.startsWith("/api/v1/translator/"))).toBe(false);
   });
 
+  it("is the operation's page for technical support, which only reads it", async () => {
+    const mocked = serve("support");
+    open();
+    expect(await screen.findByText("التاسك دي مش موجودة.")).toBeInTheDocument();
+    expect(mocked.calls.some((c) => c.url === "/api/v1/tasks/TSK-00001/")).toBe(true);
+    expect(mocked.calls.some((c) => c.url.startsWith("/api/v1/translator/"))).toBe(false);
+  });
+
   it("is the operation's page for the admin: the translator's is theirs only to look at", async () => {
     const mocked = serve("admin", true);
     open();

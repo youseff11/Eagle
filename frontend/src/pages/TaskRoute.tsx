@@ -32,6 +32,6 @@ export function TaskRoute() {
   }
   const { role, is_admin: admin } = me.data.user;
   if (role === "translator" && !admin) return <TaskPage />;
-  if (role === "operation" || role === "team_lead" || admin) return <OperationTaskPage />;
+  if (role === "operation" || role === "team_lead" || role === "support" || admin) return <OperationTaskPage />;
   return <Navigate to="/" replace />;
 }

@@ -312,6 +312,9 @@ def _violation_summary(v, lang):
 # -- a day off, or other hours, for one day ----------------------------------------------------------------------------
 
 def _override_check(v, today):
+    person = User.objects.filter(pk=v["employee"]["id"]).first()
+    if person is not None and not person.follows_company_rules:
+        raise Problem(f"{v['employee']['name']} مالوش جدول شغل.", f"{v['employee']['name']} has no work schedule.")
     if not v.get("day_off") and not (v.get("start") and v.get("end")):
         raise Problem("قول لي إنه أجازة، أو ابتدا وانتهى إمتى.", "Tell me it is a day off, or when it starts and ends.")
 

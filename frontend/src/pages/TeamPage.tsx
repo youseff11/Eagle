@@ -100,8 +100,8 @@ function LeadCard({ lead }: { lead: Lead }) {
 export function TeamPage() {
   const { t } = usePreferences();
   const me = useMe();
-  // The same people the server lets in (`api_role_required`: the operation, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.is_admin);
+  // The same people the server lets in (`api_role_required`: the operation, technical support, and the admin).
+  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "support" || me.data.user.is_admin);
   const query = useTeam(allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;

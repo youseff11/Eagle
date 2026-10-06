@@ -64,8 +64,10 @@ export function TasksPage() {
   // The address is the person's to type: it goes to the server only if it is a status we know of (the server checks too).
   const asked = params.get("status") ?? "";
   const status = /^[a-z_]{1,30}$/.test(asked) ? asked : "";
-  // The same people the server lets in (`api_role_required`: the operation, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.is_admin);
+  // The same people the server lets in (`api_role_required`: the operation, technical support, and the admin).
+  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "support" || me.data.user.is_admin);
+  // Making a task is the operation's: technical support only looks.
+  const canCreate = me.data?.user.role === "operation" || me.data?.user.is_admin === true;
   const query = useTasks(status, allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
@@ -89,10 +91,12 @@ export function TasksPage() {
       <div className="page-head">
         <h1>{t("التاسكات", "Tasks")}</h1>
         <div className="grow" />
-        <Link className="btn btn--primary" to="/tasks/new">
-          <Icon name="plus" size="sm" />
-          <span>{t("تاسك جديدة", "New task")}</span>
-        </Link>
+        {canCreate && (
+          <Link className="btn btn--primary" to="/tasks/new">
+            <Icon name="plus" size="sm" />
+            <span>{t("تاسك جديدة", "New task")}</span>
+          </Link>
+        )}
       </div>
 
       {data && <Counters counters={data.counters} />}

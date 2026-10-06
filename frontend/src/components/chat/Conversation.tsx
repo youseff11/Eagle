@@ -26,7 +26,7 @@ import { ReactionPicker } from "./ReactionPicker";
 function Header({ row, code }: { row: ChatRow; code: string }) {
   const { t } = usePreferences();
   let meta: string;
-  if (row.staff) meta = t("زميل", "Colleague");
+  if (row.staff) meta = row.role === "support" ? t("دعم فني", "Technical support") : t("زميل", "Colleague");
   else if (row.group) meta = row.team ? t("جروب شغل", "Work group") : t("جروب", "Group");
   else if (row.channel === "whatsapp") meta = "WhatsApp";
   else if (row.channel === "email") meta = "Email";

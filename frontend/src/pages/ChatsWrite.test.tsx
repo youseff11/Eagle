@@ -1,4 +1,6 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { qk } from "../api/keys";
@@ -11,6 +13,7 @@ import { jsonResponse, me } from "../test/helpers";
 beforeEach(() => {
   visible("visible");
   forgetDrafts();
+  window.localStorage.clear();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -619,5 +622,116 @@ describe("what was typed and not sent", () => {
     render("/chats/CL-0001", { thread: { client: row("CL-0001"), messages: [entry(1)] } });
     await screen.findByText("message 1");
     expect(box()).toHaveValue("");
+  });
+});
+
+
+// The emoji are built from their numbers, so no test (and no source file) carries one as a glyph (verify.py keeps them out).
+const FACE = String.fromCodePoint(0x1f600);
+const HEART = String.fromCodePoint(0x2764, 0xfe0f);
+const THUMB = String.fromCodePoint(0x1f44d);
+const emojiButton = () => screen.getByRole("button", { name: "إيموجي" });
+
+describe("emoji", () => {
+  it("opens a panel with the groups, puts a picked emoji into the words and stays open for the next", async () => {
+    await open();
+    await userEvent.click(emojiButton());
+    const panel = screen.getByRole("dialog", { name: "إيموجي" });
+    expect(within(panel).getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))).toEqual(["وشوش", "إيدين", "قلوب", "شغل"]);
+    await userEvent.click(within(panel).getByRole("button", { name: FACE }));
+    expect(box()).toHaveValue(FACE);
+    await userEvent.click(within(panel).getByRole("button", { name: String.fromCodePoint(0x1f601) }));
+    expect(box()).toHaveValue(FACE + String.fromCodePoint(0x1f601));
+    expect(screen.getByRole("dialog", { name: "إيموجي" })).toBeInTheDocument();
+  });
+
+  it("puts it where the cursor is and over what is selected", async () => {
+    await open();
+    await userEvent.type(box(), "abcd");
+    (box() as HTMLTextAreaElement).setSelectionRange(1, 1);
+    await userEvent.click(emojiButton());
+    await userEvent.click(screen.getByRole("button", { name: FACE }));
+    expect(box()).toHaveValue(`a${FACE}bcd`);
+    await waitFor(() => expect((box() as HTMLTextAreaElement).selectionStart).toBe(1 + FACE.length));
+    // Over a selection: it replaces what was chosen.
+    (box() as HTMLTextAreaElement).setSelectionRange(3, 5);
+    await userEvent.click(screen.getByRole("button", { name: String.fromCodePoint(0x1f602) }));
+    expect(box()).toHaveValue(`a${FACE}${String.fromCodePoint(0x1f602)}d`);
+  });
+
+  it("offers the other groups, and the ones used last first the next time", async () => {
+    const view = await open();
+    await userEvent.click(emojiButton());
+    await userEvent.click(screen.getByRole("tab", { name: "قلوب" }));
+    await userEvent.click(screen.getByRole("button", { name: HEART }));
+    await userEvent.click(screen.getByRole("tab", { name: "إيدين" }));
+    await userEvent.click(screen.getByRole("button", { name: THUMB }));
+    view.unmount();
+
+    // A new visit: the recent tab is first and open, newest first.
+    await open();
+    await userEvent.click(emojiButton());
+    const recent = screen.getByRole("tab", { name: "اللي استخدمتهم" });
+    expect(recent).toHaveAttribute("aria-selected", "true");
+    const shown = within(screen.getByRole("group", { name: "إيموجي" })).getAllByRole("button");
+    expect(shown.map((one) => one.textContent)).toEqual([THUMB, HEART]);
+  });
+
+  it("keeps only emoji of its own in what it remembers", async () => {
+    window.localStorage.setItem("eagle.emoji.recent", JSON.stringify([THUMB, "<img src=x>", 7, "boom", HEART]));
+    await open();
+    await userEvent.click(emojiButton());
+    const shown = within(screen.getByRole("group", { name: "إيموجي" })).getAllByRole("button");
+    expect(shown.map((one) => one.textContent)).toEqual([THUMB, HEART]);
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("works when the browser keeps nothing", async () => {
+    const real = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("full");
+    };
+    try {
+      await open();
+      await userEvent.click(emojiButton());
+      await userEvent.click(screen.getByRole("button", { name: FACE }));
+      expect(box()).toHaveValue(FACE);
+    } finally {
+      Storage.prototype.setItem = real;
+    }
+  });
+
+  it("closes with Escape and with a press anywhere else", async () => {
+    await open();
+    await userEvent.click(emojiButton());
+    expect(screen.getByRole("dialog", { name: "إيموجي" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "إيموجي" })).toBeNull();
+    await userEvent.click(emojiButton());
+    await userEvent.click(box());
+    expect(screen.queryByRole("dialog", { name: "إيموجي" })).toBeNull();
+  });
+
+  it("is off with the box when the 24-hour window is closed", async () => {
+    render("/chats/CL-0001", { thread: { client: row("CL-0001", { window_open: false }), messages: [entry(1)] } });
+    await screen.findByText("message 1");
+    expect(emojiButton()).toBeDisabled();
+  });
+
+  it("sends the emoji with the words, as the server's own text", async () => {
+    const { calls } = await open({ [SEND]: () => answer([entry(1), ours(9, `hello ${FACE}`)]) });
+    await userEvent.type(box(), "hello ");
+    await userEvent.click(emojiButton());
+    await userEvent.click(screen.getByRole("button", { name: FACE }));
+    await userEvent.click(sendButton());
+    expect(await screen.findByText(`hello ${FACE}`)).toBeInTheDocument();
+    expect(form(posts(calls)[0]!)).toEqual({ body: `hello ${FACE}` });
+  });
+
+  it("is made of numbers: not one emoji is written as a glyph in the picker's source", () => {
+    for (const file of ["../lib/emoji.ts", "../components/chat/EmojiPicker.tsx"]) {
+      const source = readFileSync(resolve(import.meta.dirname, file), "utf-8");
+      expect(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u.test(source), file).toBe(false);
+    }
   });
 });

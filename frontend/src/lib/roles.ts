@@ -10,6 +10,7 @@ export const ROLE_LABELS: Record<Role, [string, string]> = {
   reviewer: ["مراجع", "Reviewer"],
   accounting: ["حسابات", "Accounting"],
   sales: ["مبيعات", "Sales"],
+  support: ["دعم فني", "Technical support"],
 };
 
 /**

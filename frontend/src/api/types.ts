@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "attendance" | "chats" | "performance";
+export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "support" | "attendance" | "chats" | "performance";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -98,7 +98,8 @@ export type Role =
   | "hr"
   | "reviewer"
   | "accounting"
-  | "sales";
+  | "sales"
+  | "support";
 
 /** GET /api/search/tasks/?q=: the tasks the menu's search found, each as this person may read it (the client by code unless they may know the name). */
 export interface TaskSearchResponse {
@@ -323,6 +324,8 @@ export type Channel = "whatsapp" | "email";
 
 /** One task as the operation reads it (`api_ops.task`). */
 export interface OpsTask {
+  /** Technical support reads the task and nothing of the client's or the work's: the page leaves those cards out. */
+  watching?: boolean;
   code: string;
   title: string;
   status: Labelled & { tone: string };
@@ -538,6 +541,8 @@ export interface ChatRow {
   /** An internal work group: nothing in it reaches a client. */
   team?: boolean;
   staff?: boolean;
+  /** A colleague's role (a staff row only): technical support is tagged as such in the lists and the header. */
+  role?: Role;
   /** What is typed here ends up on a client's phone. */
   reaches_client?: boolean;
   /** The room behind it (0: a colleague nobody has written to yet). */
@@ -1725,6 +1730,8 @@ export interface HrEmployee {
     name: string;
     /** The owner: their file is who they are and none of the company's rules (no attendance, roster, leave, probation or pay). */
     exempt: boolean;
+    /** Why the company's rules are not this person's: the owner, or technical support. */
+    exempt_why?: "owner" | "support" | "";
     initials: string;
     avatar?: string | null;
     role: Labelled;
@@ -2147,6 +2154,8 @@ export interface HelpGuide {
 /** GET /api/v1/help/. `orders` is true for the owner alone, and only while they have switched orders on. */
 export interface HelpHome {
   ok: true;
+  /** Who to write to for technical support (nobody when there is no such account, or when this person is the support). */
+  support: { id: number; name: string } | null;
   ai: boolean;
   orders: boolean;
   starters: HelpGuide[];

@@ -4023,8 +4023,8 @@ STAFF_RESET_RACE = "وصلت رسالة جديدة على خط خاص أثناء
 
 
 def _staff_to_clear():
-    """Everybody who is not an admin: the owner's own account, and any other admin, stay."""
-    return User.objects.exclude(role=Role.ADMIN).exclude(is_superuser=True)
+    """Everybody who is not an admin: the owner's own account, any other admin and the technical-support account stay."""
+    return User.objects.exclude(role__in=(Role.ADMIN, Role.SUPPORT)).exclude(is_superuser=True)
 
 
 def _staff_lines(ids):

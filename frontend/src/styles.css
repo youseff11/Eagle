@@ -182,3 +182,55 @@ textarea.help__input { resize: none; min-height: 38px; max-height: 110px; line-h
    is the left), and the words inside a bubble keep the language's own direction. */
 .bub { direction: ltr; }
 [dir="rtl"] .bub__box { direction: rtl; }
+
+/* The emoji panel of the chat's box: it opens above the box, on the side the box starts from, and stays inside a phone's width. */
+.emoji { position: relative; display: inline-flex; }
+.emoji__pop {
+  position: absolute; inset-block-end: calc(100% + 10px); inset-inline-start: 0; z-index: 60;
+  width: min(330px, calc(100vw - 24px));
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .3); overflow: hidden;
+}
+.emoji__tabs { display: flex; gap: 2px; padding: 6px; border-block-end: 1px solid var(--border); }
+button.emoji__tab {
+  appearance: none; font-family: inherit; flex: 1; min-width: 0; height: 34px; display: grid; place-items: center;
+  font-size: 1.15rem; line-height: 1; cursor: pointer; color: var(--muted);
+  background: transparent; border: 0; border-radius: 8px;
+}
+button.emoji__tab:hover { background: var(--brand-soft); }
+button.emoji__tab.is-on { background: var(--brand-soft); box-shadow: inset 0 -2px 0 var(--brand); }
+.emoji__grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 8px; max-height: 232px; overflow-y: auto; }
+button.emoji__item {
+  appearance: none; font-family: inherit; aspect-ratio: 1; display: grid; place-items: center;
+  font-size: 1.35rem; line-height: 1; cursor: pointer; background: transparent; border: 0; border-radius: 8px; padding: 0;
+}
+button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--brand-soft); }
+
+/* The top bar on a phone: seven controls (the menu, the language, the theme, the assistant, the bell, the person, the way out) have
+   to fit in 320px, so each is a little smaller, the divider and the live dot are left out, and the bar never grows past the screen. */
+@media (max-width: 480px) {
+  .topbar { padding-inline: 8px; gap: 4px; }
+  .topbar .icon-btn { width: 34px; height: 34px; }
+  .topbar .menu-toggle { width: 34px; height: 34px; }
+  .topbar .help__btn { width: 34px; }
+  .topbar__divider { display: none; }
+  .topbar .realtime-dot { display: none; }
+  .topbar .seg button { padding: 4px 6px; font-size: .74rem; }
+  .topbar .profile__btn { padding: 2px; }
+  .topbar .profile__pop { inset-inline-end: -8px; }
+}
+@media (max-width: 480px) and (min-width: 361px) {
+  /* A little room to spare: the live dot comes back where it fits. */
+  .topbar .realtime-dot { display: block; }
+}
+
+/* On a phone the panel is as wide as the box it belongs to (it hung out of the screen, anchored to a button in the middle of it). */
+@media (max-width: 760px) {
+  .cchat__composer { position: relative; }
+  .emoji { position: static; }
+  .emoji__pop { inset-inline: 8px; width: auto; inset-block-end: calc(100% + 6px); }
+  .emoji__grid { grid-template-columns: repeat(7, 1fr); }
+}
+
+/* The way from the assistant to technical support: a quiet button between the conversation and the box. */
+.help__support { margin: 0 12px; align-self: flex-start; }

@@ -198,6 +198,7 @@ def employee(request, pk):
         "person": {
             **person_json(person),
             "exempt": not bound,
+            "exempt_why": "" if bound else ("support" if person.is_support else "owner"),
             "initials": person.initials,
             "avatar": avatars.url_of(person),
             "role": _two(ROLE_MAP, person.role),

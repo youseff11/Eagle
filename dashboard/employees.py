@@ -280,6 +280,8 @@ def request_leave(person, *, kind, start_date, end_date=None, start_time=None,
     """Raise a request. Validation here, decisions elsewhere."""
     if person.is_admin_role:
         raise LifecycleError("الأدمن صاحب الشركة: مالوش إجازات.", "The owner has no leave to ask for.")
+    if not person.follows_company_rules:
+        raise LifecycleError("الدعم الفني مالوش مواعيد ولا إجازات.", "Technical support has no schedule and no leave to ask for.")
     conf = PayrollSettings.load()
     end_date = end_date or start_date
 

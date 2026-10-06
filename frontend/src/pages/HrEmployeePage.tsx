@@ -135,7 +135,11 @@ export function HrEmployeePage() {
           {exempt ? (
             <div className="note note--info" data-note="exempt">
               <Icon name="info" />
-              <div>{t("الأدمن صاحب الشركة: مالوش حضور ولا جدول ولا إجازات ولا راتب.", "The owner has no attendance, roster, leave or pay: the company's rules are for the people who work for it.")}</div>
+              <div>
+                {person.exempt_why === "support"
+                  ? t("الدعم الفني: مالوش حضور ولا جدول ولا إجازات ولا راتب.", "Technical support has no attendance, roster, leave or pay.")
+                  : t("الأدمن صاحب الشركة: مالوش حضور ولا جدول ولا إجازات ولا راتب.", "The owner has no attendance, roster, leave or pay: the company's rules are for the people who work for it.")}
+              </div>
             </div>
           ) : summary ? (
             <div className="card" data-card="attendance">

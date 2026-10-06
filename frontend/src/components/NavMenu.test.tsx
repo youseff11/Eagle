@@ -24,7 +24,7 @@ const TASK = { code: "TSK-00007", title: "Lease contract", origin: "email", stat
 
 interface Options {
   screens?: ScreenKey[];
-  role?: "operation" | "admin" | "translator" | "hr";
+  role?: "operation" | "admin" | "translator" | "hr" | "support";
   route?: string;
   lang?: Lang;
   /** What `/api/v1/me/` carries besides the usual (the counters). */
@@ -61,6 +61,18 @@ const isOpen = (container: HTMLElement, key: string) => head(container, key).get
 const saved = () => JSON.parse(localStorage.getItem("eagle_nav_open") ?? "{}") as Record<string, boolean>;
 
 describe("the menu's sections", () => {
+  it("gives technical support the tasks, the team board and the chats, and no attendance, no leave and no pay", async () => {
+    const { container } = renderMenu({ role: "support", screens: ["support", "chats"], route: "/tasks" });
+    await screen.findByRole("link", { name: "التاسكات" });
+    const links = Array.from(container.querySelectorAll(".nav__item")).map((link) => link.textContent);
+    expect(links).toEqual(expect.arrayContaining(["التاسكات", "حالة الفرق", "الشات", "التنبيهات"]));
+    for (const absent of ["حضوري", "إجازاتي", "مستحقاتي", "ميلات واردة", "أكواد العملاء"]) {
+      expect(links.some((text) => text?.includes(absent)), absent).toBe(false);
+    }
+    // And the chip says what they are.
+    expect(screen.getAllByText("دعم فني").length).toBeGreaterThan(0);
+  });
+
   it("opens the section the person is standing in and keeps the others shut", async () => {
     const { container } = renderMenu({ route: "/tasks" });
     await waitFor(() => expect(group(container, "mine")).not.toBeNull());

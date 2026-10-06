@@ -82,6 +82,21 @@ describe("TasksPage", () => {
     expect(within(first).getByText("10-30 5:30 PM")).toHaveClass("deadline--ok");
   });
 
+  it("is open to technical support, which reads the list and has no button to make a task", async () => {
+    serve(() => jsonResponse(list()), "support");
+    const first = open();
+    expect(await screen.findByText("TSK-00001")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "تاسك جديدة" })).toBeNull();
+    first.unmount();
+    for (const role of ["operation", "admin"] as Role[]) {
+      serve(() => jsonResponse(list()), role);
+      const view = open();
+      await screen.findByText("TSK-00001");
+      expect(screen.getByRole("link", { name: "تاسك جديدة" }), role).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
   it("says nobody and nothing for what is not there yet", async () => {
     serve(() => jsonResponse(list()));
     const { container } = open();

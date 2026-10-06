@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useAsk, useCancelOrder, useHelpHome, useRunOrder, type HelpTurn } from "../api/helpActions";
 import { ApiError } from "../api/client";
 import type { HelpGuide, HelpOrder } from "../api/types";
@@ -92,6 +92,7 @@ function Answer({ text }: { text: string }) {
 export function HelpBot() {
   const { t, lang } = usePreferences();
   const location = useLocation();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
@@ -217,6 +218,14 @@ export function HelpBot() {
     if (window.matchMedia?.("(max-width: 600px)").matches) setOpen(false);
   };
 
+  /** The chat with technical support, when there is such an account: the same chat a colleague's name in the lists opens. */
+  const support = home.data?.support ?? null;
+  const contactSupport = () => {
+    if (!support) return;
+    setOpen(false);
+    navigate(`/chats/u${support.id}?type=staff`);
+  };
+
   const chip = (guide: HelpGuide) => (
     <button type="button" className="chip help__chip" key={guide.id} disabled={ask.isPending} onClick={() => send("", guide)}>
       {guide.title}
@@ -280,14 +289,14 @@ export function HelpBot() {
         title={t("مساعد النظام: اسأل إزاي تعمل أي حاجة", "System assistant: ask how to do anything")}
         onClick={() => setOpen((now) => !now)}
       >
-        <Icon name="sparkles" />
+        <Icon name="robot" />
         <span className="help__label">{t("المساعد", "Assistant")}</span>
       </button>
 
       {open && (
         <section className="help__pop" id={panel} role="dialog" aria-label={t("مساعد النظام", "System assistant")}>
           <header className="help__head">
-            <Icon name="sparkles" />
+            <Icon name="robot" />
             <b>{t("مساعد النظام", "System assistant")}</b>
             <span className="grow" />
             <button
@@ -352,6 +361,13 @@ export function HelpBot() {
               </div>
             )}
           </div>
+
+          {support && (
+            <button type="button" className="btn btn--sm btn--ghost help__support" onClick={contactSupport}>
+              <Icon name="message" size="sm" />
+              <span>{t("تواصل مع الدعم الفني", "Contact technical support")}</span>
+            </button>
+          )}
 
           <form className="help__form" onSubmit={submit}>
             <textarea

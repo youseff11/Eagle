@@ -123,8 +123,14 @@ SCREENS = {
             path="/chats",
             roles=(
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
-                Role.ACCOUNTING, Role.SALES,
+                Role.ACCOUNTING, Role.SALES, Role.SUPPORT,
             ),
+        ),
+        # Technical support: the task list and the pages of a task read as the operation reads them, with every tool left out, and who
+        # is free (the team board). No attendance, no leave, no pay: its person is not on the company's rules.
+        Screen(
+            "support", "الدعم الفني (التاسكات وحالة الفرق)", "Technical support (the tasks and the team board)",
+            path="/tasks", roles=(Role.SUPPORT,), admin_menu=False,
         ),
     )
 }

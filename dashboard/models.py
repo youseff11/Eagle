@@ -30,6 +30,9 @@ class Role(models.TextChoices):
     #: contacts companies; sees a client's real identity only when the admin
     #: has granted it to this person (``User.client_identity_access``).
     SALES = "sales", "Sales"
+    #: The owner's own technical-support account: it can watch the tasks (and nothing of them but who and where) to check that all
+    #: is well, and talk to everybody, but it has no work schedule, no leave, no pay and no client's identity.
+    SUPPORT = "support", "Technical support"
 
 
 #: The only roles the admin may grant the real client identity to. Everyone
@@ -524,7 +527,7 @@ class User(AbstractUser):
             self.mail_alias = ""
         # The owner has no attendance and no pay: those rules are for the people who work for the company, whichever screen (ours,
         # Django's admin, a script) made this person an admin. A bulk ``update()`` does not come through here; the migration did it once.
-        if self.is_admin_role:
+        if self.is_admin_role or self.role == Role.SUPPORT:
             self.attendance_enabled = False
         super().save(*args, **kwargs)
 
@@ -534,8 +537,12 @@ class User(AbstractUser):
     # -- role helpers ------------------------------------------------------
     @property
     def follows_company_rules(self):
-        """False for the owner: attendance, leave, salary and the pay plans are not theirs."""
-        return not self.is_admin_role
+        """False for the owner and for technical support: attendance, leave, salary and the pay plans are not theirs."""
+        return not (self.is_admin_role or self.role == Role.SUPPORT)
+
+    @property
+    def is_support(self):
+        return self.role == Role.SUPPORT
 
     @property
     def is_admin_role(self):
@@ -1493,6 +1500,13 @@ class Task(models.Model):
         if user.is_translator:
             return self.translator_id == user.id
         return False
+
+    def can_watch(self, user):
+        """May this person look at the task's page without being on it: technical support, which only reads who has it and where it is.
+
+        Not ``can_view``: that one opens the task's files and its rooms, and support is not given those.
+        """
+        return getattr(user, "is_support", False)
 
 
 class ExtensionRequest(models.Model):

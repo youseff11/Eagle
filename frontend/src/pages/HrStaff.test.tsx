@@ -494,6 +494,28 @@ describe("a new person", () => {
   });
 });
 
+describe("technical support is not bound by the company's rules either", () => {
+  it("draws the file without attendance, roster or pay, and says it is technical support", async () => {
+    serve("admin", {
+      "/api/v1/hr/employees/5/": () =>
+        jsonResponse(
+          hrHalf({
+            person: { ...hrHalf().person, exempt: true, exempt_why: "support", name: "Sami", role: { value: "support", ar: "دعم فني", en: "Technical support" } },
+            shifts: [],
+            picker: null,
+            work_mode_card: null,
+            can: { edit: true, shift: false, plan: false },
+          }),
+        ),
+    });
+    const { container } = open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    expect(container.querySelector('[data-note="exempt"]')).toHaveTextContent("الدعم الفني: مالوش حضور ولا جدول ولا إجازات ولا راتب");
+    expect(container.querySelector('[data-note="exempt"]')).not.toHaveTextContent("الأدمن");
+    expect(container.querySelector('[data-card="attendance"]')).toBeNull();
+  });
+});
+
 describe("the owner is not bound by the company's rules", () => {
   const ownerFile = () =>
     hrHalf({

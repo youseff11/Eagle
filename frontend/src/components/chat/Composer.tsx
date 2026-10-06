@@ -7,6 +7,7 @@ import type { ReplyTarget } from "../../lib/outbox";
 import type { Recorded } from "../../lib/recorder";
 import { prettySize } from "../../lib/size";
 import { Icon } from "../Icon";
+import { EmojiPicker } from "./EmojiPicker";
 import { VoiceBar } from "./VoiceBar";
 
 /** What was typed and attached in each conversation and not sent: kept while the person looks at another one, never longer than the page. */
@@ -143,6 +144,19 @@ export function Composer({
   const changeText = (value: string) => {
     setText(value);
     remember(value, files);
+  };
+
+  // An emoji goes in where the cursor is (or over what is selected), and the cursor stays after it, as in WhatsApp.
+  const addEmoji = (emoji: string) => {
+    const node = box.current;
+    const from = node?.selectionStart ?? text.length;
+    const to = node?.selectionEnd ?? from;
+    changeText(text.slice(0, from) + emoji + text.slice(to));
+    const caret = from + emoji.length;
+    window.requestAnimationFrame(() => {
+      node?.focus();
+      node?.setSelectionRange(caret, caret);
+    });
   };
 
   const pick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -285,6 +299,7 @@ export function Composer({
         >
           <Icon name="mic" />
         </button>
+        <EmojiPicker disabled={closed} onPick={addEmoji} />
         <textarea
           ref={box}
           className="input grow cchat__input"

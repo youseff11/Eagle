@@ -219,6 +219,24 @@ describe("a conversation", () => {
     expect(css).toMatch(/\[dir="rtl"\]\s+\.bub__box\s*\{\s*direction:\s*rtl;\s*\}/);
   });
 
+  it("tags technical support in the list and in the header of their chat, and a colleague stays a colleague", async () => {
+    render("/chats?type=staff", {
+      lists: { staff: [row("u9", { staff: true, role: "support", label: "Sami Support" }), row("u5", { staff: true, role: "operation", label: "Mona" })] },
+      types: ["groups", "staff"],
+    });
+    const support = (await screen.findByText("Sami Support")).closest(".cthread") as HTMLElement;
+    expect(within(support).getByText("دعم فني")).toBeInTheDocument();
+    const colleague = screen.getByText("Mona").closest(".cthread") as HTMLElement;
+    expect(within(colleague).queryByText("دعم فني")).toBeNull();
+  });
+
+  it("says in the header of the chat that it is technical support", async () => {
+    render("/chats/u9", { thread: { client: row("u9", { staff: true, role: "support", label: "Sami Support", initials: "SS" }), messages: [entry(1)] } });
+    await screen.findByText("message 1");
+    expect(screen.getAllByText("دعم فني").length).toBeGreaterThan(0);
+    expect(screen.queryByText("زميل")).toBeNull();
+  });
+
   it("shows the date once for each day and the time in Arabic", async () => {
     render("/chats/CL-0001", {
       thread: {
