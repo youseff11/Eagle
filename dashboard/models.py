@@ -1978,6 +1978,73 @@ class AICheckResult(models.Model):
         return len(self.issues or [])
 
 
+class HelpQuestion(models.Model):
+    """A question put to the help assistant (``helpbot.py``).
+
+    The log does two jobs: it is what the hourly limit on the AI's answers counts, and it is what the owner reads (Django's own
+    admin) to see which questions the guides could not answer - the list of what to write next.
+    """
+
+    class Source(models.TextChoices):
+        AI = "ai", "AI"
+        GUIDE = "guide", "Guide"
+        NONE = "none", "No answer"
+        #: An order the owner gave: the answer is a card to confirm (``HelpAction``).
+        ACTION = "action", "Order"
+
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    question = models.CharField(max_length=500)
+    #: The page the person was on, as its shape (``/tasks/:code``), never the address itself.
+    page = models.CharField(max_length=120, blank=True)
+    source = models.CharField(max_length=8, choices=Source.choices)
+    #: The guides the answer pointed to, ids separated by commas.
+    guides = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["user", "created_at"], name="helpq_user_when")]
+
+    def __str__(self):
+        return f"{self.source} · {self.question[:60]}"
+
+
+class HelpAction(models.Model):
+    """An order the owner gave the help assistant, from the moment it was prepared to the moment it was carried out.
+
+    The assistant never carries anything out by itself: it prepares the order (``helpactions.prepare``), the owner sees what it
+    will do in words the server wrote from the checked values, and only their confirmation runs it - once (the row is claimed
+    before it runs), within ``helpactions.LIFETIME``, and through the same door a click on the page would have used. What each
+    order did stays here as well as in the audit log.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting for the owner"
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        FAILED = "failed", "Refused"
+        CANCELLED = "cancelled", "Cancelled"
+
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    #: The order's name in ``helpactions.ACTIONS`` (``shift.create``).
+    name = models.CharField(max_length=40)
+    #: The checked values, as the door will be given them: ids and plain words, never what the model wrote.
+    params = models.JSONField(default=dict)
+    #: ``{"ar": ..., "en": ...}``: what the card says it will do.
+    summary = models.JSONField(default=dict)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    #: ``{"ok": bool, "ar": ..., "en": ...}`` once it ran.
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.name} · {self.status}"
+
+
 # ---------------------------------------------------------------------------
 # Runtime settings (single row, editable from the admin panel)
 # ---------------------------------------------------------------------------
@@ -1988,6 +2055,12 @@ class AppSettings(models.Model):
     ai_check_enabled = models.BooleanField(default=False)
     claude_api_key = models.CharField(max_length=250, blank=True)
     claude_model = models.CharField(max_length=80, default="claude-sonnet-4-5")
+    #: The help assistant (``helpbot.py``) may ask Claude to phrase its answer. Off until the owner turns it on: what it sends is
+    #: the person's question and the guides their role may read, never a client's data - but it is still a text that leaves.
+    helpbot_ai_enabled = models.BooleanField(default=False)
+    #: The owner alone may let the assistant carry out what they ask for (``helpactions.py``): it prepares the order, the owner
+    #: confirms it, and it goes through the same doors a click would. Off until the owner turns it on, and it needs the AI above.
+    helpbot_actions_enabled = models.BooleanField(default=False)
 
     response_window_seconds = models.PositiveIntegerField(default=60)
     deadline_warning_minutes = models.PositiveIntegerField(default=15)

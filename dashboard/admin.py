@@ -26,6 +26,7 @@ from .models import (
     ClientRequirement,
     Department,
     ExtensionRequest,
+    HelpQuestion,
     InboundMessage,
     Interview,
     LeaveRequest,
@@ -397,6 +398,19 @@ class PayrollSettingsAdmin(admin.ModelAdmin):
         return not PayrollSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(HelpQuestion)
+class HelpQuestionAdmin(admin.ModelAdmin):
+    """What the staff asked the help assistant. Filter by "No answer" to see what the guides still lack."""
+
+    list_display = ("created_at", "user", "source", "question", "page")
+    list_filter = ("source",)
+    search_fields = ("question",)
+    readonly_fields = ("user", "question", "page", "source", "guides", "created_at")
+
+    def has_add_permission(self, request):
         return False
 
 

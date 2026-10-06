@@ -42,7 +42,10 @@ SECTIONS = (
             "لما تكون مفعّلة، المترجم بيشوف زرار «تشيك» بيراجع الترجمة ويقوله الأخطاء ومكانها من غير ما يعدّل حاجة.",
             "When enabled, translators get a Check button that reports issues and their location without editing anything.",
         ),
-        "groups": ({"fields": ("ai_check_enabled", "claude_api_key", "claude_model")},),
+        "groups": (
+            {"fields": ("ai_check_enabled", "claude_api_key", "claude_model")},
+            {"ar": "مساعد النظام", "en": "The help assistant", "fields": ("helpbot_ai_enabled", "helpbot_actions_enabled")},
+        ),
     },
     {
         "key": "workflow", "icon": "list-checks", "ar": "قواعد الشغل", "en": "Workflow rules",
@@ -87,6 +90,20 @@ TEXTS = {
     "ai_check_enabled": {"label": ("فعّل مراجعة الـ AI", "Enable the AI check")},
     "claude_api_key": {"label": ("مفتاح Claude API", "Claude API key")},
     "claude_model": {"label": ("الموديل", "Model")},
+    "helpbot_actions_enabled": {
+        "label": ("خلّي المساعد ينفّذ أوامري (للأدمن بس)", "Let the assistant carry out my orders (admin only)"),
+        "hint": (
+            "تقوله «اعمل شيفت من 9 لـ 5» أو «اخصم من فلان يوم بسبب كذا» فيجهّز الأمر ويعرضه عليك في كارت، وماينفّذش غير لما تضغط «نفّذ». التنفيذ بيمرّ على نفس الأبواب اللي زرار في الصفحة بيستخدمها، وكل أمر بيتسجل في سجل النشاط. الخصم بيتسجل «مستني الاعتماد» زي أي خصم. محتاج الخيار اللي فوقه شغّال ومفتاح Claude محفوظ، ومش بيشتغل لحد غيرك.",
+            "Tell it \"make a shift from 9 to 5\" or \"deduct a day from so-and-so for this reason\" and it prepares the order and shows it on a card; nothing runs until you press «Run». It goes through the same doors a button on the page uses, and every order is written to the audit log. A deduction is recorded as waiting for approval like any other. It needs the option above to be on and a Claude key saved, and it never works for anybody but you.",
+        ),
+    },
+    "helpbot_ai_enabled": {
+        "label": ("خلّي المساعد يرد بالـ AI", "Let the assistant answer with the AI"),
+        "hint": (
+            "المساعد (الزرار اللي فوق جنب التنبيهات) بيرد من دليل الخطوات في كل الأحوال. لو فتحت ده ومفتاح Claude موجود، بيبعت سؤال الموظف ودليل دوره بس لـ Claude عشان يفهم السؤال ويرتّب الرد. مابيبعتش بيانات عملاء ولا أي حاجة من الشغل.",
+            "The assistant (the button in the top bar) always answers from the step guides. When this is on and a Claude key is saved, it sends the person's question and the guides of their role to Claude, which understands the question and words the reply. No client data and nothing from the work is sent.",
+        ),
+    },
     "response_window_seconds": {"label": ("مهلة تأكيد الاستلام (ثانية)", "Confirmation window (seconds)")},
     "deadline_warning_minutes": {"label": ("تحذير قبل الديدلاين (دقيقة)", "Deadline warning (minutes)")},
     "penalty_value": {"label": ("الخصم عند عدم الرد (نجمة)", "Penalty per miss (stars)")},

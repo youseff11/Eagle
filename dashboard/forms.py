@@ -829,7 +829,7 @@ class SettingsForm(forms.ModelForm):
     class Meta:
         model = AppSettings
         fields = (
-            "ai_check_enabled", "claude_api_key", "claude_model",
+            "ai_check_enabled", "claude_api_key", "claude_model", "helpbot_ai_enabled", "helpbot_actions_enabled",
             "response_window_seconds", "deadline_warning_minutes",
             "penalty_value", "max_rating", "rate_keywords",
             "whatsapp_verify_token", "whatsapp_access_token",

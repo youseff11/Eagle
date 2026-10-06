@@ -15,6 +15,7 @@ import { AssignmentModal } from "./AssignmentModal";
 import { AttendanceGate } from "./AttendanceGate";
 import { CallOverlay } from "./CallOverlay";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { HelpBot } from "./HelpBot";
 import { Icon } from "./Icon";
 import { NavSearch } from "./NavSearch";
 import { TopProgress } from "./TopProgress";
@@ -594,6 +595,7 @@ function Frame() {
           >
             <Icon name={theme === "dark" ? "moon" : "sun"} />
           </button>
+          <HelpBot />
           <NavLink className="icon-btn" to="/notifications" title={t("التنبيهات", "Notifications")}>
             <Icon name="bell" />
             {unread > 0 && <span className="icon-btn__dot">{unread}</span>}

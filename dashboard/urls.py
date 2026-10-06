@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_candidates, api_clients, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -41,6 +41,10 @@ urlpatterns = [
     path("api/v1/me/avatar/", api_profile.avatar_set, name="v1_me_avatar"),
     path("api/v1/me/avatar/remove/", api_profile.avatar_remove, name="v1_me_avatar_remove"),
     path("api/v1/me/password/", api_profile.password_change, name="v1_me_password"),
+    path("api/v1/help/", api_help.home, name="v1_help"),
+    path("api/v1/help/ask/", api_help.ask, name="v1_help_ask"),
+    path("api/v1/help/orders/<int:pk>/run/", api_help.order_run, name="v1_help_order_run"),
+    path("api/v1/help/orders/<int:pk>/cancel/", api_help.order_cancel, name="v1_help_order_cancel"),
     path("api/v1/notifications/", api_v1.notifications, name="v1_notifications"),
     path("api/v1/notifications/read/", api_v1.notifications_read, name="v1_notifications_read"),
     path("api/v1/chats/", api_v1.chats, name="v1_chats"),

@@ -2137,6 +2137,50 @@ export interface ReviewerQueue {
   done: ReviewerRow[];
 }
 
+/** A guide of the help assistant as a button: what it is called, and the page it starts on ("" when it is not one page). */
+export interface HelpGuide {
+  id: string;
+  title: string;
+  path: string;
+}
+
+/** GET /api/v1/help/. `orders` is true for the owner alone, and only while they have switched orders on. */
+export interface HelpHome {
+  ok: true;
+  ai: boolean;
+  orders: boolean;
+  starters: HelpGuide[];
+}
+
+/** An order the owner gave, prepared and waiting for their yes: what it will do is in words the server wrote. */
+export interface HelpOrder {
+  id: number;
+  title: string;
+  summary: string;
+  danger: boolean;
+  /** Seconds it still waits before it is withdrawn. */
+  expires_in: number;
+}
+
+/** POST /api/v1/help/ask/. */
+export interface HelpAnswer {
+  ok: true;
+  answer: string;
+  answered: boolean;
+  source: "ai" | "guide" | "none" | "action";
+  open: HelpGuide | null;
+  related: HelpGuide[];
+  order: HelpOrder | null;
+}
+
+/** POST /api/v1/help/orders/<id>/run/. `done` is false when the door refused: `message` says why. */
+export interface HelpOrderResult {
+  ok: true;
+  done: boolean;
+  status: string;
+  message: string;
+}
+
 /** GET /api/v1/reviewer/tests/<id>/. `candidate.name` is the owner's to read: a reviewer is blind. */
 export interface ReviewerTest {
   ok: true;
