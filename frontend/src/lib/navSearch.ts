@@ -34,6 +34,7 @@ export const KEYWORDS: Record<string, string> = {
   "/line": "رقمي خطي واتساب ايميلي سيلز sales line number whatsapp mail alias",
   "/tasks": "تاسك مهام شغل جديد task tasks jobs new",
   "/team": "فريق مترجمين متاح مشغول اونلاين team status online busy",
+  "/announce": "اشعار تنبيه للكل الموظفين اعلان رسالة announce notify everyone broadcast",
   "/lead": "تاسكاتي مهامي مراجعة my tasks review",
   "/lead/translators": "مترجمين متاحين فريقي translators",
   "/translator": "شغلي تاسكاتي مهامي my work tasks",

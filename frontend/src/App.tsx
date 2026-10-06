@@ -64,6 +64,7 @@ import { PayrollPage } from "./pages/PayrollPage";
 import { SalesLinePage } from "./pages/SalesLinePage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
+import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
 import { TeamPage } from "./pages/TeamPage";
 import { TranslatorHomePage } from "./pages/TranslatorHomePage";
 
@@ -154,6 +155,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:code" element={<ClientPage />} />
         <Route path="team" element={<TeamPage />} />
+        <Route path="announce" element={<SupportAnnouncePage />} />
         <Route path="chats" element={<ChatsPage />} />
         <Route path="chats/:code" element={<ChatsPage />} />
         <Route path="*" element={<NotFound />} />

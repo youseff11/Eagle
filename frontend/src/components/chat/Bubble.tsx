@@ -11,6 +11,8 @@ import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 import { VoiceNote } from "./VoiceNote";
 import { DocumentPreview } from "./DocumentPreview";
+import { ImageGrid } from "./ImageGrid";
+import type { LightboxImage } from "./Lightbox";
 
 /** The colours of the reaction symbols (`r-<kind>` in the sprite). Anything else is not drawn. */
 const REACTIONS = new Set(["like", "love", "laugh", "wow", "sad", "done"]);
@@ -103,6 +105,38 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
       {start}
     </div>
   );
+}
+
+/** Photos in a row from this many on are one block, as WhatsApp draws them; a single photo stays as it is. */
+const GRID_FROM = 2;
+
+type FileBlock = { start: number; file: ThreadFile; grid?: undefined } | { start: number; grid: LightboxImage[]; file?: undefined };
+
+/**
+ * The files of a message in the order they came, with each run of photos (``GRID_FROM`` or more in a row) as one grid. A photo
+ * that a mode can tick, or that has no address on this site, is never put in the grid: it keeps its own box, where its tick and
+ * its button are.
+ */
+function fileBlocks(entry: ThreadEntry, mark?: FileMark): FileBlock[] {
+  const groupable = (file: ThreadFile) =>
+    file.image && !file.audio && safeInternalPath(file.url) !== null && !(mark !== undefined && mark.show(entry, file));
+  const out: FileBlock[] = [];
+  let index = 0;
+  while (index < entry.files.length) {
+    let end = index;
+    while (end < entry.files.length && groupable(entry.files[end]!)) end += 1;
+    if (end - index >= GRID_FROM) {
+      out.push({
+        start: index,
+        grid: entry.files.slice(index, end).map((file) => ({ url: safeInternalPath(file.url) ?? "", name: file.name })),
+      });
+      index = end;
+    } else {
+      out.push({ start: index, file: entry.files[index]! });
+      index += 1;
+    }
+  }
+  return out;
 }
 
 /** The pill that hangs off the bubble: who reacted, and a tap on it opens the bar of reactions. */
@@ -255,9 +289,13 @@ export function Bubble({
         )}
         {entry.subject && <div className="bub__subject">{entry.subject}</div>}
         {entry.body && <div className="bub__text">{entry.body}</div>}
-        {entry.files.map((file, index) => (
-          <File key={`${file.id}-${index}`} file={file} entry={entry} mark={fileMark} />
-        ))}
+        {fileBlocks(entry, fileMark).map((block) =>
+          block.grid ? (
+            <ImageGrid key={`grid-${block.start}`} images={block.grid} />
+          ) : (
+            <File key={`${block.file.id}-${block.start}`} file={block.file} entry={entry} mark={fileMark} />
+          ),
+        )}
         {entry.actions && entry.has_docs && (onConfirm || onConvert) && (
           <div className="bub__actions">
             {/* One receipt per message: once somebody has said "received", the button is gone and their name is there. */}

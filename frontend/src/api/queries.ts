@@ -48,6 +48,7 @@ import type {
   AdminUser,
   AdminUserNew,
   AiCheckAnswer,
+  AnnounceResponse,
   AttendanceCard,
   AttendanceGate,
   AssignmentResponse,
@@ -245,6 +246,25 @@ export function useTeam(enabled = true) {
     ...teamOptions(),
     refetchInterval,
     enabled,
+  });
+}
+
+/** How many people a support announcement reaches, and the latest ones. Only for technical support (and the owner). */
+export function useAnnounce(enabled = true) {
+  return useQuery({
+    queryKey: qk.announce,
+    queryFn: () => api<AnnounceResponse>("/api/v1/announce/"),
+    enabled,
+  });
+}
+
+/** Tell everybody: a notification to each active employee. A refusal says why in its `code` (`repeat`, `empty`, `too_long`). */
+export function useSendAnnouncement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (values: { title: string; body: string; level: "info" | "warning"; sound: boolean }) =>
+      api<{ ok: true; reached: number }>("/api/v1/announce/", { json: values }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: qk.announce }),
   });
 }
 

@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -76,6 +76,7 @@ urlpatterns = [
     path("api/v1/task-form/", api_ops.task_start, name="v1_task_start"),
     path("api/v1/task-form/create/", api_ops.task_create, name="v1_task_create"),
     path("api/v1/team/", api_ops.team, name="v1_team"),
+    path("api/v1/announce/", api_support.announce, name="v1_announce"),
     path("api/v1/attendance/", api_attendance.card, name="v1_attendance"),
     path("api/v1/lead/", api_lead.home, name="v1_lead"),
     path("api/v1/lead/translators/", api_lead.translators, name="v1_lead_translators"),

@@ -433,6 +433,15 @@ export interface TeamResponse {
   }[];
 }
 
+/** GET /api/v1/announce/: what technical support may tell everybody, and what it already did. */
+export interface AnnounceResponse {
+  ok: true;
+  /** How many people an announcement reaches (everybody active but the sender). */
+  reach: number;
+  limits: { title: number; body: number };
+  recent: { id: number; title: string; body: string; reached: number; by: string | null; at: Stamp }[];
+}
+
 /** A moment the server wrote in both languages (Cairo, twelve hours). */
 export interface Stamp {
   ar: string;

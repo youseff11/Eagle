@@ -88,6 +88,48 @@ def notify_role(role, **kwargs):
         notify(user, **kwargs)
 
 
+#: What a support announcement is written down as, how long it may be, and how soon the same words from the same person are
+#: taken as a double press rather than a second announcement.
+ANNOUNCE_ACTION = "support.announce"
+ANNOUNCE_TITLE_MAX = 200
+ANNOUNCE_BODY_MAX = 400
+ANNOUNCE_REPEAT_SECONDS = 60
+ANNOUNCE_LEVELS = ("info", "warning")
+
+
+def announce_recipients(sender):
+    """Everybody who works here and is switched on, but the sender: the people an announcement reaches."""
+    return User.objects.filter(is_active=True).exclude(pk=sender.pk)
+
+
+def announce(sender, *, title, body="", level="info", sound=False):
+    """Send a notification from technical support to every active employee. Returns ``(how_many, problem)``.
+
+    ``problem`` is a short code (``empty``, ``too_long``, ``level``, ``repeat``) and nothing was sent when it is not ``""``. The
+    words are the sender's own and go out as typed, in both languages: nothing of a client is in a support account's reach, so
+    nothing of one can be in them. Every announcement is written to the audit log with who sent it and to how many.
+    """
+    title = (title or "").strip()
+    body = (body or "").strip()
+    if not title:
+        return 0, "empty"
+    if len(title) > ANNOUNCE_TITLE_MAX or len(body) > ANNOUNCE_BODY_MAX:
+        return 0, "too_long"
+    if level not in ANNOUNCE_LEVELS:
+        return 0, "level"
+    since = timezone.now() - timedelta(seconds=ANNOUNCE_REPEAT_SECONDS)
+    if AuditLog.objects.filter(
+        actor=sender, action=ANNOUNCE_ACTION, target=title[:160], detail__startswith=f"{body}\n", created_at__gte=since
+    ).exists():
+        return 0, "repeat"
+    people = list(announce_recipients(sender))
+    with transaction.atomic():
+        for person in people:
+            notify(person, title_ar=title, title_en=title, body_ar=body, body_en=body, level=level, sound=bool(sound))
+        log(sender, ANNOUNCE_ACTION, title[:160], f"{body}\n{len(people)}")
+    return len(people), ""
+
+
 def log(actor, action, target="", detail=""):
     AuditLog.objects.create(actor=actor, action=action, target=target, detail=detail)
 

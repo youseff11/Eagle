@@ -36,6 +36,8 @@ export const qk = {
   opsTask: (code: string) => ["boards", "ops-task", code] as const,
   /** Team leaders and who works under each. */
   team: ["boards", "team"] as const,
+  /** What technical support has announced: asked again after each send. */
+  announce: ["announce"] as const,
   /** The mailbox: the conversations (by the filter and the search), and one conversation. Under `boards`: a doorbell asks again. */
   mail: (state: string, query: string) => ["boards", "mail", "list", state, query] as const,
   mailLists: ["boards", "mail", "list"] as const,

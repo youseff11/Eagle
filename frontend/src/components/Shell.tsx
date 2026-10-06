@@ -232,7 +232,10 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     label: ["التاسكات", "Tasks"],
     section: "work",
     order: 10,
-    extra: [{ path: "/team", icon: "users", label: ["حالة الفرق", "Team status"], order: 40 }],
+    extra: [
+      { path: "/team", icon: "users", label: ["حالة الفرق", "Team status"], order: 40 },
+      { path: "/announce", icon: "bell", label: ["إشعار لكل الموظفين", "Notify everyone"], order: 50 },
+    ],
   },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "mine", order: 10 },
   leave: { path: "/leave", icon: "calendar", label: ["إجازاتي", "My leave"], section: "mine", order: 20 },
