@@ -92,7 +92,8 @@ export function ChatsPage() {
 
   return (
     <>
-      <div className="page-head">
+      {/* On a wide screen the top bar already names the page: the heading stays for readers and for the phone. */}
+      <div className="page-head page-head--chats">
         <h1>{t("الشات", "Chats")}</h1>
       </div>
       {me.data && allowed.length > 0 ? (
