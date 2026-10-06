@@ -256,7 +256,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  scroll-behavior: smooth;
+  /* Open at the last message immediately, including when late images change its position. */
+  scroll-behavior: auto;
 }
 
 .cchat__blank { margin: auto; }

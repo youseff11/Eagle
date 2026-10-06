@@ -154,7 +154,7 @@ function Stream({
   const newest = `${messages.length > 0 ? messages[messages.length - 1]!.uid : ""}|${outbox.map((item) => `${item.key}${item.state}`).join(",")}`;
 
   // Opening a conversation starts at its end.
-  useEffect(() => {
+  useLayoutEffect(() => {
     stick.current = true;
   }, [reset]);
 
@@ -168,6 +168,19 @@ function Stream({
     const node = element.current;
     if (node && stick.current) node.scrollTop = node.scrollHeight;
   }, [newest, reset, sent]);
+
+  // Images, fonts and the phone's viewport can settle after the messages have rendered.
+  // Watch the entries as well as the viewport: its scrollHeight can grow without its own box resizing.
+  useLayoutEffect(() => {
+    const node = element.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current) node.scrollTop = node.scrollHeight;
+    });
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [newest, reset, messages.length]);
 
   let day = "";
   return (
