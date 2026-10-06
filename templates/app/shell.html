@@ -25,6 +25,7 @@ server-rendered page. The sprite is here because the app's icons point at it.
 <div id="root"></div>
 
 {{ app_config|json_script:"app-config" }}
+<script src="{% static 'js/boot.js' %}"></script>
 <script type="module" src="{{ assets.js }}"></script>
 </body>
 </html>

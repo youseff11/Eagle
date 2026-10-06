@@ -999,3 +999,19 @@ html.chat-locked body {
 [data-theme="light"] .bub--out .bub__box { background: #d9fdd3; color: #111b21; }
 [data-theme="light"] .bub--failed .bub__box { background: #fde0e0; }
 [data-theme="light"] .bub__box .bub__time { color: rgba(17, 27, 33, .55); }
+
+/* -- chats list on a phone ------------------------------------------------
+   `.mono` made the title larger than the rest of the row; the filter pills and the search field are sized for a thumb
+   and fit the width instead of overflowing it. */
+@media (max-width: 860px) {
+  .cthread__title, .cthread__title.mono { font-size: 14px; line-height: 1.45; }
+  .cthread > .avatar { inline-size: 40px; block-size: 40px; font-size: 12px; }
+  .cchat__filter { gap: 6px; padding: 8px 10px; }
+  .cchat__pill { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cchat__search { padding: 8px 10px; }
+  .cchat__list { height: calc(100dvh - 160px); }
+}
+@media (max-width: 400px) {
+  .cchat__list { border-radius: 12px; }
+  .cthread { padding: 10px 12px; gap: 10px; }
+}

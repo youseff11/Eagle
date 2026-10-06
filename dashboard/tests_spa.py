@@ -81,6 +81,16 @@ class ShellPageTests(_Built):
         self.assertRegex(page, r'<script type="module" src="[^"]*assets/main-AbC123\.js"></script>')
         self.assertRegex(page, r'<link rel="stylesheet" href="[^"]*assets/main-XyZ789\.css">')
 
+    def test_the_retry_script_comes_before_the_app_and_is_a_file_not_inline(self):
+        page = self.open().content.decode()
+        boot = re.search(r'<script src="[^"]*js/boot[^"]*\.js"></script>', page)
+        self.assertIsNotNone(boot)
+        self.assertLess(boot.start(), page.index('type="module"'))
+        body = Path(__file__).resolve().parent.parent / "static" / "js" / "boot.js"
+        text = body.read_text(encoding="utf-8")
+        self.assertIn('failed.type !== "module"', text)
+        self.assertIn("?retry=", text)
+
     def test_the_design_system_comes_before_the_apps_own_css(self):
         page = self.open().content.decode()
         self.assertLess(page.index("css/app.css"), page.index("assets/main-XyZ789.css"))
