@@ -18,7 +18,7 @@ describe("a file as a card in the chat", () => {
   it("shows a PDF as a red PDF badge with its name, type and size - nothing of what is inside", () => {
     const { container, calls } = card({ name: "Graduation_Project.pdf", url: "/files/in/p.pdf", mime: "application/pdf", size: 2 * 1024 * 1024 });
     const link = screen.getByRole("link", { name: "Graduation_Project.pdf" });
-    expect(link).toHaveAttribute("href", "/files/in/p.pdf");
+    expect(link).toHaveAttribute("href", "/files/in/p.pdf?dl=1");
     expect(container.querySelector(".document-card__badge--pdf")).toHaveTextContent("PDF");
     expect(screen.getByText("Graduation_Project.pdf")).toHaveClass("document-card__name");
     expect(screen.getByText(/PDF · 2/)).toBeInTheDocument();
@@ -59,20 +59,19 @@ describe("a file as a card in the chat", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("opens the file over the chat on a press, and keeps the real address for a new tab", () => {
+  it("saves the file at once on a press, with no preview", () => {
     card({ name: "a.zip", url: "/files/in/a.zip", mime: "application/zip" });
     const link = screen.getByRole("link", { name: "a.zip" });
-    expect(link).toHaveAttribute("target", "_blank");
-    fireEvent.click(link, { ctrlKey: true });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(link).toHaveAttribute("href", "/files/in/a.zip?dl=1");
+    expect(link).toHaveAttribute("download", "a.zip");
     fireEvent.click(link);
-    expect(screen.getByRole("dialog", { name: "a.zip" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("opens nothing while files are being picked", () => {
+  it("saves nothing while files are being picked", () => {
     card({ name: "a.zip", url: "/files/in/a.zip", mime: "application/zip" }, false);
-    fireEvent.click(screen.getByRole("link", { name: "a.zip" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const allowed = fireEvent.click(screen.getByRole("link", { name: "a.zip" }));
+    expect(allowed).toBe(false);
   });
 });
 

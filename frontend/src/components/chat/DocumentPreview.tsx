@@ -1,9 +1,10 @@
-import { useState, type MouseEvent } from "react";
+import type { MouseEvent } from "react";
 import type { ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { prettySize } from "../../lib/size";
 import { Icon } from "../Icon";
-import { FileViewer, viewerKind } from "./FileViewer";
+import { downloadUrl } from "../../lib/fileUrl";
+import { viewerKind } from "./FileViewer";
 
 /** What the badge on a file says and how it is coloured: a PDF is red, a Word file blue, anything else grey with its extension. */
 function badgeOf(file: ThreadFile): { kind: "pdf" | "word" | "other"; label: string } {
@@ -16,25 +17,22 @@ function badgeOf(file: ThreadFile): { kind: "pdf" | "word" | "other"; label: str
 
 /**
  * A file of the chat as a small card, as WhatsApp draws it: a badge that says what kind of file it is (PDF, Word), the name, and
- * the type and size under it. It shows nothing of what is inside the file - a press opens the file over the chat (`FileViewer`),
- * with a button that saves it. `task` is the code of the task the file belongs to, written on the card. The address stays a real link, so a middle or modified press opens it in a tab. `viewer` is off while
- * the page is picking files (a press then ticks the file, it opens nothing).
+ * the type and size under it. It shows nothing of what is inside the file - a press saves the file at once (no preview).
+ * `task` is the code of the task the file belongs to, written on the card. `viewer` is off while the page is picking files
+ * (a press then ticks the file, it saves nothing).
  */
 export function DocumentPreview({ file, url, viewer = true, task = "" }: { file: ThreadFile; url: string; viewer?: boolean; task?: string }) {
   const { t } = usePreferences();
-  const [open, setOpen] = useState(false);
   const badge = badgeOf(file);
   const extension = /\.([a-z0-9]{1,8})$/i.exec(file.name)?.[1]?.toUpperCase() ?? "";
 
-  const show = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!viewer || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    setOpen(true);
+  const hold = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!viewer) event.preventDefault();
   };
 
   return (
     <>
-      <a className="document-card" href={url} target="_blank" rel="noopener noreferrer" aria-label={file.name} title={file.name} onClick={show}>
+      <a className="document-card" href={downloadUrl(url)} download={file.name} aria-label={file.name} title={file.name} onClick={hold}>
         <span className={`document-card__badge document-card__badge--${badge.kind}`} aria-hidden="true">
           {badge.kind === "other" && badge.label === "" ? <Icon name="file" /> : badge.label}
         </span>
@@ -51,7 +49,6 @@ export function DocumentPreview({ file, url, viewer = true, task = "" }: { file:
           </span>
         </span>
       </a>
-      {open && <FileViewer file={file} url={url} onClose={() => setOpen(false)} />}
     </>
   );
 }

@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { entry, renderChats, row, visible, file } from "../../test/chat";
 import { jsonResponse, mockFetch, renderWithProviders } from "../../test/helpers";
 import { Bubble, type FileMark } from "./Bubble";
-import { DocumentPreview } from "./DocumentPreview";
-import { viewerKind } from "./FileViewer";
+import { useState } from "react";
+import { FileViewer, viewerKind } from "./FileViewer";
 
 const pdf = vi.hoisted(() => ({ getDocument: vi.fn(), getPage: vi.fn(), render: vi.fn(), destroy: vi.fn() }));
 vi.mock("pdfjs-dist", () => ({ getDocument: pdf.getDocument, GlobalWorkerOptions: {} }));
@@ -32,9 +32,20 @@ function serveWord(full: unknown = { ok: true, text: "First line\nWhole text of 
   return mocked;
 }
 
-function card(over = {}, viewer?: boolean) {
+/** The viewer opened from a link, as the pages that still preview a file open it (the chat card saves it instead). */
+function Opener({ given }: { given: ReturnType<typeof file> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <a href={given.url} onClick={(event) => { event.preventDefault(); setOpen(true); }}>{given.name}</a>
+      {open && <FileViewer file={given} url={given.url} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function card(over = {}, _viewer?: boolean) {
   const given = file({ ...word, ...over });
-  return renderWithProviders(<DocumentPreview file={given} url={given.url} viewer={viewer} />);
+  return renderWithProviders(<Opener given={given} />);
 }
 
 describe("what kind of file is shown inside the page", () => {
@@ -165,28 +176,6 @@ describe("opening a file over the chat", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/مش قادرين نعرض الملف ده هنا/)).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "تنزيل" })).toHaveAttribute("href", "/files/in/archive.zip?dl=1");
-  });
-
-  it("opens nothing while files are being picked, or on a press that asks for a new tab", async () => {
-    vi.stubGlobal("fetch", mockFetch({}).fn);
-    const picking = card({ name: "archive.zip", url: "/files/in/archive.zip", mime: "application/zip" }, false);
-    fireEvent.click(screen.getByRole("link", { name: "archive.zip" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    picking.unmount();
-
-    card({ name: "archive.zip", url: "/files/in/archive.zip", mime: "application/zip" });
-    for (const modifier of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
-      fireEvent.click(screen.getByRole("link", { name: "archive.zip" }), modifier);
-      expect(screen.queryByRole("dialog")).toBeNull();
-    }
-  });
-
-  it("keeps the real address on the card, for a new tab", () => {
-    vi.stubGlobal("fetch", mockFetch({}).fn);
-    card({ name: "archive.zip", url: "/files/in/archive.zip", mime: "application/zip" });
-    const link = screen.getByRole("link", { name: "archive.zip" });
-    expect(link).toHaveAttribute("href", "/files/in/archive.zip");
-    expect(link).toHaveAttribute("target", "_blank");
   });
 });
 

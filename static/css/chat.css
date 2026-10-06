@@ -986,3 +986,16 @@ html.chat-locked body {
   border-color: var(--danger, #e5484d);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger, #e5484d) 25%, transparent);
 }
+
+/* -- WhatsApp colours ------------------------------------------------------
+   Dark: the dark theme's own greens and greys. Light: white and the pale green. */
+.cchat__stream { background: #0b141a; }
+.bub--in .bub__box { background: #202c33; border-color: transparent; color: #e9edef; }
+.bub--out .bub__box { background: #005c4b; border-color: transparent; color: #e9edef; }
+.bub--failed .bub__box { background: color-mix(in srgb, #e5484d 30%, #202c33); }
+.bub__box .bub__time { color: rgba(233, 237, 239, .6); }
+[data-theme="light"] .cchat__stream { background: #efeae2; }
+[data-theme="light"] .bub--in .bub__box { background: #ffffff; color: #111b21; }
+[data-theme="light"] .bub--out .bub__box { background: #d9fdd3; color: #111b21; }
+[data-theme="light"] .bub--failed .bub__box { background: #fde0e0; }
+[data-theme="light"] .bub__box .bub__time { color: rgba(17, 27, 33, .55); }

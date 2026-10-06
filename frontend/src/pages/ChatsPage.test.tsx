@@ -308,7 +308,7 @@ describe("a conversation", () => {
     expect(screen.getByText("رسالة صوتية")).toBeInTheDocument();
     expect(screen.getByText("0:12")).toBeInTheDocument();
     expect(document.querySelector("audio")).toHaveAttribute("src", "/files/in/note.ogg");
-    expect(screen.getByRole("link", { name: "doc.pdf" })).toHaveAttribute("href", "/files/in/doc.pdf");
+    expect(screen.getByRole("link", { name: "doc.pdf" })).toHaveAttribute("href", "/files/in/doc.pdf?dl=1");
   });
 
   it("draws a file link only for an address on this site", async () => {
