@@ -10,6 +10,7 @@ import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 import { VoiceNote } from "./VoiceNote";
+import { DocumentPreview } from "./DocumentPreview";
 
 /** The colours of the reaction symbols (`r-<kind>` in the sprite). Anything else is not drawn. */
 const REACTIONS = new Set(["like", "love", "laugh", "wow", "sad", "done"]);
@@ -52,6 +53,7 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
   const ticked = on && mark.ticked(file);
   const classes = ["bub__file"];
   if (file.image && url) classes.push("bub__file--img");
+  else if (url) classes.push("bub__file--document");
   if (ticked) classes.push("is-picked");
   // While picking, a tap on the file ticks it; a tap on the box is the box's own.
   const tap =
@@ -93,11 +95,8 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
   return (
     <div className={classes.join(" ")} onClick={tap}>
       {box}
-      <Icon name="paperclip" size="sm" />
       {url ? (
-        <a href={url} target="_blank" rel="noopener noreferrer">
-          {file.name}
-        </a>
+        <DocumentPreview key={url} file={file} url={url} />
       ) : (
         <span>{file.name}</span>
       )}
