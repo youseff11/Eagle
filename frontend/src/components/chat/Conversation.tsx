@@ -81,15 +81,6 @@ function Notes({ row }: { row: ChatRow }) {
           </div>
         </div>
       )}
-      {row.team && (
-        <div className="note cchat__window">
-          <Icon name="shield-check" />
-          <div>
-            <strong>{t("جروب شغل داخلي", "Internal work group")}</strong>
-            <div>{t("مفيش حاجة هنا بتوصل العميل.", "Nothing here reaches the client.")}</div>
-          </div>
-        </div>
-      )}
       {windowClosed(row) && (
         <div className="note note--warn cchat__window">
           <Icon name="clock" />

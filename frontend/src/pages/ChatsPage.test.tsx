@@ -381,7 +381,7 @@ describe("a conversation", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
-  it("warns that a group reaches the client, says a work group is internal, and the 24-hour rule", async () => {
+  it("warns that a group reaches the client, says nothing of a work group, and the 24-hour rule", async () => {
     const reaching = render("/chats/g1", {
       thread: { client: row("g1", { group: true, reaches_client: true, label: "With client", window_open: false }), messages: [] },
     });
@@ -390,7 +390,9 @@ describe("a conversation", () => {
     reaching.unmount();
 
     const internal = render("/chats/g2", { thread: { client: row("g2", { group: true, team: true, channel: "", label: "Work" }), messages: [] } });
-    expect(await screen.findByText("جروب شغل داخلي")).toBeInTheDocument();
+    // A work group says nothing about being internal: everybody in it knows. Only the 24-hour rule is absent too.
+    await screen.findByText("مفيش رسايل لسه.");
+    expect(screen.queryByText("جروب شغل داخلي")).not.toBeInTheDocument();
     expect(screen.queryByText("نافذة الـ24 ساعة قفلت")).not.toBeInTheDocument();
     internal.unmount();
 
