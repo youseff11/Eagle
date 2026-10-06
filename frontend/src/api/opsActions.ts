@@ -169,15 +169,15 @@ export function useAiRecheck(code: string) {
 }
 
 /**
- * The team leader accepts notes - some, or all - and a corrected copy of the translation is made (a new file; the translator's own
- * is never changed). It runs in the background and the box follows it. A refusal comes back as a code (`running`, `off` ...).
+ * The team leader accepts notes - some, or all: each one takes stars off the translator (and HR or the admin may apply or forgive
+ * it). A refusal comes back as a code (`already`, `stale_check`, `no_translator` ...).
  */
-export function useAiRevise(code: string) {
+export function useAiAccept(code: string) {
   const client = useQueryClient();
   return useMutation({
     // `check` is the check the box showed: the ids are places in it, and a newer check has other notes under the same places.
     mutationFn: (body: ({ issues: number[] } | { all: true }) & { check: number }) =>
-      api<{ ok: true }>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-notes/revise/`, { json: body }),
+      api<{ ok: true; taken: string }>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-notes/accept/`, { json: body }),
     onSettled: () => void client.invalidateQueries({ queryKey: qk.aiNotes(code) }),
   });
 }

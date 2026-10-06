@@ -3973,7 +3973,7 @@ def reset_all_tasks(admin, password):
     """
     from django.core import serializers
 
-    from .models import AICheckResult, AIRevision, Assignment, OutboundAttachment, OutboundMessage
+    from .models import AICheckResult, Assignment, OutboundAttachment, OutboundMessage
 
     if admin is None or not admin.is_admin_role:
         return False, "الخطوة دي للأدمن بس.", "", 0
@@ -3995,7 +3995,6 @@ def reset_all_tasks(admin, password):
             *deliveries,
             *OutboundAttachment.objects.filter(message__in=deliveries),
             *AICheckResult.objects.all(),
-            *AIRevision.objects.all(),
             *rooms,
             *ChatMessage.objects.filter(room__in=rooms),
             *shares.exclude(room__in=rooms),

@@ -1,73 +1,69 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { file } from "../../test/chat";
-import { jsonResponse, mockFetch, renderWithProviders } from "../../test/helpers";
+import { mockFetch, renderWithProviders } from "../../test/helpers";
 import { DocumentPreview } from "./DocumentPreview";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function renderWord(answer: unknown = { ok: true, text: "Certificate\nDocument contents", thumb: false }, status = 200) {
-  const mocked = mockFetch({ "/files/": () => jsonResponse(answer, status) });
-  vi.stubGlobal("fetch", mocked.fn);
-  const view = renderWithProviders(<DocumentPreview
-    file={file({ name: "contract.pdf (193).docx", url: "/files/in/document.docx", mime: "application/octet-stream" })}
-    url="/files/in/document.docx"
-  />);
-  return { ...view, calls: mocked.calls };
+function card(over = {}, viewer?: boolean) {
+  const fetched = mockFetch({});
+  vi.stubGlobal("fetch", fetched.fn);
+  const given = file(over);
+  const view = renderWithProviders(<DocumentPreview file={given} url={given.url} viewer={viewer} />);
+  return { ...view, calls: fetched.calls };
 }
 
-describe("document preview cards", () => {
-  it("shows the opening text of a Word document as a page and keeps the original download", async () => {
-    const { calls } = renderWord();
-    expect(await screen.findByText(/Certificate.*Document contents/s)).toHaveClass("document-card__paper");
-    expect(screen.getByRole("link", { name: "contract.pdf (193).docx" })).toHaveAttribute("href", "/files/in/document.docx");
-    expect(screen.getByText(/DOCX/)).toBeInTheDocument();
-    expect(calls.map((call) => call.url)).toEqual(["/files/in/document.docx?preview=1"]);
+describe("a file as a card in the chat", () => {
+  it("shows a PDF as a red PDF badge with its name, type and size - nothing of what is inside", () => {
+    const { container, calls } = card({ name: "Graduation_Project.pdf", url: "/files/in/p.pdf", mime: "application/pdf", size: 2 * 1024 * 1024 });
+    const link = screen.getByRole("link", { name: "Graduation_Project.pdf" });
+    expect(link).toHaveAttribute("href", "/files/in/p.pdf");
+    expect(container.querySelector(".document-card__badge--pdf")).toHaveTextContent("PDF");
+    expect(screen.getByText("Graduation_Project.pdf")).toHaveClass("document-card__name");
+    expect(screen.getByText(/PDF · 2/)).toBeInTheDocument();
+    // No picture of the page, no text of the file, and nothing is fetched to draw the card.
+    expect(container.querySelector("canvas, img, .document-card__paper")).toBeNull();
+    expect(calls).toHaveLength(0);
   });
 
-  it("uses the embedded Word thumbnail and falls back to its text if the image fails", async () => {
-    renderWord({ ok: true, text: "Opening paragraph", thumb: true });
-    const picture = await screen.findByRole("img", { name: "معاينة: contract.pdf (193).docx" });
-    expect(picture).toHaveAttribute("src", "/files/in/document.docx?preview=thumb");
-    fireEvent.error(picture);
-    expect(screen.getByText("Opening paragraph")).toBeInTheDocument();
+  it("shows a Word file as a blue Word badge, by the extension and whatever type the server says", () => {
+    const { container, calls } = card({ name: "contract.docx", url: "/files/in/c.docx", mime: "application/octet-stream", size: 2048 });
+    expect(container.querySelector(".document-card__badge--word")).toHaveTextContent("DOC");
+    expect(screen.getByText(/DOCX · 2/)).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
   });
 
-  it("leaves a usable file card when preview access fails", async () => {
-    renderWord({ ok: false, error: "not_found" }, 404);
-    expect(await screen.findByText("المعاينة غير متاحة")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "contract.pdf (193).docx" })).toHaveAttribute("href", "/files/in/document.docx");
+  it("shows any other file with a grey badge that says its extension", () => {
+    const { container } = card({ name: "archive.zip", url: "/files/in/a.zip", mime: "application/zip", size: 10 });
+    expect(container.querySelector(".document-card__badge--other")).toHaveTextContent("ZIP");
   });
 
-  it("renders document contents as text without running markup", async () => {
-    const { container } = renderWord({ ok: true, text: '<img src=x onerror="alert(1)">', thumb: false });
-    expect(await screen.findByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+  it("shows a file with no extension and no size as a plain file", () => {
+    const { container } = card({ name: "noextension", url: "/files/in/n", mime: "", size: 0 });
+    expect(container.querySelector(".document-card__badge--other")).toBeInTheDocument();
+    expect(screen.getByText("ملف")).toBeInTheDocument();
+  });
+
+  it("draws a file name as text, never as markup", () => {
+    const { container } = card({ name: '<img src=x onerror="alert(1)">.pdf', url: "/files/in/x.pdf", mime: "application/pdf" });
+    expect(screen.getByText('<img src=x onerror="alert(1)">.pdf')).toBeInTheDocument();
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("waits until the file card is near the visible messages before fetching its preview", async () => {
-    let reveal = () => {};
-    const disconnect = vi.fn();
-    vi.stubGlobal("IntersectionObserver", class {
-      constructor(callback: IntersectionObserverCallback) {
-        reveal = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
-      }
-      observe() {}
-      disconnect = disconnect;
-    });
-    const { calls } = renderWord();
-    expect(calls).toHaveLength(0);
-    act(() => reveal());
-    await screen.findByText(/Certificate/);
-    expect(calls).toHaveLength(1);
-    expect(disconnect).toHaveBeenCalled();
+  it("opens the file over the chat on a press, and keeps the real address for a new tab", () => {
+    card({ name: "a.zip", url: "/files/in/a.zip", mime: "application/zip" });
+    const link = screen.getByRole("link", { name: "a.zip" });
+    expect(link).toHaveAttribute("target", "_blank");
+    fireEvent.click(link, { ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(link);
+    expect(screen.getByRole("dialog", { name: "a.zip" })).toBeInTheDocument();
   });
 
-  it("shows a fallback card for unsupported documents without fetching them", async () => {
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
-    renderWithProviders(<DocumentPreview file={file({ name: "archive.zip" })} url="/files/in/archive.zip" />);
-    await waitFor(() => expect(screen.getByText("المعاينة غير متاحة")).toBeInTheDocument());
-    expect(fetch).not.toHaveBeenCalled();
+  it("opens nothing while files are being picked", () => {
+    card({ name: "a.zip", url: "/files/in/a.zip", mime: "application/zip" }, false);
+    fireEvent.click(screen.getByRole("link", { name: "a.zip" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

@@ -907,6 +907,8 @@ export interface SalesLine {
 export interface AiNote {
   /** The note's place in the check: what is sent back to say which notes the leader accepts (the list is shown most serious first). */
   id: number | null;
+  /** The leader accepted it already: it took stars off the translator, once, and is not accepted again. */
+  accepted: boolean;
   severity: "high" | "medium" | "low";
   location: string;
   category: { ar: string; en: string } | null;
@@ -920,27 +922,16 @@ export interface AiNote {
   meaning: string;
 }
 
-/** A copy of the translation with the accepted notes applied (`api_ai._revision_json`). `file` is there once it is done. */
-export interface AiRevision {
-  id: number;
-  status: "running" | "done" | "error";
-  /** The ids of the notes it applies. */
-  accepted: number[];
-  at: Stamp | null;
-  error: string;
-  file: { url: string; name: string; size: number } | null;
-}
-
 /** GET /api/v1/tasks/<code>/ai-notes/: the box at the top of a task page, for the admin and the task's own team leader. */
 export interface TaskAiNotes {
   ok: true;
   task: { code: string; title: string };
   /** The switch is on, the key is there and no check is running. */
   can_recheck: boolean;
-  /** There are notes to accept, the switch is on and no corrected copy is being made. */
-  can_revise: boolean;
-  /** The corrected copies of the latest check, newest first: the translator's own file is never one of them. */
-  revisions: AiRevision[];
+  /** There are notes left to accept and somebody holds the task to lose the stars for them. */
+  can_accept: boolean;
+  /** What accepting costs, said before it is pressed: stars for each note, and whose. */
+  accept_cost: { each: string; translator: string | null };
   /** `null` when no check has run yet. */
   check: {
     id: number;

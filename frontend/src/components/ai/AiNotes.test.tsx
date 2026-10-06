@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { qk } from "../../api/keys";
-import type { AiNote, AiRevision, ChatAiNotes, Role, TaskAiNotes } from "../../api/types";
+import type { AiNote, ChatAiNotes, Role, TaskAiNotes } from "../../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../../test/helpers";
 import { ToastProvider } from "../Toasts";
 import { AiNotesCard } from "./AiNotesCard";
@@ -18,6 +18,7 @@ afterEach(() => {
 function note(over: Partial<AiNote> = {}): AiNote {
   return {
     id: 0,
+    accepted: false,
     severity: "medium",
     location: "page 2",
     category: { ar: "مصطلحات", en: "Terminology" },
@@ -35,8 +36,8 @@ function notes(over: Partial<TaskAiNotes> = {}, check: Partial<NonNullable<TaskA
     ok: true,
     task: { code: "TSK-00001", title: "A contract" },
     can_recheck: true,
-    can_revise: false,
-    revisions: [],
+    can_accept: false,
+    accept_cost: { each: "0.125", translator: "Sam" },
     check:
       check === null
         ? null
@@ -135,7 +136,7 @@ describe("AiNotesCard", () => {
     expect(screen.getAllByText("The term is wrong")).toHaveLength(2);
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("Terminology")).toBeInTheDocument();
-    expect(screen.getByText(/The translator file is never changed/)).toBeInTheDocument();
+    expect(screen.getByText(/The AI never edits the translation, and HR and the admin review any deduction/)).toBeInTheDocument();
   });
 
   it("says nothing obvious was found, and that a person's own review still stands", async () => {
@@ -343,18 +344,14 @@ describe("the two surfaces share one reading", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Accepting notes: a corrected copy of the translation is made from the ones the leader ticks
+// Accepting notes: each accepted note takes stars off the translator, after the leader has been told how many
 // ---------------------------------------------------------------------------------------------------------------------
 
-function revision(over: Partial<AiRevision> = {}): AiRevision {
-  return { id: 9, status: "done", accepted: [5], at: { ar: "10-03 1:00 PM", en: "10-03 1:00 PM" }, error: "", file: { url: "/files/revisions/2026/10/abc.docx", name: "TSK-00001-revised.docx", size: 2048 }, ...over };
-}
-
-function openReviser(over: Partial<TaskAiNotes> = {}, revise: () => Response = () => jsonResponse({ ok: true })) {
+function openAccepter(over: Partial<TaskAiNotes> = {}, accept: () => Response = () => jsonResponse({ ok: true, taken: "0.125" })) {
   const mocked = mockFetch({
-    "/api/v1/tasks/TSK-00001/ai-notes/revise/": revise,
+    "/api/v1/tasks/TSK-00001/ai-notes/accept/": accept,
     "/api/v1/tasks/TSK-00001/ai-notes/": () =>
-      jsonResponse(notes({ can_revise: true, issues: [note({ id: 5, severity: "high" }), note({ id: 7, severity: "low", location: "page 9" })], ...over })),
+      jsonResponse(notes({ can_accept: true, issues: [note({ id: 5, severity: "high" }), note({ id: 7, severity: "low", location: "page 9" })], ...over })),
   });
   vi.stubGlobal("fetch", mocked.fn);
   const view = renderWithProviders(
@@ -362,80 +359,120 @@ function openReviser(over: Partial<TaskAiNotes> = {}, revise: () => Response = (
       <AiNotesCard code="TSK-00001" />
     </ToastProvider>,
   );
-  const sent = () => mocked.calls.filter((call) => call.url.endsWith("/revise/")).map((call) => JSON.parse(String(call.init?.body)));
+  const sent = () => mocked.calls.filter((call) => call.url.endsWith("/accept/")).map((call) => JSON.parse(String(call.init?.body)));
   return { ...view, sent };
 }
 
 describe("AiNotesCard: accepting notes", () => {
-  it("draws no boxes when a corrected copy cannot be made (switch off, a copy being made, or no notes)", async () => {
-    openReviser({ can_revise: false });
+  it("draws no boxes when nothing can be accepted (a clean check, a task nobody holds, or every note taken)", async () => {
+    openAccepter({ can_accept: false });
     await screen.findByText("ملاحظات الـ AI على الترجمة");
     expect(document.querySelectorAll(".ai-issue__accept")).toHaveLength(0);
     expect(document.querySelector("[data-ai-accept]")).toBeNull();
   });
 
-  it("sends the ids of the ticked notes, not their places on the screen", async () => {
-    const { sent } = openReviser();
+  it("says what accepting costs and whose rating pays, before anything is pressed", async () => {
+    const { sent } = openAccepter();
     await screen.findByText("ملاحظات الـ AI على الترجمة");
-    const make = screen.getByRole("button", { name: /اعمل ملف بالتعديلات \(0\)/ });
-    expect(make).toBeDisabled();
-    await userEvent.click(screen.getByRole("checkbox", { name: "اقبل الملاحظة 2" }));
-    await userEvent.click(screen.getByRole("button", { name: /اعمل ملف بالتعديلات \(1\)/ }));
-    await waitFor(() => expect(sent()).toHaveLength(1));
-    expect(sent()[0]).toEqual({ issues: [7], check: 3 });
+    expect(screen.getByText(/كل ملاحظة بتتقبل بتخصم 0.125 نجمة من تقييم المترجم \(Sam\)/)).toBeInTheDocument();
+    expect(sent()).toHaveLength(0);
   });
 
-  it("selects all and sends them, and clears them again", async () => {
-    const { sent } = openReviser();
+  it("asks first, with the stars the chosen notes cost, and sends nothing until the leader says yes", async () => {
+    const { sent } = openAccepter();
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
+    expect(screen.getByRole("button", { name: /اقبل المحدد \(0\)/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" }));
+    await userEvent.click(screen.getByRole("button", { name: /اقبل المحدد \(1\)/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/هيتخصم 0.125 نجمة من تقييم Sam \(1 ملاحظة\)/)).toBeInTheDocument();
+    expect(sent()).toHaveLength(0);
+    await userEvent.click(within(dialog).getByRole("button", { name: "إلغاء" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sent()).toHaveLength(0);
+    expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" })).toBeChecked();
+  });
+
+  it("sends the ids of the ticked notes with the check that was shown, not their places on the screen", async () => {
+    const { sent } = openAccepter();
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
+    await userEvent.click(screen.getByRole("checkbox", { name: "اقبل الملاحظة 2" }));
+    await userEvent.click(screen.getByRole("button", { name: /اقبل المحدد \(1\)/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "اقبل واخصم" }));
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    expect(sent()[0]).toEqual({ issues: [7], check: 3 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("selects all that is left and clears them again", async () => {
+    const { sent } = openAccepter();
     await screen.findByText("ملاحظات الـ AI على الترجمة");
     await userEvent.click(screen.getByRole("button", { name: "اختار الكل" }));
     expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 2" })).toBeChecked();
-    await userEvent.click(screen.getByRole("button", { name: /اعمل ملف بالتعديلات \(2\)/ }));
+    await userEvent.click(screen.getByRole("button", { name: "إلغاء الكل" }));
+    expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "اختار الكل" }));
+    await userEvent.click(screen.getByRole("button", { name: /اقبل المحدد \(2\)/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "اقبل واخصم" }));
     await waitFor(() => expect(sent()).toHaveLength(1));
     expect(sent()[0]).toEqual({ issues: [5, 7], check: 3 });
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" })).not.toBeChecked());
   });
 
-  it("accepts everything in one press with the all flag", async () => {
-    const { sent } = openReviser();
+  it("accepts everything that is left with the all flag, after asking", async () => {
+    const { sent } = openAccepter();
     await screen.findByText("ملاحظات الـ AI على الترجمة");
-    await userEvent.click(screen.getByRole("button", { name: "اقبل الكل واعمل الملف" }));
+    await userEvent.click(screen.getByRole("button", { name: "اقبل الكل" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/هيتخصم 0.25 نجمة من تقييم Sam \(2 ملاحظة\)/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "اقبل واخصم" }));
     await waitFor(() => expect(sent()).toHaveLength(1));
     expect(sent()[0]).toEqual({ all: true, check: 3 });
   });
 
-  it("says why it was refused and keeps what was ticked", async () => {
-    openReviser({}, () => jsonResponse({ ok: false, error: "running" }, 409));
+  it("marks a note that was accepted already, with no box, and leaves it out of what is left", async () => {
+    const { sent } = openAccepter({ issues: [note({ id: 5, accepted: true, severity: "high" }), note({ id: 7, severity: "low" })] });
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
+    const items = Array.from(document.querySelectorAll("li.ai-issue"));
+    expect(within(items[0] as HTMLElement).getByText("اتقبلت")).toBeInTheDocument();
+    expect(items[0]!.querySelector("input[type=checkbox]")).toBeNull();
+    expect(items[1]!.querySelector("input[type=checkbox]")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "اختار الكل" }));
+    await userEvent.click(screen.getByRole("button", { name: /اقبل المحدد \(1\)/ }));
+    expect(within(await screen.findByRole("dialog")).getByText(/هيتخصم 0.125 نجمة/)).toBeInTheDocument();
+    expect(sent()).toHaveLength(0);
+  });
+
+  it("says why it was refused, in the question, and keeps what was ticked", async () => {
+    openAccepter({}, () => jsonResponse({ ok: false, error: "already" }, 409));
     await screen.findByText("ملاحظات الـ AI على الترجمة");
     await userEvent.click(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" }));
-    await userEvent.click(screen.getByRole("button", { name: /اعمل ملف بالتعديلات \(1\)/ }));
-    expect(await screen.findByText("فيه ملف بيتعمل دلوقتي. استنى لحد ما يخلص.")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "اقبل الملاحظة 1" })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: /اقبل المحدد \(1\)/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "اقبل واخصم" }));
+    expect(await screen.findByText("الملاحظات دي اتقبلت قبل كده.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("lists the corrected copies: a link when it is done, a wait while it runs, the failure when it failed", async () => {
-    openReviser({
-      can_revise: false,
-      revisions: [
-        revision({ id: 12, status: "running", file: null }),
-        revision({ id: 11, status: "error", file: null, error: "The model returned nothing." }),
-        revision(),
-      ],
-    });
-    await screen.findByText("الملفات المصحّحة");
-    const link = screen.getByRole("link", { name: "TSK-00001-revised.docx" });
-    expect(link).toHaveAttribute("href", "/files/revisions/2026/10/abc.docx");
-    expect(screen.getByText("بيتعمل دلوقتي...")).toBeInTheDocument();
-    expect(screen.getByText("الملف مااتعملش.")).toBeInTheDocument();
-    expect(screen.getByText("The model returned nothing.")).toBeInTheDocument();
+  it("says a check that was renewed while it was read", async () => {
+    openAccepter({}, () => jsonResponse({ ok: false, error: "stale_check" }, 409));
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
+    await userEvent.click(screen.getByRole("button", { name: "اقبل الكل" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "اقبل واخصم" }));
+    expect(await screen.findByText(/الفحص اتجدد وانت بتقرا/)).toBeInTheDocument();
   });
 
-  it("asks again on a clock while a copy is being made, since nothing rings for it", async () => {
-    const view = openReviser({ can_revise: false, revisions: [revision({ status: "running", file: null })] });
-    await screen.findByText("بيتعمل دلوقتي...");
+  it("makes no file any more: no list of corrected files, no word about one", async () => {
+    openAccepter();
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
+    expect(document.querySelector("[data-ai-revisions]")).toBeNull();
+    expect(screen.queryByText(/ملف جديد|الملفات المصحّحة/)).toBeNull();
+  });
+
+  it("asks again on the usual clock, and on the short one only while a check runs", async () => {
+    const view = openAccepter();
+    await screen.findByText("ملاحظات الـ AI على الترجمة");
     const state = view.client.getQueryCache().find({ queryKey: qk.aiNotes("TSK-00001") });
     const interval = (state?.options as { refetchInterval?: (query: unknown) => number | false }).refetchInterval;
-    expect(typeof interval === "function" ? interval(state) : interval).toBe(5000);
+    expect(typeof interval === "function" ? interval(state) : interval).not.toBe(5000);
   });
 });

@@ -38,7 +38,7 @@ STATUS_MAP = {
     "awaiting_translator": ("wait", "بانتظار المترجم", "Awaiting translator"),
     "in_progress": ("work", "شغل جاري", "In progress"),
     "under_review": ("review", "تحت المراجعة", "Under review"),
-    "reviewed": ("ok", "تمت المراجعة", "Reviewed"),
+    "reviewed": ("wait", "بانتظار التسليم للعميل", "Awaiting delivery to the client"),
     "delivered": ("done", "تم التسليم", "Delivered"),
     "cancelled": ("dead", "ملغاة", "Cancelled"),
 }

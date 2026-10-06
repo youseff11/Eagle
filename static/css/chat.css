@@ -348,30 +348,25 @@
 .bub__file a { color: var(--brand); text-decoration: none; }
 .bub__file a:hover { text-decoration: underline; }
 
-/* Document cards reserve their preview space before loading, keeping the chat steady. */
-.bub__file--document { position: relative; display: block; width: 260px; max-width: 100%; padding: 0; }
+/* A file as a small card, as WhatsApp draws it: a badge saying what kind of file it is, the name, the type and the size. */
+.bub__file--document { position: relative; display: block; width: 280px; max-width: 100%; padding: 0; }
 .bub__file--document .bub__pick,
-.bub__file--document .bub__hand { position: absolute; top: 8px; inset-inline-start: 8px; z-index: 1; }
-.bub__file--document .bub__handbtn { margin: 6px; }
-.bub__file .document-card { display: block; min-width: 0; color: var(--text); }
+.bub__file--document .bub__hand { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 1; }
+.bub__file--document .bub__handbtn { margin: 0 8px 8px; }
+.bub__file .document-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px; color: var(--text); }
 .bub__file .document-card:hover { text-decoration: none; }
-.document-card__preview {
-  display: flex; align-items: center; justify-content: center;
-  height: 210px; overflow: hidden; border-radius: 7px 7px 0 0;
-  background: #e9ecf1; color: #273244; padding: 10px;
+.document-card__badge {
+  flex: none; width: 42px; height: 50px; display: grid; place-items: center; border-radius: 6px;
+  color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .04em; background: #5b6472;
 }
-.document-card__preview img,
-.document-card__preview canvas { display: block; max-width: 100%; max-height: 100%; object-fit: contain; background: white; }
-.document-card__preview canvas[hidden] { display: none; }
-.document-card__paper {
-  display: block; align-self: flex-start; width: 100%; min-height: 100%; padding: 15px;
-  background: white; color: #263040; font: 10px/1.65 Georgia, "Times New Roman", serif;
-  white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 1px 5px #0002;
+.document-card__badge--pdf { background: #d6403a; }
+.document-card__badge--word { background: #2b6cb0; }
+.document-card__details { display: block; min-width: 0; flex: 1; }
+.document-card__name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere; font-weight: 600; line-height: 1.4;
 }
-.document-card__placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 11px; }
-.document-card__details { display: block; padding: 10px 12px; border-top: 1px solid var(--border); }
-.document-card__name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.document-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 10px; color: var(--muted); }
+.document-card__meta { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
 
 /* A photo in a bubble: the picture itself, not its file name. */
 .bub__file--img {

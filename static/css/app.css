@@ -1960,8 +1960,7 @@ img, video, canvas, svg:not(.ic) { max-width: 100%; }
 .ai-issue--low .ai-issue__sev { background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info); }
 .ai-issue__accept { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; cursor: pointer; }
 .ai-notes__accept { margin-bottom: 10px; flex-wrap: wrap; }
-.ai-revisions { margin-top: 14px; }
-.ai-revisions h3 { font-size: .9rem; margin: 0 0 6px; }
+.ai-issue__done { font-size: .72rem; }
 .penalty { display: grid; gap: 6px; }
 .penalty__actions { flex-wrap: wrap; }
 .penalty__actions .input { flex: 1 1 200px; min-width: 140px; }

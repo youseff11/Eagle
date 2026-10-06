@@ -58,7 +58,8 @@ class TaskStatus(models.TextChoices):
     AWAITING_TRANSLATOR = "awaiting_translator", "Awaiting translator"
     IN_PROGRESS = "in_progress", "In progress"
     UNDER_REVIEW = "under_review", "Under review"
-    REVIEWED = "reviewed", "Reviewed"
+    #: The review is done and the files are with the operation: what is left is delivering them to the client.
+    REVIEWED = "reviewed", "Awaiting delivery to the client"
     DELIVERED = "delivered", "Delivered"
     CANCELLED = "cancelled", "Cancelled"
 
@@ -727,9 +728,10 @@ class User(AbstractUser):
         """Rating rounded to the nearest eighth, as a float for templates."""
         return float(self.rating)
 
-    def apply_penalty(self, task, reason_en, reason_ar):
+    def apply_penalty(self, task, reason_en, reason_ar, amount=None):
+        """Take stars off: the company's penalty, or ``amount`` when the reason is worth more (several accepted notes)."""
         settings_row = AppSettings.load()
-        penalty = settings_row.penalty_value
+        penalty = settings_row.penalty_value if amount is None else amount
         old_value = Decimal(self.rating)
         new_value = max(Decimal("0.000"), old_value - penalty)
         self.rating = new_value
@@ -2018,6 +2020,8 @@ class AICheckResult(models.Model):
     issues = models.JSONField(default=list, blank=True)
     error_message = models.TextField(blank=True)
     model_used = models.CharField(max_length=80, blank=True)
+    #: Positions in ``issues`` of the notes the team leader accepted: each one took stars off the translator, once.
+    accepted = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -2032,48 +2036,10 @@ class AICheckResult(models.Model):
 
 
 def upload_revision(instance, filename):
+    # Nothing stores a file under this any more (the corrected copy of a translation was dropped); migration 0051 names it.
     from .files import storage_name
 
     return storage_name("revisions", instance, filename)
-
-
-class AIRevision(models.Model):
-    """A copy of the translation with the AI's notes the team leader accepted applied (``ai.start_revision``).
-
-    The translator's own file is never touched: this is a second file, made when the leader says which notes are right. It is
-    the leader's to read and take from - the task's team leader and the admin open it, nobody else.
-    """
-
-    class Status(models.TextChoices):
-        #: Written before the model is called, like a check, so a page opened meanwhile says so.
-        RUNNING = "running", "Running"
-        DONE = "done", "Done"
-        ERROR = "error", "Error"
-
-    result = models.ForeignKey(AICheckResult, on_delete=models.CASCADE, related_name="revisions")
-    requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
-    #: Positions in ``result.issues`` of the notes accepted, so the file says exactly which ones it applies.
-    accepted = models.JSONField(default=list, blank=True)
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
-    file = models.FileField(upload_to=upload_revision, blank=True)
-    original_name = models.CharField(max_length=250, blank=True)
-    size = models.BigIntegerField(default=0)
-    error_message = models.TextField(blank=True)
-    model_used = models.CharField(max_length=80, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ("-created_at", "-id")
-
-    def __str__(self):
-        return f"{self.result.task.code} · revision · {self.status}"
-
-    #: A copy still "running" after this long is one whose process died (a recycled worker): it is treated as failed.
-    STALE_MINUTES = 15
-
-    @property
-    def is_stale(self):
-        return self.status == self.Status.RUNNING and self.created_at < timezone.now() - timedelta(minutes=self.STALE_MINUTES)
 
 
 class HelpQuestion(models.Model):

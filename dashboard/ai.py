@@ -4,10 +4,8 @@ The check is advisory only: it reports what looks wrong and where, it never
 rewrites the translation. It is disabled unless the admin turns it on and
 stores a Claude API key in the admin panel.
 
-The one thing it writes is a *copy*: when the team leader accepts some of the
-notes (or all of them), :func:`start_revision` makes a second file with only
-those corrections applied. The translator's own file is never touched, and
-nothing is applied that the leader did not accept.
+What the team leader does with the notes is theirs: the ones they accept are
+mistakes of the translator, and cost the translator stars (:func:`accept_notes`).
 """
 
 import json
@@ -585,86 +583,18 @@ def _tell_the_team_leader(result):
         )
 
 
+
 # ---------------------------------------------------------------------------
-# The revised copy
+# Accepting notes
 #
-# The team leader reads the notes and accepts the ones that are right - some,
-# or all. The model then applies exactly those to a copy of the translation and
-# the copy is written as a new Word file. It is a copy: the translator's file
-# stays as they handed it in, and a note nobody accepted is never applied.
+# The team leader reads the notes and accepts the ones that are right - some, or
+# all. An accepted note is a mistake the translator made, so it costs the
+# translator stars: nobody else's (``penalties.py`` puts the deduction in front
+# of HR and the admin, who may apply it or forgive it). Nothing is rewritten.
 # ---------------------------------------------------------------------------
 
-REVISE_PROMPT = (
-    "You are a senior bilingual translator correcting a translation for a translation agency.\n"
-    "You are given the TRANSLATION and a numbered list of ACCEPTED CORRECTIONS that the team leader approved.\n"
-    "Apply exactly those corrections to the translation and nothing else. Do not fix, improve, restyle or reorder "
-    "anything that is not in the list, even if you notice other problems.\n"
-    "Each correction quotes the translation words it is about and explains what the source means. Find those words "
-    "in the translation and change only what that correction needs.\n"
-    "Return the whole corrected translation as plain text, in the translation's own language, keeping its "
-    "paragraph breaks, headings, numbering and tables as lines of text. No explanation, no markdown, no code "
-    "fences, no notes before or after."
-)
-REVISE_MAX_TOKENS = 16000
-#: The most corrections one revision may carry: a check never reports more than the box lists.
+#: Most notes one press may accept: the box never lists more.
 MAX_ACCEPTED = 50
-#: Copies one check may have made, failed ones included.
-MAX_REVISIONS_PER_CHECK = 10
-
-_XML_BAD = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
-_RTL_LETTERS = re.compile(r"[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]")
-_LETTERS = re.compile(r"[^\W\d_]", re.UNICODE)
-
-_DOCX_TYPES = (
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-    '<Default Extension="xml" ContentType="application/xml"/>'
-    '<Override PartName="/word/document.xml" '
-    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-    "</Types>"
-)
-_DOCX_RELS = (
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    '<Relationship Id="rId1" '
-    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-    'Target="word/document.xml"/>'
-    "</Relationships>"
-)
-
-
-def _is_rtl(text):
-    """Mostly Arabic or Hebrew letters: the file is laid out right to left."""
-    letters = len(_LETTERS.findall(text))
-    return bool(letters) and len(_RTL_LETTERS.findall(text)) * 2 > letters
-
-
-def build_docx(text):
-    """A Word file (``bytes``) holding ``text``, one paragraph per line. No library: a .docx is a zip of three small parts."""
-    import io
-    from xml.sax.saxutils import escape
-
-    rtl = _is_rtl(text)
-    paragraph_props = "<w:pPr><w:bidi/></w:pPr>" if rtl else ""
-    run_props = "<w:rPr><w:rtl/></w:rPr>" if rtl else ""
-    paragraphs = []
-    for line in _XML_BAD.sub("", text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        line = escape(line.replace("\t", "    "))
-        paragraphs.append(
-            f'<w:p>{paragraph_props}<w:r>{run_props}<w:t xml:space="preserve">{line}</w:t></w:r></w:p>'
-        )
-    document = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        f'<w:body>{"".join(paragraphs)}</w:body></w:document>'
-    )
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", _DOCX_TYPES)
-        archive.writestr("_rels/.rels", _DOCX_RELS)
-        archive.writestr("word/document.xml", document)
-    return buffer.getvalue()
 
 
 def accepted_indexes(check, raw):
@@ -682,166 +612,51 @@ def accepted_indexes(check, raw):
     return sorted(seen)
 
 
-def _corrections_text(issues):
-    lines = []
-    for number, issue in enumerate(issues, start=1):
-        lines.append(f"{number}. [{issue.get('severity') or 'medium'}] {issue.get('location') or ''}".rstrip())
-        for label, key in (
-            ("Translation says", "translation_excerpt"), ("Source says", "source_excerpt"),
-            ("What is wrong", "issue_en"), ("What is wrong (ar)", "issue_ar"),
-            ("What the source means (ar)", "correct_meaning_ar"),
-        ):
-            value = issue.get(key) or (issue.get("issue") if key == "issue_en" else "")
-            if value:
-                lines.append(f"   {label}: {value}")
-    return "\n".join(lines)
+def accept_notes(check, user, indexes):
+    """Accept notes of ``check``: the translator loses ``penalty_value`` stars for each one that was not accepted before.
 
-
-def _call_reviser(conf, prompt, documents=None):
-    """``(text, stop_reason)``: the model's corrected translation and whether it ran out of room writing it."""
-    body = _post(conf, REVISE_PROMPT, prompt, documents, REVISE_MAX_TOKENS)
-    return _text_of(body), body.get("stop_reason") or ""
-
-
-def _revise(conf, task, translated_text, translated_docs, issues):
-    """``(text, error)``: the translation with the accepted corrections applied. Never raises."""
-    _src, translated_docs, dropped = _fit([], translated_docs or [])
-    if not translated_text.strip() and not translated_docs:
-        return "", "No translated text to correct."
-    if len(translated_text) > MAX_CHARS:
-        # Cutting it would hand back a file with the end of the translation missing.
-        return "", "The translation is too long to be corrected in one go."
-    if dropped:
-        return "", "The translation file is too large to be read: " + ", ".join(dropped)
-    attached = (
-        "The TRANSLATION files attached above are the translation - read them as you would the text below.\n"
-        if translated_docs else ""
-    )
-    prompt = (
-        f"Task: {task.code}\n"
-        f"Source language: {task.source_lang or 'unknown'}\n"
-        f"Target language: {task.target_lang or 'unknown'}\n\n"
-        f"=== ACCEPTED CORRECTIONS ===\n{_corrections_text(issues)}\n\n"
-        f"{attached}"
-        f"=== TRANSLATION ===\n{translated_text or '(see the TRANSLATION files above)'}\n"
-    )
-    documents = _document_blocks("TRANSLATION", translated_docs)
-    try:
-        text, stop = _call_reviser(conf, prompt, documents)
-    except urllib.error.HTTPError as exc:
-        return "", f"HTTP {exc.code}: {exc.read().decode('utf-8', errors='ignore')[:500]}"
-    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-        return "", str(exc)[:500]
-    text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text.strip())
-    if stop == "max_tokens":
-        return "", "The corrected translation was cut short: it is too long for one go."
-    if not text.strip():
-        return "", "The model returned nothing."
-    return text, ""
-
-
-def start_revision(check, user, indexes):
-    """Queue the corrected copy and run it off the request thread. ``(row, "")`` or ``(None, error)``.
-
-    Errors: ``off`` (the check is switched off or has no key), ``no_notes`` (this check found none), ``nothing_accepted``,
-    ``running`` (a copy of this check is being made already), ``limit`` (this check has had its share of copies).
+    ``(taken, "")`` with the stars really taken (a person near nought loses less than the penalty), or ``(None, error)``:
+    ``no_notes`` (this check found none), ``nothing_accepted``, ``no_translator`` (nobody holds the task), ``already`` (every note
+    named was accepted before - a note costs once).
     """
-    from .models import AIRevision
-
-    conf = AppSettings.load()
-    if not conf.ai_check_enabled or not conf.claude_api_key:
-        return None, "off"
-    if check.status != AICheckResult.Status.ISSUES:
-        return None, "no_notes"
-    if not indexes:
-        return None, "nothing_accepted"
-    from datetime import timedelta
+    from decimal import Decimal
 
     from django.db import transaction
-    from django.utils import timezone
 
-    # The check's row is locked while this decides, so two presses (a double click) make one copy, not two.
-    with transaction.atomic():
-        AICheckResult.objects.select_for_update().filter(pk=check.pk).first()
-        # A copy whose process died stays "running" for ever: after a while it is written down as failed and stops blocking.
-        check.revisions.filter(
-            status=AIRevision.Status.RUNNING,
-            created_at__lt=timezone.now() - timedelta(minutes=AIRevision.STALE_MINUTES),
-        ).update(status=AIRevision.Status.ERROR, error_message="The file was not made.")
-        if check.revisions.filter(status=AIRevision.Status.RUNNING).exists():
-            return None, "running"
-        # Every copy is a paid call with the whole translation: a check that has had this many is run again instead.
-        if check.revisions.count() >= MAX_REVISIONS_PER_CHECK:
-            return None, "limit"
-        row = AIRevision.objects.create(
-            result=check, requested_by=user, accepted=list(indexes),
-            status=AIRevision.Status.RUNNING, model_used=conf.claude_model,
-        )
-    threading.Thread(
-        target=finish_revision, args=(row.pk,), daemon=True, name=f"ai-revision-{check.task.code}",
-    ).start()
-    return row, ""
-
-
-def finish_revision(row_pk):
-    """Make the file for a row left in ``running``. Safe to call from anywhere; never raises."""
-    from django.core.files.base import ContentFile
-    from django.db import close_old_connections
-
-    from .models import AIRevision
-
-    close_old_connections()
-    try:
-        row = AIRevision.objects.select_related("result", "result__task", "requested_by").get(pk=row_pk)
-        task = row.result.task
-        issues = [row.result.issues[i] for i in row.accepted if i < len(row.result.issues)]
-        _source, translated = collect_texts(task)
-        _source_docs, translated_docs = collect_documents(task)
-        text, problem = _revise(AppSettings.load(), task, translated, translated_docs, issues)
-        if problem:
-            row.status = AIRevision.Status.ERROR
-            row.error_message = problem
-            row.save(update_fields=["status", "error_message"])
-        else:
-            data = build_docx(text)
-            row.original_name = f"{task.code}-revised.docx"
-            row.file.save(row.original_name, ContentFile(data), save=False)
-            row.size = len(data)
-            row.status = AIRevision.Status.DONE
-            row.save(update_fields=["file", "original_name", "size", "status"])
-        _tell_who_asked(row)
-        return row
-    except Exception:  # noqa: BLE001 - a background thread must never escape
-        logger.exception("AI revision %s failed", row_pk)
-        AIRevision.objects.filter(pk=row_pk).update(
-            status=AIRevision.Status.ERROR, error_message="The file was not made.",
-        )
-        return None
-    finally:
-        close_old_connections()
-
-
-def _tell_who_asked(row):
     from . import services
+    from .models import User
 
-    who, task = row.requested_by, row.result.task
-    if who is None:
-        return
-    if row.status == row.Status.DONE:
-        services.notify(
-            who,
-            title_ar="ملف التعديلات جاهز",
-            title_en="The corrected file is ready",
-            body_ar=f"اتعمل ملف جديد على {task.code} بالتعديلات اللي قبلتها ({len(row.accepted)}).",
-            body_en=f"A new file for {task.code} with the {len(row.accepted)} correction(s) you accepted.",
-            level="success", url=f"/tasks/{task.code}/#aiNotes", task=task,
+    with transaction.atomic():
+        # The check's row is locked while this decides, so two presses (a double click) take the stars once.
+        locked = AICheckResult.objects.select_for_update().select_related("task").get(pk=check.pk)
+        if locked.status != AICheckResult.Status.ISSUES:
+            return None, "no_notes"
+        if not indexes:
+            return None, "nothing_accepted"
+        task = locked.task
+        if task.translator_id is None:
+            return None, "no_translator"
+        fresh = [place for place in indexes if place not in (locked.accepted or [])]
+        if not fresh:
+            return None, "already"
+        translator = User.objects.select_for_update().get(pk=task.translator_id)
+        amount = AppSettings.load().penalty_value * len(fresh)
+        locked.accepted = sorted(set(locked.accepted or []) | set(fresh))
+        locked.save(update_fields=["accepted"])
+        translator.apply_penalty(
+            task,
+            reason_en=f"{len(fresh)} AI review note(s) accepted on {task.code}",
+            reason_ar=f"قبول {len(fresh)} ملاحظة من مراجعة الـAI على {task.code}",
+            amount=amount,
         )
-    else:
-        services.notify(
-            who,
-            title_ar="ملف التعديلات مااتعملش",
-            title_en="The corrected file was not made",
-            body_ar=f"ماقدرناش نعمل ملف التعديلات على {task.code}. جرّب تاني أو عدّلها بنفسك.",
-            body_en=f"The corrected file for {task.code} could not be made. Try again or correct it yourself.",
-            level="warning", url=f"/tasks/{task.code}/#aiNotes", task=task,
-        )
+        taken = abs(translator.rating_events.order_by("-id").values_list("delta", flat=True).first() or Decimal("0"))
+        services.log(user, "task.ai_accept", task.code, f"{len(fresh)} note(s), {taken} star(s) off {translator.username}")
+    services.notify(
+        translator,
+        title_ar="خصم من التقييم",
+        title_en="Rating penalty",
+        body_ar=f"التيم ليدر قبل {len(fresh)} ملاحظة على {task.code}، واتخصم {taken:f} نجمة.",
+        body_en=f"Your team leader accepted {len(fresh)} note(s) on {task.code}; {taken:f} star(s) were taken off.",
+        level="danger", url=f"/tasks/{task.code}/", task=task,
+    )
+    return taken, ""

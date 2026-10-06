@@ -279,11 +279,7 @@ export function useTaskAiNotes(code: string, enabled = true) {
     queryKey: qk.aiNotes(code),
     queryFn: () => api<TaskAiNotes>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-notes/`),
     // A check that is running ends by itself, and nothing rings for it: ask on a clock until it has.
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      // A corrected copy being made ends by itself too, and nothing rings for it.
-      return data?.check?.status === "running" || (data?.revisions ?? []).some((row) => row.status === "running") ? AI_RUNNING_POLL_MS : refetchInterval;
-    },
+    refetchInterval: (query) => (query.state.data?.check?.status === "running" ? AI_RUNNING_POLL_MS : refetchInterval),
     retry: false,
     enabled,
   });
