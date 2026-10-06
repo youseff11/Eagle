@@ -2171,6 +2171,8 @@ export interface HelpAnswer {
   open: HelpGuide | null;
   related: HelpGuide[];
   order: HelpOrder | null;
+  /** False for an answer that names people (an order that did not hold): it is not sent back as part of the conversation. */
+  keep: boolean;
 }
 
 /** POST /api/v1/help/orders/<id>/run/. `done` is false when the door refused: `message` says why. */

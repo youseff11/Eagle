@@ -90,6 +90,25 @@ class Param:
     hint: str = ""
 
 
+#: The kinds of a deduction and of a client requirement, as the card says them.
+_KINDS = {
+    "discipline": ("قواعد داخلية", "internal rules"),
+    "quality": ("خطأ في الترجمة", "translation error"),
+    "low_output": ("إنتاجية منخفضة", "low productivity"),
+    "unexcused": ("غياب من غير إذن", "absence without permission"),
+    "extra_leave": ("إجازة زيادة عن الرصيد", "leave beyond the balance"),
+    "target_miss": ("التارجت الشهري ماتحققش", "monthly target missed"),
+    "manual": ("تسوية يدوية", "manual adjustment"),
+    "like": ("بيحبه", "likes"),
+    "dislike": ("مابيحبوش", "dislikes"),
+    "rule": ("قاعدة", "rule"),
+}
+
+
+def _kind(value, lang):
+    return _KINDS.get(value, (value, value))[0 if lang == "ar" else 1]
+
+
 _GENERIC_WORDS = frozenset(
     "الموظف موظف المترجم مترجم المترجمه التيم ليدر الليدر استاذ الاستاذ دكتور الدكتور ا م د employee translator leader mr ms".split()
 )
@@ -108,9 +127,13 @@ def _find_person(text, roles, anyone=False):
     named = [(one, helpbot.words_of(one.get_full_name()), helpbot.normalize(one.username)) for one in people]
     joined = " ".join(query)
 
+    # The whole name decides; then whoever the username or the words of the name fit; then whoever the beginnings of the words fit.
+    # What fits more than one person is asked about, never decided: "ahmed" is a username and also the start of "Ahmed Samir".
+    exact = [one for one, words, _u in named if " ".join(words) == joined]
+    if len(exact) == 1:
+        return exact[0]
     tiers = [
-        [one for one, words, username in named if username == joined or " ".join(words) == joined],
-        [one for one, words, _u in named if all(word in words for word in query)],
+        [one for one, words, username in named if username == joined or all(word in words for word in query)],
         [one for one, words, _u in named if all(any(w.startswith(word) for w in words) for word in query)],
     ]
     for found in tiers:
@@ -127,7 +150,7 @@ def _find_person(text, roles, anyone=False):
 
 
 def _code(text, prefix, width):
-    found = re.fullmatch(rf"(?:{prefix.lower()})?[\s\-_]*0*(\d{{1,6}})", helpbot.normalize(text).strip())
+    found = re.fullmatch(rf"(?:{prefix.lower()})?[\s\-_]*0*([0-9]{{1,6}})", helpbot.normalize(text).strip())
     return f"{prefix}-{int(found.group(1)):0{width}d}" if found else ""
 
 
@@ -157,12 +180,12 @@ def _value(param, raw, today):
             raise Problem("التاريخ ده بعيد عن النهارده أكتر من سنة.", "That date is more than a year from today.")
         return day.isoformat()
     if kind == "time":
-        found = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", str(raw).strip())
+        found = re.fullmatch(r"([01]?[0-9]|2[0-3]):([0-5][0-9])", str(raw).strip())
         if not found:
             raise bad
         return f"{int(found.group(1)):02d}:{found.group(2)}"
     if kind == "int":
-        if isinstance(raw, bool) or not isinstance(raw, (int, str)) or not str(raw).strip().lstrip("-").isdigit():
+        if isinstance(raw, bool) or not isinstance(raw, (int, str)) or not re.fullmatch(r"-?[0-9]{1,6}", str(raw).strip()):
             raise bad
         number = int(raw)
         if not param.lo <= number <= param.hi:
@@ -281,8 +304,8 @@ def _violation_summary(v, lang):
     what = _t(lang, " و".join(parts), " and ".join(parts))
     return _t(
         lang,
-        f"تسجيل خصم على {v['employee']['name']}: {what}، بسبب: {v['reason']}. بيتسجل «مستنية الاعتماد» وماينفذش لحد ما يتعتمد من «المخالفات والخصومات».",
-        f"Record a deduction for {v['employee']['name']}: {what}, because: {v['reason']}. It is saved as waiting for approval and applies only once approved under \"Violations\".",
+        f"تسجيل خصم على {v['employee']['name']} ({_kind(v['kind'], lang)}) عن يوم {v['date']}: {what}، بسبب: {v['reason']}. بيتسجل «مستنية الاعتماد» وماينفذش لحد ما يتعتمد من «المخالفات والخصومات».",
+        f"Record a deduction for {v['employee']['name']} ({_kind(v['kind'], lang)}) for {v['date']}: {what}, because: {v['reason']}. It is saved as waiting for approval and applies only once approved under \"Violations\".",
     )
 
 
@@ -295,11 +318,12 @@ def _override_check(v, today):
 
 def _override_summary(v, lang):
     who = v["employee"]["name"]
+    why = _t(lang, f" السبب (بيظهر في جدوله): {v['reason']}", f" Reason (shown on their schedule): {v['reason']}") if v.get("reason") else ""
     if v.get("day_off"):
-        return _t(lang, f"يوم {v['date']} أجازة لـ {who}.", f"Make {v['date']} a day off for {who}.")
+        return _t(lang, f"يوم {v['date']} أجازة لـ {who}.{why}", f"Make {v['date']} a day off for {who}.{why}")
     return _t(
-        lang, f"يوم {v['date']} شغل {who} من {_clock(v['start'], lang)} لـ {_clock(v['end'], lang)} (من غير ما الجدول الأسبوعي يتغيّر).",
-        f"On {v['date']} {who} works {_clock(v['start'], lang)} to {_clock(v['end'], lang)} (the weekly roster is not changed).",
+        lang, f"يوم {v['date']} شغل {who} من {_clock(v['start'], lang)} لـ {_clock(v['end'], lang)} (من غير ما الجدول الأسبوعي يتغيّر).{why}",
+        f"On {v['date']} {who} works {_clock(v['start'], lang)} to {_clock(v['end'], lang)} (the weekly roster is not changed).{why}",
     )
 
 
@@ -436,7 +460,11 @@ ACTIONS = {
             ),
             _cancel_check,
             lambda v: Call("api_task_action", (v["task"]["code"], "cancel"), form={"reason": v.get("reason", "")}),
-            lambda v, lang: _t(lang, f"إلغاء التاسك {v['task']['code']} وتنبيه كل اللي عليها.", f"Cancel task {v['task']['code']} and tell everybody on it."),
+            lambda v, lang: _t(
+                lang,
+                f"إلغاء التاسك {v['task']['code']} وتنبيه كل اللي عليها (المترجم كمان)" + (f". السبب اللي هيوصلهم: {v['reason']}" if v.get("reason") else "."),
+                f"Cancel task {v['task']['code']} and tell everybody on it (the translator too)" + (f". The reason they will read: {v['reason']}" if v.get("reason") else "."),
+            ),
             lambda v, lang: _t(lang, f"التاسك {v['task']['code']} اتلغت.", f"Task {v['task']['code']} was cancelled."),
             danger=True,
         ),
@@ -462,7 +490,11 @@ ACTIONS = {
             ),
             _nothing,
             lambda v: Call("v1_client_requirement", (v["client"]["code"],), json={"kind": v["kind"], "text": v["text"]}),
-            lambda v, lang: _t(lang, f"إضافة متطلب للعميل {v['client']['code']}: {v['text']}", f"Add a requirement to client {v['client']['code']}: {v['text']}"),
+            lambda v, lang: _t(
+                lang,
+                f"إضافة متطلب ({_kind(v['kind'], lang)}) للعميل {v['client']['code']}: {v['text']}. هيظهر لكل مترجم على تاسكات العميل ده.",
+                f"Add a requirement ({_kind(v['kind'], lang)}) to client {v['client']['code']}: {v['text']}. Every translator on that client's tasks will read it.",
+            ),
             lambda v, lang: _t(lang, "المتطلب اتضاف.", "The requirement was added."),
         ),
         Action(
@@ -539,11 +571,17 @@ def prepare(user, name, raw_params, lang, today=None):
     if action is None:
         raise Problem("الأمر ده مش من الأوامر اللي أقدر أجهزها.", "That is not an order I can prepare.")
     today = today or timezone.localdate()
-    values = check_values(action, raw_params, today)
-    if "date" in {param.name for param in action.params} and "date" not in values:
-        values["date"] = today.isoformat()
-    action.check(values, today)
-    summary = {"ar": action.summary(values, "ar"), "en": action.summary(values, "en")}
+    try:
+        values = check_values(action, raw_params, today)
+        if "date" in {param.name for param in action.params} and "date" not in values:
+            values["date"] = today.isoformat()
+        action.check(values, today)
+        summary = {"ar": action.summary(values, "ar"), "en": action.summary(values, "en")}
+    except Problem:
+        raise
+    except Exception as failure:  # noqa: BLE001 - a value nobody thought of is a value that does not hold
+        log.warning("help assistant: an order's values were refused (%s)", type(failure).__name__)
+        raise Problem("القيم اللي اتقالت مش مظبوطة.", "The values given are not right.") from None
     HelpAction.objects.filter(user=user, status=HelpAction.Status.PENDING).update(
         status=HelpAction.Status.CANCELLED, finished_at=timezone.now()
     )
@@ -595,6 +633,12 @@ _CODES = {
 
 def _refusal(status, payload, lang):
     """Why a door said no, in words: its own sentence when it gave one, else what is known about the code."""
+    if status >= 500:
+        return _t(
+            lang,
+            "حصلت مشكلة أثناء التنفيذ ومش متأكد إن الأمر اتنفّذ. راجع الصفحة قبل ما تكرره.",
+            "Something went wrong while it ran and I cannot be sure it was not carried out. Check the page before you repeat it.",
+        )
     errors = payload.get("errors")
     if isinstance(errors, dict):
         sentences = [str(m) for messages in errors.values() for m in (messages if isinstance(messages, list) else [messages])]

@@ -21,7 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from . import guides, helpbot
-from .models import AppSettings, HelpQuestion, Role, User
+from .models import AppSettings, Client, HelpQuestion, Role, User
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT = ROOT / "frontend" / "src"
@@ -287,6 +287,10 @@ class CleaningTests(SimpleTestCase):
         self.assertEqual(shape("/hr/employees/17"), "/hr/employees/:code")
         self.assertEqual(shape("/tasks"), "/tasks")
         self.assertEqual(shape("/"), "/")
+        # A part that is not one of the app's own words is dropped, whatever it looks like: a slug, a name, a code.
+        self.assertEqual(shape("/people/ahmed_hassan"), "/:code/:code")
+        self.assertEqual(shape("/tasks/some-client-name"), "/tasks/:code")
+        self.assertEqual(shape("/chats/شركة-النيل"), "/chats/:code")
         for bad in ("", "tasks", "/../etc/passwd", "/tasks/<script>", "/" + "a" * 300):
             self.assertEqual(shape(bad), "", bad)
 
@@ -525,7 +529,7 @@ class AiTests(_Door):
         user = self.sign_in(Role.TRANSLATOR)
         self.switch_ai()
         HelpQuestion.objects.bulk_create(
-            [HelpQuestion(user=user, question="q", source="ai") for _ in range(helpbot.AI_PER_HOUR)]
+            [HelpQuestion(user=user, question="q", source="ai", ai_call=True) for _ in range(helpbot.AI_PER_HOUR)]
         )
         # Asked half an hour ago: inside the hour, outside the minute that slows a person down.
         HelpQuestion.objects.update(created_at=timezone.now() - timedelta(minutes=30))
@@ -588,3 +592,144 @@ class SettingsTests(_Door):
 
         model_admin = admin.site._registry[HelpQuestion]
         self.assertFalse(model_admin.has_add_permission(None))
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# What the review of 2026-10-06 found
+# ----------------------------------------------------------------------------------------------------------------------
+
+class ReviewTests(_Door):
+    NONE_REPLY = json.dumps({"answer": "x", "guides": [], "found": False})
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(helpbot, "ASKS_PER_MINUTE", 10_000)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_cleaning_a_huge_text_is_quick_and_a_forged_placeholder_is_harmless(self):
+        import time
+
+        started = time.monotonic()
+        for text in ("a" * 60_000, "a@" * 30_000, "1 " * 30_000, "9" * 60_000 + "x"):
+            helpbot.scrub(text)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertEqual(helpbot.scrub("\ue000\ue100\ue001"), "")
+        self.assertEqual(helpbot.scrub("on 2026-10-07 \ue000\ue100\ue001 ok"), "on 2026-10-07  ok")
+        self.assertLessEqual(len(helpbot.scrub("x " * 20_000)), helpbot.MAX_SCRUB)
+
+    def test_the_e_mail_pattern_itself_is_linear(self):
+        import time
+
+        # Not through scrub (which cuts a text first): the pattern alone, on a text that would take it many seconds if it were not.
+        started = time.monotonic()
+        helpbot._EMAIL.sub("", "a" * 40_000)
+        helpbot._EMAIL.sub("", "a@" * 20_000)
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_a_long_turn_of_the_conversation_is_quick_and_stays_within_its_length(self):
+        import time
+
+        started = time.monotonic()
+        turns = helpbot._turns([{"role": "user", "text": "a" * 60_000}], "q")
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLessEqual(len(turns[0]["content"]), helpbot.MAX_TURN + 2)
+
+    def test_an_address_the_length_limit_would_cut_in_half_is_still_taken_out(self):
+        text = "x" * (helpbot.MAX_TURN - 9) + "john@acme.example.com"
+        turns = helpbot._turns([{"role": "user", "text": text}], "q")
+        self.assertNotIn("john", turns[0]["content"])
+        self.assertNotIn("@", turns[0]["content"])
+
+    def test_every_call_of_the_ai_counts_whatever_came_of_it(self):
+        self.sign_in(Role.TRANSLATOR)
+        self.switch_ai()
+        # No answer found, then a failure, then a refusal to read: all of them were calls.
+        replies = [self.NONE_REPLY] * 10 + [OSError("down")] * 5 + ["not json"] * 5
+        for reply in replies:
+            patch = mock.patch.object(helpbot, "_call_claude", side_effect=reply) if isinstance(reply, Exception) else mock.patch.object(helpbot, "_call_claude", return_value=reply)
+            with patch as call:
+                self.ask("ازاي استلم تاسك")
+            self.assertTrue(call.called)
+        self.assertEqual(HelpQuestion.objects.filter(ai_call=True).count(), helpbot.AI_PER_HOUR)
+        with mock.patch.object(helpbot, "_call_claude") as call:
+            data = self.ask("ازاي استلم تاسك").json()
+        self.assertFalse(call.called)
+        self.assertEqual(data["source"], "guide")
+
+    def test_a_call_that_is_still_on_its_way_is_already_counted(self):
+        user = self.sign_in(Role.TRANSLATOR)
+        self.switch_ai()
+        seen = []
+
+        def slow(*args, **kwargs):
+            seen.append(HelpQuestion.objects.filter(user=user, ai_call=True).count())
+            return self.NONE_REPLY
+
+        with mock.patch.object(helpbot, "_call_claude", side_effect=slow):
+            self.ask("ازاي استلم تاسك")
+        self.assertEqual(seen, [1])
+        # And it is one row, finished, not two.
+        row = HelpQuestion.objects.get()
+        self.assertEqual((row.source, row.ai_call), ("none", True))
+
+    def test_a_clients_name_is_taken_out_before_it_is_logged_or_sent_and_not_before_it_is_searched(self):
+        Client.objects.create(name="Nile Trading Co", company="Delta Holdings", phone="+201001234567")
+        code = Client.objects.get().code
+        self.sign_in(Role.SALES)
+        self.switch_ai()
+        with mock.patch.object(helpbot, "_call_claude", return_value=self.NONE_REPLY) as call:
+            reply = self.client.post(
+                reverse("dashboard:v1_help_ask"),
+                json.dumps({
+                    "question": "ازاي ابعت ميل لشركة nile trading co و DELTA holdings",
+                    "history": [{"role": "user", "text": "كلمت Nile Trading Co امبارح"}],
+                    "lang": "ar",
+                }),
+                content_type="application/json",
+            )
+        self.assertEqual(reply.status_code, 200)
+        sent = json.dumps(call.call_args.args[3], ensure_ascii=False)
+        for secret in ("Nile", "Delta", "nile", "DELTA"):
+            self.assertNotIn(secret, sent)
+        self.assertIn(code, sent)
+        row = HelpQuestion.objects.get()
+        self.assertNotIn("Nile", row.question)
+        self.assertNotIn("Delta", row.question)
+        self.assertIn(code, row.question)
+        self.assertEqual(helpbot.mask_clients("no names here"), "no names here")
+        self.assertEqual(helpbot.mask_clients(""), "")
+
+    def test_the_search_is_not_changed_by_what_a_client_is_called(self):
+        # A client called "task" must not change what "how do I start a task" means to the search.
+        Client.objects.create(name="Task Force Ltd", company="تاسك")
+        user = person(Role.TRANSLATOR)
+        self.sign_in(Role.TRANSLATOR)
+        self.assertEqual(self.ask("ازاي استلم تاسك").json()["open"]["id"], "tr-accept")
+        self.assertEqual(helpbot._from_search(user, guides.for_user(user), "ازاي ابدا تاسك", "", "ar").guide.id, "tr-work")
+
+    def test_only_the_owner_is_told_whether_the_ai_is_on(self):
+        self.switch_ai()
+        for role in ROLES:
+            self.sign_in(role)
+            data = self.client.get(reverse("dashboard:v1_help")).json()
+            self.assertEqual(data["ai"], role == Role.ADMIN, role)
+
+    def test_old_questions_and_those_of_people_who_are_gone_are_dropped_and_recent_ones_are_not(self):
+        user = self.sign_in(Role.TRANSLATOR)
+        other = self.people[Role.HR]
+        old = timezone.now() - helpbot.RETENTION - timedelta(days=1)
+        rows = {
+            "mine old": HelpQuestion.objects.create(user=user, question="a", source="none"),
+            "orphan old": HelpQuestion.objects.create(user=None, question="b", source="none"),
+            "other old": HelpQuestion.objects.create(user=other, question="c", source="none"),
+            "mine new": HelpQuestion.objects.create(user=user, question="d", source="none"),
+        }
+        HelpQuestion.objects.filter(pk__in=[rows[k].pk for k in ("mine old", "orphan old", "other old")]).update(created_at=old)
+        self.ask("ازاي استلم تاسك")
+        left = set(HelpQuestion.objects.values_list("question", flat=True))
+        self.assertNotIn("a", left)
+        self.assertNotIn("b", left)
+        # Somebody else's old question is theirs to have dropped when they ask next: not this person's call.
+        self.assertIn("c", left)
+        self.assertIn("d", left)

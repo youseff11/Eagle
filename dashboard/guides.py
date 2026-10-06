@@ -276,13 +276,13 @@ GUIDES = (
         ),
         [
             "من قسم «الشغل» افتح «الشات».",
-            "اختار التبويب اللي محتاجه حسب دورك: «العملاء» أو «الجروبات» أو «الزمايل».",
+            "اختار التبويب: «الجروبات» أو «الزمايل»، والأوبريشن والـSales عندهم كمان «العملاء».",
             "دوّر على الاسم أو الكود في خانة البحث واضغط على المحادثة.",
             "اكتب في «اكتب رسالة...» واضغط «إرسال».",
         ],
         [
             "In the «Work» section open «Chats».",
-            "Pick the tab your role has: «Clients», «Groups» or «Colleagues».",
+            "Pick the tab: «Groups» or «Colleagues»; operation and Sales also have «Clients».",
             "Search the name or code in the search box and press the conversation.",
             "Write in «Write a message...» and press «Send».",
         ],
@@ -353,13 +353,13 @@ GUIDES = (
         [
             "افتح المحادثة من «الشات» واضغط «تحويل رسايل».",
             "علّم الرسايل اللي عايز تحوّلها واضغط «تحويل لشات».",
-            "دوّر على الزميل أو الجروب أو كود العميل واختاره.",
+            "دوّر على الزميل أو الجروب واختاره (الأوبريشن بيقدر كمان يختار كود عميل: الرسالة وقتها بتوصل العميل على واتساب).",
             "لو عايز اكتب «كلمة مع التحويل (اختياري)» وبعدها اضغط «ابعت».",
         ],
         [
             "Open the conversation from «Chats» and press «Forward».",
             "Tick the messages you want to forward and press «Forward».",
-            "Search a colleague, a group or a client code and pick it.",
+            "Search a colleague or a group and pick it (operation can also pick a client code: the message then reaches the client on WhatsApp).",
             "If you like add «Add a note (optional)», then press «Send».",
         ],
     ),
@@ -822,12 +822,12 @@ GUIDES = (
         [
             "افتح «أكواد العملاء» وادخل على العميل.",
             "في «المتطلبات والملاحظات» اختار «النوع» واكتب «المتطلب».",
-            "اضغط «ضيف متطلب». هتظهر للمترجم في صفحة أي تاسك للعميل ده.",
+            "اضغط «ضيف متطلب». هتظهر للمترجم في صفحة أي تاسك للعميل ده، فاكتب المتطلب نفسه من غير اسم العميل ولا بياناته.",
         ],
         [
             "Open «Client codes» and go into the client.",
             "In «Requirements & notes» pick the «Kind» and write the «Requirement».",
-            "Press «Add requirement». The translator sees it on any task of that client.",
+            "Press «Add requirement». The translator sees it on any task of that client, so write the requirement itself, without the client's name or details.",
         ],
     ),
     _guide(
@@ -1592,8 +1592,8 @@ GUIDES = (
             "In «The help assistant» tick «Let the assistant answer with the AI» and save.",
         ],
         note=(
-            "المساعد بيرد من دليل الخطوات حتى من غير ده. لو فعّلته بيبعت سؤال الموظف ودليل دوره بس لـ Claude، من غير أي بيانات عملاء. الأسئلة اللي ملهاش رد بتشوفها في لوحة Django (Help questions).",
-            "The assistant answers from the step guides even without this. When on it sends only the person's question and their role's guides to Claude, with no client data. Questions with no answer are in Django's admin (Help questions).",
+            "المساعد بيرد من دليل الخطوات حتى من غير ده. لو فعّلته بيبعت سؤال الموظف ودليل دوره بس لـ Claude، بعد ما بيشيل منه الإيميلات والأرقام والمفاتيح وأسماء العملاء المعروفة (بتتحوّل لكود العميل). ومفيش حاجة من الشغل بتتبعت. نبّه الموظفين ما يكتبوش بيانات عملاء. الأسئلة اللي ملهاش رد بتشوفها في لوحة Django (Help questions).",
+            "The assistant answers from the step guides even without this. When on it sends only the person's question and their role's guides to Claude, after taking out e-mails, numbers, keys and known clients' names (a name becomes the client's code). Nothing from the work is sent. Tell staff not to type client details. Questions with no answer are in Django's admin (Help questions).",
         ),
     ),
     _guide(

@@ -35,7 +35,8 @@ def home(request):
     conf = AppSettings.load()
     return JsonResponse({
         "ok": True,
-        "ai": helpbot.ai_available(conf),
+        # Whether the owner has put the AI to work is the owner's to know.
+        "ai": helpbot.ai_available(conf) if user.is_admin_role else False,
         # Whether this person may give orders: only the owner, only when they switched it on.
         "orders": helpactions.available(conf, user),
         "starters": [_card(guide, lang) for guide in helpbot.starters(user)],
@@ -75,6 +76,8 @@ def ask(request):
         "open": _card(result.guide, lang) if result.guide and result.guide.path else None,
         "related": [_card(guide, lang) for guide in result.related],
         "order": helpactions.card(result.proposal, lang) if result.proposal else None,
+        # False for an answer that names people (an order that did not hold): the page does not send it back as conversation.
+        "keep": result.keep,
     })
 
 

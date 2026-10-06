@@ -26,10 +26,11 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 from . import ai, guides, net
-from .models import AppSettings, HelpQuestion, Role
+from .models import AppSettings, Client, HelpQuestion, Role
 
 log = logging.getLogger("dashboard")
 
@@ -56,6 +57,10 @@ STARTERS = 6
 RELATED = 3
 #: The most the model's answer may carry.
 MAX_ANSWER = 2500
+#: The most of a text that is cleaned at once (a question is 500, a turn of the conversation 800): nothing longer is ever worked on.
+MAX_SCRUB = 5000
+#: How long a question stays in the log.
+RETENTION = timedelta(days=90)
 
 LANGS = ("ar", "en")
 
@@ -121,7 +126,8 @@ def meaningful(text):
     return [_stem(word) for word in words_of(text) if word not in _STOP]
 
 
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Every part is bounded: an unbounded one is quadratic on a long text with no "@" in it.
+_EMAIL = re.compile(r"[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+")
 _PHONE = re.compile(r"\+?\d[\d\s\-().]{5,}\d")
 _SECRET = re.compile(r"[A-Za-z0-9_\-]{24,}")
 
@@ -129,11 +135,13 @@ _SECRET = re.compile(r"[A-Za-z0-9_\-]{24,}")
 #: A date is not a phone number, though ``2026-10-07`` looks like one: it is held aside while the numbers are taken out.
 _DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}")
 _HELD = re.compile("\uE000(.)\uE001")
+#: The private-use characters the dates are held behind: nobody's text carries them in, so a forged one cannot be restored.
+_PRIVATE_USE = re.compile("[\uE000-\uF8FF]")
 
 
 def scrub(text):
     """The text without anything that looks like an address, a number or a key: nothing like that leaves or is logged."""
-    text = _EMAIL.sub("[removed]", str(text or ""))
+    text = _EMAIL.sub("[removed]", _PRIVATE_USE.sub("", str(text or "")[:MAX_SCRUB]))
     dates = []
 
     def hold(found):
@@ -146,7 +154,38 @@ def scrub(text):
     return _HELD.sub(lambda found: dates[ord(found.group(1)) - 0xE100], text).strip()
 
 
-_PAGE_ID = re.compile(r"^(?:\d+|[A-Za-z]{1,5}-\d+|[a-z]\d+)$")
+def mask_clients(text):
+    """The text with every client's name or company it happens to carry written as the client's code.
+
+    Staff type anything, and a name is the one thing ``scrub`` cannot know. This is the other half: what is known (the clients'
+    own names) is taken out before the text is logged or sent. The search through the guides does not use it (a client called
+    "task" must not change what "how do I start a task" means).
+    """
+    if not text:
+        return text
+    codes = {}
+    for name, company, code in Client.objects.values_list("name", "company", "code"):
+        for word in (name, company):
+            word = (word or "").strip()
+            if len(word) >= 3:
+                codes[word.lower()] = code
+    if not codes:
+        return text
+    pattern = re.compile("|".join(re.escape(word) for word in sorted(codes, key=len, reverse=True)), re.IGNORECASE)
+    return pattern.sub(lambda found: codes[found.group(0).lower()], text)
+
+
+def clean(text):
+    """What may leave or be logged: no contacts, no keys, no client's name."""
+    return mask_clients(scrub(text))
+
+
+#: The words a page's address is made of, as the app's own pages spell them. Any other part of an address is a name or a code
+#: (a task, a client, a person) and is never kept: this is a list of what may stay, not of what must go.
+KNOWN_SEGMENTS = frozenset(
+    {part for guide in guides.GUIDES for part in guide.path.split("/") if part}
+    | {"thread", "lines", "interviews", "hire", "recruitment", "salary", "notifications", "payroll", "assignments", "reviewer", "tests"}
+)
 
 
 def page_shape(path):
@@ -158,7 +197,7 @@ def page_shape(path):
     for part in [one for one in path.split("/") if one][:4]:
         if not re.fullmatch(r"[\w\-]{1,60}", part):
             return ""
-        parts.append(":code" if _PAGE_ID.match(part) else part)
+        parts.append(part if part in KNOWN_SEGMENTS else ":code")
     return "/" + "/".join(parts) if parts else "/"
 
 
@@ -251,6 +290,8 @@ class Answer:
     logged: bool = True
     #: An order the owner gave, prepared and waiting for their yes (``helpactions``): the answer is a card to confirm.
     proposal: object = None
+    #: False for an answer that must not be sent back to the model as part of the conversation (it names people of ours).
+    keep: bool = True
 
     @property
     def answered(self):
@@ -361,7 +402,8 @@ def _turns(history, question):
     for turn in (history or [])[-MAX_HISTORY:]:
         if not isinstance(turn, dict) or turn.get("role") not in ("user", "assistant") or not isinstance(turn.get("text"), str):
             continue
-        text = scrub(turn["text"])[:MAX_TURN]
+        # Cleaned first and cut after: an address cut in the middle ("john@acme" of "john@acme.example") is no longer one to find.
+        text = clean(turn["text"])[:MAX_TURN]
         if not text:
             continue
         if turns and turns[-1]["role"] == turn["role"]:
@@ -435,7 +477,7 @@ def _from_ai(conf, user, visible, question, history, page, lang):
             row = helpactions.prepare(user, order["name"], order.get("params"), lang)
         except helpactions.Problem as problem:
             # The order did not hold: the owner is told why, in the server's words, and nothing was kept.
-            return Answer(problem.text(lang), HelpQuestion.Source.AI)
+            return Answer(problem.text(lang), HelpQuestion.Source.AI, keep=False)
         return Answer(
             _t(lang, "جهّزت الأمر ده. راجعه، ولو تمام اضغط «نفّذ»:", "I have prepared this order. Check it, and press «Run» if it is right:"),
             HelpQuestion.Source.ACTION, proposal=row,
@@ -466,8 +508,14 @@ def too_fast(user, now=None):
 
 
 def _may_ask_ai(user, now=None):
+    """Has this person calls of the AI left this hour. Every call counts, whatever came of it (an answer, no answer, a failure)."""
     since = (now or timezone.now()) - timedelta(hours=1)
-    return HelpQuestion.objects.filter(user=user, source=HelpQuestion.Source.AI, created_at__gte=since).count() < AI_PER_HOUR
+    return HelpQuestion.objects.filter(user=user, ai_call=True, created_at__gte=since).count() < AI_PER_HOUR
+
+
+def _prune(user):
+    """The person's own questions older than ``RETENTION`` go, and so do those of people who are gone (their rows are kept unowned)."""
+    HelpQuestion.objects.filter(Q(user=user) | Q(user__isnull=True), created_at__lt=timezone.now() - RETENTION).delete()
 
 
 def answer(user, question, *, lang="", page="", history=(), guide_id=""):
@@ -479,26 +527,38 @@ def answer(user, question, *, lang="", page="", history=(), guide_id=""):
     lang = clean_lang(lang, user)
     page = page_shape(page)
     visible = guides.for_user(user)
+    # ``question`` is what the search reads (no contacts); ``safe`` is also without a client's name, and is what is logged and sent.
     question = scrub(question)[:MAX_QUESTION]
+    safe = mask_clients(question)[:MAX_QUESTION]
     chosen = next((guide for guide in visible if guide.id == guide_id), None) if guide_id else None
+    claim = None
     if chosen is not None:
         result = from_guide(chosen, lang)
-        question = chosen.title[0 if lang == "ar" else 1]
+        safe = chosen.title[0 if lang == "ar" else 1]
     elif not has_substance(question):
         result = _greeting(user, lang)
     else:
         result = None
         conf = AppSettings.load()
         if ai_available(conf) and _may_ask_ai(user):
-            result = _from_ai(conf, user, visible, question, history, page, lang)
+            # Written before the call: the hourly count must see a call that is still on its way (it takes seconds).
+            claim = HelpQuestion.objects.create(
+                user=user, question=safe, page=page[:120], source=HelpQuestion.Source.AI, ai_call=True
+            )
+            result = _from_ai(conf, user, visible, safe, history, page, lang)
         if result is None:
             result = _from_search(user, visible, question, page, lang)
     if result.logged:
-        HelpQuestion.objects.create(
-            user=user, question=question, page=page[:120], source=result.source,
-            guides=(
+        fields = {
+            "source": result.source,
+            "guides": (
                 result.proposal.name if result.proposal
                 else ",".join(one.id for one in ([result.guide] if result.guide else []) + list(result.related))
             )[:200],
-        )
+        }
+        if claim is not None:
+            HelpQuestion.objects.filter(pk=claim.pk).update(**fields)
+        else:
+            HelpQuestion.objects.create(user=user, question=safe, page=page[:120], **fields)
+    _prune(user)
     return result

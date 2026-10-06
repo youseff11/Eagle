@@ -100,8 +100,8 @@ TEXTS = {
     "helpbot_ai_enabled": {
         "label": ("خلّي المساعد يرد بالـ AI", "Let the assistant answer with the AI"),
         "hint": (
-            "المساعد (الزرار اللي فوق جنب التنبيهات) بيرد من دليل الخطوات في كل الأحوال. لو فتحت ده ومفتاح Claude موجود، بيبعت سؤال الموظف ودليل دوره بس لـ Claude عشان يفهم السؤال ويرتّب الرد. مابيبعتش بيانات عملاء ولا أي حاجة من الشغل.",
-            "The assistant (the button in the top bar) always answers from the step guides. When this is on and a Claude key is saved, it sends the person's question and the guides of their role to Claude, which understands the question and words the reply. No client data and nothing from the work is sent.",
+            "المساعد (الزرار اللي فوق جنب التنبيهات) بيرد من دليل الخطوات في كل الأحوال. لو فتحت ده ومفتاح Claude موجود، بيبعت سؤال الموظف ودليل دوره بس لـ Claude عشان يفهم السؤال ويرتّب الرد. مابيبعتش أي حاجة من الشغل. وكلام الموظف نفسه بيتبعت بعد ما الإيميلات والأرقام والمفاتيح وأسماء العملاء المعروفة بتتشال منه (اسم العميل بيتحوّل لكوده)، فنبّه الموظفين ما يكتبوش بيانات عملاء في المساعد.",
+            "The assistant (the button in the top bar) always answers from the step guides. When this is on and a Claude key is saved, it sends the person's question and the guides of their role to Claude, which understands the question and words the reply. Nothing from the work is sent. What a person types is cleaned first (e-mails, numbers, keys and known clients' names are taken out; a client's name becomes their code), so tell staff not to type client details into the assistant.",
         ),
     },
     "response_window_seconds": {"label": ("مهلة تأكيد الاستلام (ثانية)", "Confirmation window (seconds)")},

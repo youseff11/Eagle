@@ -1997,6 +1997,8 @@ class HelpQuestion(models.Model):
     #: The page the person was on, as its shape (``/tasks/:code``), never the address itself.
     page = models.CharField(max_length=120, blank=True)
     source = models.CharField(max_length=8, choices=Source.choices)
+    #: A call of the AI was made for this question (whatever came of it): what the hourly limit counts.
+    ai_call = models.BooleanField(default=False)
     #: The guides the answer pointed to, ids separated by commas.
     guides = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

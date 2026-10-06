@@ -19,6 +19,8 @@ interface Turn {
   order?: { card: HelpOrder; state: OrderState; message?: string };
   /** The turn is an error of ours, not an answer: it is not sent back as part of the conversation. */
   problem?: boolean;
+  /** The server asked for it to be left out of the conversation (it names people of ours). */
+  forget?: boolean;
 }
 
 /** The last turns the server's AI path may read, and the longest of them it keeps. */
@@ -146,7 +148,7 @@ export function HelpBot() {
     const said = guide ? guide.title : typed.trim();
     if (!said || ask.isPending) return;
     const history: HelpTurn[] = turns
-      .filter((turn) => turn.text && !turn.problem)
+      .filter((turn) => turn.text && !turn.problem && !turn.forget)
       .slice(-HISTORY)
       .map((turn) => ({ role: turn.who === "me" ? "user" : "assistant", text: turn.text }));
     add({ who: "me", text: said });
@@ -166,6 +168,7 @@ export function HelpBot() {
           add({
             who: "bot",
             text: answer.answer,
+            forget: answer.keep === false,
             open: answer.open,
             related: answer.related,
             order: answer.order ? { card: answer.order, state: "waiting" } : undefined,

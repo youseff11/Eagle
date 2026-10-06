@@ -556,3 +556,86 @@ class CatalogTests(TestCase):
             self.assertIn(f"- {name}:", text)
             for param in action.params:
                 self.assertIn(param.name, text)
+
+
+class ReviewTests(_Owner):
+    """What the review of 2026-10-06 found."""
+
+    def test_a_value_that_looks_like_a_digit_but_is_not_one_is_refused_not_a_server_error(self):
+        for params in (
+            dict(start="09:07", end="17:43", break_minutes="\u00b2"),
+            dict(start="09:07", end="17:43", break_minutes="--5"),
+            dict(start="09:07", end="17:43", break_minutes="\u0663"),
+            dict(start="09:3\u0660", end="17:43"),
+            dict(start="\uff10\uff19:07", end="17:43"),
+        ):
+            reply = self.ask("اعمل شيفت", _order("shift.create", **params))
+            with self.subTest(params=params):
+                self.assertIsNone(reply["order"], reply)
+                self.assertEqual(reply["source"], "ai")
+        self.assertEqual(HelpAction.objects.count(), 0)
+
+    def test_a_task_code_written_in_arabic_digits_is_the_same_code(self):
+        task = Task.objects.create(client=self.client_obj, title="Doc", created_by=self.ops, status=TaskStatus.NEW)
+        arabic = str.maketrans("0123456789", "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669")
+        number = str(int(task.code.split("-")[1])).translate(arabic)
+        card = self.ask("الغي", _order("task.cancel", task=f"TSK-{number}"))["order"]
+        self.assertIn(task.code, card["summary"])
+
+    def test_whatever_breaks_while_the_values_are_read_is_a_refusal_in_words(self):
+        with mock.patch.object(helpactions, "check_values", side_effect=ValueError("boom")):
+            reply = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
+        self.assertIsNone(reply["order"])
+        self.assertIn("مش مظبوطة", reply["answer"])
+        self.assertEqual(HelpAction.objects.count(), 0)
+
+    def test_the_deduction_card_says_the_date_and_the_kind(self):
+        day = TODAY - timedelta(days=2)
+        card = self.ask("اخصم", _order("violation.create", employee="Tarek", kind="unexcused", days=1, reason="غاب", date=day.isoformat()))["order"]
+        self.assertIn(day.isoformat(), card["summary"])
+        self.assertIn("غياب من غير إذن", card["summary"])
+        english = self.ask("اخصم", _order("violation.create", employee="Tarek", kind="quality", days=1, reason="x"), lang="en")
+        self.assertIsNotNone(english["order"])
+
+    def test_the_requirement_card_says_the_kind_and_who_reads_it(self):
+        card = self.ask("متطلب", _order("client.requirement", client=self.client_obj.code, kind="dislike", text="No abbreviations"))["order"]
+        self.assertIn("مابيحبوش", card["summary"])
+        self.assertIn("مترجم", card["summary"])
+
+    def test_the_cancel_and_day_cards_say_the_reason_that_will_reach_other_people(self):
+        task = Task.objects.create(client=self.client_obj, title="Doc", created_by=self.ops, status=TaskStatus.NEW)
+        card = self.ask("الغي", _order("task.cancel", task=task.code, reason="السبب الفلاني"))["order"]
+        self.assertIn("السبب الفلاني", card["summary"])
+        self.assertIn("المترجم", card["summary"])
+        day = (TODAY + timedelta(days=4)).isoformat()
+        card = self.ask("اجازة", _order("day.override", employee="Omar", date=day, day_off=True, reason="ظرف عائلي"))["order"]
+        self.assertIn("ظرف عائلي", card["summary"])
+        # Without a reason the card has no empty "reason" line.
+        card = self.ask("اجازة", _order("day.override", employee="Omar", date=day, day_off=True))["order"]
+        self.assertNotIn("السبب", card["summary"])
+
+    def test_a_username_that_is_also_the_start_of_another_name_is_asked_about(self):
+        User.objects.create_user("ahmed", password="pw", role=Role.OPERATION, first_name="Ali", last_name="Mostafa")
+        User.objects.create_user("asamir", password="pw", role=Role.OPERATION, first_name="Ahmed", last_name="Samir")
+        reply = self.ask("وقف", _order("employee.set_active", employee="ahmed", active=False))
+        self.assertIsNone(reply["order"])
+        self.assertIn("Ali", reply["answer"])
+        self.assertIn("Ahmed", reply["answer"])
+        # The whole name is not a question.
+        self.assertIsNotNone(self.ask("وقف", _order("employee.set_active", employee="Ahmed Samir", active=False))["order"])
+
+    def test_an_answer_that_names_people_is_not_sent_back_as_conversation(self):
+        User.objects.filter(pk__in=(self.tr.pk, self.tr2.pk)).update(last_name="Hassan")
+        reply = self.ask("اخصم", _order("violation.create", employee="Hassan", days=1, reason="x"))
+        self.assertIn("Tarek", reply["answer"])
+        self.assertIs(reply["keep"], False)
+        ordinary = self.ask("ازاي اسجل حضور", json.dumps({"answer": "x", "guides": [], "found": True}))
+        self.assertIs(ordinary["keep"], True)
+
+    def test_a_door_that_blew_up_is_not_reported_as_a_refusal_that_changed_nothing(self):
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
+        with mock.patch.object(helpactions, "_call", return_value=(500, {})):
+            reply = self.press(order).json()
+        self.assertFalse(reply["done"])
+        self.assertIn("مش متأكد", reply["message"])
+        self.assertNotIn("محصلش حاجة", reply["message"])

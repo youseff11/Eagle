@@ -28,7 +28,7 @@ function home(overrides: Partial<HelpHome> = {}): HelpHome {
 }
 
 function answer(overrides: Partial<HelpAnswer> = {}): HelpAnswer {
-  return { ok: true, answer: STEPS, answered: true, source: "guide", open: ACCEPT, related: [], order: null, ...overrides };
+  return { ok: true, answer: STEPS, answered: true, source: "guide", open: ACCEPT, related: [], order: null, keep: true, ...overrides };
 }
 
 function order(overrides: Partial<HelpOrder> = {}): HelpOrder {
@@ -190,6 +190,19 @@ describe("asking", () => {
     await user.type(screen.getByRole("textbox"), "ازاي استلم تاسك{Enter}");
     await waitFor(() => expect(view.asked).toHaveLength(2));
     expect((view.asked[1]!.history as { role: string }[]).map((turn) => turn.role)).toEqual(["user"]);
+  });
+
+  it("does not send back, as conversation, an answer the server said names people", async () => {
+    const view = renderBot({
+      answers: [answer({ answer: "فيه أكتر من واحد: Ali Mostafa، Ahmed Samir.", open: null, keep: false, source: "ai" }), answer()],
+    });
+    const user = await openIt();
+    await user.type(screen.getByRole("textbox"), "وقّف ahmed{Enter}");
+    expect(await screen.findByText(/Ali Mostafa/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox"), "Ahmed Samir{Enter}");
+    await waitFor(() => expect(view.asked).toHaveLength(2));
+    expect((view.asked[1]!.history as { role: string }[]).map((turn) => turn.role)).toEqual(["user"]);
+    expect(JSON.stringify(view.asked[1])).not.toContain("Ali Mostafa");
   });
 
   it("says when it is asked too fast", async () => {

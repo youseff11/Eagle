@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { qk } from "../api/keys";
 import { readPath, threadPath } from "../api/queries";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { jsonResponse } from "../test/helpers";
 import { entry, renderChats as render, row, visible, file } from "../test/chat";
 import { newestShown } from "../components/chat/Conversation";
@@ -167,6 +169,54 @@ describe("a conversation", () => {
     expect(within(ours).getByText("Nour")).toBeInTheDocument();
     expect(ours.querySelector(".tick")).not.toBeNull();
     expect(document.querySelector('[data-uid="in-1"]')).toHaveClass("bub--in");
+  });
+
+  // A work group or a colleague's chat is drawn as WhatsApp draws one: what this person wrote on their side, what the others wrote
+  // on the other. The server calls every colleague's message `out` (only a client's words are `in`), so `mine` decides there.
+  it.each([
+    ["a colleague's chat", "u5", row("u5", { staff: true, initials: "MS", label: "Mona" })],
+    ["a work group", "g12", row("g12", { group: true, team: true, label: "Work" })],
+  ])("puts only my own words on my side in %s, and the others on the other", async (_name, code, header) => {
+    render(`/chats/${code}`, {
+      thread: {
+        client: header,
+        messages: [
+          entry(1, { kind: "out", uid: "mine-1", body: "from me", mine: true, status: "sent", sender: "Nour" }),
+          entry(2, { kind: "out", uid: "theirs-2", body: "from Mona", mine: false, sender: "Mona" }),
+          entry(3, { kind: "in", uid: "client-3", body: "from the client", mine: false, sender: "" }),
+        ],
+      },
+    });
+    await screen.findByText("from me");
+    expect(document.querySelector('[data-uid="mine-1"]')).toHaveClass("bub--out");
+    expect(document.querySelector('[data-uid="theirs-2"]')).toHaveClass("bub--in");
+    expect(document.querySelector('[data-uid="client-3"]')).toHaveClass("bub--in");
+    // Nobody else's message carries the marks of mine.
+    expect(document.querySelector('[data-uid="theirs-2"] .tick')).toBeNull();
+  });
+
+  it("keeps every message of ours on our side in a client's conversation, whichever colleague wrote it", async () => {
+    render("/chats/CL-0001", {
+      thread: {
+        client: row("CL-0001"),
+        messages: [
+          entry(1, { kind: "out", uid: "mine-1", body: "from me", mine: true, status: "sent", sender: "Nour" }),
+          entry(2, { kind: "out", uid: "colleague-2", body: "from a colleague", mine: false, status: "sent", sender: "Mona" }),
+          entry(3),
+        ],
+      },
+    });
+    await screen.findByText("from me");
+    expect(document.querySelector('[data-uid="mine-1"]')).toHaveClass("bub--out");
+    expect(document.querySelector('[data-uid="colleague-2"]')).toHaveClass("bub--out");
+    expect(document.querySelector('[data-uid="in-3"]')).toHaveClass("bub--in");
+  });
+
+  it("lays a conversation out left to right in both languages, with the words inside keeping the language's direction", () => {
+    // WhatsApp's sides (ours on the right) in Arabic too: a row laid out by the page's direction put ours on the left of an Arabic page.
+    const css = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf-8");
+    expect(css).toMatch(/\.bub\s*\{\s*direction:\s*ltr;\s*\}/);
+    expect(css).toMatch(/\[dir="rtl"\]\s+\.bub__box\s*\{\s*direction:\s*rtl;\s*\}/);
   });
 
   it("shows the date once for each day and the time in Arabic", async () => {
