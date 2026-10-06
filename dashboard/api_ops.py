@@ -18,7 +18,7 @@ from .api_v1 import (
 )
 from .forms import QUICK_LANGUAGES, RequirementForm, TaskForm, language_choices
 from .models import (
-    ACTIVE_TASK_STATUSES, AppSettings, ChatAttachment, Client, Priority, Role, RoomKind, Task, TaskStatus, User,
+    ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, AppSettings, ChatAttachment, Client, Priority, Role, RoomKind, Task, TaskStatus, User,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import PRIORITY_MAP
@@ -119,7 +119,7 @@ def team(request):
     # One question for everybody's open tasks, instead of one per person.
     tasks_of = {}
     for task in (
-        Task.objects.filter(status__in=ACTIVE_TASK_STATUSES, translator__in=members).order_by("deadline", "code")
+        Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator__in=members).order_by("deadline", "code")
     ):
         tasks_of.setdefault(task.translator_id, []).append(task.code)
 

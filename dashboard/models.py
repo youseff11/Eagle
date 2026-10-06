@@ -73,6 +73,15 @@ ACTIVE_TASK_STATUSES = (
     TaskStatus.REVIEWED,
 )
 
+#: The statuses in which a translator is still the one holding the task. Once the files are handed in the work is with the
+#: leader and the operation, so the translator is free for the next one; a send-back returns it to IN_PROGRESS and busy again.
+TRANSLATOR_HOLDING_STATUSES = (
+    TaskStatus.AWAITING_LEAD,
+    TaskStatus.LEAD_ACCEPTED,
+    TaskStatus.AWAITING_TRANSLATOR,
+    TaskStatus.IN_PROGRESS,
+)
+
 
 class AssignmentStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -698,9 +707,9 @@ class User(AbstractUser):
 
     # -- workload ----------------------------------------------------------
     def active_tasks(self):
-        qs = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
         if self.is_translator:
-            return qs.filter(translator=self)
+            return Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator=self)
+        qs = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
         if self.is_team_lead:
             return qs.filter(team_lead=self)
         return qs.none()

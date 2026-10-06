@@ -16,6 +16,7 @@ from django.utils import timezone
 from . import avatars, clock
 from .models import (
     ACTIVE_TASK_STATUSES,
+    TRANSLATOR_HOLDING_STATUSES,
     AICheckResult,
     AppSettings,
     Assignment,
@@ -5536,7 +5537,7 @@ def translator_board(lead=None):
 
     open_tasks = (
         Task.objects.filter(
-            status__in=ACTIVE_TASK_STATUSES, translator__in=people
+            status__in=TRANSLATOR_HOLDING_STATUSES, translator__in=people
         )
         .select_related("client")
         .order_by("deadline", "code")
