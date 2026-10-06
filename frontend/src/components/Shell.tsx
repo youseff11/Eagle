@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, matchPath, useLocation } from "react-router";
+import { Link, Outlet, matchPath, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
 import { warmPages } from "../api/prefetch";
 import { useAskAhead } from "../hooks/useAskAhead";
@@ -363,6 +363,16 @@ function Frame() {
   const realtime = useRealtimeStatus();
   const location = useLocation();
   const [drawer, setDrawer] = useState(false);
+  const notificationsOpen = /^\/notifications\/?$/.test(location.pathname);
+  const [notificationReturnTo, setNotificationReturnTo] = useState("/");
+
+  // Both the bell and the menu return to the last page, including its filters and section.
+  useEffect(() => {
+    if (!notificationsOpen) {
+      setNotificationReturnTo(location.pathname + location.search + location.hash);
+    }
+  }, [notificationsOpen, location.pathname, location.search, location.hash]);
+  const notificationTarget = notificationsOpen ? notificationReturnTo : "/notifications";
 
   // A phone's menu is a drawer: it closes when you go somewhere, and on Escape.
   useEffect(() => setDrawer(false), [location.pathname]);
@@ -540,7 +550,7 @@ function Frame() {
                     return (
                       <Link
                         key={line.path}
-                        to={line.path}
+                        to={line.key === "notifications" ? notificationTarget : line.path}
                         aria-current={here ? "page" : undefined}
                         className={`nav__item${here ? " is-active" : ""}${line.danger ? " nav__item--danger" : ""}`}
                       >
@@ -606,10 +616,15 @@ function Frame() {
             <Icon name={theme === "dark" ? "moon" : "sun"} />
           </button>
           <HelpBot />
-          <NavLink className="icon-btn" to="/notifications" title={t("التنبيهات", "Notifications")}>
+          <Link
+            className={`icon-btn${notificationsOpen ? " active" : ""}`}
+            to={notificationTarget}
+            aria-current={notificationsOpen ? "page" : undefined}
+            title={t("التنبيهات", "Notifications")}
+          >
             <Icon name="bell" />
             {unread > 0 && <span className="icon-btn__dot">{unread}</span>}
-          </NavLink>
+          </Link>
           <div className="topbar__divider" />
           {user && <ProfileMenu user={user} roleLabel={ROLE_LABELS[user.role]?.[lang === "ar" ? 0 : 1] ?? user.role} />}
           <button className="icon-btn" type="button" title={t("خروج", "Log out")} onClick={logout}>

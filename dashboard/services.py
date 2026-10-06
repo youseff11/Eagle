@@ -6,6 +6,7 @@ same logic can be reused by the webhooks, the management commands and the API.
 
 import logging
 import os
+import re
 from datetime import timedelta
 
 from django.db import transaction
@@ -1040,6 +1041,42 @@ def client_rooms_for(client_id, only_open=True):
     return qs.select_related("task", "client")
 
 
+#: The most people one message may mention.
+MAX_MENTIONS = 20
+
+
+def mention_pattern(name):
+    """``@name`` as a whole word: "@Nour" is not found inside "@Nourhan". The page draws with the same rule (``lib/mentions.ts``)."""
+    return re.compile(r"(?<!\w)@" + re.escape(name) + r"(?!\w)")
+
+
+def mention_targets(room, sender, body, raw):
+    """The colleagues a message really mentions: who gets the ping, and whom the bubble marks.
+
+    ``raw`` is what the page sent, the ids it picked from the box ("3,5"): a name is not unique, so the words alone
+    cannot say which Mohamed was meant. An id counts only if that person is in the room and may open it (the same
+    test every notification is put to, ``ChatRoom.can_open``), is not the sender, and is still named in the words:
+    taking the "@name" out of a message takes the ping with it.
+
+    Never in a client room - what is typed there is relayed to the client word for word, and an "@name" would put a
+    colleague's name in front of them (client-privacy rule 4) - nor in a chat of two, where there is nobody to pick.
+    """
+    if room.kind in (RoomKind.CLIENT, RoomKind.STAFF) or not (body or "").strip():
+        return []
+    ids = []
+    for part in str(raw or "")[:400].split(",")[:MAX_MENTIONS]:
+        part = part.strip()
+        if part.isascii() and part.isdigit():
+            ids.append(int(part))
+    if not ids:
+        return []
+    people = room.members.filter(pk__in=ids, is_active=True).exclude(pk=sender.pk).order_by("id")
+    return [
+        person for person in people
+        if mention_pattern(person.short_name).search(body) and room.can_open(person)
+    ]
+
+
 def group_thread(room, user, limit=200):
     """A group's messages in the same shape ``client_thread`` returns.
 
@@ -1048,7 +1085,7 @@ def group_thread(room, user, limit=200):
     rows = (
         room.messages
         .select_related("sender", "inbound", "reply_to", "reply_to__sender", "task")
-        .prefetch_related("attachments", "inbound__attachments")
+        .prefetch_related("attachments", "inbound__attachments", "mentions")
         .order_by("-id")[:limit]
     )
     rows = list(reversed(list(rows)))
@@ -1091,6 +1128,9 @@ def group_thread(room, user, limit=200):
             "receipt": receipt,
             "seen_by": seen_by,
             "forwarded": row.forwarded,
+            # Who this message pinged (by id: a name is not unique), and whether it pinged the viewer.
+            "mentions": [{"id": person.pk, "name": person.short_name} for person in row.mentions.all()],
+            "mentions_me": user is not None and any(person.pk == user.pk for person in row.mentions.all()),
             "reactions": reacts.get(row.id, []),
             "reactions_sig": reactions_sig(reacts.get(row.id, [])),
         })

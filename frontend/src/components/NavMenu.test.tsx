@@ -17,7 +17,7 @@ afterEach(() => {
 
 function Where() {
   const here = useLocation();
-  return <div data-testid="where">{here.pathname + here.hash}</div>;
+  return <div data-testid="where">{here.pathname + here.search + here.hash}</div>;
 }
 
 const TASK = { code: "TSK-00007", title: "Lease contract", origin: "email", status_ar: "جاري", status_en: "In progress", client: "CL-0001", href: "/tasks/TSK-00007/" };
@@ -61,6 +61,40 @@ const isOpen = (container: HTMLElement, key: string) => head(container, key).get
 const saved = () => JSON.parse(localStorage.getItem("eagle_nav_open") ?? "{}") as Record<string, boolean>;
 
 describe("the menu's sections", () => {
+  it("toggles notifications with the bell and returns to the page with its filters and section", async () => {
+    const { container } = renderMenu({ route: "/tasks?status=open#assigned" });
+    const bell = container.querySelector('.topbar a[title="التنبيهات"]') as HTMLElement;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await userEvent.click(bell);
+      expect(screen.getByTestId("where")).toHaveTextContent(/^\/notifications$/);
+      expect(bell).toHaveAttribute("aria-current", "page");
+      await userEvent.click(bell);
+      expect(screen.getByTestId("where")).toHaveTextContent(/^\/tasks\?status=open#assigned$/);
+      expect(bell).not.toHaveAttribute("aria-current");
+    }
+  });
+
+  it("also closes notifications opened from the phone's menu", async () => {
+    const { container } = renderMenu({ route: "/tasks" });
+    await waitFor(() => expect(group(container, "mine")).not.toBeNull());
+    const sidebar = container.querySelector(".sidebar")!;
+    await userEvent.click(screen.getByRole("button", { name: "القايمة" }));
+    await userEvent.click(head(container, "mine"));
+    await userEvent.click(within(sidebar as HTMLElement).getByRole("link", { name: "التنبيهات" }));
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/notifications$/);
+    expect(sidebar).not.toHaveClass("is-open");
+    await userEvent.click(screen.getByRole("button", { name: "القايمة" }));
+    await userEvent.click(within(sidebar as HTMLElement).getByRole("link", { name: "التنبيهات" }));
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/tasks$/);
+    expect(sidebar).not.toHaveClass("is-open");
+  });
+
+  it("returns home when notifications were opened directly", async () => {
+    const { container } = renderMenu({ route: "/notifications/" });
+    await userEvent.click(container.querySelector('.topbar a[title="التنبيهات"]') as HTMLElement);
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
+  });
+
   it("gives technical support the tasks, the team board and the chats, and no attendance, no leave and no pay", async () => {
     const { container } = renderMenu({ role: "support", screens: ["support", "chats"], route: "/tasks" });
     await screen.findByRole("link", { name: "التاسكات" });

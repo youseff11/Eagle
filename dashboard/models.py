@@ -1819,6 +1819,11 @@ class ChatMessage(models.Model):
         "self", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="replies",
     )
+    #: The colleagues this message @-mentions, each of whom was pinged for it
+    #: (``services.mention_targets``). Only an internal room has any: what is
+    #: typed in a client room is relayed word for word, so an "@name" there
+    #: would name a colleague to the client.
+    mentions = models.ManyToManyField(User, blank=True, related_name="mentioned_in")
 
     created_at = models.DateTimeField(auto_now_add=True)
 

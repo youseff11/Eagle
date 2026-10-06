@@ -832,8 +832,24 @@ def chat_send(request, room_id):
     # the message, so put each member to the test of opening the room rather
     # than trusting the row. In a client room that is also what keeps a
     # translator seated there by hand from being sent the operation's reply.
+    # Whoever the words name with "@" (and the page picked) is told so, instead of the ordinary line below.
+    mentioned = services.mention_targets(room, request.user, body, request.POST.get("mentions"))
+    if mentioned:
+        message.mentions.set(mentioned)
+    mentioned_ids = {person.pk for person in mentioned}
     for member in room.members.exclude(pk=request.user.pk):
         if not room.can_open(member):
+            continue
+        if member.pk in mentioned_ids:
+            preview = identity.for_viewer(body[:60], member)
+            services.notify(
+                member,
+                title_ar=f"{request.user.short_name} عمل لك منشن",
+                title_en=f"{request.user.short_name} mentioned you",
+                body_ar=f"في {where}: {preview}",
+                body_en=f"In {where}: {preview}",
+                level="info", url=url, sound=True, task=task,
+            )
             continue
         services.notify(
             member,
@@ -905,6 +921,9 @@ def _thread_entry_json(entry, viewer):
         "receipt": entry.get("receipt", ""),
         "seen_by": entry.get("seen_by", []),
         "forwarded": entry.get("forwarded", False),
+        # The colleagues the message pinged, and whether it pinged the viewer: a work group's only.
+        "mentions": entry.get("mentions", []),
+        "mentions_me": entry.get("mentions_me", False),
         "reactions": entry.get("reactions", []),
         "reactions_sig": entry.get("reactions_sig", ""),
     }
