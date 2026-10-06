@@ -128,6 +128,7 @@ function Stream({
   selecting,
   selected,
   fileMark,
+  personal,
   onRetry,
   onDiscard,
 }: {
@@ -142,6 +143,8 @@ function Stream({
   selected: string[];
   /** A mode that ticks files is on, or could be started from a file. */
   fileMark?: FileMark;
+  /** A work group or a colleague's chat (see `Bubble`): the sides follow who wrote each message. */
+  personal: boolean;
   onRetry: (key: number) => void;
   onDiscard: (key: number) => void;
 }) {
@@ -199,6 +202,7 @@ function Stream({
               selecting={selecting}
               selected={selected.includes(entry.uid)}
               fileMark={fileMark}
+              personal={personal}
             />
           </div>
         );
@@ -558,6 +562,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             selecting={selecting}
             selected={selected}
             fileMark={selecting ? undefined : (pick.mark ?? handMark)}
+            personal={kindOfCode(code) !== "clients"}
             onRetry={outbox.retry}
             onDiscard={outbox.discard}
           />

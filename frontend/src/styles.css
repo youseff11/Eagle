@@ -176,3 +176,9 @@ textarea.help__input { resize: none; min-height: 38px; max-height: 110px; line-h
   .help__btn { width: 36px; padding-inline: 0; }
   .help__pop { inset-inline: 8px; width: auto; inset-block-start: 64px; height: calc(100vh - 76px); }
 }
+
+/* The sides of a conversation are WhatsApp's, in Arabic as in English: ours on the right, theirs on the left. The row is laid out
+   left to right whatever the page's direction (chat.css was written for that, and put ours on the far side of an Arabic page, which
+   is the left), and the words inside a bubble keep the language's own direction. */
+.bub { direction: ltr; }
+[dir="rtl"] .bub__box { direction: rtl; }

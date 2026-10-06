@@ -131,7 +131,7 @@ class WhoMayTests(_Owner):
     def test_a_model_that_proposes_an_order_to_someone_else_gets_nothing_done(self):
         # Even if the model were talked into it, an order is prepared for nobody but the owner.
         for person in self.everyone[1:]:
-            data = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"), person)
+            data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"), person)
             with self.subTest(role=person.role):
                 self.assertIsNone(data["order"])
                 self.assertEqual(data["source"], "ai")
@@ -139,13 +139,13 @@ class WhoMayTests(_Owner):
 
     def test_with_the_switch_off_an_order_in_the_reply_is_ignored(self):
         self.switch(orders=False)
-        data = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))
+        data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
         self.assertIsNone(data["order"])
         self.assertNotIn("ORDERS:", self.call.call_args.args[1])
         self.assertEqual(HelpAction.objects.count(), 0)
 
     def test_nobody_but_the_owner_can_press_run_or_cancel(self):
-        data = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))
+        data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
         order_id = data["order"]["id"]
         for person in self.everyone[1:]:
             self.sign_in(person)
@@ -154,10 +154,10 @@ class WhoMayTests(_Owner):
         self.client.logout()
         self.assertEqual(self.press(order_id).status_code, 401)
         self.assertEqual(HelpAction.objects.get().status, "pending")
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
 
     def test_another_owners_order_is_not_found(self):
-        data = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))
+        data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
         self.sign_in(self.other_admin)
         self.assertEqual(self.press(data["order"]["id"]).status_code, 404)
         self.assertEqual(self.post("v1_help_order_cancel", pk=data["order"]["id"]).status_code, 404)
@@ -170,20 +170,20 @@ class WhoMayTests(_Owner):
 
 class ServerDecidesTests(_Owner):
     def test_the_card_is_worded_by_the_server_not_by_the_model(self):
-        data = self.ask("اعمل شيفت", _order("shift.create", title="الصبح", start="09:00", end="17:00", break_minutes=30))
+        data = self.ask("اعمل شيفت", _order("shift.create", title="الصبح", start="09:07", end="17:43", break_minutes=30))
         self.assertEqual(data["source"], "action")
         self.assertNotIn("تم التنفيذ", data["answer"])
         card = data["order"]
         self.assertIn("الصبح", card["summary"])
-        self.assertIn("9:00", card["summary"])
-        self.assertIn("5:00", card["summary"])
+        self.assertIn("9:07", card["summary"])
+        self.assertIn("5:43", card["summary"])
         self.assertIn("30", card["summary"])
         self.assertFalse(card["danger"])
         self.assertGreater(card["expires_in"], 0)
 
     def test_preparing_runs_nothing(self):
-        self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00:00").count(), 0)
+        self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07:00").count(), 0)
         row = HelpAction.objects.get()
         self.assertEqual((row.status, row.name, row.user), ("pending", "shift.create", self.admin))
 
@@ -245,8 +245,8 @@ class ServerDecidesTests(_Owner):
         bad = [
             ("shift.create", dict(start="25:00", end="17:00")),
             ("shift.create", dict(start="9", end="17:00")),
-            ("shift.create", dict(start="09:00", end="17:00", break_minutes=999)),
-            ("shift.create", dict(start="09:00", end="17:00", break_minutes="abc")),
+            ("shift.create", dict(start="09:07", end="17:43", break_minutes=999)),
+            ("shift.create", dict(start="09:07", end="17:43", break_minutes="abc")),
             ("shift.create", dict(end="17:00")),
             ("violation.create", dict(employee="Tarek", days="NaN", reason="x")),
             ("violation.create", dict(employee="Tarek", days="Infinity", reason="x")),
@@ -281,14 +281,14 @@ class ServerDecidesTests(_Owner):
         self.assertIsNone(self.ask("ابعت", _order("task.assign_lead", task=busy.code, leader="Laila"))["order"])
 
     def test_one_order_waits_at_a_time(self):
-        first = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
-        second = self.ask("اعمل شيفت", _order("shift.create", start="10:00", end="18:00"))["order"]["id"]
+        first = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
+        second = self.ask("اعمل شيفت", _order("shift.create", start="10:07", end="18:43"))["order"]["id"]
         self.assertEqual(HelpAction.objects.get(pk=first).status, "cancelled")
         self.assertEqual(self.press(first).status_code, 409)
         self.assertEqual(HelpAction.objects.get(pk=second).status, "pending")
 
     def test_the_log_says_an_order_was_prepared(self):
-        self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))
+        self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
         row = HelpQuestion.objects.get()
         self.assertEqual((row.source, row.guides), ("action", "shift.create"))
 
@@ -311,17 +311,17 @@ class ServerDecidesTests(_Owner):
 
 class ConfirmTests(_Owner):
     def test_it_runs_once(self):
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         first = self.press(order)
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["done"], True)
         again = self.press(order)
         self.assertEqual(again.status_code, 409)
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 1)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 1)
 
     def test_a_second_press_while_the_first_is_still_running_does_nothing(self):
         # Two requests at once: while the door is working for the first, the second must find the order already taken.
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         real_call, inner = helpactions._call, []
 
         def slow_door(request, user, call):
@@ -334,34 +334,34 @@ class ConfirmTests(_Owner):
         with mock.patch.object(helpactions, "_call", side_effect=slow_door):
             self.assertEqual(self.press(order).status_code, 200)
         self.assertEqual(inner, ["done"])
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 1)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 1)
 
     def test_it_does_not_run_late(self):
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         HelpAction.objects.filter(pk=order).update(created_at=timezone.now() - helpactions.LIFETIME - timedelta(seconds=5))
         self.assertEqual(self.press(order).status_code, 409)
         self.assertEqual(HelpAction.objects.get().status, "cancelled")
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
 
     def test_no_does_not_run(self):
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         self.assertEqual(self.post("v1_help_order_cancel", pk=order).status_code, 200)
         self.assertEqual(self.press(order).status_code, 409)
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
         self.assertEqual(self.post("v1_help_order_cancel", pk=order).status_code, 404)
 
     def test_turning_the_option_off_stops_an_order_already_prepared(self):
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         for ai, orders in ((True, False), (False, True)):
             self.switch(ai, orders)
             self.sign_in()
             response = self.press(order)
             self.assertEqual((response.status_code, response.json()["error"]), (403, "orders_off"))
         self.assertEqual(HelpAction.objects.get().status, "pending")
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
 
     def test_a_bad_press_is_refused(self):
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         url = reverse("dashboard:v1_help_order_run", kwargs={"pk": order})
         self.assertEqual(self.client.post(url, "x", content_type="application/json").status_code, 400)
         self.assertEqual(self.client.get(url).status_code, 405)
@@ -372,9 +372,9 @@ class ConfirmTests(_Owner):
             HelpAction(user=self.admin, name="shift.create", status="done", finished_at=timezone.now())
             for _ in range(helpactions.RUNS_PER_MINUTE)
         ])
-        order = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="17:00"))["order"]["id"]
+        order = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))["order"]["id"]
         self.assertEqual(self.press(order).status_code, 429)
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
 
     def test_a_door_that_refuses_leaves_the_order_refused_and_says_why(self):
         task = Task.objects.create(client=self.client_obj, title="Doc", created_by=self.ops, status=TaskStatus.NEW)
@@ -392,7 +392,7 @@ class ConfirmTests(_Owner):
         self.assertEqual(task.status, TaskStatus.DELIVERED)
 
     def test_every_order_that_ran_is_in_the_audit_log(self):
-        self.prepare_and_run("shift.create", title="الصبح", start="09:00", end="17:00")
+        self.prepare_and_run("shift.create", title="الصبح", start="09:07", end="17:43")
         row = AuditLog.objects.get(action="help.action")
         self.assertEqual((row.actor, row.target), (self.admin, "shift.create"))
         self.assertTrue(row.detail.startswith("done"))
@@ -406,22 +406,22 @@ class ConfirmTests(_Owner):
 
 class EachOrderTests(_Owner):
     def test_a_shift_is_made(self):
-        _data, done = self.prepare_and_run("shift.create", title="شيفت الصبح", start="09:00", end="17:00", break_minutes=30)
+        _data, done = self.prepare_and_run("shift.create", title="شيفت الصبح", start="09:07", end="17:43", break_minutes=30)
         self.assertTrue(done["done"])
         shift = ShiftTemplate.objects.get(name_ar="شيفت الصبح")
-        self.assertEqual((str(shift.start_time), str(shift.end_time), shift.break_minutes, shift.is_active), ("09:00:00", "17:00:00", 30, True))
+        self.assertEqual((str(shift.start_time), str(shift.end_time), shift.break_minutes, shift.is_active), ("09:07:00", "17:43:00", 30, True))
 
     def test_a_shift_with_no_name_is_named_by_its_hours(self):
-        self.prepare_and_run("shift.create", start="14:00", end="22:00")
-        self.assertEqual(ShiftTemplate.objects.get(start_time="14:00").name, "2:00 PM - 10:00 PM")
+        self.prepare_and_run("shift.create", start="14:07", end="22:43")
+        self.assertEqual(ShiftTemplate.objects.get(start_time="14:07").name, "2:07 PM - 10:43 PM")
 
     def test_a_shift_the_form_refuses_is_refused_in_the_forms_words(self):
         # Same start and end: the shift form's own rule, not one written here.
-        data = self.ask("اعمل شيفت", _order("shift.create", start="09:00", end="09:00"))
+        data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="09:07"))
         response = self.press(data["order"]["id"])
         self.assertFalse(response.json()["done"])
         self.assertIn("بداية الشيفت ونهايته", response.json()["message"])
-        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:00").count(), 0)
+        self.assertEqual(ShiftTemplate.objects.filter(start_time="09:07").count(), 0)
 
     def test_a_deduction_is_recorded_waiting_for_approval_and_never_approved(self):
         data, done = self.prepare_and_run("violation.create", employee="Tarek", kind="quality", days=1.5, reason="غلط في الأرقام")

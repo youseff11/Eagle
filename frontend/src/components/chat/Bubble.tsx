@@ -158,6 +158,7 @@ export function Bubble({
   onConfirm,
   onConvert,
   fileMark,
+  personal,
 }: {
   entry: ThreadEntry;
   onReply?: (entry: ThreadEntry) => void;
@@ -171,9 +172,15 @@ export function Bubble({
   onConvert?: (entry: ThreadEntry) => void;
   /** A mode that ticks files (see `FileMark`), or none. */
   fileMark?: FileMark;
+  /**
+   * A work group or a colleague's chat: only what this person wrote is on their side, and what the others wrote is on the other,
+   * as in WhatsApp. In a client's conversation every message of ours is on our side (a colleague answered the client), and the
+   * client is on the other.
+   */
+  personal?: boolean;
 }) {
   const { t, lang } = usePreferences();
-  const out = entry.kind === "out";
+  const out = entry.kind === "out" && (!personal || entry.mine);
   const classes = ["bub", out ? "bub--out" : "bub--in"];
   if (entry.status === "failed") classes.push("bub--failed");
   if (entry.reactions.length > 0) classes.push("has-reacts");

@@ -97,7 +97,7 @@ describe("the assistant's button and panel", () => {
   });
 
   it("tells the server which language the page is in, when asking and when an order is run", async () => {
-    const run = vi.fn((_url: URL, init?: RequestInit) => jsonResponse({ ok: true, done: true, status: "done", message: "The shift was made." }));
+    const run = vi.fn((_url: URL, _init?: RequestInit) => jsonResponse({ ok: true, done: true, status: "done", message: "The shift was made." }));
     const view = renderBot({
       lang: "en",
       home: home({ orders: true }),
