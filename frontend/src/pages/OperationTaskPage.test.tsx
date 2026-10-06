@@ -689,8 +689,10 @@ describe("OperationTaskPage: the AI's notes", () => {
     ok: true,
     task: { code: CODE, title: "Contract for review" },
     can_recheck: true,
+    can_revise: false,
+    revisions: [],
     check: { id: 3, status: "issues", count: 1, at: stamp("10-02 5:30"), automatic: true, old: false, summary: "One thing.", error: "" },
-    issues: [{ severity: "high", location: "page 2", category: null, source: "s", translation: "t", compared: true, text: { ar: "غلط", en: "Wrong" }, meaning: "" }],
+    issues: [{ id: 0, severity: "high", location: "page 2", category: null, source: "s", translation: "t", compared: true, text: { ar: "غلط", en: "Wrong" }, meaning: "" }],
     ...over,
   });
 

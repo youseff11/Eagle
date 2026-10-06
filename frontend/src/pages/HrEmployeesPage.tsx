@@ -1,8 +1,9 @@
 import { Link, Navigate, useSearchParams } from "react-router";
-import { useHrRegister } from "../api/queries";
+import { useHrPenalties, useHrRegister } from "../api/queries";
 import { Waiting } from "../components/accounts/shared";
 import { Avatar } from "../components/Avatar";
 import { Rating } from "../components/Badges";
+import { PenaltyQueue } from "../components/hr/Penalties";
 import { useHrAllowed } from "../components/hr/shared";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { Icon } from "../components/Icon";
@@ -28,6 +29,7 @@ export function HrEmployeesPage() {
     if (value) kept.set(name, value);
   }
   const query = useHrRegister(kept.toString(), allowed);
+  const penalties = useHrPenalties(allowed);
   const data = query.data;
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
@@ -69,6 +71,8 @@ export function HrEmployeesPage() {
           </Link>
         )}
       </div>
+
+      {penalties.data && <PenaltyQueue rows={penalties.data.rows} waiting={penalties.data.waiting} canDecide />}
 
       <div className="card">
         <div className="card__head">
@@ -120,7 +124,14 @@ export function HrEmployeesPage() {
                   </td>
                   <td>{row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
                   <td className="mono">{row.shifts ?? "—"}</td>
-                  <td>{row.rating === null ? "—" : <Rating value={row.rating} />}</td>
+                  <td>
+                    {row.rating === null ? "—" : <Rating value={row.rating} />}
+                    {row.penalties_waiting > 0 && (
+                      <Link className="badge badge--wait mono" to={`/hr/employees/${row.id}`} title={t("خصومات نجوم مستنية قرار", "Star penalties waiting")} data-waiting={row.penalties_waiting}>
+                        -{row.penalties_waiting}
+                      </Link>
+                    )}
+                  </td>
                   {isAdmin && (
                     <td className="mono" dir="ltr">
                       {row.mail_alias || "—"}

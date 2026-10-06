@@ -730,13 +730,19 @@ class User(AbstractUser):
     def apply_penalty(self, task, reason_en, reason_ar):
         settings_row = AppSettings.load()
         penalty = settings_row.penalty_value
-        new_value = max(Decimal("0.000"), Decimal(self.rating) - penalty)
+        old_value = Decimal(self.rating)
+        new_value = max(Decimal("0.000"), old_value - penalty)
         self.rating = new_value
         self.save(update_fields=["rating"])
-        RatingEvent.objects.create(
-            user=self, task=task, delta=-penalty,
+        # What was really taken: a person already near nought loses less than the penalty, and forgiving must give back that, no more.
+        event = RatingEvent.objects.create(
+            user=self, task=task, delta=new_value - old_value,
             reason_en=reason_en, reason_ar=reason_ar,
         )
+        # HR and the admin are shown what came off and why, and decide whether it stands (penalties.py).
+        from . import penalties
+
+        penalties.announce(event)
         return new_value
 
 
@@ -1627,12 +1633,25 @@ class Assignment(models.Model):
 
 
 class RatingEvent(models.Model):
+    class Decision(models.TextChoices):
+        #: Taken off the person's stars already; HR or the admin has not looked at it yet.
+        PENDING = "pending", "Waiting for a decision"
+        #: Looked at and applied: the stars stay off.
+        CONFIRMED = "confirmed", "Applied"
+        #: Looked at and let go: the stars were given back.
+        FORGIVEN = "forgiven", "Forgiven"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="rating_events")
     task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     delta = models.DecimalField(max_digits=5, decimal_places=3)
     reason_en = models.CharField(max_length=200, blank=True)
     reason_ar = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    #: The stars come off at once (assignment order reads them); what HR and the admin decide is whether that stands.
+    decision = models.CharField(max_length=10, choices=Decision.choices, default=Decision.PENDING)
+    decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=200, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
@@ -2010,6 +2029,51 @@ class AICheckResult(models.Model):
     @property
     def issue_count(self):
         return len(self.issues or [])
+
+
+def upload_revision(instance, filename):
+    from .files import storage_name
+
+    return storage_name("revisions", instance, filename)
+
+
+class AIRevision(models.Model):
+    """A copy of the translation with the AI's notes the team leader accepted applied (``ai.start_revision``).
+
+    The translator's own file is never touched: this is a second file, made when the leader says which notes are right. It is
+    the leader's to read and take from - the task's team leader and the admin open it, nobody else.
+    """
+
+    class Status(models.TextChoices):
+        #: Written before the model is called, like a check, so a page opened meanwhile says so.
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        ERROR = "error", "Error"
+
+    result = models.ForeignKey(AICheckResult, on_delete=models.CASCADE, related_name="revisions")
+    requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    #: Positions in ``result.issues`` of the notes accepted, so the file says exactly which ones it applies.
+    accepted = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
+    file = models.FileField(upload_to=upload_revision, blank=True)
+    original_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    model_used = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"{self.result.task.code} · revision · {self.status}"
+
+    #: A copy still "running" after this long is one whose process died (a recycled worker): it is treated as failed.
+    STALE_MINUTES = 15
+
+    @property
+    def is_stale(self):
+        return self.status == self.Status.RUNNING and self.created_at < timezone.now() - timedelta(minutes=self.STALE_MINUTES)
 
 
 class HelpQuestion(models.Model):

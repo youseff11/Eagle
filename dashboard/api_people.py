@@ -14,12 +14,12 @@ Rules that matter on these pages:
 * A GET changes nothing. Deciding a review or a request that has been decided is refused by the engine, in its own words.
 """
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import api_forms, attendance, avatars, employees, identity, payroll, performance, services, shiftpick
+from . import api_forms, attendance, avatars, employees, identity, payroll, penalties, performance, services, shiftpick
 from .api_forms import named
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
 from .api_leave import request_json as leave_json
@@ -28,8 +28,8 @@ from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeRequestForm, SalaryPlanForm
 from .models import (
     ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, ApprovalStatus, ClientComplaint, ComplaintSeverity, Department, EmploymentStatus, OffSitePolicy, OfficeLocation,
-    PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, Task, User,
-    WorkMode, rule_followers,
+    PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, RatingEvent, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, Task,
+    User, WorkMode, rule_followers,
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
@@ -38,12 +38,15 @@ from .templatetags.eagle_tags import (
 
 can_recruit = api_gate(lambda user: user.can_recruit)
 is_owner = api_gate(lambda user: user.can_approve_hiring)
+#: A star penalty is put in front of HR and the admin to apply or forgive (``penalties.py``).
+can_decide = api_gate(penalties.may_decide)
 
 #: How many rows the lists show: the classic pages' own numbers.
 MAX_REVIEWS = 200
 MAX_COMPLAINTS = 150
 MAX_DECIDED = 40
 MAX_FILE_ROWS = 6
+MAX_PENALTIES = 100
 
 STAGE_MAP = {
     ProbationStage.DAY_30: ("مراجعة 30 يوم", "30-day review"),
@@ -119,7 +122,10 @@ def register(request):
     alone is told the sign-in name and the address a person receives mail for.
     """
     admin = request.user.is_admin_role
-    rows = User.objects.select_related("department", "team_lead").prefetch_related("shifts")
+    rows = (
+        User.objects.select_related("department", "team_lead").prefetch_related("shifts")
+        .annotate(penalties_waiting=Count("rating_events", filter=Q(rating_events__decision=RatingEvent.Decision.PENDING)))
+    )
     if not admin:
         rows = rows.filter(is_active=True)
     if request.GET.get("department"):
@@ -150,6 +156,8 @@ def register(request):
                 # The owner has no roster and no rating: there is nothing to count, which is not a nought.
                 "shifts": len(one.shifts.all()) if one.follows_company_rules else None,
                 "rating": float(one.rating) if one.follows_company_rules else None,
+                # Stars that came off and wait for HR or the admin to apply or forgive them.
+                "penalties_waiting": one.penalties_waiting if one.follows_company_rules else 0,
                 **({"username": one.username, "mail_alias": one.mail_alias} if admin else {}),
             }
             for one in rows
@@ -236,9 +244,16 @@ def employee(request, pk):
             "current": {"id": plan.pk, "name": plan.name, "overrides": plan.overrides()} if plan and bound else None,
             "options": [{"id": one.pk, "name": one.name} for one in SalaryPlan.objects.filter(is_active=True)] if bound and viewer.is_admin_role else [],
         },
+        "penalties": [
+            _penalty_json(one)
+            for one in person.rating_events.select_related("user", "task", "decided_by")[:MAX_PENALTIES]
+        ] if bound else [],
         "application": {"code": application.code, "applied_on": application.applied_at.date().isoformat()} if application else None,
         "salary": [{"effective_from": one.effective_from.isoformat(), "amount": str(one.amount)} for one in person.salary_records.all()[:MAX_FILE_ROWS]] if bound else [],
-        "can": {"edit": viewer.is_admin_role, "shift": bound and viewer.can_manage_attendance, "plan": bound and viewer.is_admin_role},
+        "can": {
+            "edit": viewer.is_admin_role, "shift": bound and viewer.can_manage_attendance, "plan": bound and viewer.is_admin_role,
+            "decide_penalties": penalties.may_decide(viewer),
+        },
     })
 
 
@@ -306,6 +321,72 @@ def employee_plan(request, pk):
     person.save(update_fields=["salary_plan"])
     services.log(request.user, "salary.plan.assign", person.username, plan.name if plan else "company rules")
     return JsonResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Star penalties
+# ---------------------------------------------------------------------------
+
+DECISION_MAP = {
+    RatingEvent.Decision.PENDING: ("wait", "مستني قرار", "Waiting for a decision"),
+    RatingEvent.Decision.CONFIRMED: ("dead", "اتطبق", "Applied"),
+    RatingEvent.Decision.FORGIVEN: ("ok", "اتسامح", "Forgiven"),
+}
+#: What a refused decision says, by the word ``penalties.decide`` gives back.
+PENALTY_REFUSALS = {"not_found": 404, "own_record": 409, "decided": 409, "bad_action": 400, "forbidden": 403}
+
+
+def _penalty_json(event):
+    """One penalty: who, how many stars, why, on which task (its code only), and what HR or the admin did with it."""
+    return {
+        "id": event.pk,
+        "user": {"id": event.user_id, "name": event.user.short_name},
+        "amount": f"{abs(event.delta).normalize():f}",
+        "reason": {"ar": event.reason_ar, "en": event.reason_en},
+        "task": event.task.code if event.task_id else None,
+        "at": _stamp(event.created_at, "%m-%d"),
+        "decision": _badge(DECISION_MAP, event.decision),
+        "decided_by": event.decided_by.short_name if event.decided_by_id else None,
+        "decided_at": _stamp(event.decided_at, "%m-%d"),
+        "note": event.decision_note,
+    }
+
+
+@endpoint("GET")
+@can_decide
+def penalty_list(request):
+    """The penalties waiting for a decision, newest first (``?status=all`` adds the decided ones, ``?user=<id>`` one person's)."""
+    rows = RatingEvent.objects.select_related("user", "task", "decided_by")
+    waiting = RatingEvent.objects.filter(decision=RatingEvent.Decision.PENDING)
+    if request.GET.get("status") != "all":
+        rows = rows.filter(decision=RatingEvent.Decision.PENDING)
+    if request.GET.get("user"):
+        which = _digits(request.GET["user"])
+        if which is None:
+            return _error(400, "bad_user")
+        rows = rows.filter(user_id=which)
+    return JsonResponse({
+        "ok": True,
+        "rows": [_penalty_json(one) for one in rows.order_by("-created_at", "-id")[:MAX_PENALTIES]],
+        "waiting": waiting.count(),
+    })
+
+
+@endpoint("POST")
+@can_decide
+def penalty_decide(request, pk, action):
+    """Apply a penalty (``confirm``: the stars stay off) or forgive it (``forgive``: they are given back); ``{"note": "..."}`` is optional."""
+    try:
+        note = _object(request).get("note", "")
+    except BadBody:
+        return _error(400, "bad_body")
+    if not isinstance(note, str) or len(note) > penalties.MAX_NOTE or "\x00" in note:
+        return _error(400, "bad_body")
+    event, problem = penalties.decide(pk, request.user, action, note)
+    if problem:
+        return _error(PENALTY_REFUSALS.get(problem, 400), problem)
+    event = RatingEvent.objects.select_related("user", "task", "decided_by").get(pk=event.pk)
+    return JsonResponse({"ok": True, "penalty": _penalty_json(event)})
 
 
 # ---------------------------------------------------------------------------

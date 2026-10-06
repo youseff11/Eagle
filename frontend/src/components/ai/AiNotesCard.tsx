@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { ApiError } from "../../api/client";
-import { useAiRecheck } from "../../api/opsActions";
+import { useAiRecheck, useAiRevise } from "../../api/opsActions";
 import { useTaskAiNotes } from "../../api/queries";
-import type { AiNote, TaskAiNotes } from "../../api/types";
+import type { AiNote, AiRevision, TaskAiNotes } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { taskProblem } from "../../lib/taskProblem";
 import { Icon } from "../Icon";
@@ -14,12 +14,21 @@ const SEVERITY: Record<AiNote["severity"], [string, string]> = {
   low: ["بسيط", "Low"],
 };
 
-/** One note, as the classic box draws it: how serious, what kind, where; the two texts side by side; what is wrong; what the source means. */
-export function Issue({ issue, index }: { issue: AiNote; index: number }) {
+/**
+ * One note, as the classic box draws it: how serious, what kind, where; the two texts side by side; what is wrong; what the source
+ * means. With `accept` it carries a box the team leader ticks to accept the note (a corrected copy is made from the ticked ones).
+ */
+export function Issue({ issue, index, accept }: { issue: AiNote; index: number; accept?: { checked: boolean; toggle: () => void } }) {
   const { t, lang } = usePreferences();
   return (
     <li className={`ai-issue ai-issue--${issue.severity}`} data-severity={issue.severity}>
       <div className="ai-issue__top">
+        {accept && (
+          <label className="ai-issue__accept">
+            <input type="checkbox" checked={accept.checked} onChange={accept.toggle} aria-label={t(`اقبل الملاحظة ${index + 1}`, `Accept note ${index + 1}`)} />
+            <span>{t("اقبلها", "Accept")}</span>
+          </label>
+        )}
         <span className="ai-issue__num mono">{index + 1}</span>
         <span className="ai-issue__sev">{t(...SEVERITY[issue.severity])}</span>
         {issue.category && <span className="ai-issue__cat">{lang === "en" ? issue.category.en : issue.category.ar}</span>}
@@ -65,14 +74,73 @@ function Status({ check }: { check: NonNullable<TaskAiNotes["check"]> }) {
   return <span className="badge badge--dead">{t("الفحص مخلصش", "Did not finish")}</span>;
 }
 
+/** The corrected copies: running, failed, or ready to open. */
+function Revisions({ rows }: { rows: AiRevision[] }) {
+  const { t, lang } = usePreferences();
+  if (rows.length === 0) return null;
+  return (
+    <div className="ai-revisions" data-ai-revisions>
+      <h3>{t("الملفات المصحّحة", "Corrected files")}</h3>
+      <ul className="timeline">
+        {rows.map((row) => (
+          <li key={row.id} data-revision={row.id} data-status={row.status}>
+            <span className="chip chip--sm mono">{row.accepted.length}</span>
+            <span className="grow">
+              {row.status === "running" && t("بيتعمل دلوقتي...", "Being made now...")}
+              {row.status === "error" && (
+                <>
+                  {t("الملف مااتعملش.", "The file was not made.")} <span className="muted mono">{row.error}</span>
+                </>
+              )}
+              {row.status === "done" && row.file && (
+                <a href={row.file.url} download>
+                  {row.file.name}
+                </a>
+              )}
+            </span>
+            <small className="muted mono">{row.at ? (lang === "en" ? row.at.en : row.at.ar) : ""}</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The words of a refused «اعمل ملف»: why it was not started. */
+function reviseWords(failure: unknown, t: (ar: string, en: string) => string): string {
+  if (failure instanceof ApiError) {
+    if (failure.code === "running") return t("فيه ملف بيتعمل دلوقتي. استنى لحد ما يخلص.", "A file is being made now. Wait for it to finish.");
+    if (failure.code === "stale_check") return t("الفحص اتجدد وانت بتقرا. راجع الملاحظات الجديدة واختار تاني.", "The check was renewed while you were reading. Read the new notes and choose again.");
+    if (failure.code === "limit") return t("اتعمل ملفات كتير للفحص ده. اطلب فحص جديد.", "Too many files were made for this check. Ask for a new check.");
+    if (failure.code === "off") return t("فحص الـ AI متوقف من الإعدادات.", "The AI check is switched off in the settings.");
+    if (failure.code === "nothing_accepted") return t("اختار ملاحظة واحدة على الأقل.", "Accept at least one note.");
+    if (failure.status === 403) return t("مش مسموحلك.", "You may not do that.");
+  }
+  return t("ماتحفظش. جرّب تاني.", "Not saved. Try again.");
+}
+
 function Box({ code, notes }: { code: string; notes: TaskAiNotes }) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
   const recheck = useAiRecheck(code);
+  const revise = useAiRevise(code);
   const [problem, setProblem] = useState("");
+  const [picked, setPicked] = useState<number[]>([]);
   const { check } = notes;
+  const toggle = (id: number) => setPicked((now) => (now.includes(id) ? now.filter((one) => one !== id) : [...now, id]));
+  const make = (body: { issues: number[] } | { all: true }) => {
+    setProblem("");
+    revise.mutate({ ...body, check: check?.id ?? 0 }, {
+      onSuccess: () => {
+        setPicked([]);
+        push({ level: "info", title: t("بنعمل الملف. هيظهر هنا أول ما يخلص.", "The file is being made. It appears here when it is done.") });
+      },
+      onError: (failure) => setProblem(reviseWords(failure, t)),
+    });
+  };
   // No check has run yet (or an answer that is not one): nothing to say.
   if (!check) return null;
+  const ids = notes.issues.flatMap((issue) => (issue.id === null ? [] : [issue.id]));
 
   const again = () => {
     setProblem("");
@@ -140,10 +208,35 @@ function Box({ code, notes }: { code: string; notes: TaskAiNotes }) {
               {check.summary}
             </p>
           )}
+          {notes.can_revise && notes.issues.length > 0 && (
+            <div className="ai-notes__accept row row--tight" data-ai-accept>
+              <span className="muted">{t("اقبل الملاحظات اللي صح، وهنعمل ملف جديد بالتعديلات دي بس.", "Accept the notes that are right and a new file is made with only those corrections.")}</span>
+              <div className="grow" />
+              <button className="btn btn--sm" type="button" onClick={() => setPicked(picked.length === ids.length ? [] : ids)}>
+                {picked.length === ids.length ? t("إلغاء الكل", "Clear all") : t("اختار الكل", "Select all")}
+              </button>
+              <button className="btn btn--sm btn--primary" type="button" disabled={picked.length === 0 || revise.isPending} onClick={() => make({ issues: picked })}>
+                <Icon name="file" size="sm" />
+                <span>{t(`اعمل ملف بالتعديلات (${picked.length})`, `Make a file with the corrections (${picked.length})`)}</span>
+              </button>
+              <button className="btn btn--sm" type="button" disabled={revise.isPending} onClick={() => make({ all: true })}>
+                <span>{t("اقبل الكل واعمل الملف", "Accept all and make the file")}</span>
+              </button>
+            </div>
+          )}
           {notes.issues.length > 0 ? (
             <ol className="ai-issues">
               {notes.issues.map((issue, index) => (
-                <Issue key={index} issue={issue} index={index} />
+                <Issue
+                  key={index}
+                  issue={issue}
+                  index={index}
+                  accept={
+                    notes.can_revise && issue.id !== null
+                      ? { checked: picked.includes(issue.id), toggle: () => toggle(issue.id as number) }
+                      : undefined
+                  }
+                />
               ))}
             </ol>
           ) : (
@@ -155,8 +248,12 @@ function Box({ code, notes }: { code: string; notes: TaskAiNotes }) {
             )
           )}
           <p className="muted ai-notes__foot">
-            {t("دي اقتراحات بس — الـ AI مابيعدّلش الترجمة، والقرار للتيم ليدر.", "Suggestions only - the AI never edits the translation; the team leader decides.")}
+            {t(
+              "دي اقتراحات بس، والقرار للتيم ليدر. ملف المترجم مابيتغيّرش أبدًا: اللي بتقبله بيتعمل منه ملف جديد (نص من غير التنسيق).",
+              "Suggestions only; the team leader decides. The translator file is never changed: what you accept goes into a new file (text, without the layout).",
+            )}
           </p>
+          <Revisions rows={notes.revisions} />
         </>
       )}
     </div>

@@ -84,8 +84,9 @@ function Desk({ data }: { data: TranslatorHomeResponse }) {
           <ul className="timeline">
             {data.rating_events.map((event, index) => (
               <li key={index}>
-                <span className="badge badge--dead mono">{event.delta}</span>
+                <span className={`badge ${event.decision === "forgiven" ? "badge--ok" : "badge--dead"} mono`}>{event.delta}</span>
                 <span>{lang === "ar" ? event.reason_ar : event.reason_en || event.reason_ar}</span>
+                {event.decision === "forgiven" && <small className="muted">{t("اتسامح ورجعولك النجوم", "Forgiven, the stars were given back")}</small>}
               </li>
             ))}
             {data.rating_events.length === 0 && (

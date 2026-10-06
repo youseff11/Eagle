@@ -139,7 +139,7 @@ def quality(person, first_day, last_day):
 
     rating_drop = RatingEvent.objects.filter(
         user=person, created_at__date__range=(first_day, last_day), delta__lt=0
-    ).count()
+    ).exclude(decision=RatingEvent.Decision.FORGIVEN).count()
 
     if reviewer_avg is None and not complaints and not quality_violations:
         return {

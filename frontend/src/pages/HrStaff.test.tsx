@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AdminUser, AdminUserNew, DayStatusJson, FormField, HrEmployee, HrRegister, Role } from "../api/types";
+import type { AdminUser, AdminUserNew, DayStatusJson, FormField, HrEmployee, HrPenalty, HrRegister, Role } from "../api/types";
 import { jsonResponse } from "../test/helpers";
 import { field, openHr as open, reads, serveHr, stampOf, type Handler } from "../test/hr";
 
@@ -86,7 +86,26 @@ function hrHalf(over: Partial<HrEmployee> = {}): HrEmployee {
     plan: { current: null, options: [] },
     application: null,
     salary: [],
-    can: { edit: true, shift: true, plan: true },
+    penalties: [],
+    can: { edit: true, shift: true, plan: true, decide_penalties: true },
+    ...over,
+  };
+}
+
+const pending: DayStatusJson = { value: "pending", tone: "wait", ar: "مستني قرار", en: "Waiting for a decision" };
+
+function penaltyRow(over: Partial<HrPenalty> = {}): HrPenalty {
+  return {
+    id: 71,
+    user: { id: 5, name: "Sam Adel" },
+    amount: "0.125",
+    reason: { ar: "لم يرد خلال 60 ثانية على TSK-00001", en: "No response within 60s on TSK-00001" },
+    task: "TSK-00001",
+    at: stampOf("10-01 م", "10-01 PM"),
+    decision: pending as HrPenalty["decision"],
+    decided_by: null,
+    decided_at: null,
+    note: "",
     ...over,
   };
 }
@@ -95,9 +114,9 @@ function register(): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 PM", "5:30 PM"), shifts: 3, rating: 4.5, username: "sam", mail_alias: "" },
-      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 PM", "5:31 PM"), shifts: 0, rating: 5, username: "nour", mail_alias: "ops1@example.com" },
-      { id: 7, code: "", name: "Old Timer", initials: "OT", role: { value: "hr", ar: "موارد بشرية", en: "HR" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "disabled", seen: stampOf("من يومين", "2 d ago"), shifts: 1, rating: 3.25, username: "old", mail_alias: "" },
+      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 PM", "5:30 PM"), shifts: 3, rating: 4.5, penalties_waiting: 0, username: "sam", mail_alias: "" },
+      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 PM", "5:31 PM"), shifts: 0, rating: 5, penalties_waiting: 0, username: "nour", mail_alias: "ops1@example.com" },
+      { id: 7, code: "", name: "Old Timer", initials: "OT", role: { value: "hr", ar: "موارد بشرية", en: "HR" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "disabled", seen: stampOf("من يومين", "2 d ago"), shifts: 1, rating: 3.25, penalties_waiting: 0, username: "old", mail_alias: "" },
     ],
     options: { departments: [], statuses: [confirmed] },
   };
@@ -115,8 +134,9 @@ function newForm(): FormField[] {
 /** The admin's side of the fake server: both halves of person 5 and every write the admin makes on the file. */
 function serve(who: Role, over: Record<string, Handler> = {}) {
   const served: ReturnType<typeof serveHr> = serveHr(who, {
-    "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: who === "admin", shift: true, plan: who === "admin" } })),
+    "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: who === "admin", shift: true, plan: who === "admin", decide_penalties: true } })),
     "/api/v1/hr/employees/": () => jsonResponse(register()),
+    "/api/v1/hr/penalties/": () => jsonResponse({ ok: true, rows: [], waiting: 0 }),
     "/api/v1/admin/aliases/sync/": (url, init) => served.record(url, init, { ok: true, ran: false }),
     "/api/v1/admin/users/new/": () => jsonResponse({ ok: true, form: newForm() } satisfies AdminUserNew),
     "/api/v1/admin/users/create/": (url, init) => served.record(url, init, { ok: true, id: 41 }),
@@ -217,7 +237,7 @@ describe("the register as the staff list", () => {
 
 describe("a person's file: the account form", () => {
   it("shows the edit button and the form behind it to the admin only, and asks for nothing of the admin's from anybody else", async () => {
-    const served = serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false } })) });
+    const served = serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false, decide_penalties: true } })) });
     open("/hr/employees/5");
     await screen.findByText("البيانات");
     expect(screen.queryByRole("button", { name: /عدّل$/ })).toBeNull();
@@ -332,7 +352,7 @@ describe("a person's file: the account form", () => {
   });
 
   it("does not ask Google when the person looking is not the admin", async () => {
-    const served = serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false } })) });
+    const served = serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false, decide_penalties: true } })) });
     open("/hr/employees/5");
     await screen.findByText("البيانات");
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -357,28 +377,110 @@ describe("a person's file: the account form", () => {
     expect(within(second.container.querySelector(".page-head") as HTMLElement).getByText("SA")).toBeInTheDocument();
   });
 
-  it("lists the penalties to the admin", async () => {
-    serve("admin");
-    const { container } = open("/hr/employees/5");
-    await screen.findByText("البيانات");
-    const penalties = (await waitFor(() => {
-      const found = container.querySelector('[data-card="penalties"]');
+  const withPenalties = (rows: HrPenalty[], decide = true) =>
+    ({ "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ penalties: rows, can: { edit: false, shift: true, plan: false, decide_penalties: decide } })) }) as Record<string, Handler>;
+
+  it("lists the penalties to HR as well as the admin, with the amount, the reason and the task", async () => {
+    for (const who of ["admin", "hr"] as const) {
+      serve(who, withPenalties([penaltyRow()]));
+      const { container, unmount } = open("/hr/employees/5");
+      await screen.findByText("البيانات");
+      const penalties = (await waitFor(() => {
+        const found = container.querySelector('[data-card="penalties"]');
+        expect(found).not.toBeNull();
+        return found;
+      })) as HTMLElement;
+      expect(within(penalties).getByText("-0.125")).toHaveClass("badge--dead");
+      expect(within(penalties).getByText("لم يرد خلال 60 ثانية على TSK-00001")).toBeInTheDocument();
+      expect(within(penalties).getByText("TSK-00001")).toBeInTheDocument();
+      expect(within(penalties).getByText("مستني قرار")).toBeInTheDocument();
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("says no penalties when there are none", async () => {
+    serve("hr", withPenalties([]));
+    open("/hr/employees/5");
+    expect(await screen.findByText("مفيش خصومات.")).toBeInTheDocument();
+  });
+
+  it("applies a waiting penalty with the note that was typed", async () => {
+    const served = serve("hr", {
+      ...withPenalties([penaltyRow()]),
+      "/api/v1/hr/penalties/71/confirm/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    open("/hr/employees/5");
+    await userEvent.type(await screen.findByPlaceholderText("ملاحظة (اختياري)"), "غلطته");
+    await userEvent.click(screen.getByRole("button", { name: "طبّق الخصم" }));
+    await waitFor(() => expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/confirm/")).toHaveLength(1));
+    expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/confirm/")[0].body).toEqual({ note: "غلطته" });
+  });
+
+  it("forgives a waiting penalty on its own door, never the apply one", async () => {
+    const served = serve("admin", {
+      ...withPenalties([penaltyRow()]),
+      "/api/v1/hr/penalties/71/forgive/": (url, init) => served.record(url, init, { ok: true }),
+      "/api/v1/hr/penalties/71/confirm/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    open("/hr/employees/5");
+    await userEvent.click(await screen.findByRole("button", { name: "سامحه وارجّع النجوم" }));
+    await waitFor(() => expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/forgive/")).toHaveLength(1));
+    expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/confirm/")).toHaveLength(0);
+  });
+
+  it("offers no buttons on a penalty that was decided, and says by whom and how", async () => {
+    const applied = penaltyRow({ decision: { value: "forgiven", tone: "ok", ar: "اتسامح", en: "Forgiven" } as HrPenalty["decision"], decided_by: "Huda", note: "ظروف" });
+    serve("hr", withPenalties([applied]));
+    open("/hr/employees/5");
+    expect(await screen.findByText("اتسامح")).toBeInTheDocument();
+    expect(screen.getByText(/Huda - ظروف/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "طبّق الخصم" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "سامحه وارجّع النجوم" })).toBeNull();
+  });
+
+  it("offers no buttons to somebody who may not decide", async () => {
+    serve("hr", withPenalties([penaltyRow()], false));
+    open("/hr/employees/5");
+    await screen.findByText("-0.125");
+    expect(screen.queryByRole("button", { name: "طبّق الخصم" })).toBeNull();
+  });
+
+  it("says why a decision was refused and leaves the penalty waiting", async () => {
+    const served = serve("hr", {
+      ...withPenalties([penaltyRow()]),
+      "/api/v1/hr/penalties/71/forgive/": () => jsonResponse({ ok: false, error: "decided" }, 409),
+    });
+    open("/hr/employees/5");
+    await userEvent.click(await screen.findByRole("button", { name: "سامحه وارجّع النجوم" }));
+    expect(await screen.findByText("اتقرر في الخصم ده قبل كده.")).toBeInTheDocument();
+    expect(served).toBeDefined();
+  });
+
+  it("shows the queue of waiting penalties over the register, and a count beside the person", async () => {
+    const list = register();
+    list.rows[0].penalties_waiting = 2;
+    serve("hr", {
+      "/api/v1/hr/employees/": () => jsonResponse(list),
+      "/api/v1/hr/penalties/": () => jsonResponse({ ok: true, rows: [penaltyRow(), penaltyRow({ id: 72, amount: "0.250" })], waiting: 2 }),
+    });
+    const { container } = open("/hr/employees");
+    const queue = (await waitFor(() => {
+      const found = container.querySelector('[data-card="penalty-queue"]');
       expect(found).not.toBeNull();
       return found;
     })) as HTMLElement;
-    expect(within(penalties).getByText("-0.125")).toHaveClass("badge--dead");
-    expect(within(penalties).getByText("اتأخر")).toBeInTheDocument();
+    expect(within(queue).getAllByRole("link", { name: "Sam Adel" })).toHaveLength(2);
+    expect(within(queue).getByText("-0.250")).toBeInTheDocument();
+    expect(container.querySelector('[data-person="5"] [data-waiting="2"]')).not.toBeNull();
+    expect(container.querySelector('[data-person="6"] [data-waiting]')).toBeNull();
   });
 
-  it("says no penalties when there are none, and shows none to HR", async () => {
-    serve("admin", { "/api/v1/admin/users/5/": () => jsonResponse(adminHalf({ events: [] })) });
-    const admin = open("/hr/employees/5");
-    expect(await screen.findByText("مفيش خصومات.")).toBeInTheDocument();
-    admin.unmount();
-    serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false } })) });
-    const hr = open("/hr/employees/5");
-    await screen.findByText("البيانات");
-    expect(hr.container.querySelector('[data-card="penalties"]')).toBeNull();
+  it("draws no queue when nothing waits", async () => {
+    serve("hr");
+    const { container } = open("/hr/employees");
+    await screen.findByText("Nour Ops");
+    expect(container.querySelector('[data-card="penalty-queue"]')).toBeNull();
   });
 });
 
@@ -422,7 +524,7 @@ describe("a person's file: the roster rows", () => {
   });
 
   it("gives HR the roster to read and no way to take a row off or type one in", async () => {
-    serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false } })) });
+    serve("hr", { "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ can: { edit: false, shift: true, plan: false, decide_penalties: true } })) });
     const { container } = open("/hr/employees/5");
     await screen.findByText("البيانات");
     const roster = container.querySelector('[data-card="roster"]') as HTMLElement;
@@ -504,7 +606,7 @@ describe("technical support is not bound by the company's rules either", () => {
             shifts: [],
             picker: null,
             work_mode_card: null,
-            can: { edit: true, shift: false, plan: false },
+            can: { edit: true, shift: false, plan: false, decide_penalties: true },
           }),
         ),
     });
@@ -523,7 +625,7 @@ describe("the owner is not bound by the company's rules", () => {
       shifts: [],
       picker: null,
       work_mode_card: null,
-      can: { edit: true, shift: false, plan: false },
+      can: { edit: true, shift: false, plan: false, decide_penalties: true },
     });
 
   it("draws the owner's file without attendance, roster, penalties or a pay plan, and says why", async () => {
@@ -550,7 +652,7 @@ describe("the owner is not bound by the company's rules", () => {
 
   it("shows a dash for the owner's shifts and rating in the list, and the figures for everybody else", async () => {
     const list = register();
-    list.rows.push({ id: 1, code: "", name: "Eagle Admin", initials: "EA", role: { value: "admin", ar: "أدمن", en: "Admin" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: null, rating: null, username: "boss", mail_alias: "" });
+    list.rows.push({ id: 1, code: "", name: "Eagle Admin", initials: "EA", role: { value: "admin", ar: "أدمن", en: "Admin" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: null, rating: null, penalties_waiting: 0, username: "boss", mail_alias: "" });
     serve("admin", { "/api/v1/hr/employees/": () => jsonResponse(list) });
     const { container } = open("/hr/employees");
     await screen.findByText("Eagle Admin");

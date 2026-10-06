@@ -1002,7 +1002,7 @@ def translator_home(request):
             for task in desk["done_tasks"]
         ],
         "rating_events": [
-            {"delta": str(event.delta), "reason_ar": event.reason_ar, "reason_en": event.reason_en}
+            {"delta": str(event.delta), "reason_ar": event.reason_ar, "reason_en": event.reason_en, "decision": event.decision}
             for event in desk["rating_events"]
         ],
     })

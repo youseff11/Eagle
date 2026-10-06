@@ -29,6 +29,13 @@ function useWrite<V, R>(run: (values: V) => Promise<R>) {
   });
 }
 
+/** Apply a star penalty (`confirm`: the stars stay off) or forgive it (`forgive`: they are given back); the note is optional. */
+export function useDecidePenalty() {
+  return useWrite<{ id: number; action: "confirm" | "forgive"; note: string }, { ok: true }>(({ id, action, note }) =>
+    api(`/api/v1/hr/penalties/${id}/${action}/`, { json: { note } }),
+  );
+}
+
 /** Correct a day: the boxes that changed, and the reason (not optional). */
 export function useSaveHrDay(id: number) {
   return useWrite<FormChanges, { ok: true; written: string[] }>((values) => api(`/api/v1/hr/attendance/${id}/save/`, { json: { values } }));

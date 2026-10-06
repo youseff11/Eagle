@@ -19,6 +19,7 @@ import type {
   HrDay,
   HrDevices,
   HrEmployee,
+  HrPenalties,
   HrHire,
   HrInterview,
   HrLeave,
@@ -278,7 +279,11 @@ export function useTaskAiNotes(code: string, enabled = true) {
     queryKey: qk.aiNotes(code),
     queryFn: () => api<TaskAiNotes>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-notes/`),
     // A check that is running ends by itself, and nothing rings for it: ask on a clock until it has.
-    refetchInterval: (query) => (query.state.data?.check?.status === "running" ? AI_RUNNING_POLL_MS : refetchInterval),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // A corrected copy being made ends by itself too, and nothing rings for it.
+      return data?.check?.status === "running" || (data?.revisions ?? []).some((row) => row.status === "running") ? AI_RUNNING_POLL_MS : refetchInterval;
+    },
     retry: false,
     enabled,
   });
@@ -549,6 +554,18 @@ export function useHrEmployee(id: number, enabled = true) {
     ...hrEmployeeOptions(id),
     refetchOnWindowFocus: false,
     enabled: enabled && Number.isInteger(id) && id > 0,
+  });
+}
+
+/** The star penalties waiting for HR or the admin to apply or forgive them. */
+export function useHrPenalties(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.hrPenalties,
+    queryFn: () => api<HrPenalties>("/api/v1/hr/penalties/"),
+    refetchInterval,
+    refetchOnWindowFocus: false,
+    enabled,
   });
 }
 

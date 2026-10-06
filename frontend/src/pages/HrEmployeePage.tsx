@@ -6,7 +6,8 @@ import { ApiError } from "../api/client";
 import { useAssignPlan, usePickHrShift } from "../api/hrActions";
 import { useAdminUser, useHrEmployee } from "../api/queries";
 import { Waiting, refusal } from "../components/accounts/shared";
-import { AccountCard, PenaltiesCard } from "../components/hr/AccountCard";
+import { AccountCard } from "../components/hr/AccountCard";
+import { PenaltiesCard } from "../components/hr/Penalties";
 import { RosterCard } from "../components/hr/RosterCard";
 import { useHrAllowed } from "../components/hr/shared";
 import { WorkModeCard } from "../components/hr/WorkModeCard";
@@ -199,7 +200,7 @@ export function HrEmployeePage() {
           {data.work_mode_card && <WorkModeCard id={person.id} card={data.work_mode_card} />}
 
           {!exempt && <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />}
-          {!exempt && admin.data && <PenaltiesCard events={admin.data.events} />}
+          {!exempt && <PenaltiesCard rows={data.penalties} canDecide={data.can.decide_penalties} />}
 
           {data.probation.length > 0 && (
             <div className="card" data-card="probation">

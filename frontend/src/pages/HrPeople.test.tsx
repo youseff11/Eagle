@@ -30,8 +30,8 @@ function register(over: Partial<HrRegister> = {}): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 11, code: "EMP-0042", name: "Sam", initials: "S", avatar: null, role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", team_lead: "Mona", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: 2, rating: 4.5 },
-      { id: 12, code: "", name: "Nada", initials: "N", avatar: null, role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, team_lead: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation, state: "off", seen: stampOf("من ساعة", "1 h ago"), shifts: 0, rating: 5 },
+      { id: 11, code: "EMP-0042", name: "Sam", initials: "S", avatar: null, role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", team_lead: "Mona", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: 2, rating: 4.5 , penalties_waiting: 0},
+      { id: 12, code: "", name: "Nada", initials: "N", avatar: null, role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, team_lead: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation, state: "off", seen: stampOf("من ساعة", "1 h ago"), shifts: 0, rating: 5 , penalties_waiting: 0},
     ],
     options: { departments: [{ id: 3, label: "اللغويات" }], statuses: [confirmed, onProbation] },
     ...over,
@@ -123,7 +123,8 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
     plan: { current: { id: 5, name: "Plan A", overrides: ["daily_target_words", "extra_word_rate"] }, options: [{ id: 5, name: "Plan A" }, { id: 6, name: "Plan B" }] },
     application: { code: "CAN-0007", applied_on: "2025-01-01" },
     salary: [{ effective_from: "2025-01-01", amount: "3500.50" }],
-    can: { edit: false, shift: true, plan: false },
+    penalties: [],
+    can: { edit: false, shift: true, plan: false, decide_penalties: true },
     ...over,
   };
 }
@@ -177,7 +178,7 @@ describe("HrEmployeePage", () => {
     expect(screen.queryByRole("button", { name: /عدّل$/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "اربطه" })).toBeNull();
     view.unmount();
-    serve("admin", { ...page(employee({ can: { edit: true, shift: true, plan: true } })), ...adminHalf(11) });
+    serve("admin", { ...page(employee({ can: { edit: true, shift: true, plan: true, decide_penalties: true } })), ...adminHalf(11) });
     open("/hr/employees/11");
     await screen.findByText("البيانات");
     expect(screen.getByRole("button", { name: /عدّل$/ })).toBeInTheDocument();
@@ -186,7 +187,7 @@ describe("HrEmployeePage", () => {
 
   it("assigns a plan, or takes it off", async () => {
     const served = serve("admin", {
-      ...page(employee({ can: { edit: true, shift: true, plan: true } })),
+      ...page(employee({ can: { edit: true, shift: true, plan: true, decide_penalties: true } })),
       ...adminHalf(11),
       "/api/v1/hr/employees/11/plan/": (url, init) => served.record(url, init, { ok: true }),
     });

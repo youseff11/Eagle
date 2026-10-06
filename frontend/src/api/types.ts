@@ -244,7 +244,8 @@ export interface TranslatorHomeResponse {
   rating: number;
   open: DeskTask[];
   done: { code: string; status: Labelled & { tone: string }; url: string }[];
-  rating_events: { delta: string; reason_ar: string; reason_en: string }[];
+  /** `decision`: HR or the admin let the penalty go (`forgiven`: the stars were given back), applied it, or has not looked yet. */
+  rating_events: { delta: string; reason_ar: string; reason_en: string; decision: "pending" | "confirmed" | "forgiven" }[];
 }
 
 /** A hand-off waiting for an answer, as `/api/heartbeat/` tells it (`api._pending_json`): what the popup draws. */
@@ -904,6 +905,8 @@ export interface SalesLine {
 
 /** One note of the AI on a translation (`api_ai._issue_json`): every free text is already read through the mask for this reader. */
 export interface AiNote {
+  /** The note's place in the check: what is sent back to say which notes the leader accepts (the list is shown most serious first). */
+  id: number | null;
   severity: "high" | "medium" | "low";
   location: string;
   category: { ar: string; en: string } | null;
@@ -917,12 +920,27 @@ export interface AiNote {
   meaning: string;
 }
 
+/** A copy of the translation with the accepted notes applied (`api_ai._revision_json`). `file` is there once it is done. */
+export interface AiRevision {
+  id: number;
+  status: "running" | "done" | "error";
+  /** The ids of the notes it applies. */
+  accepted: number[];
+  at: Stamp | null;
+  error: string;
+  file: { url: string; name: string; size: number } | null;
+}
+
 /** GET /api/v1/tasks/<code>/ai-notes/: the box at the top of a task page, for the admin and the task's own team leader. */
 export interface TaskAiNotes {
   ok: true;
   task: { code: string; title: string };
   /** The switch is on, the key is there and no check is running. */
   can_recheck: boolean;
+  /** There are notes to accept, the switch is on and no corrected copy is being made. */
+  can_revise: boolean;
+  /** The corrected copies of the latest check, newest first: the translator's own file is never one of them. */
+  revisions: AiRevision[];
   /** `null` when no check has run yet. */
   check: {
     id: number;
@@ -1731,6 +1749,8 @@ export interface HrRegister {
     /** `null` for the owner: they have no roster and no rating, which is not a nought. */
     shifts: number | null;
     rating: number | null;
+    /** Stars that came off and wait for HR or the admin to apply or forgive them. */
+    penalties_waiting: number;
     username?: string;
     mail_alias?: string;
   }[];
@@ -1779,7 +1799,32 @@ export interface HrEmployee {
   plan: { current: { id: number; name: string; overrides: string[] } | null; options: { id: number; name: string }[] };
   application: { code: string; applied_on: string } | null;
   salary: { effective_from: string; amount: string }[];
-  can: { edit: boolean; shift: boolean; plan: boolean };
+  /** The stars that came off this person, newest first, and what HR or the admin did with each. */
+  penalties: HrPenalty[];
+  can: { edit: boolean; shift: boolean; plan: boolean; decide_penalties: boolean };
+}
+
+/** One star penalty (`api_people._penalty_json`): who, how many stars, why, and whether it stands. */
+export interface HrPenalty {
+  id: number;
+  user: { id: number; name: string };
+  /** Stars taken off, as text: `0.125`. */
+  amount: string;
+  reason: { ar: string; en: string };
+  /** The task it was for, by code. */
+  task: string | null;
+  at: Stamp | null;
+  decision: DayStatusJson & { value: "pending" | "confirmed" | "forgiven" };
+  decided_by: string | null;
+  decided_at: Stamp | null;
+  note: string;
+}
+
+/** GET /api/v1/hr/penalties/: the penalties waiting for a decision (`?status=all` adds the decided). */
+export interface HrPenalties {
+  ok: true;
+  rows: HrPenalty[];
+  waiting: number;
 }
 
 /** GET /api/v1/hr/probation/?state=. */

@@ -95,6 +95,7 @@ export const qk = {
   hrRegisterAll: ["boards", "hr-register"] as const,
   hrRegister: (search: string) => ["boards", "hr-register", search] as const,
   hrEmployee: (id: number) => ["hr", "employee", id] as const,
+  hrPenalties: ["hr", "penalties"] as const,
   hrProbation: (state: string) => ["hr", "probation", state] as const,
   hrPerformance: (period: string, user: string) => ["hr", "performance", period, user] as const,
   hrPerformanceBoard: (period: string) => ["hr", "performance", "board", period] as const,

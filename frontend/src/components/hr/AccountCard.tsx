@@ -62,26 +62,3 @@ export function AccountCard({ id, data, onClose }: { id: number; data: AdminUser
     </div>
   );
 }
-
-/** What took stars off a person's rating, newest first. */
-export function PenaltiesCard({ events }: { events: AdminUser["events"] }) {
-  const { t, lang } = usePreferences();
-  return (
-    <div className="card" data-card="penalties">
-      <div className="card__head">
-        <Icon name="star" />
-        <h3>{t("خصومات التقييم", "Rating penalties")}</h3>
-      </div>
-      <ul className="timeline">
-        {events.map((event, index) => (
-          <li key={index}>
-            <span className="badge badge--dead mono">{event.delta}</span>
-            <span className="grow">{event.reason}</span>
-            <small className="muted mono">{event.at ? (lang === "ar" ? event.at.ar : event.at.en) : ""}</small>
-          </li>
-        ))}
-        {events.length === 0 && <li className="muted">{t("مفيش خصومات.", "No penalties.")}</li>}
-      </ul>
-    </div>
-  );
-}

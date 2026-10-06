@@ -218,6 +218,15 @@ def _outbound_open_to(user, attachment):
     return _task_open_to(user, task)
 
 
+def _revision_open_to(user, revision):
+    """The AI's corrected copy: the admin, and the leader of the task it was made for (``api_ai.revise``). Nobody else - not the
+    translator whose work it corrects, not the operation."""
+    if user.is_admin_role:
+        return True
+    task = revision.result.task
+    return user.is_team_lead and task.team_lead_id == user.pk and task.can_view(user)
+
+
 def _rows(model, name, *related):
     return list(model.objects.filter(file=name).select_related(*related)[:20])
 
@@ -238,6 +247,12 @@ def owner_of(name):
     # (this is the hottest file on every page of the chats) are not asked.
     if name.startswith("avatars/"):
         return [("avatar", r) for r in User.objects.filter(avatar=name)[:1]]
+
+    # Under ``revisions/`` only the AI's corrected copies are stored.
+    if name.startswith("revisions/"):
+        from .models import AIRevision
+
+        return [("revision", r) for r in _rows(AIRevision, name, "result", "result__task")[:1]]
 
     found = []
     found += [("inbound", r) for r in _rows(MessageAttachment, name, "message", "message__task")]
@@ -263,6 +278,8 @@ def may_open(user, name):
         if kind == "chat" and _chat_open_to(user, row):
             return True, (kind, row)
         if kind == "outbound" and _outbound_open_to(user, row):
+            return True, (kind, row)
+        if kind == "revision" and _revision_open_to(user, row):
             return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)

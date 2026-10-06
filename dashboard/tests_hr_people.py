@@ -215,10 +215,10 @@ class FileTests(_People):
     def test_who_may_edit_a_person_or_assign_a_plan_is_the_admin_alone(self):
         SalaryPlan.objects.create(name="Plan A")
         as_hr = _json(self.read(EMPLOYEE, args=[self.tr.pk]))
-        self.assertEqual(as_hr["can"], {"edit": False, "shift": True, "plan": False})
+        self.assertEqual(as_hr["can"], {"edit": False, "shift": True, "plan": False, "decide_penalties": True})
         self.assertEqual(as_hr["plan"]["options"], [])
         as_admin = _json(self.read(EMPLOYEE, self.admin, args=[self.tr.pk]))
-        self.assertEqual(as_admin["can"], {"edit": True, "shift": True, "plan": True})
+        self.assertEqual(as_admin["can"], {"edit": True, "shift": True, "plan": True, "decide_penalties": True})
         self.assertEqual([one["name"] for one in as_admin["plan"]["options"]], ["Plan A"])
 
     def test_the_plan_a_person_is_on_is_named_with_what_it_changes(self):

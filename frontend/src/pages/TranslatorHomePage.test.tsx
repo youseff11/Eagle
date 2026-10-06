@@ -31,7 +31,7 @@ function desk(overrides: Partial<TranslatorHomeResponse> = {}): TranslatorHomeRe
     rating: 4.875,
     open: [task("TSK-00001")],
     done: [{ code: "TSK-00009", status: { value: "delivered", tone: "done", ar: "تم التسليم", en: "Delivered" }, url: "/tasks/TSK-00009/" }],
-    rating_events: [{ delta: "-0.125", reason_ar: "ما ردّش في الوقت", reason_en: "Missed the window" }],
+    rating_events: [{ delta: "-0.125", reason_ar: "ما ردّش في الوقت", reason_en: "Missed the window", decision: "pending" }],
     ...overrides,
   };
 }
