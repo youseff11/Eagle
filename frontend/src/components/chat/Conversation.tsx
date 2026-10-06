@@ -15,6 +15,7 @@ import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { AddMembersDialog } from "./AddMembersDialog";
 import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
+import { newFilesRun } from "../../lib/fileRun";
 import { ConvertDialog } from "./ConvertDialog";
 import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
 import { ForwardDialog } from "./ForwardDialog";
@@ -440,7 +441,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   // files ticked across messages become one task or are forwarded.
   const clientThread = kindOfCode(code) === "clients";
   const pick = useFilePick(messages);
-  const [converting, setConverting] = useState<ThreadEntry | null>(null);
+  // The messages being turned into one task: the one pressed, with the files that arrived right with it (`newFilesRun`).
+  const [converting, setConverting] = useState<ThreadEntry[] | null>(null);
   const [receipting, setReceipting] = useState<ThreadEntry | null>(null);
   const [forwardingFiles, setForwardingFiles] = useState(false);
   const mayPick = clientThread && mayAnswerClients && pick.available;
@@ -455,7 +457,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   const actions: BubbleActions = {
     onReply: (entry) => setReplyTo(replyTargetOf(entry, t)),
     ...(mayMark ? { onReact: openPicker, onForward: startSelecting, onToggle: toggle } : {}),
-    ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: setConverting } : {}),
+    ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: (entry: ThreadEntry) => setConverting(newFilesRun(messages, entry)) } : {}),
   };
 
   const refused = !known || (thread.error instanceof ApiError && [401, 403, 404].includes(thread.error.status));
@@ -655,7 +657,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               }}
             />
           )}
-          {converting && <ConvertDialog entry={converting} onClose={() => setConverting(null)} />}
+          {converting && <ConvertDialog entries={converting} onClose={() => setConverting(null)} />}
           {receipting && <ReceiptDialog entry={receipting} code={code} onClose={() => setReceipting(null)} />}
           {forwardingFiles && pick.ids.length > 0 && (
             <ForwardDialog

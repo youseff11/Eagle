@@ -174,7 +174,7 @@ describe("«تحويل لتاسك» on one message", () => {
   };
 
   it("lists the message's documents, all ticked, and leads to the task form with the ones left ticked", async () => {
-    await open();
+    await open({}, {}, { client, messages: [day1a, ours] });
     await open_();
     expect(within(dialog()).getAllByRole("checkbox")).toHaveLength(2);
     expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1&files=11,12");
@@ -182,6 +182,48 @@ describe("«تحويل لتاسك» on one message", () => {
     expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1&files=11");
     await userEvent.click(within(dialog()).getByRole("checkbox", { name: /contract/ }));
     expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1");
+  });
+
+  it("takes the files that arrived right with it: one press, one task, however many messages they came in", async () => {
+    // in-1 and in-2 are one after the other on the same day; in-3 is another day and so is not part of them.
+    await open();
+    await open_("in-2");
+    expect(within(dialog()).getAllByRole("checkbox")).toHaveLength(3);
+    expect(within(dialog()).getByText(/3 ملفات ورا بعض في 2 رسايل/)).toBeInTheDocument();
+    expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1,2&files=11,12,13");
+    // Pressing the first of them opens the very same set.
+    await userEvent.click(within(dialog()).getByRole("button", { name: "إلغاء" }));
+    await open_("in-1");
+    expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1,2&files=11,12,13");
+    // Leaving a file out leaves it out; a message with nothing ticked any more does not go.
+    await userEvent.click(within(dialog()).getByRole("checkbox", { name: /stamps/ }));
+    expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1,2&files=11,13");
+    await userEvent.click(within(dialog()).getByRole("checkbox", { name: /contract/ }));
+    expect(within(dialog()).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=2&files=13");
+  });
+
+  it("does not run into a message of ours, a message of words, a voice note, another day or a message that is already a task", async () => {
+    const a = entry(1, { uid: "in-1", date: "2026-10-01", body: "the contract", actions: true, has_docs: true, files: [doc(11, "a.pdf")] });
+    const between = entry(2, { uid: "in-2", date: "2026-10-01", body: "we got the first", kind: "out", sender: "Nour", mine: true, status: "sent" });
+    const b = entry(3, { uid: "in-3", date: "2026-10-01", body: "second", actions: true, has_docs: true, files: [doc(12, "b.pdf")] });
+    const talk = entry(4, { uid: "in-4", date: "2026-10-01", body: "just words", actions: true, has_docs: false });
+    const c = entry(5, { uid: "in-5", date: "2026-10-01", body: "third", actions: true, has_docs: true, files: [doc(13, "c.pdf")] });
+    const made = entry(6, { uid: "in-6", date: "2026-10-01", body: "fourth", actions: true, has_docs: true, has_task: true, task_code: "TSK-00009", files: [doc(14, "d.pdf")] });
+    const e = entry(7, { uid: "in-7", date: "2026-10-01", body: "fifth", actions: true, has_docs: true, files: [doc(15, "e.pdf")] });
+    await open({}, {}, { client, messages: [a, between, b, talk, c, made, e] });
+    for (const [uid, href] of [
+      ["in-1", "/ops/tasks/new/?messages=1&files=11"],
+      ["in-3", "/ops/tasks/new/?messages=3&files=12"],
+      ["in-5", "/ops/tasks/new/?messages=5&files=13"],
+      ["in-7", "/ops/tasks/new/?messages=7&files=15"],
+    ] as const) {
+      await open_(uid);
+      expect(within(dialog()).getByRole("link", { name: "كمّل" }), uid).toHaveAttribute("href", href);
+      await userEvent.click(within(dialog()).getByRole("button", { name: "إلغاء" }));
+    }
+    // «طلب جديد» on a message that is already a task is that message alone.
+    await userEvent.click(within(document.querySelector('[data-uid="in-6"]') as HTMLElement).getByRole("button", { name: "طلب جديد" }));
+    expect(within(await screen.findByRole("dialog")).getByRole("link", { name: "كمّل" })).toHaveAttribute("href", "/ops/tasks/new/?messages=6&files=14");
   });
 
   it("does not list a voice note as a document of the job", async () => {
