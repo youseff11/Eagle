@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
@@ -12,7 +12,7 @@ import { Ticks } from "./Ticks";
 import { VoiceNote } from "./VoiceNote";
 import { DocumentPreview } from "./DocumentPreview";
 import { ImageGrid } from "./ImageGrid";
-import type { LightboxImage } from "./Lightbox";
+import { Lightbox, type LightboxImage } from "./Lightbox";
 
 /** The colours of the reaction symbols (`r-<kind>` in the sprite). Anything else is not drawn. */
 const REACTIONS = new Set(["like", "love", "laugh", "wow", "sad", "done"]);
@@ -32,6 +32,24 @@ export interface FileMark {
   toggle: (entry: ThreadEntry, file: ThreadFile) => void;
   /** Outside the mode: a button beside the file that turns the mode on with this file already ticked. */
   start?: { label: string; run: (entry: ThreadEntry, file: ThreadFile) => void };
+}
+
+/** One photo: a press opens it over the chat (with the button that saves it); a modified press still opens the address in a tab. */
+function SinglePhoto({ url, name, enabled }: { url: string; name: string; enabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const show = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!enabled || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setOpen(true);
+  };
+  return (
+    <>
+      <a className="bub__img" href={url} target="_blank" rel="noopener noreferrer" title={name} onClick={show}>
+        <img src={url} alt={name} loading="lazy" />
+      </a>
+      {open && <Lightbox images={[{ url, name }]} start={0} onClose={() => setOpen(false)} />}
+    </>
+  );
 }
 
 function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mark?: FileMark }) {
@@ -87,9 +105,7 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
     return (
       <div className={classes.join(" ")} onClick={tap}>
         {box}
-        <a className="bub__img" href={url} target="_blank" rel="noopener noreferrer" title={file.name}>
-          <img src={url} alt={file.name} loading="lazy" />
-        </a>
+        <SinglePhoto url={url} name={file.name} enabled={!(on && mark.mode === "pick")} />
         {start}
       </div>
     );
@@ -98,7 +114,7 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
     <div className={classes.join(" ")} onClick={tap}>
       {box}
       {url ? (
-        <DocumentPreview key={url} file={file} url={url} />
+        <DocumentPreview key={url} file={file} url={url} viewer={!(on && mark.mode === "pick")} />
       ) : (
         <span>{file.name}</span>
       )}

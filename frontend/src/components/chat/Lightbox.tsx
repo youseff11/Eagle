@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePreferences } from "../../i18n/Preferences";
+import { downloadUrl } from "../../lib/fileUrl";
 import { Icon } from "../Icon";
 
 export interface LightboxImage {
@@ -70,9 +71,16 @@ export function Lightbox({
         ) : (
           <span />
         )}
-        <button ref={closer} type="button" className="icon-btn" onClick={onClose} title={t("إغلاق", "Close")} aria-label={t("إغلاق", "Close")}>
-          <Icon name="x" />
-        </button>
+        <div className="lightbox__tools">
+          {!avatar && (
+            <a className="icon-btn" href={downloadUrl(image.url)} download={image.name} title={t("تنزيل", "Download")} aria-label={t("تنزيل", "Download")} data-download="">
+              <Icon name="download" />
+            </a>
+          )}
+          <button ref={closer} type="button" className="icon-btn" onClick={onClose} title={t("إغلاق", "Close")} aria-label={t("إغلاق", "Close")}>
+            <Icon name="x" />
+          </button>
+        </div>
       </div>
       {several && (
         <button

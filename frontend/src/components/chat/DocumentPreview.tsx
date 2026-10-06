@@ -1,18 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { api } from "../../api/client";
 import type { ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { previewUrl } from "../../lib/fileUrl";
 import { prettySize } from "../../lib/size";
 import { Icon } from "../Icon";
+import { FileViewer } from "./FileViewer";
 import PdfPreview from "./PdfPreview";
-
-function previewUrl(url: string, mode: string) {
-  const parsed = new URL(url, window.location.origin);
-  parsed.searchParams.set("preview", mode);
-  parsed.hash = "";
-  return parsed.pathname + parsed.search;
-}
 
 function WordPreview({ url, name }: { url: string; name: string }) {
   const { t } = usePreferences();
@@ -43,10 +38,11 @@ export function PreviewPlaceholder({ loading = false }: { loading?: boolean }) {
 }
 
 /** Load only nearby cards, using the same protected file addresses as a download. */
-export function DocumentPreview({ file, url }: { file: ThreadFile; url: string }) {
+export function DocumentPreview({ file, url, viewer = true }: { file: ThreadFile; url: string; viewer?: boolean }) {
   const { t } = usePreferences();
   const element = useRef<HTMLAnchorElement>(null);
   const [visible, setVisible] = useState(false);
+  const [open, setOpen] = useState(false);
   const extension = /\.([a-z0-9]{1,8})$/i.exec(file.name)?.[1]?.toLowerCase() ?? "";
   const word = ["docx", "docm", "dotx"].includes(extension);
   const pdf = !word && (extension === "pdf" || file.mime.split(";")[0]?.trim().toLowerCase() === "application/pdf");
@@ -68,8 +64,17 @@ export function DocumentPreview({ file, url }: { file: ThreadFile; url: string }
     return () => observer.disconnect();
   }, []);
 
+  // A press opens the file over the chat, with a button that saves it; the address stays a real link, so a middle or modified press
+  // still opens it in a tab. `viewer` is off while the page is picking files (a press then ticks the file, it opens nothing).
+  const show = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!viewer || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setOpen(true);
+  };
+
   return (
-    <a ref={element} className="document-card" href={url} target="_blank" rel="noopener noreferrer" aria-label={file.name} title={file.name}>
+    <>
+    <a ref={element} className="document-card" href={url} target="_blank" rel="noopener noreferrer" aria-label={file.name} title={file.name} onClick={show}>
       <span className="document-card__preview">
         {visible && word ? <WordPreview key={url} url={url} name={file.name} /> : visible && pdf ? (
           <PdfPreview key={url} url={url} name={file.name} />
@@ -83,5 +88,7 @@ export function DocumentPreview({ file, url }: { file: ThreadFile; url: string }
         </span>
       </span>
     </a>
+    {open && <FileViewer file={file} url={url} onClose={() => setOpen(false)} />}
+    </>
   );
 }

@@ -118,6 +118,11 @@ def serve_file(request, name):
     wanted = request.GET.get("preview", "")
     if wanted == "1":
         return JsonResponse({"ok": True, **files.document_preview(name, data)})
+    if wanted == "full":
+        text, truncated = files.document_full_text(name, data)
+        response = JsonResponse({"ok": True, "text": text, "truncated": truncated})
+        response["Cache-Control"] = "private, no-store"
+        return response
     if wanted == "thumb":
         thumb, thumb_kind = files.document_thumbnail(name, data)
         if not thumb:

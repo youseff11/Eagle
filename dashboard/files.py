@@ -371,9 +371,11 @@ def opens_inline(kind):
 WORD_SUFFIXES = (".docx", ".docm", ".dotx")
 _THUMBS = ("docProps/thumbnail.jpeg", "docProps/thumbnail.jpg", "docProps/thumbnail.png")
 PREVIEW_CHARS = 900
+#: What the viewer opened over the chat shows of a Word file: its text, as far as this. A longer file says so and offers the download.
+FULL_TEXT_CHARS = 60000
 
 
-def _docx_parts(data):
+def _docx_parts(data, limit=PREVIEW_CHARS):
     import io
     import zipfile
 
@@ -398,7 +400,7 @@ def _docx_parts(data):
     text = html.unescape(text)
     lines = [line.strip() for line in text.split("\n")]
     text = "\n".join(line for line in lines if line)
-    return text[:PREVIEW_CHARS], thumb_bytes
+    return text[:limit], thumb_bytes
 
 
 def document_preview(name, data):
@@ -415,6 +417,14 @@ def document_preview(name, data):
     found = {"text": text, "thumb": bool(thumb)}
     cache.set(key, found, 86400)
     return found
+
+
+def document_full_text(name, data):
+    """``(text, truncated)``: the text of a Word file, for the viewer that opens it without downloading. Empty for any other type."""
+    if not name.lower().endswith(WORD_SUFFIXES):
+        return "", False
+    text, _thumb = _docx_parts(data, limit=FULL_TEXT_CHARS + 1)
+    return text[:FULL_TEXT_CHARS], len(text) > FULL_TEXT_CHARS
 
 
 def document_thumbnail(name, data):

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { PreferencesProvider } from "../i18n/Preferences";
@@ -32,6 +32,8 @@ describe("Avatar", () => {
     expect(screen.queryByRole("button", { name: "اللي بعدها" })).toBeNull();
     expect(screen.queryByRole("button", { name: "اللي قبلها" })).toBeNull();
     expect(document.querySelector("[data-lightbox-count]")).toBeNull();
+    // A face is not a file somebody saves: the button that saves a photo of the chat is not here.
+    expect(within(dialog).queryByRole("link", { name: "تنزيل" })).toBeNull();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();

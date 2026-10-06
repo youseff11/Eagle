@@ -291,7 +291,33 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
   padding: 12px 14px;
   color: #fff;
 }
+.lightbox__tools { display: flex; align-items: center; gap: 8px; }
 .lightbox__nav { position: absolute; top: 50%; transform: translateY(-50%); }
+
+/* A file of the chat opened over it: the name and the download button on a bar, the file under it. */
+.fileviewer {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 8, 12, .92);
+  color: #fff;
+}
+.fileviewer__bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; flex: none; }
+.fileviewer__title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-weight: 600; }
+.fileviewer__title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fileviewer__title small { opacity: .7; font-weight: 400; }
+.fileviewer__body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 0 14px 24px; }
+.fileviewer__pages { width: min(980px, 100%); display: grid; gap: 12px; }
+.fileviewer__page { width: 100%; height: auto; display: block; background: #fff; border-radius: 4px; }
+.fileviewer__paper {
+  width: min(820px, 100%); box-sizing: border-box; padding: 24px 28px; border-radius: 6px;
+  background: #fff; color: #1b1f27; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fileviewer__video { max-width: min(980px, 100%); max-height: 100%; background: #000; border-radius: 4px; }
+.fileviewer__empty { display: grid; justify-items: center; gap: 10px; margin: auto; padding: 24px; text-align: center; opacity: .85; }
+.fileviewer__more { margin: 8px 0 0; }
 .lightbox__prev { left: 12px; }
 .lightbox__prev .ic { transform: scaleX(-1); }
 .lightbox__next { right: 12px; }
