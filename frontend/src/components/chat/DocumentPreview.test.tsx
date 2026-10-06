@@ -1,6 +1,6 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { file } from "../../test/chat";
+import { entry, file, renderChats, row, visible } from "../../test/chat";
 import { mockFetch, renderWithProviders } from "../../test/helpers";
 import { DocumentPreview } from "./DocumentPreview";
 
@@ -25,6 +25,14 @@ describe("a file as a card in the chat", () => {
     // No picture of the page, no text of the file, and nothing is fetched to draw the card.
     expect(container.querySelector("canvas, img, .document-card__paper")).toBeNull();
     expect(calls).toHaveLength(0);
+  });
+
+  it("writes the task's code on the card when the file belongs to a task, and nothing when it does not", () => {
+    const first = renderWithProviders(<DocumentPreview file={file({ name: "a.pdf", url: "/files/in/a.pdf" })} url="/files/in/a.pdf" task="TSK-00004" />);
+    expect(first.container.querySelector(".document-card__task")).toHaveTextContent("TSK-00004");
+    first.unmount();
+    const second = renderWithProviders(<DocumentPreview file={file({ name: "a.pdf", url: "/files/in/a.pdf" })} url="/files/in/a.pdf" />);
+    expect(second.container.querySelector(".document-card__task")).toBeNull();
   });
 
   it("shows a Word file as a blue Word badge, by the extension and whatever type the server says", () => {
@@ -65,5 +73,24 @@ describe("a file as a card in the chat", () => {
     card({ name: "a.zip", url: "/files/in/a.zip", mime: "application/zip" }, false);
     fireEvent.click(screen.getByRole("link", { name: "a.zip" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the task's code on a file in the chat", () => {
+  it("is the code of the task the message was tagged with", async () => {
+    visible("visible");
+    renderChats("/chats/CL-0001", {
+      thread: {
+        client: row("CL-0001"),
+        messages: [
+          entry(1, { task_code: "TSK-00004", files: [file({ id: 1, name: "translation.pdf", url: "/files/in/t.pdf" })] }),
+          entry(2, { task_code: "", files: [file({ id: 2, name: "other.pdf", url: "/files/in/o.pdf" })] }),
+        ],
+      },
+    });
+    await screen.findByText("message 1");
+    const cards = Array.from(document.querySelectorAll(".document-card"));
+    expect(cards[0]!.querySelector(".document-card__task")).toHaveTextContent("TSK-00004");
+    expect(cards[1]!.querySelector(".document-card__task")).toBeNull();
   });
 });

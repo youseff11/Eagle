@@ -127,7 +127,13 @@ describe("opening a file over the chat", () => {
 
   it("falls back to the download when a PDF cannot be drawn", async () => {
     const user = userEvent.setup();
-    pdf.getDocument.mockReturnValue({ promise: Promise.reject(new Error("Password required")), destroy: pdf.destroy });
+    // The rejection is made when the page asks for it, so nothing is left unhandled before that.
+    pdf.getDocument.mockReturnValue({
+      get promise() {
+        return Promise.reject(new Error("Password required"));
+      },
+      destroy: pdf.destroy,
+    });
     vi.stubGlobal("fetch", mockFetch({}).fn);
     card({ name: "report.pdf", url: "/files/in/report.pdf", mime: "application/pdf" });
     await user.click(screen.getByRole("link", { name: "report.pdf" }));

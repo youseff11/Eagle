@@ -114,7 +114,7 @@ function File({ file, entry, mark }: { file: ThreadFile; entry: ThreadEntry; mar
     <div className={classes.join(" ")} onClick={tap}>
       {box}
       {url ? (
-        <DocumentPreview key={url} file={file} url={url} viewer={!(on && mark.mode === "pick")} />
+        <DocumentPreview key={url} file={file} url={url} viewer={!(on && mark.mode === "pick")} task={entry.task_code} />
       ) : (
         <span>{file.name}</span>
       )}

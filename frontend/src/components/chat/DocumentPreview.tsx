@@ -17,10 +17,10 @@ function badgeOf(file: ThreadFile): { kind: "pdf" | "word" | "other"; label: str
 /**
  * A file of the chat as a small card, as WhatsApp draws it: a badge that says what kind of file it is (PDF, Word), the name, and
  * the type and size under it. It shows nothing of what is inside the file - a press opens the file over the chat (`FileViewer`),
- * with a button that saves it. The address stays a real link, so a middle or modified press opens it in a tab. `viewer` is off while
+ * with a button that saves it. `task` is the code of the task the file belongs to, written on the card. The address stays a real link, so a middle or modified press opens it in a tab. `viewer` is off while
  * the page is picking files (a press then ticks the file, it opens nothing).
  */
-export function DocumentPreview({ file, url, viewer = true }: { file: ThreadFile; url: string; viewer?: boolean }) {
+export function DocumentPreview({ file, url, viewer = true, task = "" }: { file: ThreadFile; url: string; viewer?: boolean; task?: string }) {
   const { t } = usePreferences();
   const [open, setOpen] = useState(false);
   const badge = badgeOf(file);
@@ -47,6 +47,7 @@ export function DocumentPreview({ file, url, viewer = true }: { file: ThreadFile
               {extension || t("ملف", "FILE")}
               {file.size > 0 ? ` · ${prettySize(file.size)}` : ""}
             </span>
+            {task && <span className="chip chip--sm mono document-card__task" title={t("التاسك", "Task")}>{task}</span>}
           </span>
         </span>
       </a>

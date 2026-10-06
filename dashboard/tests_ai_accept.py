@@ -269,8 +269,12 @@ class GoneTests(_Accept):
             apps.get_model("dashboard", "AIRevision")
         self.assertFalse(hasattr(ai, "start_revision"))
         self.assertFalse(hasattr(ai, "build_docx"))
-        with self.assertRaises(Exception):
-            reverse("dashboard:v1_ai_revise", args=["TSK-1"])
+        # The old address answers nothing: the page that called it is gone.
+        self.check(self.three)
+        browser = DjangoClient()
+        browser.force_login(self.lead)
+        gone = browser.post(f"/api/v1/tasks/{self.task.code}/ai-notes/revise/", data="{}", content_type="application/json")
+        self.assertEqual(gone.status_code, 404)
         from . import files
 
         self.assertEqual(files.owner_of("revisions/2026/10/none.docx"), [])
