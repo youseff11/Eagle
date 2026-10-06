@@ -92,7 +92,7 @@ def notify_role(role, **kwargs):
 #: taken as a double press rather than a second announcement.
 ANNOUNCE_ACTION = "support.announce"
 ANNOUNCE_TITLE_MAX = 200
-ANNOUNCE_BODY_MAX = 400
+ANNOUNCE_BODY_MAX = 1000
 ANNOUNCE_REPEAT_SECONDS = 60
 ANNOUNCE_LEVELS = ("info", "warning")
 
@@ -109,8 +109,10 @@ def announce(sender, *, title, body="", level="info", sound=False):
     words are the sender's own and go out as typed, in both languages: nothing of a client is in a support account's reach, so
     nothing of one can be in them. Every announcement is written to the audit log with who sent it and to how many.
     """
-    title = (title or "").strip()
-    body = (body or "").strip()
+    title = " ".join((title or "").split())
+    # Lines the sender wrote stay lines (a list under the title): only the line ends are made one kind, and a run of empty
+    # lines is one empty line.
+    body = re.sub(r"\n{3,}", "\n\n", (body or "").replace("\r\n", "\n").replace("\r", "\n")).strip()
     if not title:
         return 0, "empty"
     if len(title) > ANNOUNCE_TITLE_MAX or len(body) > ANNOUNCE_BODY_MAX:

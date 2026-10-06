@@ -296,3 +296,32 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 .lightbox__prev .ic { transform: scaleX(-1); }
 .lightbox__next { right: 12px; }
 .lightbox__nav:disabled { opacity: .3; cursor: default; }
+
+/* A notification: who it is from and when on one line, the title, then the words as the sender typed them (lines stay lines),
+   and the buttons beside it - under it on a phone. */
+.notice { align-items: flex-start; gap: 12px; padding: 14px 16px; }
+.notice .ic { margin-top: 3px; }
+.notice__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.notice__meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
+.notice__from { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.notice__name { color: var(--heading); font-weight: 600; }
+.notice__time { font-size: .73rem; color: var(--faint); }
+.notice__title { font-size: .98rem; font-weight: 700; line-height: 1.5; color: var(--heading); }
+.notice__body { white-space: pre-line; overflow-wrap: anywhere; line-height: 1.85; color: var(--text); opacity: .88; }
+.notice__actions { display: flex; flex: none; align-items: center; gap: 8px; }
+.note.notice.is-unread { background: var(--surface-3, var(--surface-2)); }
+@media (max-width: 640px) {
+  .notice { flex-wrap: wrap; }
+  .notice__main { flex-basis: calc(100% - 36px); }
+  .notice__actions { flex-basis: 100%; justify-content: flex-end; }
+}
+
+/* A toast's words keep the sender's lines too. */
+.toast__body { white-space: pre-line; }
+
+/* The announcement form: a roomy box for the lines, and the kind and the sound on one row. */
+.announce__body { min-height: 160px; line-height: 1.7; resize: vertical; }
+.announce__options { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px 24px; margin-block-end: 6px; }
+.announce__options .field { flex: 1 1 200px; margin-block-end: 0; }
+.announce__sound { display: inline-flex; align-items: center; gap: 8px; padding-block: 9px; cursor: pointer; }
+.announce__recent { white-space: pre-line; }

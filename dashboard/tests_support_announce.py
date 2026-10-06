@@ -56,10 +56,27 @@ class SendingTests(_Announce):
         self.assertFalse(Notification.objects.filter(sound=True).exists())
 
     def test_a_title_is_needed_and_the_level_is_one_we_know(self):
-        for body in ({"title": "  "}, {"body": "no title"}, {"title": "x", "level": "danger"}, {"title": "x" * 201}, {"title": "x", "body": "y" * 401}):
+        for body in ({"title": "  "}, {"body": "no title"}, {"title": "x", "level": "danger"}, {"title": "x" * 201}, {"title": "x", "body": "y" * 1001}):
             with self.subTest(body=body):
                 self.assertEqual(self.send(self.support, body).status_code, 400)
         self.assertFalse(Notification.objects.exists())
+
+    def test_lines_stay_lines_and_a_long_list_fits(self):
+        lines = [f"{index}- a change in the system that everybody should know about" for index in range(1, 11)]
+        typed = "\r\n".join(lines[:5]) + "\n\n\n\n" + "\n".join(lines[5:])
+        self.assertLess(len(typed), 1000)
+        self.assertEqual(self.send(self.support, {"title": "  What   is new ", "body": typed}).status_code, 200)
+        note = Notification.objects.get(user=self.tr)
+        # One kind of line end, a run of empty lines is one, the edges are cut, and the title is one line.
+        self.assertEqual(note.body_en, "\n".join(lines[:5]) + "\n\n" + "\n".join(lines[5:]))
+        self.assertEqual((note.title_en, note.body_ar), ("What is new", note.body_en))
+        listed = _json(self.read(self.support))["recent"][0]
+        self.assertEqual((listed["body"], listed["reached"]), (note.body_en, len(self.everyone)))
+
+    def test_a_repeat_with_lines_is_still_a_repeat(self):
+        body = {"title": "List", "body": "1- one\n2- two"}
+        self.assertEqual(self.send(self.support, body).status_code, 200)
+        self.assertEqual(self.send(self.support, body).status_code, 409)
 
     def test_an_unreadable_body_is_refused(self):
         self.assertEqual(self.send(self.support, raw="not json").status_code, 400)

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +47,38 @@ describe("SupportAnnouncePage", () => {
     open();
     expect(await screen.findByText("Restart at 6")).toBeInTheDocument();
     expect(screen.getByText("Save your work")).toBeInTheDocument();
+  });
+
+  it("draws what is typed as the employees will see it, from the sender, lines and all", async () => {
+    const user = userEvent.setup();
+    serve();
+    open();
+    await screen.findByText("Restart at 6");
+    const preview = () => document.querySelector("[data-preview]") as HTMLElement;
+    expect(within(preview()).getByText("عنوان الإشعار")).toBeInTheDocument();
+    expect(within(preview()).getByText("Nour")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("العنوان"), "تحديث في النظام");
+    await user.type(screen.getByLabelText("التفاصيل (اختياري)"), "1- أول حاجة{Enter}2- تاني حاجة");
+    expect(within(preview()).getByText("تحديث في النظام")).toBeInTheDocument();
+    expect((preview().querySelector(".notice__body") as HTMLElement).textContent).toBe("1- أول حاجة\n2- تاني حاجة");
+    await user.selectOptions(screen.getByLabelText("النوع"), "warning");
+    expect(preview().querySelector(".note")).toHaveClass("note--warn");
+    // Nothing of it can be pressed: it is to be looked at.
+    expect(within(preview()).queryByRole("button")).toBeNull();
+    expect(within(preview()).queryByRole("link")).toBeNull();
+  });
+
+  it("sends the lines as typed", async () => {
+    const user = userEvent.setup();
+    const mocked = serve();
+    open();
+    await screen.findByText("Restart at 6");
+    await user.type(screen.getByLabelText("العنوان"), "List");
+    await user.type(screen.getByLabelText("التفاصيل (اختياري)"), "one{Enter}two{Enter}{Enter}three");
+    await user.click(screen.getByRole("button", { name: "ابعت للكل" }));
+    await user.click(await screen.findByRole("button", { name: "ابعت" }));
+    await waitFor(() => expect(posts(mocked)).toHaveLength(1));
+    expect(JSON.parse(String(posts(mocked)[0]!.init!.body)).body).toBe("one\ntwo\n\nthree");
   });
 
   it("asks before it sends, says how many it reaches, and sends nothing on a no", async () => {

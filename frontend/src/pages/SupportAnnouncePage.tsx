@@ -2,16 +2,19 @@ import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router";
 import { ApiError } from "../api/client";
 import { useAnnounce, useMe, useSendAnnouncement } from "../api/queries";
+import type { NotificationItem } from "../api/types";
 import { Confirm } from "../components/Confirm";
 import { Icon } from "../components/Icon";
+import { NotificationCard } from "../components/NotificationCard";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 
 const BLANK = { title: "", body: "", level: "info" as "info" | "warning", sound: false };
 
 /**
- * Technical support tells everybody something: a notification to every active employee, when support wants to. It asks
- * once before it sends (it reaches the whole company and cannot be taken back), and says how many it reached.
+ * Technical support tells everybody something: a notification to every active employee, when support wants to. What is typed
+ * is drawn beside the box as the employees will see it (lines stay lines), it asks once before it sends (it reaches the whole
+ * company and cannot be taken back), and it says how many it reached.
  */
 export function SupportAnnouncePage() {
   const { t } = usePreferences();
@@ -29,7 +32,8 @@ export function SupportAnnouncePage() {
   const data = query.data;
   const reach = data?.reach ?? 0;
   const titleMax = data?.limits.title ?? 200;
-  const bodyMax = data?.limits.body ?? 400;
+  const bodyMax = data?.limits.body ?? 1000;
+  const user = me.data?.user;
 
   const reason = (error: unknown) => {
     const code = error instanceof ApiError ? error.code : "";
@@ -63,6 +67,22 @@ export function SupportAnnouncePage() {
     );
   };
 
+  // What the employees will see: the same card, from this person, marked unread.
+  const preview: NotificationItem = {
+    id: 0,
+    level: values.level,
+    title_ar: values.title.trim() || t("عنوان الإشعار", "Announcement title"),
+    title_en: values.title.trim() || t("عنوان الإشعار", "Announcement title"),
+    body_ar: values.body.trim(),
+    body_en: values.body.trim(),
+    url: "",
+    sound: values.sound,
+    created: t("دلوقتي", "now"),
+    date: "",
+    read: false,
+    sender: user ? { id: user.id, name: user.short_name, initials: user.initials, avatar: user.avatar, role: user.role } : null,
+  };
+
   return (
     <>
       <div className="page-head">
@@ -81,6 +101,7 @@ export function SupportAnnouncePage() {
                 id="ann-title"
                 className="input"
                 maxLength={titleMax}
+                placeholder={t("مثلًا: تحديث في النظام", "For example: A system update")}
                 value={values.title}
                 onChange={(event) => setValues({ ...values, title: event.target.value })}
               />
@@ -89,9 +110,10 @@ export function SupportAnnouncePage() {
               <label htmlFor="ann-body">{t("التفاصيل (اختياري)", "Details (optional)")}</label>
               <textarea
                 id="ann-body"
-                className="input"
-                rows={4}
+                className="input announce__body"
+                rows={8}
                 maxLength={bodyMax}
+                placeholder={t("اكتب كل نقطة في سطر: اضغط Enter للسطر الجديد.", "Write each point on its own line: press Enter for a new line.")}
                 value={values.body}
                 onChange={(event) => setValues({ ...values, body: event.target.value })}
               />
@@ -99,7 +121,7 @@ export function SupportAnnouncePage() {
                 {values.body.length} / {bodyMax}
               </small>
             </div>
-            <div className="form-grid">
+            <div className="announce__options">
               <div className="field">
                 <label htmlFor="ann-level">{t("النوع", "Kind")}</label>
                 <select
@@ -112,18 +134,15 @@ export function SupportAnnouncePage() {
                   <option value="warning">{t("تنبيه مهم", "Important")}</option>
                 </select>
               </div>
-              <div className="field">
-                <label htmlFor="ann-sound">{t("الصوت", "Sound")}</label>
-                <label className="row row--tight" htmlFor="ann-sound">
-                  <input
-                    id="ann-sound"
-                    type="checkbox"
-                    checked={values.sound}
-                    onChange={(event) => setValues({ ...values, sound: event.target.checked })}
-                  />
-                  <span>{t("رنّة مع الإشعار", "Ring with it")}</span>
-                </label>
-              </div>
+              <label className="announce__sound" htmlFor="ann-sound">
+                <input
+                  id="ann-sound"
+                  type="checkbox"
+                  checked={values.sound}
+                  onChange={(event) => setValues({ ...values, sound: event.target.checked })}
+                />
+                <span>{t("رنّة مع الإشعار", "Ring with it")}</span>
+              </label>
             </div>
             {problem && (
               <div className="note note--high" role="alert">
@@ -141,6 +160,15 @@ export function SupportAnnouncePage() {
         <div className="sticky-side">
           <div className="card">
             <div className="card__head">
+              <Icon name="eye" />
+              <h3>{t("هيظهر كده للموظفين", "How it will look")}</h3>
+            </div>
+            <div data-preview="">
+              <NotificationCard item={preview} />
+            </div>
+          </div>
+          <div className="card mt">
+            <div className="card__head">
               <Icon name="history" />
               <h3>{t("آخر الإشعارات", "Latest announcements")}</h3>
             </div>
@@ -149,7 +177,7 @@ export function SupportAnnouncePage() {
                 <li key={row.id} data-announcement={row.id}>
                   <span className="grow">
                     <strong>{row.title}</strong>
-                    {row.body && <div className="muted">{row.body}</div>}
+                    {row.body && <div className="muted announce__recent">{row.body}</div>}
                     <small className="muted">
                       {t(row.at.ar, row.at.en)} · {row.by ?? "—"} · {row.reached}
                     </small>
@@ -172,7 +200,7 @@ export function SupportAnnouncePage() {
           body={
             <>
               <strong>{values.title.trim()}</strong>
-              {values.body.trim() && <div>{values.body.trim()}</div>}
+              {values.body.trim() && <div className="notice__body">{values.body.trim()}</div>}
               <div className="muted" style={{ marginTop: 6 }}>
                 {t(`هيوصل لـ ${reach} موظف ومينفعش يتسحب.`, `It reaches ${reach} people and cannot be taken back.`)}
               </div>

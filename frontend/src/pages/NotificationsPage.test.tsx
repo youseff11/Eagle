@@ -97,6 +97,30 @@ describe("NotificationsPage", () => {
     expect(container.querySelector('[data-notification="3"] [data-sender]')).toBeNull();
   });
 
+  it("keeps the lines the sender typed: the words are one block that is drawn with its line breaks", async () => {
+    serve({ "/api/v1/notifications/": () => jsonResponse(page([note(1, { body_ar: "1- أول نقطة\n2- تاني نقطة\n\n3- تالت نقطة" })])) });
+    const { container } = renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 1");
+    const words = container.querySelector('[data-notification="1"] .notice__body') as HTMLElement;
+    expect(words.textContent).toBe("1- أول نقطة\n2- تاني نقطة\n\n3- تالت نقطة");
+    // One element holding the lines (the stylesheet breaks them): not one per line, and never markup.
+    expect(words.children).toHaveLength(0);
+    expect(container.querySelectorAll('[data-notification="1"] .notice__title')).toHaveLength(1);
+  });
+
+  it("draws a sender-less notification without a sender row, and the time on the same line as the sender", async () => {
+    serve({
+      "/api/v1/notifications/": () =>
+        jsonResponse(page([note(1), note(2, { sender: { id: 5, name: "Sami", initials: "S", avatar: null, role: "support" } })])),
+    });
+    const { container } = renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 1");
+    expect(container.querySelector('[data-notification="1"] .notice__from')).toBeNull();
+    const meta = container.querySelector('[data-notification="2"] .notice__meta') as HTMLElement;
+    expect(meta.querySelector(".notice__from")).not.toBeNull();
+    expect(meta.querySelector(".notice__time")).toHaveTextContent("2026-10-01 8:00 AM");
+  });
+
   it("says the role in English when asked", async () => {
     serve({
       "/api/v1/notifications/": () =>
