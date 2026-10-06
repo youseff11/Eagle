@@ -114,6 +114,32 @@ class UnreadChatsInMeTests(_Staff):
         # Everything else in the chat was already read, and now so is the new line.
         self.assertEqual(self.me(self.ops)["unread_chats"], 0)
 
+    def test_the_clients_tab_counts_conversations_waiting_not_messages(self):
+        first = Client.objects.create(name="First Co", phone="+201005550001")
+        second = Client.objects.create(name="Second Co", phone="+201005550002")
+        for client, words in ((first, "one"), (first, "two"), (first, "three"), (second, "only")):
+            InboundMessage.objects.create(client=client, channel=Channel.WHATSAPP, body=words)
+        body = self.me(self.ops)
+        # Four messages in two conversations: the tab says two, the sidebar's badge says four (and the staff chat's own lines).
+        self.assertEqual(body["unread_client_chats"], 2)
+        self.assertEqual(services.unread_by_client(self.ops), {first.pk: 3, second.pk: 1})
+        self.assertEqual(body["unread_chats"], services.unread_chat_total(self.ops))
+        # Reading one conversation takes it off the count, and another message from it puts it back.
+        with mock.patch("dashboard.services.send_read_receipt"):
+            browser = DjangoClient()
+            browser.force_login(self.ops)
+            browser.post(reverse("dashboard:v1_client_read", args=[first.code]), {}, content_type="application/json")
+        self.assertEqual(self.me(self.ops)["unread_client_chats"], 1)
+        InboundMessage.objects.create(client=first, channel=Channel.WHATSAPP, body="back again")
+        self.assertEqual(self.me(self.ops)["unread_client_chats"], 2)
+
+    def test_it_is_nothing_for_a_role_without_the_client_tab_and_the_tabs_put_colleagues_in_the_middle(self):
+        InboundMessage.objects.create(client=Client.objects.create(name="Any Co", phone="+201005550003"), channel=Channel.WHATSAPP, body="hi")
+        self.assertEqual(self.me(self.tr)["unread_client_chats"], 0)
+        self.assertEqual(self.me(self.tr)["chats"]["types"], ["groups", "staff"])
+        self.assertEqual(self.me(self.ops)["chats"]["types"], ["clients", "staff", "groups"])
+        self.assertEqual(self.me(self.admin)["chats"]["types"], ["clients", "staff", "groups"])
+
 
 class ChatsScreenSwitchTests(_Staff):
     def turn_on(self, roles=(), users=()):

@@ -83,6 +83,8 @@ export interface Setup {
   role?: Parameters<typeof me>[0];
   /** `me.chats.can_create_group`: this person may open an internal work group. */
   canCreateGroup?: boolean;
+  /** `me.unread_client_chats`: the number on the clients tab. */
+  unreadClientChats?: number;
 }
 
 export function renderChats(
@@ -91,10 +93,15 @@ export function renderChats(
   extra: FetchRoutes = {},
   options: { lang?: "ar" | "en"; client?: QueryClient } = {},
 ) {
-  const types = setup.types ?? ["clients", "groups", "staff"];
+  const types = setup.types ?? ["clients", "staff", "groups"];
   const base = me(setup.role ?? { role: "operation" });
   const defaults: FetchRoutes = {
-    "/api/v1/me/": () => jsonResponse({ ...base, chats: { types, can_create_group: setup.canCreateGroup ?? false } }),
+    "/api/v1/me/": () =>
+      jsonResponse({
+        ...base,
+        unread_client_chats: setup.unreadClientChats ?? 0,
+        chats: { types, can_create_group: setup.canCreateGroup ?? false },
+      }),
     "/api/v1/chats/": (url) => {
       const kind = (url.searchParams.get("type") ?? "clients") as ChatKind;
       return jsonResponse({ ok: true, items: setup.lists?.[kind] ?? [] });

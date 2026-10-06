@@ -39,6 +39,10 @@
 
 .cchat__pill {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   text-align: center;
   padding: 5px 8px;
   border-radius: 999px;
@@ -54,6 +58,23 @@
   border-color: color-mix(in srgb, var(--brand) 36%, transparent);
   color: var(--heading, inherit);
   font-weight: 600;
+}
+
+/* The clients tab's count of conversations waiting: the same green as a row's own count. */
+.cchat__pill-count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--ok);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .cchat__new {

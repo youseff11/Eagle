@@ -31,7 +31,7 @@ const mine = (kind = "like", count = 1): Reaction => ({ kind, count, mine: true,
 const answer = (uid: string, reactions: Reaction[]) => jsonResponse({ ok: true, uid, reactions });
 
 async function open(extra: Parameters<typeof render>[2] = {}, setup: Parameters<typeof render>[1] = {}, path = "/chats/g1") {
-  const view = render(path, { thread: group(), types: ["clients", "groups", "staff"], ...setup }, extra);
+  const view = render(path, { thread: group(), types: ["clients", "staff", "groups"], ...setup }, extra);
   await screen.findByText("first words");
   return view;
 }
@@ -183,7 +183,7 @@ describe("reacting", () => {
 
   it("is not offered to a Sales person in a client's thread, where it would be refused, but is in a work group", async () => {
     const client = render("/chats/CL-0001", {
-      role: { role: "sales" }, types: ["clients", "groups", "staff"], thread: { client: row("CL-0001"), messages: [entry(1)] },
+      role: { role: "sales" }, types: ["clients", "staff", "groups"], thread: { client: row("CL-0001"), messages: [entry(1)] },
     });
     await screen.findByText("message 1");
     expect(screen.queryByRole("button", { name: "رياكت" })).not.toBeInTheDocument();

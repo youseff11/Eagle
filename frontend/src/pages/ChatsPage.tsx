@@ -10,7 +10,7 @@ import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
 import { kindOfCode } from "../lib/chatCode";
 
-const KINDS: ChatKind[] = ["clients", "groups", "staff"];
+const KINDS: ChatKind[] = ["clients", "staff", "groups"];
 
 export { kindOfCode };
 
@@ -57,6 +57,7 @@ function Lists({ allowed }: { allowed: ChatKind[] }) {
         rows={list.data?.items}
         state={state}
         activeCode={code}
+        unreadClients={account?.unread_client_chats}
         onNewGroup={account?.chats.can_create_group ? () => setOpening(true) : undefined}
       />
       {opening && account && (

@@ -152,6 +152,8 @@ export interface MeResponse {
   unread_notifications: number;
   /** Messages waiting in any chat tab (`services.unread_chat_total`). */
   unread_chats: number;
+  /** Client conversations with something unread: the number on the clients tab (chats, not messages; `services.unread_chat_counts`). */
+  unread_client_chats: number;
   /** Mail conversations this person has not opened, and tasks nobody has been given yet (the operation's menu badges). */
   mail_unseen: number;
   tasks_new: number;

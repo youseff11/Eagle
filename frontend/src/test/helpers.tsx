@@ -30,7 +30,7 @@ export function me(
       theme: "dark",
       ...overrides,
     },
-    chats: { types: ["clients", "groups", "staff"] },
+    chats: { types: ["clients", "staff", "groups"] },
     limits: {
       to_client: 4000,
       to_client_group: 3987,
@@ -48,6 +48,7 @@ export function me(
     },
     unread_notifications: unread,
     unread_chats: 0,
+    unread_client_chats: 0,
     mail_unseen: 0,
     tasks_new: 0,
     tasks_open: 0,

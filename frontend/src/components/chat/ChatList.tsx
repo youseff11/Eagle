@@ -11,8 +11,8 @@ import { Ticks } from "./Ticks";
 /** The tabs a role may have and what they are called (the server's `chat_tabs`). */
 export const TAB_LABELS: Record<ChatKind, [string, string]> = {
   clients: ["العملاء", "Clients"],
-  groups: ["الجروبات", "Groups"],
   staff: ["الزمايل", "Colleagues"],
+  groups: ["الجروبات", "Groups"],
 };
 
 function RowAvatar({ row }: { row: ChatRow }) {
@@ -76,6 +76,7 @@ export function ChatList({
   rows,
   state,
   activeCode,
+  unreadClients = 0,
   onNewGroup,
 }: {
   kinds: ChatKind[];
@@ -86,6 +87,8 @@ export function ChatList({
   rows: ChatRow[] | undefined;
   state: "loading" | "error" | "ready";
   activeCode: string | undefined;
+  /** Client conversations with something unread: the number drawn on the clients tab (`me.unread_client_chats`). */
+  unreadClients?: number;
   /** Open the dialog for a new work group: given only to somebody who may open one, and drawn in the groups list. */
   onNewGroup?: () => void;
 }) {
@@ -122,6 +125,11 @@ export function ChatList({
             onClick={() => onKind(key)}
           >
             {t(...TAB_LABELS[key])}
+            {key === "clients" && unreadClients > 0 && (
+              <span className="cchat__pill-count" title={t("شاتات عملاء مااتقرتش", "Client chats with unread messages")}>
+                {unreadClients > 99 ? "99+" : unreadClients}
+              </span>
+            )}
           </button>
         ))}
       </div>

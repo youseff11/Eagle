@@ -52,6 +52,28 @@ describe("the lists", () => {
     expect(await screen.findByText("Work")).toBeInTheDocument();
   });
 
+  it("puts colleagues between clients and groups, and the clients tab says how many chats wait", async () => {
+    render("/chats", { unreadClientChats: 4, lists: { clients: [row("CL-0001", { unread: 3 })] } });
+    await screen.findByText("CL-0001");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["العملاء4", "الزمايل", "الجروبات"]);
+    expect(within(tabs[0]!).getByTitle("شاتات عملاء مااتقرتش")).toHaveTextContent("4");
+    // The other tabs carry no number.
+    expect(within(tabs[1]!).queryByTitle("شاتات عملاء مااتقرتش")).toBeNull();
+    expect(within(tabs[2]!).queryByTitle("شاتات عملاء مااتقرتش")).toBeNull();
+  });
+
+  it("draws no count on the clients tab when nothing waits, and 99+ for a long queue", async () => {
+    const quiet = render("/chats", { unreadClientChats: 0, lists: { clients: [row("CL-0001")] } });
+    await screen.findByText("CL-0001");
+    expect(screen.getByRole("tab", { name: "العملاء" })).toBeInTheDocument();
+    expect(screen.queryByTitle("شاتات عملاء مااتقرتش")).toBeNull();
+    quiet.unmount();
+    render("/chats", { unreadClientChats: 250, lists: { clients: [row("CL-0001")] } });
+    await screen.findByText("CL-0001");
+    expect(screen.getByTitle("شاتات عملاء مااتقرتش")).toHaveTextContent("99+");
+  });
+
   it("lists a client by its code, with the last words, the time in Arabic and the unread count", async () => {
     render("/chats", { lists: { clients: [row("CL-0001", { unread: 3, text: "hello there" })] } });
     expect(await screen.findByText("CL-0001")).toBeInTheDocument();

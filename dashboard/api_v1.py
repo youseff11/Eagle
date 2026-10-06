@@ -206,8 +206,9 @@ def me(request):
     client directory is only for the roles that own the client inbox.
     """
     user = request.user
-    types = ["clients"] if user.handles_clients else []
-    types += ["groups", "staff"]
+    # Colleagues sit in the middle for whoever has the client tab; the others keep work groups first, their landing tab.
+    types = ["clients", "staff", "groups"] if user.handles_clients else ["groups", "staff"]
+    unread_total, unread_client_chats = services.unread_chat_counts(user)
     return JsonResponse({
         "ok": True,
         "version": VERSION,
@@ -246,7 +247,9 @@ def me(request):
         },
         "unread_notifications": _unread(user),
         # The chats entry's badge: messages waiting in any of the three lists.
-        "unread_chats": services.unread_chat_total(user),
+        "unread_chats": unread_total,
+        # The clients tab's own: how many client conversations have something unread (chats, not messages).
+        "unread_client_chats": unread_client_chats,
         # The operation's two badges, the ones the classic menu shows: conversations in the mailbox this person has not
         # opened, and tasks nobody has been given yet. The same functions the heartbeat counts with.
         "mail_unseen": services.unseen_conversation_count(user) if (user.is_operation or user.is_admin_role or user.is_sales) else 0,

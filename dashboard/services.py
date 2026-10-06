@@ -3466,11 +3466,21 @@ def listed_room_ids(user):
     return list(rooms.values_list("id", flat=True).distinct())
 
 
+def unread_chat_counts(user):
+    """``(messages unread in every tab of the chats, clients with something unread)``.
+
+    One pass over the client messages for both: the first is the sidebar badge,
+    the second is the clients tab's own (conversations, not messages).
+    """
+    by_client = unread_by_client(user)
+    total = sum(by_client.values())
+    total += sum(unread_by_room(user, listed_room_ids(user)).values())
+    return total, len(by_client)
+
+
 def unread_chat_total(user):
     """The sidebar badge: everything unread across every tab of the chats."""
-    total = sum(unread_by_client(user).values())
-    total += sum(unread_by_room(user, listed_room_ids(user)).values())
-    return total
+    return unread_chat_counts(user)[0]
 
 
 def receipt_of(room, row, other_ids, cursors):
