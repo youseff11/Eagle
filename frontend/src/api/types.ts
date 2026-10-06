@@ -179,6 +179,8 @@ export interface NotificationItem {
   /** The date, formatted by the server. */
   date: string;
   read: boolean;
+  /** The person who wrote it (technical support's announcement), or `null` for the system's own. */
+  sender?: { id: number; name: string; initials: string; avatar: string | null; role: Role } | null;
 }
 
 /** GET /api/v1/notifications/ */

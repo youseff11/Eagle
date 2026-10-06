@@ -74,6 +74,61 @@ describe("NotificationsPage", () => {
     expect(post.init?.body).toBe('{"ids":[1]}');
   });
 
+  it("names who sent a notification a person wrote, with their picture and role, and says nothing for the system's own", async () => {
+    serve({
+      "/api/v1/notifications/": () =>
+        jsonResponse(
+          page([
+            note(1, { sender: { id: 5, name: "Sami Support", initials: "SS", avatar: "/files/avatars/sami.png", role: "support" } }),
+            note(2, { sender: { id: 6, name: "Mona", initials: "MS", avatar: null, role: "team_lead" } }),
+            note(3),
+          ]),
+        ),
+    });
+    const { container } = renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 1");
+    const first = container.querySelector('[data-notification="1"] [data-sender]') as HTMLElement;
+    expect(within(first).getByText("Sami Support")).toBeInTheDocument();
+    expect(within(first).getByText("دعم فني")).toBeInTheDocument();
+    expect(first.querySelector("img.avatar__img")).toHaveAttribute("src", "/files/avatars/sami.png");
+    const second = container.querySelector('[data-notification="2"] [data-sender]') as HTMLElement;
+    expect(within(second).getByText("MS")).toHaveClass("avatar");
+    expect(within(second).getByText("تيم ليدر")).toBeInTheDocument();
+    expect(container.querySelector('[data-notification="3"] [data-sender]')).toBeNull();
+  });
+
+  it("says the role in English when asked", async () => {
+    serve({
+      "/api/v1/notifications/": () =>
+        jsonResponse(page([note(1, { sender: { id: 5, name: "Sami Support", initials: "SS", avatar: null, role: "support" } })])),
+    });
+    renderWithProviders(<NotificationsPage />, { lang: "en" });
+    expect(await screen.findByText("Technical support")).toBeInTheDocument();
+  });
+
+  it("has a button beside each unread notification, and none beside a read one", async () => {
+    serve({ "/api/v1/notifications/": () => jsonResponse(page([note(1), note(2, { read: true }), note(3)])) });
+    const { container } = renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 1");
+    expect(within(container.querySelector('[data-notification="1"]') as HTMLElement).getByRole("button", { name: /علّمه مقروء/ })).toBeInTheDocument();
+    expect(within(container.querySelector('[data-notification="2"]') as HTMLElement).queryByRole("button", { name: /علّمه مقروء/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /علّمه مقروء/ })).toHaveLength(2);
+  });
+
+  it("the button marks just that notification read and does not open it", async () => {
+    const { calls } = serve({
+      "/api/v1/notifications/read/": () => jsonResponse({ ok: true, updated: 1, unread: 1 }),
+      "/api/v1/notifications/": () => jsonResponse(page([note(1, { url: "/tasks/T/" }), note(2)])),
+    });
+    const { container } = renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 2");
+    await userEvent.click(within(container.querySelector('[data-notification="2"]') as HTMLElement).getByRole("button", { name: /علّمه مقروء/ }));
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/v1/notifications/read/")).toBe(true));
+    const posts = calls.filter((c) => c.url === "/api/v1/notifications/read/");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.init?.body).toBe('{"ids":[2]}');
+  });
+
   it("marks everything read on request, and the button rests when nothing is unread", async () => {
     const { calls } = serve({
       "/api/v1/notifications/read/": () => jsonResponse({ ok: true, updated: 2, unread: 0 }),

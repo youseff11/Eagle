@@ -270,7 +270,7 @@ def notifications(request):
     """This person's own notifications, newest first, a cursor page at a time."""
     limit = min(max(api._int(request.GET.get("limit"), PAGE), 1), MAX_PAGE)
     before = api._int(request.GET.get("before"), 0)
-    rows = Notification.objects.filter(user=request.user).order_by("-id")
+    rows = Notification.objects.filter(user=request.user).select_related("sender").order_by("-id")
     if before:
         rows = rows.filter(id__lt=before)
     page = list(rows[:limit + 1])

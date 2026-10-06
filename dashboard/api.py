@@ -50,7 +50,13 @@ def _notification_json(item):
         "url": item.url,
         "sound": item.sound,
         "created": clock.fmt12(item.created_at, "en"),
+        "sender": _sender_json(item.sender) if item.sender_id else None,
     }
+
+
+def _sender_json(person):
+    """Who wrote a notification a person wrote (technical support's announcement): the name, picture and role beside it."""
+    return {"id": person.pk, "name": person.short_name, "initials": person.initials, "avatar": avatars.url_of(person), "role": person.role}
 
 
 def _stamp(moment):
@@ -96,7 +102,7 @@ def heartbeat(request):
     services.heartbeat(user)
 
     after = _int(request.GET.get("after"), 0)
-    fresh = Notification.objects.filter(user=user, id__gt=after).order_by("id")[:20]
+    fresh = Notification.objects.filter(user=user, id__gt=after).select_related("sender").order_by("id")[:20]
 
     pending = (
         Assignment.objects.filter(assignee=user, status=AssignmentStatus.PENDING)

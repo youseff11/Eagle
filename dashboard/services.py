@@ -73,13 +73,13 @@ def safe_notification_path(url):
 
 
 def notify(user, *, title_ar, title_en, body_ar="", body_en="", level="info",
-           url="", sound=False, task=None):
+           url="", sound=False, task=None, sender=None):
     if user is None:
         return None
     return Notification.objects.create(
         user=user, title_ar=title_ar, title_en=title_en,
         body_ar=body_ar, body_en=body_en, level=level,
-        url=safe_notification_path(url), sound=sound, task=task,
+        url=safe_notification_path(url), sound=sound, task=task, sender=sender,
     )
 
 
@@ -125,7 +125,7 @@ def announce(sender, *, title, body="", level="info", sound=False):
     people = list(announce_recipients(sender))
     with transaction.atomic():
         for person in people:
-            notify(person, title_ar=title, title_en=title, body_ar=body, body_en=body, level=level, sound=bool(sound))
+            notify(person, title_ar=title, title_en=title, body_ar=body, body_en=body, level=level, sound=bool(sound), sender=sender)
         log(sender, ANNOUNCE_ACTION, title[:160], f"{body}\n{len(people)}")
     return len(people), ""
 

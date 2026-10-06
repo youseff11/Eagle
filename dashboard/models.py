@@ -1959,6 +1959,12 @@ class Notification(models.Model):
     sound = models.BooleanField(default=False)
     is_read = models.BooleanField(default=False)
     task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    #: A person who wrote it (technical support's announcement): their name, picture and role are shown beside it. Null is the
+    #: system's own, which is nearly all of them.
+    sender = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="The person who sent it, when a person did; empty for the system's own.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

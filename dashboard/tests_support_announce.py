@@ -77,6 +77,51 @@ class SendingTests(_Announce):
         self.assertEqual(Notification.objects.filter(user=self.tr).count(), 2)
 
 
+class SenderBesideTheNotificationTests(_Announce):
+    NOTES = "dashboard:v1_notifications"
+
+    def items(self, user):
+        browser = DjangoClient()
+        browser.force_login(user)
+        return _json(browser.get(reverse(self.NOTES)))["items"]
+
+    def test_an_announcement_names_who_sent_it_with_their_picture_and_role(self):
+        self.send(self.support, {"title": "Restart at 6"})
+        note = self.items(self.tr)[0]
+        self.assertEqual(
+            note["sender"],
+            {"id": self.support.pk, "name": "Sami Support", "initials": self.support.initials, "avatar": None, "role": "support"},
+        )
+
+    def test_a_notification_the_system_wrote_has_no_sender(self):
+        services.notify(self.tr, title_ar="تاسك", title_en="Task")
+        self.assertIsNone(self.items(self.tr)[0]["sender"])
+
+    def test_the_sender_is_not_a_question_per_notification(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        services.announce(self.support, title="one")
+        browser = DjangoClient()
+        browser.force_login(self.tr)
+
+        def cost():
+            with CaptureQueriesContext(connection) as queries:
+                browser.get(reverse(self.NOTES))
+            return len(queries)
+
+        few = cost()
+        for index in range(6):
+            services.announce(self.support, title=f"more {index}")
+        self.assertEqual(cost(), few)
+
+    def test_the_sender_stays_a_name_after_they_are_gone(self):
+        self.send(self.support, {"title": "Hello"})
+        self.support.delete()
+        self.assertIsNone(self.items(self.tr)[0]["sender"])
+        self.assertEqual(self.items(self.tr)[0]["title_en"], "Hello")
+
+
 class WhoMaySendTests(_Announce):
     def test_support_and_the_owner_may_and_nobody_else(self):
         self.assertEqual(self.send(self.admin, {"title": "From the owner"}).status_code, 200)
