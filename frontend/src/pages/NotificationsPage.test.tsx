@@ -121,6 +121,17 @@ describe("NotificationsPage", () => {
     expect(meta.querySelector(".notice__time")).toHaveTextContent("2026-10-01 8:00 AM");
   });
 
+  it("the sender's picture opens large when it is pressed", async () => {
+    serve({
+      "/api/v1/notifications/": () =>
+        jsonResponse(page([note(1, { sender: { id: 5, name: "Sami Support", initials: "SS", avatar: "/files/avatars/sami.png", role: "support" } })])),
+    });
+    renderWithProviders(<NotificationsPage />);
+    await screen.findByText("عنوان 1");
+    await userEvent.click(screen.getByRole("button", { name: "كبّر صورة Sami Support" }));
+    expect(screen.getByRole("dialog", { name: "صورة البروفايل" }).querySelector("img")).toHaveAttribute("src", "/files/avatars/sami.png");
+  });
+
   it("says the role in English when asked", async () => {
     serve({
       "/api/v1/notifications/": () =>

@@ -77,7 +77,7 @@ export function HrEmployeePage() {
   return (
     <>
       <div className="page-head">
-        <Avatar src={person.avatar} initials={person.initials} tone="" className="avatar--lg" />
+        <Avatar src={person.avatar} initials={person.initials} tone="" className="avatar--lg" preview={person.name} />
         <h1>{person.name}</h1>
         {admin.data && <small className="muted mono">{admin.data.user.username}</small>}
         <span className="chip">{words(person.role)}</span>

@@ -325,7 +325,7 @@ export function Bubble({
           {entry.task_code && <span className="mono muted">{entry.task_code}</span>}
           {entry.sender && (
             <span className="bub__sender muted">
-              {entry.sender_avatar && <Avatar src={entry.sender_avatar} initials={entry.sender.slice(0, 1)} tone="staff" className="avatar--xs" />}
+              {entry.sender_avatar && <Avatar src={entry.sender_avatar} initials={entry.sender.slice(0, 1)} tone="staff" className="avatar--xs" preview={entry.sender} />}
               {entry.sender}
             </span>
           )}

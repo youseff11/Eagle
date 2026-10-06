@@ -57,7 +57,7 @@ function Lists({ allowed }: { allowed: ChatKind[] }) {
         rows={list.data?.items}
         state={state}
         activeCode={code}
-        unreadClients={account?.unread_client_chats}
+        unread={account?.unread_chat_tabs}
         onNewGroup={account?.chats.can_create_group ? () => setOpening(true) : undefined}
       />
       {opening && account && (

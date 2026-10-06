@@ -85,6 +85,9 @@ export interface Setup {
   canCreateGroup?: boolean;
   /** `me.unread_client_chats`: the number on the clients tab. */
   unreadClientChats?: number;
+  /** `me.unread_chat_tabs`: the numbers on the groups and colleagues tabs. */
+  unreadGroupChats?: number;
+  unreadStaffChats?: number;
 }
 
 export function renderChats(
@@ -100,6 +103,7 @@ export function renderChats(
       jsonResponse({
         ...base,
         unread_client_chats: setup.unreadClientChats ?? 0,
+        unread_chat_tabs: { clients: setup.unreadClientChats ?? 0, groups: setup.unreadGroupChats ?? 0, staff: setup.unreadStaffChats ?? 0 },
         chats: { types, can_create_group: setup.canCreateGroup ?? false },
       }),
     "/api/v1/chats/": (url) => {

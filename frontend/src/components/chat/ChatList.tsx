@@ -15,6 +15,13 @@ export const TAB_LABELS: Record<ChatKind, [string, string]> = {
   groups: ["الجروبات", "Groups"],
 };
 
+/** What the number on a tab says it counts, when it is hovered. */
+const UNREAD_TITLES: Record<ChatKind, [string, string]> = {
+  clients: ["شاتات عملاء مااتقرتش", "Client chats with unread messages"],
+  staff: ["شاتات زمايل مااتقرتش", "Colleague chats with unread messages"],
+  groups: ["جروبات مااتقرتش", "Groups with unread messages"],
+};
+
 function RowAvatar({ row }: { row: ChatRow }) {
   if (row.group) {
     return (
@@ -40,9 +47,7 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
       <RowAvatar row={row} />
       <span className="cthread__body">
         <span className="cthread__top">
-          <b className={monospaced ? "mono" : undefined}>{row.label}</b>
-          {row.reaches_client && <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>}
-          {row.staff && row.role === "support" && <span className="chip chip--sm cthread__tag">{t("دعم فني", "Technical support")}</span>}
+          <b className={`cthread__title${monospaced ? " mono" : ""}`} title={row.label}>{row.label}</b>
           {problem && (
             <span className="cthread__problem" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
               <Icon name="alert" size="sm" />
@@ -50,10 +55,16 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
           )}
           {row.time && <span className="muted mono cthread__time">{clockText(row.time, lang)}</span>}
         </span>
+        {(row.reaches_client || (row.staff && row.role === "support")) && (
+          <span className="cthread__tags">
+            {row.reaches_client && <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>}
+            {row.staff && row.role === "support" && <span className="chip chip--sm cthread__tag">{t("دعم فني", "Technical support")}</span>}
+          </span>
+        )}
         <span className="cthread__line">
           <span className="cthread__snippet">
             {row.outgoing && <Ticks status={row.status} receipt={row.receipt} mine />}
-            {row.text}
+            <span className="cthread__preview">{row.text}</span>
           </span>
           {row.unread > 0 && !active && (
             <span className="cthread__unread" title={t("رسايل مااتقرتش", "Unread messages")}>
@@ -76,7 +87,7 @@ export function ChatList({
   rows,
   state,
   activeCode,
-  unreadClients = 0,
+  unread,
   onNewGroup,
 }: {
   kinds: ChatKind[];
@@ -87,8 +98,8 @@ export function ChatList({
   rows: ChatRow[] | undefined;
   state: "loading" | "error" | "ready";
   activeCode: string | undefined;
-  /** Client conversations with something unread: the number drawn on the clients tab (`me.unread_client_chats`). */
-  unreadClients?: number;
+  /** How many chats of each tab have something unread: the number drawn on its button (`me.unread_chat_tabs`). */
+  unread?: Partial<Record<ChatKind, number>>;
   /** Open the dialog for a new work group: given only to somebody who may open one, and drawn in the groups list. */
   onNewGroup?: () => void;
 }) {
@@ -115,23 +126,26 @@ export function ChatList({
       </div>
 
       <div className="cchat__filter" role="tablist">
-        {kinds.map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={key === kind}
-            className={`cchat__pill${key === kind ? " is-active" : ""}`}
-            onClick={() => onKind(key)}
-          >
-            {t(...TAB_LABELS[key])}
-            {key === "clients" && unreadClients > 0 && (
-              <span className="cchat__pill-count" title={t("شاتات عملاء مااتقرتش", "Client chats with unread messages")}>
-                {unreadClients > 99 ? "99+" : unreadClients}
-              </span>
-            )}
-          </button>
-        ))}
+        {kinds.map((key) => {
+          const waiting = unread?.[key] ?? 0;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={key === kind}
+              className={`cchat__pill${key === kind ? " is-active" : ""}`}
+              onClick={() => onKind(key)}
+            >
+              <span>{t(...TAB_LABELS[key])}</span>
+              {waiting > 0 && (
+                <span className="cchat__pill-count" title={t(...UNREAD_TITLES[key])}>
+                  {waiting > 99 ? "99+" : waiting}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {kind === "groups" && onNewGroup && (

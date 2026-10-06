@@ -325,3 +325,18 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 .announce__options .field { flex: 1 1 200px; margin-block-end: 0; }
 .announce__sound { display: inline-flex; align-items: center; gap: 8px; padding-block: 9px; cursor: pointer; }
 .announce__recent { white-space: pre-line; }
+
+/* Somebody else's picture, pressed: it opens large (`Avatar` with `preview`). */
+.avatar-btn {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: inherit;
+  cursor: zoom-in;
+  color: inherit;
+}
+.avatar-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.lightbox__img--avatar { width: min(78vmin, 440px); height: min(78vmin, 440px); object-fit: cover; border-radius: 18px; }
+.lightbox__caption { position: absolute; bottom: 22px; left: 0; right: 0; text-align: center; color: #fff; font-weight: 600; font-size: 1rem; padding-inline: 16px; }

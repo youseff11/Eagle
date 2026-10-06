@@ -6,7 +6,7 @@
 
 .cchat {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: clamp(300px, 30vw, 400px) minmax(0, 1fr);
   gap: 14px;
   height: calc(100vh - 150px);
   min-height: 480px;
@@ -15,6 +15,8 @@
 /* -- conversation list ---------------------------------------------------- */
 
 .cchat__list {
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -32,13 +34,17 @@
 
 .cchat__filter {
   display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   gap: 6px;
-  padding: 0 10px 10px;
+  padding: 10px;
   border-block-end: 1px solid var(--border);
 }
 
 .cchat__pill {
-  flex: 1;
+  flex: 1 1 80px;
+  min-width: 0;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -60,7 +66,7 @@
   font-weight: 600;
 }
 
-/* The clients tab's count of conversations waiting: the same green as a row's own count. */
+/* Each tab counts conversations; each row counts messages. */
 .cchat__pill-count {
   flex: none;
   min-width: 18px;
@@ -138,6 +144,7 @@
 
 .cchat__threads {
   overflow-y: auto;
+  min-height: 0;
   flex: 1;
 }
 
@@ -145,7 +152,8 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 12px;
+  min-width: 0;
   border-block-end: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
@@ -160,15 +168,38 @@
 }
 [dir="rtl"] .cthread.is-active { box-shadow: inset -3px 0 0 var(--brand); }
 
-.cthread__body { flex: 1; min-width: 0; }
+.cthread > .avatar { flex: none; align-self: flex-start; }
+.cthread__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 
 .cthread__top {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
 }
 
-.cthread__time { font-size: 11px; margin-inline-start: auto; }
+.cthread__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.cthread__time {
+  flex: none;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-size: 11px;
+  line-height: 21px;
+  margin-inline-start: auto;
+}
+.cthread__tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.cthread__preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cthread__snippet > .tick { flex: none; }
 
 .cthread__snippet {
   display: flex;

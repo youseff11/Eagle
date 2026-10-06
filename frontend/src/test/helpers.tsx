@@ -49,6 +49,7 @@ export function me(
     unread_notifications: unread,
     unread_chats: 0,
     unread_client_chats: 0,
+    unread_chat_tabs: { clients: 0, groups: 0, staff: 0 },
     mail_unseen: 0,
     tasks_new: 0,
     tasks_open: 0,

@@ -3534,8 +3534,8 @@ def unread_by_room(user, room_ids):
     return dict(Counter(qs.order_by().values_list("room_id", flat=True)))
 
 
-def listed_room_ids(user):
-    """Every room this person's chats page lists, in any tab."""
+def _listed_rooms(user):
+    """The rooms this person's chats page lists, in any tab, as a query."""
     mine = Q(members=user, kind__in=CHAT_ROOM_KINDS)
     if user.is_admin_role:
         mine |= Q(kind=RoomKind.CLIENT)
@@ -3548,19 +3548,35 @@ def listed_room_ids(user):
     if user.is_translator or not user.handles_clients:
         rooms = rooms.exclude(kind=RoomKind.CLIENT)
     rooms = rooms.filter(Q(task__isnull=True) | Q(task__in=visible_tasks(user)))
-    return list(rooms.values_list("id", flat=True).distinct())
+    return rooms.distinct()
+
+
+def listed_room_ids(user):
+    """Every room this person's chats page lists, in any tab."""
+    return list(_listed_rooms(user).values_list("id", flat=True))
+
+
+def unread_chat_breakdown(user):
+    """``(messages unread in every tab of the chats, {tab: conversations with something unread})``.
+
+    The first is the sidebar badge. The second is what each tab draws on its own button, in conversations and not in messages:
+    ``clients`` (a client's chat), ``groups`` (the work groups and the client rooms, which share the tab) and ``staff`` (the
+    one-to-one chats with a colleague). One pass over the client messages and one over the rooms, for all of them.
+    """
+    by_client = unread_by_client(user)
+    kinds = dict(_listed_rooms(user).values_list("id", "kind"))
+    by_room = unread_by_room(user, kinds)
+    tabs = {"clients": len(by_client), "groups": 0, "staff": 0}
+    for room_id in by_room:
+        tabs["staff" if kinds.get(room_id) == RoomKind.STAFF else "groups"] += 1
+    return sum(by_client.values()) + sum(by_room.values()), tabs
 
 
 def unread_chat_counts(user):
-    """``(messages unread in every tab of the chats, clients with something unread)``.
-
-    One pass over the client messages for both: the first is the sidebar badge,
-    the second is the clients tab's own (conversations, not messages).
-    """
-    by_client = unread_by_client(user)
-    total = sum(by_client.values())
-    total += sum(unread_by_room(user, listed_room_ids(user)).values())
-    return total, len(by_client)
+    """``(messages unread in every tab of the chats, clients with something unread)``: the first is the sidebar badge, the
+    second is the clients tab's own (conversations, not messages)."""
+    total, tabs = unread_chat_breakdown(user)
+    return total, tabs["clients"]
 
 
 def unread_chat_total(user):

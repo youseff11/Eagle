@@ -24,12 +24,14 @@ describe("handleEvent", () => {
     ]);
   });
 
-  it("a room doorbell refreshes the chat list and that room, and nothing else", () => {
+  it("a room doorbell refreshes the chat list, that room and the unread numbers on the tabs, and nothing else", () => {
     const { client, invalidateQueries } = spy();
     handleEvent(client, { t: "room", id: 12 });
+    // `me` carries the number on each chats tab (and the sidebar's): a message in a room moves them.
     expect(invalidateQueries.mock.calls.map((call) => call[0])).toEqual([
       { queryKey: qk.chats },
       { queryKey: qk.room(12) },
+      { queryKey: qk.me },
     ]);
   });
 });

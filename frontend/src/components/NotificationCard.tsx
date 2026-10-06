@@ -52,7 +52,7 @@ export function NotificationCard({
         <div className="notice__meta">
           {item.sender ? (
             <span className="notice__from" data-sender={item.sender.id}>
-              <Avatar src={item.sender.avatar} initials={item.sender.initials} tone="staff" className="avatar--sm" />
+              <Avatar src={item.sender.avatar} initials={item.sender.initials} tone="staff" className="avatar--sm" preview={item.sender.name} />
               <strong className="notice__name">{item.sender.name}</strong>
               <span className="chip chip--sm">{role ? t(role[0], role[1]) : item.sender.role}</span>
             </span>

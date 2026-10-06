@@ -14,7 +14,21 @@ export interface LightboxImage {
  * and the last. The buttons are on the screen's left and right whichever the language: they follow the picture row, not the
  * text.
  */
-export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; start: number; onClose: () => void }) {
+export function Lightbox({
+  images,
+  start,
+  onClose,
+  caption = false,
+  avatar = false,
+}: {
+  images: LightboxImage[];
+  start: number;
+  onClose: () => void;
+  /** The name of the picture under it (a person's face: the name is what it is of). */
+  caption?: boolean;
+  /** A person's face: drawn as a large square, with the title of a picture and not of a row of photos. */
+  avatar?: boolean;
+}) {
   const { t } = usePreferences();
   const last = images.length - 1;
   const [at, setAt] = useState(Math.min(Math.max(start, 0), last));
@@ -34,6 +48,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
 
   const image = images[at];
   if (!image) return null;
+  const several = images.length > 1;
   // In the body, not in the bubble: a bubble that is being swiped carries a transform, and a fixed box inside one is not fixed to
   // the screen. Its presses are the lightbox's own, not the bubble's (React sends an event on through a portal to the parent).
   return createPortal(
@@ -41,41 +56,50 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
       className="lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={t("الصور", "Photos")}
+      aria-label={avatar ? t("صورة البروفايل", "Profile picture") : t("الصور", "Photos")}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <div className="lightbox__bar">
-        <span className="lightbox__count mono" data-lightbox-count="">
-          {at + 1} / {images.length}
-        </span>
+        {several ? (
+          <span className="lightbox__count mono" data-lightbox-count="">
+            {at + 1} / {images.length}
+          </span>
+        ) : (
+          <span />
+        )}
         <button ref={closer} type="button" className="icon-btn" onClick={onClose} title={t("إغلاق", "Close")} aria-label={t("إغلاق", "Close")}>
           <Icon name="x" />
         </button>
       </div>
-      <button
-        type="button"
-        className="icon-btn lightbox__nav lightbox__prev"
-        disabled={at === 0}
-        onClick={() => step(-1)}
-        title={t("اللي قبلها", "Previous")}
-        aria-label={t("اللي قبلها", "Previous")}
-      >
-        <Icon name="arrow-right" />
-      </button>
-      <img className="lightbox__img" src={image.url} alt={image.name} />
-      <button
-        type="button"
-        className="icon-btn lightbox__nav lightbox__next"
-        disabled={at === last}
-        onClick={() => step(1)}
-        title={t("اللي بعدها", "Next")}
-        aria-label={t("اللي بعدها", "Next")}
-      >
-        <Icon name="arrow-right" />
-      </button>
+      {several && (
+        <button
+          type="button"
+          className="icon-btn lightbox__nav lightbox__prev"
+          disabled={at === 0}
+          onClick={() => step(-1)}
+          title={t("اللي قبلها", "Previous")}
+          aria-label={t("اللي قبلها", "Previous")}
+        >
+          <Icon name="arrow-right" />
+        </button>
+      )}
+      <img className={`lightbox__img${avatar ? " lightbox__img--avatar" : ""}`} src={image.url} alt={image.name} />
+      {caption && <div className="lightbox__caption">{image.name}</div>}
+      {several && (
+        <button
+          type="button"
+          className="icon-btn lightbox__nav lightbox__next"
+          disabled={at === last}
+          onClick={() => step(1)}
+          title={t("اللي بعدها", "Next")}
+          aria-label={t("اللي بعدها", "Next")}
+        >
+          <Icon name="arrow-right" />
+        </button>
+      )}
     </div>,
     document.body,
   );

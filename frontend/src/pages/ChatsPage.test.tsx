@@ -63,6 +63,22 @@ describe("the lists", () => {
     expect(within(tabs[2]!).queryByTitle("شاتات عملاء مااتقرتش")).toBeNull();
   });
 
+  it("every tab says how many of its chats have something unread, each in its own words", async () => {
+    render("/chats", { unreadClientChats: 4, unreadStaffChats: 2, unreadGroupChats: 7, lists: { clients: [row("CL-0001")] } });
+    await screen.findByText("CL-0001");
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["العملاء4", "الزمايل2", "الجروبات7"]);
+    expect(within(tabs[0]!).getByTitle("شاتات عملاء مااتقرتش")).toHaveTextContent("4");
+    expect(within(tabs[1]!).getByTitle("شاتات زمايل مااتقرتش")).toHaveTextContent("2");
+    expect(within(tabs[2]!).getByTitle("جروبات مااتقرتش")).toHaveTextContent("7");
+  });
+
+  it("a translator, who has no client tab, still sees the numbers on the two tabs it has", async () => {
+    render("/chats", { types: ["groups", "staff"], role: { role: "translator" }, unreadGroupChats: 3, unreadStaffChats: 1 });
+    await screen.findByRole("tab", { name: /الجروبات/ });
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["الجروبات3", "الزمايل1"]);
+  });
+
   it("draws no count on the clients tab when nothing waits, and 99+ for a long queue", async () => {
     const quiet = render("/chats", { unreadClientChats: 0, lists: { clients: [row("CL-0001")] } });
     await screen.findByText("CL-0001");

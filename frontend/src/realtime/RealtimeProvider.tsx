@@ -35,6 +35,8 @@ export function handleEvent(client: ReturnType<typeof useQueryClient>, event: Re
   } else {
     void client.invalidateQueries({ queryKey: qk.chats });
     void client.invalidateQueries({ queryKey: qk.room(event.id) });
+    // The number on each chats tab (and the sidebar's) is in `me`: a message in a room moves it.
+    void client.invalidateQueries({ queryKey: qk.me });
   }
 }
 

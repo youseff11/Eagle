@@ -36,7 +36,7 @@ function Header({ row, code }: { row: ChatRow; code: string }) {
   return (
     <>
       {row.staff ? (
-        <Avatar src={row.avatar} initials={row.initials ?? ""} tone="staff" />
+        <Avatar src={row.avatar} initials={row.initials ?? ""} tone="staff" preview={row.label} />
       ) : (
         <span className={`avatar ${row.group ? "avatar--group" : "avatar--brand"}`}>
           {row.group ? <Icon name="users" size="sm" /> : code.slice(3)}
