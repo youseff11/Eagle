@@ -85,6 +85,34 @@ const posts = (calls: { url: string; init?: RequestInit }[], path: string) =>
   calls.filter((c) => c.url.startsWith(path) && c.init?.method === "POST");
 const formBody = (call: { init?: RequestInit }) => Object.fromEntries(new URLSearchParams(String(call.init?.body)));
 
+describe("TaskPage: the countdown", () => {
+  const in_ = (ms: number) => new Date(Date.now() + ms).toISOString();
+  const timers = () => screen.queryAllByRole("timer", { name: "العد التنازلي للديدلاين" });
+
+  it("counts down to the date the translator was given, beside it", async () => {
+    serve(task({ due_iso: in_(5 * 3600_000 + 30 * 60_000) }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(1);
+    expect(timers()[0]).toHaveTextContent("باقي 05:29:");
+  });
+
+  it("is the colour of a late date once it has passed, and says by how much", async () => {
+    serve(task({ due_iso: in_(-3 * 3600_000), due_state: "late" }));
+    open();
+    await loaded();
+    expect(timers()[0]).toHaveTextContent("فات من 03:00:");
+    expect(timers()[0]).toHaveClass("deadline--late");
+  });
+
+  it("has none when there is no date or the job is done", async () => {
+    serve(task({ due: null, due_state: "none", due_iso: "" }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(0);
+  });
+});
+
 describe("TaskPage: what the translator reads", () => {
   it("shows the task as the classic page does, with the translator's own date", async () => {
     const { calls } = serve(task());

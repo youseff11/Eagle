@@ -5,6 +5,7 @@ import {
   useFinishReview,
   useSaveTranslatorDeadline,
   useUploadReviewed,
+  type DeadlineChoice,
   type TranslatorDate,
 } from "../../api/opsActions";
 import type { OpsTask } from "../../api/types";
@@ -12,6 +13,7 @@ import { usePreferences } from "../../i18n/Preferences";
 import { prettySize } from "../../lib/size";
 import { taskProblem } from "../../lib/taskProblem";
 import { Confirm } from "../Confirm";
+import { Countdown } from "../Countdown";
 import { Icon } from "../Icon";
 import { useToasts } from "../Toasts";
 
@@ -59,10 +61,17 @@ function Duration({ value, onChange, label }: { value: TranslatorDate; onChange:
 
 const typed = (value: TranslatorDate) => value.days.trim() !== "" || value.hours.trim() !== "" || value.minutes.trim() !== "";
 
+/** How long a typed duration is, in seconds (what is not a whole number counts as nothing: the server says why when it is sent). */
+const seconds = (value: TranslatorDate) => {
+  const part = (raw: string) => (/^\d+$/.test(raw.trim()) ? Number(raw.trim()) : 0);
+  return part(value.days) * 86400 + part(value.hours) * 3600 + part(value.minutes) * 60;
+};
+
 /**
- * «ابعتها للمترجم»: the task goes to one translator of the leader's team, who has a minute to say yes. The leader's own
- * date goes with it - shorter than the client's on purpose, the difference being the time the leader keeps to review the
- * work; left empty it is the client's own date. Who is free is said beside the name, so nobody is handed work blind.
+ * «ابعتها للمترجم»: the task goes to one translator of the leader's team, who has a minute to say yes. The leader is handed the operation's
+ * deadline and the time left, and CHOOSES what the translator gets: the same deadline, or a shorter one (the difference being the time
+ * he keeps to review). Nothing is chosen for him - the send waits for the answer - and a shorter one has to be written and has to be
+ * shorter than what is left. Who is free is said beside the name, so nobody is handed work blind.
  */
 export function AssignTranslatorBox({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
@@ -70,6 +79,7 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
   const assign = useAssignTranslator(task.code);
   const lead = task.lead;
   const [chosen, setChosen] = useState<number | null>(null);
+  const [choice, setChoice] = useState<DeadlineChoice | null>(null);
   const [date, setDate] = useState<TranslatorDate>(EMPTY);
   const [problem, setProblem] = useState("");
   if (!lead || !lead.can_assign) return null;
@@ -85,6 +95,12 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
   const translator = chosen ?? lead.translators[0]!.id;
   const word = { free: t("فاضي", "free"), busy: t("مشغول", "busy"), off: t("أوفلاين", "offline") };
 
+  // What is left of the operation's deadline, and whether the shorter one typed is really shorter (the server asks the same).
+  const left = task.due_iso ? Math.floor((Date.parse(task.due_iso) - Date.now()) / 1000) : null;
+  const typedLength = seconds(date);
+  const tooLong = left !== null && typedLength >= left;
+  const ready = choice === "same" || (choice === "shorter" && typed(date) && typedLength > 0 && !tooLong);
+
   return (
     <>
       <div className="field mt">
@@ -97,32 +113,55 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
           ))}
         </select>
       </div>
-      <div className="field" id="translatorDeadline">
-        <label>{t("الديدلاين اللي هتديه للمترجم", "The deadline you are giving the translator")}</label>
-        <Duration value={date} onChange={setDate} label={t("الديدلاين اللي هتديه للمترجم", "The deadline you are giving the translator")} />
-        <small className="muted">
-          {t(
-            "شيل لنفسك وقت للمراجعة. سيبها فاضية يعني نفس ديدلاين العميل — ومش هيفضلّك وقت تراجع.",
-            "Keep yourself some review time. Leave it empty and it is the client's own date, which leaves you none.",
-          )}
-        </small>
-        {lead.client_due && (
-          <small className="muted mono" title={t("ديدلاين العميل", "The client's deadline")}>
-            <Icon name="clock" size="sm" /> {lang === "ar" ? lead.client_due.ar : lead.client_due.en}
-          </small>
+
+      <fieldset className="field" id="translatorDeadline" style={{ border: 0, padding: 0 }}>
+        <legend className="label">{t("الديدلاين اللي هتديه للمترجم", "The deadline you are giving the translator")}</legend>
+        <div className="muted mono" title={t("الديدلاين اللي حدده الأوبريشن", "The deadline the operation gave")}>
+          <Icon name="clock" size="sm" /> {lead.client_due ? (lang === "ar" ? lead.client_due.ar : lead.client_due.en) : t("من غير ديدلاين", "No deadline")}
+        </div>
+        <Countdown iso={task.due_iso} state={task.due_state} />
+        <label className="row row--tight mt">
+          <input type="radio" name="translator-deadline-choice" value="same" checked={choice === "same"} onChange={() => setChoice("same")} />
+          <span>{t("نفس ديدلاين الأوبريشن", "The same as the operation's deadline")}</span>
+        </label>
+        <label className="row row--tight">
+          <input type="radio" name="translator-deadline-choice" value="shorter" checked={choice === "shorter"} onChange={() => setChoice("shorter")} />
+          <span>{t("ديدلاين أقل", "A shorter deadline")}</span>
+        </label>
+        {choice === "shorter" && (
+          <>
+            <Duration value={date} onChange={setDate} label={t("الديدلاين الأقل - من دلوقتي", "The shorter deadline - from now")} />
+            <small className="muted">
+              {t(
+                "اكتب بعد قد إيه من دلوقتي المترجم يسلّم. لازم يكون أقل من الوقت الباقي، والفرق هو وقت المراجعة بتاعك.",
+                "Type how long from now the translator has. It has to be less than the time left; the difference is your review time.",
+              )}
+            </small>
+            {tooLong && (
+              <small className="note note--high" role="alert">
+                {t("لازم يكون أقل من الوقت الباقي على ديدلاين الأوبريشن.", "It has to be less than the time left on the operation's deadline.")}
+              </small>
+            )}
+          </>
         )}
-      </div>
+        {choice === null && (
+          <small className="muted">{t("اختار الأول: نفس الديدلاين ولا أقل.", "Choose first: the same deadline, or a shorter one.")}</small>
+        )}
+      </fieldset>
+
       <button
         className="btn btn--primary btn--block"
         type="button"
-        disabled={assign.isPending}
+        disabled={assign.isPending || !ready}
         onClick={() => {
+          if (choice === null) return;
           setProblem("");
           assign.mutate(
-            { translator, date },
+            { translator, choice, date },
             {
               onSuccess: () => {
                 setDate(EMPTY);
+                setChoice(null);
                 push({ level: "success", title: t("اتبعتت للمترجم", "Sent to the translator") });
               },
               onError: (error) => setProblem(taskProblem(error, t)),

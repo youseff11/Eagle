@@ -69,7 +69,11 @@ def _list_row(task, user, warning_minutes):
 @endpoint("GET")
 @api_role_required(Role.OPERATION, Role.SUPPORT)
 def tasks(request):
-    """The tasks, newest first: ``?status=open`` or one status; nothing for all (the newest 200).
+    """The tasks, newest first: the live ones by default, or ``?status=`` one status (the newest 200).
+
+    The default is the board of what is being worked: every task but the delivered and the cancelled, which have a tab
+    each (``?status=delivered``, ``?status=cancelled``) and are not in the way until somebody asks for them (07/10/2026).
+    ``?status=open`` is the six statuses that occupy people (a new task, not yet given to a leader, is not one of them).
 
     ``counters`` are over every task, not over the page, as on the classic page. A status that is not one is a 400,
     not an empty list: a typo would otherwise look like "no tasks".
@@ -83,6 +87,8 @@ def tasks(request):
         rows = rows.filter(status__in=ACTIVE_TASK_STATUSES)
     elif status:
         rows = rows.filter(status=status)
+    else:
+        rows = rows.exclude(status__in=(TaskStatus.DELIVERED, TaskStatus.CANCELLED))
     warning = AppSettings.load().deadline_warning_minutes
     return JsonResponse({
         "ok": True,
@@ -323,8 +329,13 @@ def task(request, code):
             "target_lang": task.target_lang,
             "due": _stamp(due, "%Y-%m-%d"),
             "due_state": task.deadline_state(user, conf.deadline_warning_minutes),
-            # What the translator was given: the leader keeps the difference to review in.
+            # What the translator was given (the leader keeps the difference to review in).
             "translator_due": _stamp(task.translator_deadline, "%m-%d"),
+            # The client's date and the translator's as ISO times, for the countdowns: they differ when the leader gave a shorter one.
+            "due_iso": due.isoformat() if due and not task.is_done else "",
+            "translator_due_iso": (
+                task.translator_deadline.isoformat() if task.translator_deadline and not task.is_done else ""
+            ),
             # Typed by the operation, who writes the client's name in it: whoever may not know it reads the code.
             "description": identity.mask_client(services.clean_client_text(task.description), task.client, user),
             "people": {

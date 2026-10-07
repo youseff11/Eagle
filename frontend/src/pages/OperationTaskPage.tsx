@@ -4,6 +4,7 @@ import { ApiError } from "../api/client";
 import { useMe, useOpsTask } from "../api/queries";
 import type { OpsTask, TaskFile } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
+import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
 import { AssignTranslatorBox, ExtensionBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
@@ -118,17 +119,20 @@ function Task({ task }: { task: OpsTask }) {
         <StatusBadge status={task.status} />
         <PriorityBadge priority={task.priority} />
         <div className="grow" />
-        {/* The client's date: the operation answers for the promise. */}
+        {/* The client's date: the operation answers for the promise, and counts down to it. */}
         <span className={`row row--tight mono ${deadlineClass(task.due_state)}`}>
           <Icon name="clock" size="sm" />
           {due ?? t("من غير ديدلاين", "No deadline")}
         </span>
+        <Countdown iso={task.due_iso} state={task.due_state} />
+        {/* The leader gave the translator a shorter date: what they work to, counted down too. */}
         {task.translator_due && (
           <span className="chip chip--sm" title={t("الديدلاين اللي المترجم شايفه", "What the translator was given")}>
             <Icon name="pen" size="sm" />
             <span className="mono">{lang === "ar" ? task.translator_due.ar : task.translator_due.en}</span>
           </span>
         )}
+        <Countdown iso={task.translator_due_iso} state="ok" label={t("المترجم", "Translator")} />
       </div>
 
       {reviewer && <AiNotesCard code={task.code} />}

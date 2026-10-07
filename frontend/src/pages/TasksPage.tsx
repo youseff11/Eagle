@@ -56,7 +56,10 @@ function Row({ task }: { task: OpsTaskRow }) {
   );
 }
 
-/** The operation's task list: the four numbers, a tab for every status, and the newest two hundred tasks. */
+/**
+ * The operation's task list: the four numbers, a tab for what is being worked (the one it opens on) and one for every status, and the
+ * newest two hundred tasks. A delivered task and a cancelled one are in their own tabs and in nobody's way until asked for.
+ */
 export function TasksPage() {
   const { t } = usePreferences();
   const me = useMe();
@@ -102,8 +105,7 @@ export function TasksPage() {
       {data && <Counters counters={data.counters} />}
 
       <div className="tabs" role="tablist">
-        {tab("", t("الكل", "All"))}
-        {tab("open", t("المفتوحة", "Open"))}
+        {tab("", t("الشغالة", "Live"))}
         {(data?.statuses ?? []).map((one) => tab(one.value, <StatusBadge status={one} />))}
       </div>
 

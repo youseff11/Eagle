@@ -348,6 +348,9 @@ export interface OpsTask {
   due_state: "none" | "ok" | "soon" | "late" | "done";
   /** What the translator was given (the leader keeps the difference to review in). */
   translator_due: Stamp | null;
+  /** The client's date and the translator's as ISO times, for the countdowns. Empty when there is none, or the task is done. */
+  due_iso?: string;
+  translator_due_iso?: string;
   description: string;
   people: { operation: string | null; team_lead: string | null; translator: string | null };
   /** Who has been asked to take it and has not answered yet, and how long they have. */
@@ -515,6 +518,8 @@ export interface TranslatorTask {
   target_lang: string;
   due: Stamp | null;
   due_state: "none" | "ok" | "soon" | "late" | "done";
+  /** The translator's own deadline as an ISO time, for the countdown. Empty when there is none or the task is done. */
+  due_iso?: string;
   description: string;
   people: { operation: string | null; team_lead: string | null; translator: string | null };
   /** Whether this task is the person's own (the admin may look at any). */

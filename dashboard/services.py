@@ -2150,6 +2150,12 @@ def assign_direct_to_translator(task, translator, by_user, note=""):
     return assignment
 
 
+#: What the leader is told when he hands a job over: the three ways it can be wrong (07/10/2026).
+PICK_TRANSLATOR_DEADLINE_AR = "اختار تبعت للمترجم نفس الديدلاين ولا ديدلاين أقل."
+TYPE_SHORTER_DEADLINE_AR = "اخترت ديدلاين أقل: اكتب كام يوم أو ساعة أو دقيقة، أو اختار نفس الديدلاين."
+SHORTER_THAN_OPERATIONS_AR = "الديدلاين اللي للمترجم لازم يكون أقل من ديدلاين الأوبريشن."
+
+
 def deadline_problem(task, moment):
     """Why this cannot be the translator's deadline. Empty when it can.
 
@@ -2376,8 +2382,12 @@ def cap_translator_deadline(task, by_user):
     return True
 
 
+#: ``assign_to_translator(deadline=KEEP_DEADLINE)``: leave the translator's date as it is. ``None`` is a choice too: the same as the client's.
+KEEP_DEADLINE = object()
+
+
 @transaction.atomic
-def assign_to_translator(task, translator, by_user, note="", deadline=None):
+def assign_to_translator(task, translator, by_user, note="", deadline=KEEP_DEADLINE):
     conf = AppSettings.load()
     _cancel_pending(task)
     now = timezone.now()
@@ -2391,9 +2401,9 @@ def assign_to_translator(task, translator, by_user, note="", deadline=None):
     task.translator = translator
     task.status = TaskStatus.AWAITING_TRANSLATOR
     task.translator_accepted_at = None
-    # The date the leader is giving them, which is theirs alone. Blank keeps
-    # whatever was there, and nothing there means the client's own date.
-    if deadline is not None:
+    # The date the leader is giving them, which is theirs alone: a moment (shorter than the client's), or ``None`` for the same as the
+    # client's. Not saying leaves whatever was there.
+    if deadline is not KEEP_DEADLINE:
         task.translator_deadline = deadline
         task.translator_warned_at = None
         task.translator_missed_notified = False

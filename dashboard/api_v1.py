@@ -1232,6 +1232,8 @@ def translator_task(request, code):
             "target_lang": task.target_lang,
             "due": _stamp(due, "%Y-%m-%d"),
             "due_state": task.deadline_state(user, conf.deadline_warning_minutes),
+            # For the countdown: the translator's own deadline - the one their team leader handed over, or the client's when he gave the same.
+            "due_iso": due.isoformat() if due and not task.is_done else "",
             "description": brief(services.clean_client_text(task.description)),
             "people": {
                 "operation": task.created_by.short_name if task.created_by_id else None,

@@ -214,14 +214,20 @@ const dateForm = (date: TranslatorDate) => ({
   tdeadline_minutes: date.minutes,
 });
 
+/** What the leader chose for the translator's deadline: the operation's own (`same`), or a shorter one he types (`shorter`). */
+export type DeadlineChoice = "same" | "shorter";
+
 /**
- * «ابعتها للمترجم»: the task goes to one translator, who has a minute to say yes, and the leader's own date goes with it
- * (shorter than the client's on purpose: the difference is the time the leader keeps to review). Boxes left empty are the
- * client's own date. The classic endpoint keeps its checks (the team, the status, a date past the client's).
+ * «ابعتها للمترجم»: the task goes to one translator, who has a minute to say yes, with the deadline the leader chose: the
+ * operation's own, or a shorter one he typed (the difference is the time he keeps to review). The choice is always sent - the server
+ * refuses a request that does not say - and the boxes only when it is a shorter one. The classic endpoint keeps its checks (the team,
+ * the status, that a shorter one is shorter).
  */
 export function useAssignTranslator(code: string) {
-  return useOpsAction<{ translator: number; date: TranslatorDate }, { ok: boolean }>(code, ({ translator, date }) =>
-    api<{ ok: boolean }>(`${base(code)}/assign-translator/`, { form: { user: String(translator), ...dateForm(date) } }),
+  return useOpsAction<{ translator: number; choice: DeadlineChoice; date: TranslatorDate }, { ok: boolean }>(code, ({ translator, choice, date }) =>
+    api<{ ok: boolean }>(`${base(code)}/assign-translator/`, {
+      form: { user: String(translator), tdeadline_mode: choice, ...(choice === "shorter" ? dateForm(date) : {}) },
+    }),
   );
 }
 

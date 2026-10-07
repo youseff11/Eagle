@@ -5078,7 +5078,7 @@ class TranslatorDeadlineTests(TestCase):
     def _hand_over(self, task, days=2):
         self.client.force_login(self.lead)
         return self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_days": str(days),
+            "user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": str(days),
         })
 
     # -- the two dates ----------------------------------------------------
@@ -5098,7 +5098,7 @@ class TranslatorDeadlineTests(TestCase):
         task = self._task()
         self.client.force_login(self.lead)
         self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_days": "", "tdeadline_hours": "",
+            "user": self.tr.pk, "tdeadline_mode": "same", "tdeadline_days": "", "tdeadline_hours": "",
             "tdeadline_minutes": "",
         })
         task.refresh_from_db()
@@ -5240,7 +5240,7 @@ class TranslatorDeadlineTests(TestCase):
         task = self._task()
         self.client.force_login(self.lead)
         self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_days": "",
+            "user": self.tr.pk, "tdeadline_mode": "same", "tdeadline_days": "",
         })
         task.refresh_from_db()
         services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)

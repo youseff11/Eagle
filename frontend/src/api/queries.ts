@@ -202,7 +202,7 @@ export function useTranslatorHome(enabled = true) {
   });
 }
 
-/** The operation's task list: `""` is every task, `open` the ones being worked, or one status. */
+/** The operation's task list: `""` is the live ones (every task but the delivered and the cancelled), `open` the ones with people on them, or one status. */
 export function useTasks(status: string, enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({

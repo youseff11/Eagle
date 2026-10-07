@@ -487,7 +487,7 @@ class TheLeadersClassicToolsStillWorkTests(_Lead):
         self.task.translator = None
         self.task.deadline = timezone.now() + timedelta(days=3)
         self.task.save()
-        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "tdeadline_days": "1"})
+        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": "1"})
         self.assertEqual((answer.status_code, answer.json()["ok"]), (200, True))
         self.task.refresh_from_db()
         self.assertEqual(self.task.translator_id, self.tr.pk)

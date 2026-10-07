@@ -131,12 +131,12 @@ describe("TasksPage", () => {
     expect(container.querySelector("tbody img, tbody b")).toBeNull();
   });
 
-  it("has a tab for all, for open, and for every status, with this one selected", async () => {
+  it("has a tab for what is live and one for every status, with the live one selected", async () => {
     serve(() => jsonResponse(list()));
     open();
     await screen.findByText("TSK-00001");
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["الكل", "المفتوحة", "جديدة", "شغل جاري", "تم التسليم"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["الشغالة", "جديدة", "شغل جاري", "تم التسليم"]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(tabs[1]).toHaveAttribute("aria-selected", "false");
   });
@@ -145,21 +145,21 @@ describe("TasksPage", () => {
     const mocked = serve((url) => jsonResponse(list({ status: url.searchParams.get("status") ?? "", tasks: [row("TSK-00009")] })));
     open();
     await screen.findByText("TSK-00009");
-    await userEvent.click(screen.getByRole("tab", { name: "المفتوحة" }));
-    await waitFor(() => expect(mocked.calls.some((c) => c.url === `${URL}?status=open`)).toBe(true));
-    expect(screen.getByRole("tab", { name: "المفتوحة" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(screen.getByRole("tab", { name: "جديدة" }));
+    await waitFor(() => expect(mocked.calls.some((c) => c.url === `${URL}?status=new`)).toBe(true));
+    expect(screen.getByRole("tab", { name: "جديدة" })).toHaveAttribute("aria-selected", "true");
     await userEvent.click(screen.getByRole("tab", { name: "تم التسليم" }));
     await waitFor(() => expect(mocked.calls.some((c) => c.url === `${URL}?status=delivered`)).toBe(true));
-    await userEvent.click(screen.getByRole("tab", { name: "الكل" }));
+    await userEvent.click(screen.getByRole("tab", { name: "الشغالة" }));
     await waitFor(() => expect(mocked.calls.filter((c) => c.url === URL).length).toBeGreaterThan(1));
   });
 
   it("opens on the tab the address names", async () => {
-    const mocked = serve(() => jsonResponse(list({ status: "open" })));
-    open("/tasks?status=open");
+    const mocked = serve(() => jsonResponse(list({ status: "delivered" })));
+    open("/tasks?status=delivered");
     await screen.findByText("TSK-00001");
-    expect(mocked.calls.some((c) => c.url === `${URL}?status=open`)).toBe(true);
-    expect(screen.getByRole("tab", { name: "المفتوحة" })).toHaveAttribute("aria-selected", "true");
+    expect(mocked.calls.some((c) => c.url === `${URL}?status=delivered`)).toBe(true);
+    expect(screen.getByRole("tab", { name: "تم التسليم" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("does not send what is not a status: the address is the person's to type", async () => {
@@ -179,7 +179,7 @@ describe("TasksPage", () => {
     serve(() => jsonResponse(list()));
     open("/tasks", "en");
     expect(await screen.findByText("Currently open")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Open" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Live" })).toBeInTheDocument();
     expect(screen.getByText("10-30 5:30 PM")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /New task/ })).toBeInTheDocument();
   });

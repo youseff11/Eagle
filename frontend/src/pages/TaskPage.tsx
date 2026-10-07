@@ -5,6 +5,7 @@ import { ApiError } from "../api/client";
 import { useAskMoreTime, useFinishTask, useMe, useTranslatorTask, useUploadTranslation } from "../api/queries";
 import type { TaskFile, TranslatorTask } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
+import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { AiCheckCard } from "../components/task/AiCheckCard";
@@ -372,11 +373,12 @@ function Task({ task }: { task: TranslatorTask }) {
         <StatusBadge status={task.status} />
         <PriorityBadge priority={task.priority} />
         <div className="grow" />
-        {/* The translator's own date, which their team leader set. Never the client's: the server decides which one this is. */}
+        {/* The translator's own date, which their team leader chose. Never the client's: the server decides which one this is. */}
         <span className={`row row--tight mono ${deadlineClass(task.due_state)}`}>
           <Icon name="clock" size="sm" />
           {due ?? t("من غير ديدلاين", "No deadline")}
         </span>
+        <Countdown iso={task.due_iso} state={task.due_state} />
         {task.extension.can_ask && (
           <button className="btn btn--sm" type="button" onClick={() => setMore(true)}>
             <Icon name="clock" size="sm" />

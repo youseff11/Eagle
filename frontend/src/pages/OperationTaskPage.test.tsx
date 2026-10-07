@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -92,6 +92,70 @@ const posts = (calls: { url: string; init?: RequestInit }[], path: string) => ca
 const form = (call: { init?: RequestInit }) => Object.fromEntries(new URLSearchParams(String(call.init?.body)));
 const parts = (call: { init?: RequestInit }) => call.init!.body as FormData;
 const A = (name: string) => `/api/tasks/${CODE}/${name}/`;
+
+describe("OperationTaskPage: the countdown", () => {
+  const in_ = (ms: number) => new Date(Date.now() + ms).toISOString();
+  const timers = () => screen.queryAllByRole("timer", { name: "العد التنازلي للديدلاين" });
+
+  it("counts down to the client's deadline in the head of the page, every second", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], shouldAdvanceTime: true });
+    try {
+      serve(task({ due_iso: in_(2 * 86400_000 + 3 * 3600_000 + 20 * 60_000 + 15_000) }));
+      open();
+      await loaded();
+      expect(timers()).toHaveLength(1);
+      expect(timers()[0]).toHaveTextContent("باقي 2 يوم 03:20:");
+      const before = timers()[0]!.textContent;
+      await act(async () => vi.advanceTimersByTime(3000));
+      expect(timers()[0]!.textContent).not.toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says how late it is once the date has passed", async () => {
+    serve(task({ due_iso: in_(-90 * 60_000), due_state: "late" }));
+    open();
+    await loaded();
+    expect(timers()[0]).toHaveTextContent("فات من 01:30:");
+    expect(timers()[0]).toHaveClass("deadline--late");
+  });
+
+  it("counts down to the translator's date too, named, when the leader gave a shorter one", async () => {
+    serve(task({ due_iso: in_(3 * 86400_000), translator_due_iso: in_(2 * 3600_000 + 5 * 60_000) }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(2);
+    expect(timers()[0]).toHaveTextContent("باقي 2 يوم");
+    expect(timers()[1]).toHaveTextContent("المترجم: باقي 02:04:");
+  });
+
+  it("has one count and not two when the translator works to the same date", async () => {
+    serve(task({ due_iso: in_(3 * 86400_000), translator_due_iso: "" }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(1);
+  });
+
+  it("has none for a task with no deadline or one that is done, and speaks English when asked", async () => {
+    serve(task({ due: null, due_state: "none", due_iso: "" }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(0);
+    cleanup();
+    vi.unstubAllGlobals();
+    serve(task({ due_iso: in_(5 * 3600_000), due_state: "done" }));
+    open();
+    await loaded();
+    expect(timers()).toHaveLength(0);
+    cleanup();
+    vi.unstubAllGlobals();
+    serve(task({ due_iso: in_(5 * 3600_000), due_state: "ok" }));
+    open("/tasks/" + CODE, "en");
+    await screen.findByText(/Contract for review/);
+    expect(screen.getByRole("timer", { name: "Deadline countdown" })).toHaveTextContent(/04:59:|05:00:/);
+  });
+});
 
 describe("OperationTaskPage: what the operation reads", () => {
   it("shows the task: code, status, priority, the client's date, the translator's, and where it came from", async () => {
@@ -846,44 +910,120 @@ describe("OperationTaskPage: the team leader's page", () => {
       ]);
     });
 
-    it("sends the translator chosen and the leader's own date, as the classic form does", async () => {
-      const user = userEvent.setup();
-      const mocked = serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: true, assignment: 5, status: "awaiting_translator" }) }, "team_lead");
-      open();
-      await user.selectOptions(await screen.findByLabelText("اعمل assign لمترجم من فريقك"), "22");
-      await user.type(screen.getByLabelText("الديدلاين اللي هتديه للمترجم - يوم"), "2");
-      await user.type(screen.getByLabelText("الديدلاين اللي هتديه للمترجم - ساعة"), "3");
-      await user.click(screen.getByRole("button", { name: "ابعتها للمترجم" }));
-      expect(await screen.findByText("اتبعتت للمترجم")).toBeInTheDocument();
-      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "22", tdeadline_days: "2", tdeadline_hours: "3", tdeadline_minutes: "" });
-    });
+    // Three days left on the operation's deadline, as the page was read.
+    const leftIso = () => new Date(Date.now() + 3 * 86400_000).toISOString();
+    const withDate = (over: Partial<OpsTask> = {}): OpsTask => ({ ...waiting(), due_iso: leftIso(), ...over });
+    const same = () => screen.getByRole("radio", { name: "نفس ديدلاين الأوبريشن" });
+    const shorter = () => screen.getByRole("radio", { name: "ديدلاين أقل" });
+    const send = () => screen.getByRole("button", { name: "ابعتها للمترجم" });
 
-    it("sends empty boxes when the leader gives no date of their own: the client's date is then the translator's", async () => {
-      const user = userEvent.setup();
-      const mocked = serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
-      open();
-      await user.click(await screen.findByRole("button", { name: "ابعتها للمترجم" }));
-      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
-      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "21", tdeadline_days: "", tdeadline_hours: "", tdeadline_minutes: "" });
-    });
-
-    it("reminds the leader of the client's date, and of the review time a shorter one keeps", async () => {
-      serve(waiting(), {}, "team_lead");
+    it("is handed the operation's deadline with the time left, and has to choose: nothing is chosen for the leader", async () => {
+      serve(withDate(), {}, "team_lead");
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
-      expect(screen.getByText(/شيل لنفسك وقت للمراجعة/)).toBeInTheDocument();
-      expect(screen.getByTitle("ديدلاين العميل")).toHaveTextContent("10-30 5:30 PM");
+      const box = document.getElementById("translatorDeadline") as HTMLElement;
+      expect(within(box).getByRole("timer", { name: "العد التنازلي للديدلاين" })).toHaveTextContent(/باقي 2 يوم/);
+      expect(same()).not.toBeChecked();
+      expect(shorter()).not.toBeChecked();
+      expect(screen.getByText("اختار الأول: نفس الديدلاين ولا أقل.")).toBeInTheDocument();
+      // The send waits for the answer.
+      expect(send()).toBeDisabled();
+    });
+
+    it("sends the same deadline as a choice of its own, with no date typed", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true, assignment: 5, status: "awaiting_translator" }) }, "team_lead");
+      open();
+      await user.selectOptions(await screen.findByLabelText("اعمل assign لمترجم من فريقك"), "22");
+      await user.click(same());
+      expect(send()).toBeEnabled();
+      await user.click(send());
+      expect(await screen.findByText("اتبعتت للمترجم")).toBeInTheDocument();
+      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "22", tdeadline_mode: "same" });
+    });
+
+    it("asks for the shorter one in days, hours and minutes, and sends it with the choice", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(screen.queryByLabelText("الديدلاين الأقل - من دلوقتي - يوم")).toBeNull();
+      await user.click(shorter());
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"), "1");
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "6");
+      await user.click(send());
+      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({
+        user: "21", tdeadline_mode: "shorter", tdeadline_days: "1", tdeadline_hours: "6", tdeadline_minutes: "",
+      });
+    });
+
+    it("cannot be sent as a shorter one until one is written", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await user.click(shorter());
+      expect(send()).toBeDisabled();
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "0");
+      expect(send()).toBeDisabled();
+      await user.clear(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"));
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "5");
+      expect(send()).toBeEnabled();
+      expect(calls(mocked, A("assign-translator"))).toHaveLength(0);
+    });
+
+    it("says so, and will not send, when what was written is not shorter than what is left", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await user.click(shorter());
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"), "3");
+      expect(screen.getByRole("alert")).toHaveTextContent("لازم يكون أقل من الوقت الباقي على ديدلاين الأوبريشن.");
+      expect(send()).toBeDisabled();
+      await user.clear(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"));
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"), "2");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(send()).toBeEnabled();
+      expect(calls(mocked, A("assign-translator"))).toHaveLength(0);
+    });
+
+    it("takes back what was written when the leader turns to the same one, and sends nothing of it", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await user.click(shorter());
+      await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "5");
+      await user.click(same());
+      await user.click(send());
+      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "21", tdeadline_mode: "same" });
+    });
+
+    it("shows the operation's date, and that the task has none when it has none", async () => {
+      serve(withDate({ due: null, due_state: "none", due_iso: "" }), {}, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(screen.getByTitle("الديدلاين اللي حدده الأوبريشن")).toBeInTheDocument();
+      // No date, no count: and the same one is still a choice.
+      expect(screen.queryAllByRole("timer", { name: "العد التنازلي للديدلاين" })).toHaveLength(0);
+      expect(same()).toBeInTheDocument();
     });
 
     it("says why it was refused, in the server's own words, and keeps what was typed", async () => {
       const user = userEvent.setup();
-      serve(waiting(), { [A("assign-translator")]: () => jsonResponse({ ok: false, error: "الديدلاين ده أبعد من ديدلاين العميل." }, 400) }, "team_lead");
+      serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: false, error: "الديدلاين اللي للمترجم لازم يكون أقل من ديدلاين الأوبريشن." }, 400) }, "team_lead");
       open();
-      const days = await screen.findByLabelText("الديدلاين اللي هتديه للمترجم - يوم");
-      await user.type(days, "9");
-      await user.click(screen.getByRole("button", { name: "ابعتها للمترجم" }));
-      expect(await screen.findByRole("alert")).toHaveTextContent("الديدلاين ده أبعد من ديدلاين العميل.");
-      expect(days).toHaveValue(9);
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await user.click(shorter());
+      const days = screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم");
+      await user.type(days, "1");
+      await user.click(send());
+      expect(await screen.findByText("الديدلاين اللي للمترجم لازم يكون أقل من ديدلاين الأوبريشن.")).toBeInTheDocument();
+      expect(days).toHaveValue(1);
+      expect(shorter()).toBeChecked();
     });
 
     it("says there is nobody to send it to when the leader has no team", async () => {
@@ -906,6 +1046,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(waiting(), { [A("assign-translator")]: () => new Promise<Response>((resolve) => (release = () => resolve(jsonResponse({ ok: true })))) }, "team_lead");
       open();
       const button = await screen.findByRole("button", { name: "ابعتها للمترجم" });
+      await user.click(screen.getByRole("radio", { name: "نفس ديدلاين الأوبريشن" }));
       await user.click(button);
       await user.click(button);
       expect(calls(mocked, A("assign-translator"))).toHaveLength(1);

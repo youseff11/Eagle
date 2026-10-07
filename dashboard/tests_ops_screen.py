@@ -116,6 +116,22 @@ class TaskListTests(_Ops):
         self.assertNotIn(TaskStatus.DELIVERED, codes.values())
         self.assertNotIn(TaskStatus.CANCELLED, codes.values())
 
+    def test_the_board_is_what_is_being_worked_and_delivered_and_cancelled_have_a_tab_each(self):
+        fresh = _make_task(self, status=TaskStatus.NEW, title="fresh")
+        gone = _make_task(self, status=TaskStatus.DELIVERED, title="gone")
+        dropped = _make_task(self, status=TaskStatus.CANCELLED, title="dropped")
+        board = {t["code"] for t in _json(self.door(self.ops, "dashboard:v1_tasks"))["tasks"]}
+        # Everything still alive, a task that has not been given to a leader yet included.
+        self.assertIn(fresh.code, board)
+        self.assertIn(self.task.code, board)
+        self.assertNotIn(gone.code, board)
+        self.assertNotIn(dropped.code, board)
+        # Each has its own tab, and nothing else is in it.
+        delivered = _json(self.door(self.ops, "dashboard:v1_tasks", status="delivered"))
+        self.assertEqual([t["code"] for t in delivered["tasks"]], [gone.code])
+        cancelled = _json(self.door(self.ops, "dashboard:v1_tasks", status="cancelled"))
+        self.assertEqual([t["code"] for t in cancelled["tasks"]], [dropped.code])
+
     def test_one_status_lists_only_that_status(self):
         done = _make_task(self, status=TaskStatus.DELIVERED, title="gone")
         body = _json(self.door(self.ops, "dashboard:v1_tasks", status="delivered"))

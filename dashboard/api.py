@@ -311,21 +311,30 @@ def assign_translator(request, code):
     if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR):
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
 
-    # The date the leader is handing over with the job. Blank keeps the
-    # client's, which is what happened before they could choose.
+    # The date the leader is handing over with the job is his choice, and it is asked every time (07/10/2026): the same as the operation
+    # gave (``tdeadline_mode=same``), or a shorter one he types (``shorter``), which has to be shorter - that is what choosing it means.
+    # A request that does not say is refused: nothing is chosen for him, and the job does not go out on a guess.
     from django import forms
 
     from .forms import DeadlineField
 
+    mode = (request.POST.get("tdeadline_mode") or "").strip()
+    if mode not in ("same", "shorter"):
+        return JsonResponse({"ok": False, "error": services.PICK_TRANSLATOR_DEADLINE_AR, "code": "pick_deadline"}, status=400)
     field = DeadlineField(required=False)
     typed = field.widget.value_from_datadict(request.POST, request.FILES, "tdeadline")
     try:
-        their_deadline = field.clean(typed)
+        given = field.clean(typed)
     except forms.ValidationError as problem:
         return JsonResponse({"ok": False, "error": problem.messages[0]}, status=400)
-    problem = services.deadline_problem(task, their_deadline)
-    if problem:
-        return JsonResponse({"ok": False, "error": problem}, status=400)
+    if mode == "same":
+        their_deadline = None
+    else:
+        if mode == "shorter" and given is None:
+            return JsonResponse({"ok": False, "error": services.TYPE_SHORTER_DEADLINE_AR}, status=400)
+        if given is not None and task.deadline and given >= task.deadline:
+            return JsonResponse({"ok": False, "error": services.SHORTER_THAN_OPERATIONS_AR}, status=400)
+        their_deadline = given
 
     assignment = services.assign_to_translator(
         task, translator, user, note=request.POST.get("note", "")[:250],
