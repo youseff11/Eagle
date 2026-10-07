@@ -707,6 +707,42 @@ def chat_react(request):
 
 
 @endpoint("POST")
+def chat_unsend(request):
+    """Take back a message you sent in a work group or a colleague's chat.
+
+    ``{"source": "g12" | "u5", "uid": "g12-45"}``. The rules (only your own, only what stayed inside, never work on a
+    task) are ``services.unsend_message``'s. Another person's message and one that may not be taken back answer alike
+    (``not_allowed``); a message that is not there, or in a conversation this person may not open, is a 404.
+    """
+    try:
+        body = _object(request)
+        source, uid = _text(body, "source", MAX_CODE), _text(body, "uid", MAX_CODE)
+    except BadBody:
+        return _error(400, "bad_request")
+    done, error = services.unsend_message(request.user, source, uid)
+    if not done:
+        return _error(404 if error == "not_found" else 403, error)
+    return JsonResponse({"ok": True, "uid": uid})
+
+
+@endpoint("POST")
+def chat_mute(request):
+    """Mute or un-mute a conversation for yourself: ``{"source": "CL-0001" | "g12" | "u5", "muted": true}``."""
+    try:
+        body = _object(request)
+        source = _text(body, "source", MAX_CODE)
+        muted = body.get("muted")
+        if not source or not isinstance(muted, bool):
+            raise BadBody
+    except BadBody:
+        return _error(400, "bad_request")
+    done, error = services.set_muted(request.user, source, muted)
+    if not done:
+        return _error(404, error)
+    return JsonResponse({"ok": True, "source": source, "muted": muted})
+
+
+@endpoint("POST")
 def chat_forward(request):
     """Forward some messages (``uids``) and/or files of one conversation to another.
 

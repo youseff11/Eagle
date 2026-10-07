@@ -1880,6 +1880,9 @@ class ChatMessage(models.Model):
     #: typed in a client room is relayed word for word, so an "@name" there
     #: would name a colleague to the client.
     mentions = models.ManyToManyField(User, blank=True, related_name="mentioned_in")
+    #: When the sender took it back (``services.unsend_message``). The row stays - the thread shows "this message was
+    #: deleted" in its place, the way WhatsApp does - but the words, the files, the mentions and the reactions are gone.
+    unsent_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1888,6 +1891,10 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"#{self.pk} {self.room_id}"
+
+    @property
+    def is_unsent(self):
+        return self.unsent_at is not None
 
     @property
     def from_client(self):
@@ -1935,6 +1942,34 @@ class ChatAttachment(PlayableFile, models.Model):
 
     def __str__(self):
         return self.original_name or self.file.name
+
+
+class ChatMute(models.Model):
+    """One person's "mute" on one conversation: a room (a group or a colleague's chat) or a client's chat.
+
+    Theirs alone: nobody else's list, ticks or notifications change. A muted conversation stays in the list and keeps
+    its own unread number, but it makes no notification and no sound for this person, and its unread messages are
+    left out of the sidebar badge and the tab numbers. A mention of this person (``ChatMessage.mentions``) still
+    reaches them: it is a message to them by name. Exactly one of the two targets is set.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="chat_mutes")
+    room = models.ForeignKey(ChatRoom, null=True, blank=True, on_delete=models.CASCADE, related_name="mutes")
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.CASCADE, related_name="mutes")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "room"], name="uniq_mute_room", condition=models.Q(room__isnull=False)),
+            models.UniqueConstraint(fields=["user", "client"], name="uniq_mute_client", condition=models.Q(client__isnull=False)),
+            models.CheckConstraint(
+                condition=models.Q(room__isnull=False, client__isnull=True) | models.Q(room__isnull=True, client__isnull=False),
+                name="mute_has_one_target",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} muted {'room ' + str(self.room_id) if self.room_id else 'client ' + str(self.client_id)}"
 
 
 class ChatRead(models.Model):

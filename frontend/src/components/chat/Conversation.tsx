@@ -2,7 +2,7 @@ import { Loading } from "../Loading";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
-import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useReact, useThread } from "../../api/queries";
+import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useMuteChat, useReact, useThread, useUnsend } from "../../api/queries";
 import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { useFilePick } from "../../hooks/useFilePick";
@@ -13,6 +13,7 @@ import { AiNotesPanel } from "../ai/AiNotesPanel";
 import { CallButtons } from "./CallButtons";
 import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
+import { Confirm } from "../Confirm";
 import { AddMembersDialog } from "./AddMembersDialog";
 import { Bubble, OutgoingBubble, type FileMark, type TextMark } from "./Bubble";
 import { newFilesRun } from "../../lib/fileRun";
@@ -109,6 +110,8 @@ interface BubbleActions {
   /** Under a client's message with a document: «استلمت», and turning it into a task. */
   onConfirm?: (entry: ThreadEntry) => void;
   onConvert?: (entry: ThreadEntry) => void;
+  /** Take back a message of your own (the server says which: `entry.can_unsend`). */
+  onUnsend?: (entry: ThreadEntry) => void;
 }
 
 function Stream({
@@ -207,6 +210,7 @@ function Stream({
               onToggle={actions.onToggle}
               onConfirm={actions.onConfirm}
               onConvert={actions.onConvert}
+              onUnsend={actions.onUnsend}
               selecting={selecting}
               selected={selected.includes(entry.uid)}
               fileMark={fileMark}
@@ -352,6 +356,18 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   };
   const pickerEntry = picker ? messages.find((entry) => entry.uid === picker.uid) : undefined;
 
+  // Taking a message back: asked first, and the answer says if it was refused.
+  const unsend = useUnsend(code);
+  const [unsending, setUnsending] = useState<ThreadEntry | null>(null);
+  const [unsendProblem, setUnsendProblem] = useState("");
+  const askUnsend = (entry: ThreadEntry) => {
+    setUnsendProblem("");
+    setUnsending(entry);
+  };
+  // Muting is this person's own: a client's chat only where this person has the client chats (the operation, the admin).
+  const mute = useMuteChat(code);
+  const mayMute = (kindOfCode(code) !== "clients" || mayAnswerClients) && !(row?.staff && !row?.room);
+
   // Forwarding: the bubbles become a list to tap, the bar underneath says how many, and "Forward" asks where to.
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -452,6 +468,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   const actions: BubbleActions = {
     onReply: (entry) => setReplyTo(replyTargetOf(entry, t)),
     ...(mayMark ? { onReact: openPicker, onForward: startSelecting, onToggle: toggle } : {}),
+    onUnsend: askUnsend,
     ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: (entry: ThreadEntry) => setConverting(newFilesRun(messages, entry)) } : {}),
   };
 
@@ -478,6 +495,20 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             <Icon name="user" size="sm" />
             <span>{t("ملف العميل", "Client profile")}</span>
           </a>
+        )}
+        {thread.data && row && mayMute && (
+          <button
+            type="button"
+            className={`btn btn--ghost${row.muted ? " is-on" : ""}`}
+            id="muteToggle"
+            aria-pressed={row.muted === true}
+            disabled={mute.isPending}
+            title={row.muted ? t("شغّل إشعارات الشات ده تاني", "Turn this chat's notifications back on") : t("اكتم إشعارات الشات ده", "Silence this chat's notifications")}
+            onClick={() => mute.mutate(row.muted !== true)}
+          >
+            <Icon name={row.muted ? "bell-off" : "bell"} size="sm" />
+            <span>{row.muted ? t("مكتوم", "Muted") : t("كتم", "Mute")}</span>
+          </button>
         )}
         {thread.data && mayPick && (
           <button
@@ -652,6 +683,28 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
                 setAdding(false);
                 setNotice(left);
               }}
+            />
+          )}
+          {unsending && (
+            <Confirm
+              title={t("تمسح الرسالة دي؟", "Delete this message?")}
+              body={t(
+                "هتتمسح من عند كل اللي في الشات. اللي حد حوّله منها قبل كده بيفضل زي ما هو.",
+                "It is deleted for everybody in this chat. A copy somebody already forwarded stays as it is.",
+              )}
+              yes={t("امسح", "Delete")}
+              icon="trash"
+              danger
+              busy={unsend.isPending}
+              problem={unsendProblem}
+              onNo={() => setUnsending(null)}
+              onYes={() =>
+                unsend.mutate(unsending.uid, {
+                  onSuccess: () => setUnsending(null),
+                  onError: () =>
+                    setUnsendProblem(t("مقدرتش أمسح الرسالة. ممكن تكون اتبعتت لعميل أو تبع تاسك.", "The message could not be deleted. It may have gone to a client or belong to a task.")),
+                })
+              }
             />
           )}
           {converting && <ConvertDialog entries={converting} onClose={() => setConverting(null)} />}

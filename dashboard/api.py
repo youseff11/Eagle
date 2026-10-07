@@ -703,6 +703,7 @@ def _message_json(message, viewer):
         "id": message.id,
         "body": services.words_of(message, viewer),
         "system": message.is_system,
+        "unsent": message.unsent_at is not None,
         "sender": message.sender.short_name if message.sender_id else "",
         "sender_id": message.sender_id or 0,
         "role": message.sender.role if message.sender_id else "",
@@ -797,7 +798,7 @@ def chat_send(request, room_id):
     reply_raw = (request.POST.get("reply_uid") or request.POST.get("reply_to") or "").strip()
     reply_id = _int(reply_raw.rsplit("-", 1)[-1], 0)
     reply_to = ChatMessage.objects.filter(
-        pk=reply_id, room=room, is_system=False
+        pk=reply_id, room=room, is_system=False, unsent_at__isnull=True
     ).first() if reply_id else None
 
     # Files sent in a staff chat or a work group are asked which task they
@@ -866,8 +867,12 @@ def chat_send(request, room_id):
     if mentioned:
         message.mentions.set(mentioned)
     mentioned_ids = {person.pk for person in mentioned}
+    # Muted by a member: the ordinary line is not sent to them. A mention still is - it names them.
+    silenced = services.muted_user_ids(room=room)
     for member in room.members.exclude(pk=request.user.pk):
         if not room.can_open(member):
+            continue
+        if member.pk not in mentioned_ids and member.pk in silenced:
             continue
         if member.pk in mentioned_ids:
             preview = identity.for_viewer(body[:60], member)
@@ -955,12 +960,17 @@ def _thread_entry_json(entry, viewer):
         "mentions_me": entry.get("mentions_me", False),
         "reactions": entry.get("reactions", []),
         "reactions_sig": entry.get("reactions_sig", ""),
+        "unsent": entry.get("unsent", False),
+        "can_unsend": entry.get("can_unsend", False),
     }
 
 
-def _conversation_json(client, viewer, unread=0, facts=None):
+def _conversation_json(client, viewer, unread=0, facts=None, muted=None):
     """One client's row. ``facts`` is what ``chatlists.client_facts`` fetched for a whole list;
-    without it the row asks for itself, which is what a single conversation does."""
+    without it the row asks for itself, which is what a single conversation does. ``muted`` is whether this person muted
+    it, known for a whole list at once; left out, it is asked of the database here."""
+    if muted is None:
+        muted = services.is_muted(viewer, client=client)
     if facts is None:
         facts = {
             "preview": services.conversation_preview(client, viewer),
@@ -987,14 +997,17 @@ def _conversation_json(client, viewer, unread=0, facts=None):
         "window_open": window_open,
         "minutes_left": minutes_left,
         "unread": unread,
+        "muted": muted,
     }
 
 
-def _group_json(room, viewer, unread=0, facts=None):
+def _group_json(room, viewer, unread=0, facts=None, muted=None):
     """A group in the same shape as a 1:1 conversation, so one list renders both.
 
     ``facts`` is what ``chatlists.group_facts`` fetched for a whole list; without it the row asks
-    for itself."""
+    for itself. ``muted`` as in ``_conversation_json``."""
+    if muted is None:
+        muted = services.is_muted(viewer, room=room)
     client = room.relay_client
     if facts is None:
         facts = {"preview": services.group_preview(room, viewer)}
@@ -1029,6 +1042,7 @@ def _group_json(room, viewer, unread=0, facts=None):
             "window_open": False,
             "minutes_left": 0,
             "unread": unread,
+            "muted": muted,
         }
     return {
         "code": f"g{room.id}",
@@ -1049,6 +1063,7 @@ def _group_json(room, viewer, unread=0, facts=None):
         "window_open": window_open,
         "minutes_left": minutes_left,
         "unread": unread,
+        "muted": muted,
     }
 
 
@@ -1069,6 +1084,7 @@ def client_chat_list(request):
         # to most recently, then the rest of the directory. Sorting by date
         # here would push everyone never written to into a random heap.
         items = []
+        muted_rooms, _muted_clients = services.muted_ids(request.user)
         people = services.staff_conversations(request.user, query)
         unread = services.unread_by_room(
             request.user, [row["room"].id for row in people if row["room"] is not None]
@@ -1096,10 +1112,12 @@ def client_chat_list(request):
                 "window_open": False,
                 "minutes_left": 0,
                 "unread": unread.get(row["room"].id, 0) if row["room"] else 0,
+                "muted": bool(row["room"]) and row["room"].id in muted_rooms,
             })
         return JsonResponse({"ok": True, "items": items})
 
     items = []
+    muted_rooms, muted_clients = services.muted_ids(request.user)
     if kind == "clients" and sees_all_clients:
         clients = list(services.client_conversations(request.user, query)[:100])
         unread = services.unread_by_client(request.user, [c.pk for c in clients])
@@ -1107,7 +1125,7 @@ def client_chat_list(request):
         items += [
             (
                 facts[row.pk]["preview"]["at"],
-                _conversation_json(row, request.user, unread.get(row.pk, 0), facts[row.pk]),
+                _conversation_json(row, request.user, unread.get(row.pk, 0), facts[row.pk], row.pk in muted_clients),
             )
             for row in clients
         ]
@@ -1118,7 +1136,7 @@ def client_chat_list(request):
         items += [
             (
                 facts[room.pk]["preview"]["at"],
-                _group_json(room, request.user, unread.get(room.id, 0), facts[room.pk]),
+                _group_json(room, request.user, unread.get(room.id, 0), facts[room.pk], room.pk in muted_rooms),
             )
             for room in rooms
         ]

@@ -25,6 +25,7 @@ from .models import (
     Channel,
     ChatAttachment,
     ChatMessage,
+    ChatMute,
     ChatRead,
     ChatRoom,
     Client,
@@ -302,7 +303,11 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             audience = User.objects.filter(role=Role.ADMIN, is_active=True)
         else:
             audience = User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True)
+        # Whoever muted this client's chat is not rung for it.
+        silenced = muted_user_ids(client=client) if client else set()
         for user in audience:
+            if user.pk in silenced:
+                continue
             notify(
                 user,
                 title_ar="ميل جديد من عميل" if is_mail else "رسالة جديدة من عميل",
@@ -1178,8 +1183,115 @@ def group_thread(room, user, limit=200):
             "mentions_me": user is not None and any(person.pk == user.pk for person in row.mentions.all()),
             "reactions": reacts.get(row.id, []),
             "reactions_sig": reactions_sig(reacts.get(row.id, [])),
+            # Taken back by its sender: the bubble says so and has nothing else. ``can_unsend``: this person may take it back.
+            "unsent": row.unsent_at is not None,
+            "can_unsend": can_unsend(user, row),
         })
     return items
+
+
+#: What takes the place of a message its sender took back, in a list's snippet.
+UNSENT_SNIPPET_AR = "الرسالة اتمسحت"
+
+
+def can_unsend(user, message):
+    """Whether ``user`` may take this message back.
+
+    Only the sender, and only what stayed inside: a message of a work group or a colleague's chat. Anything that was (or
+    could have been) relayed to a client is final - WhatsApp and e-mail give us no way to delete it on their phone, and a
+    message that vanished from our screen while still sitting on theirs would be a lie about what the client was told.
+    Work on a task (a file handed in, a step of the hand-over) is the task's record and stays, and so does anything that
+    carries a client's words or files (``origin_client``): that is the client's record, not the sender's.
+    """
+    if user is None or message is None or message.is_system or message.unsent_at is not None:
+        return False
+    if message.sender_id != user.pk or message.task_id or message.inbound_id or message.origin_client_id:
+        return False
+    if message.room.kind not in (RoomKind.STAFF, RoomKind.TEAM):
+        return False
+    return not any(a.origin_client_id for a in message.attachments.all())
+
+
+@transaction.atomic
+def unsend_message(user, source_code, uid):
+    """Take back a message the person sent. Returns ``(ok, error)``: ``not_found`` or ``not_allowed``.
+
+    The row stays, so the thread keeps its shape and the others see "deleted" where it was; the words, the files, the
+    mentions and the reactions go. A copy somebody forwarded keeps its own words (as it does on WhatsApp). The act is
+    written to the audit log - who, where, which message - without the words.
+    """
+    from .models import ChatReaction
+
+    source = _chat_ref(user, source_code)
+    if source is None or source[0] != "room":
+        return False, "not_found"
+    room = source[1]
+    side, _, raw = str(uid or "").rpartition("-")
+    if side != f"g{room.pk}" or not raw.isdecimal():
+        return False, "not_found"
+    message = (
+        room.messages.select_for_update().select_related("room")
+        .filter(pk=int(raw), is_system=False).first()
+    )
+    if message is None:
+        return False, "not_found"
+    if not can_unsend(user, message):
+        # A colleague's message, or one that may not be taken back, reads the same to someone who may not touch it.
+        return False, "not_allowed"
+    stored = [(a.file.storage, a.file.name) for a in message.attachments.all()]
+    message.attachments.all().delete()
+    ChatReaction.objects.filter(message=message).delete()
+    message.mentions.clear()
+    message.body = ""
+    message.unsent_at = timezone.now()
+    message.save(update_fields=["body", "unsent_at"])
+    _remove_unreferenced_files(stored)
+    log(user, "chat.unsend", f"g{room.pk}-{message.pk}")
+    return True, ""
+
+
+def muted_ids(user):
+    """``({room ids}, {client ids})`` this person has muted."""
+    rooms, clients = set(), set()
+    for room_id, client_id in ChatMute.objects.filter(user=user).values_list("room_id", "client_id"):
+        if room_id:
+            rooms.add(room_id)
+        else:
+            clients.add(client_id)
+    return rooms, clients
+
+
+def is_muted(user, room=None, client=None):
+    if room is not None:
+        return ChatMute.objects.filter(user=user, room=room).exists()
+    return client is not None and ChatMute.objects.filter(user=user, client=client).exists()
+
+
+def muted_user_ids(room=None, client=None):
+    """The ids of the people who muted this room or this client's chat: they are not notified of what is said in it."""
+    if room is not None:
+        return set(ChatMute.objects.filter(room=room).values_list("user_id", flat=True))
+    if client is not None:
+        return set(ChatMute.objects.filter(client=client).values_list("user_id", flat=True))
+    return set()
+
+
+def set_muted(user, source_code, muted):
+    """Mute or un-mute a conversation this person can open. Returns ``(ok, error)``.
+
+    Resolved by ``_chat_ref`` like every other chats door, so a code of somewhere this person may not look finds nothing.
+    A colleague nobody has written to yet has no room to mute.
+    """
+    source = _chat_ref(user, source_code)
+    if source is None:
+        return False, "not_found"
+    where, target = source
+    field = "room" if where == "room" else "client"
+    if muted:
+        ChatMute.objects.get_or_create(user=user, **{field: target})
+    else:
+        ChatMute.objects.filter(user=user, **{field: target}).delete()
+    return True, ""
 
 
 def words_of(message, viewer):
@@ -1191,6 +1303,8 @@ def words_of(message, viewer):
     client's words, the same as if they had been forwarded to them. (The row says whose words they are:
     ``origin_client``.)
     """
+    if message.unsent_at is not None:
+        return ""
     if message.origin_client_id and not (
         viewer is not None and (viewer.is_operation or viewer.is_admin_role)
     ):
@@ -1222,6 +1336,8 @@ def _room_last_preview(room, user, last, files=None, receipt=None):
     here, for this one room.
     """
     text = words_of(last, user) or _attachment_snippet(last.relay_files if files is None else files)
+    if last.unsent_at is not None:
+        text = UNSENT_SNIPPET_AR
     mine = user is not None and last.sender_id == user.pk
     ticks = ""
     if mine:
@@ -1515,9 +1631,10 @@ def _mirror_into(room, inbound):
     # same test as opening the room (``can_open``): a stale membership row, a
     # person taken off the task, or a translator seated here by hand gets
     # nothing - not a preview, not a sound.
+    silenced = muted_user_ids(room=room)
     recipients = [
         m for m in room.members.exclude(role__in=[Role.OPERATION, Role.ADMIN])
-        if room.can_open(m)
+        if room.can_open(m) and m.pk not in silenced
     ]
     for member in recipients:
         notify(
@@ -3606,8 +3723,10 @@ def unread_chat_breakdown(user):
     ``clients`` (a client's chat), ``groups`` (the work groups and the client rooms, which share the tab) and ``staff`` (the
     one-to-one chats with a colleague). One pass over the client messages and one over the rooms, for all of them.
     """
-    by_client = unread_by_client(user)
-    kinds = dict(_listed_rooms(user).values_list("id", "kind"))
+    # A muted conversation keeps its own number in the list but is not counted in the badge or on the tabs.
+    muted_rooms, muted_clients = muted_ids(user)
+    by_client = {k: v for k, v in unread_by_client(user).items() if k not in muted_clients}
+    kinds = {k: v for k, v in _listed_rooms(user).values_list("id", "kind") if k not in muted_rooms}
     by_room = unread_by_room(user, kinds)
     tabs = {"clients": len(by_client), "groups": 0, "staff": 0}
     for room_id in by_room:
@@ -4685,7 +4804,7 @@ def _forward_items(user, source, uids, attachment_ids):
                     add(row.created_at, row.body, client.pk,
                         [(a, client.pk) for a in row.uploads.all()])
         elif side == f"g{target.pk}":
-            row = target.messages.filter(pk=pk, is_system=False).select_related(
+            row = target.messages.filter(pk=pk, is_system=False, unsent_at__isnull=True).select_related(
                 "inbound"
             ).first()
             if row is None:

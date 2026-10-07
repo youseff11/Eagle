@@ -584,6 +584,8 @@ export interface ChatRow {
   window_open: boolean;
   minutes_left: number;
   unread: number;
+  /** This person muted it: no notification and no sound for it, and its unread messages are not in the badge. */
+  muted?: boolean;
 }
 
 export interface ChatListResponse {
@@ -645,6 +647,10 @@ export interface ThreadEntry {
   has_task: boolean;
   /** Who has said "received" for it, if anybody. */
   claimed_by: string;
+  /** Its sender took it back: the words and the files are gone, and the bubble says so. */
+  unsent?: boolean;
+  /** This person may take it back (their own, in a work group or a colleague's chat, never work on a task). */
+  can_unsend?: boolean;
 }
 
 /** GET /api/v1/{clients,groups,staff}/.../messages/ */

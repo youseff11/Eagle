@@ -53,6 +53,11 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
               <Icon name="alert" size="sm" />
             </span>
           )}
+          {row.muted && (
+            <span className="muted cthread__muted" title={t("مكتوم", "Muted")}>
+              <Icon name="bell-off" size="sm" />
+            </span>
+          )}
           {row.time && <span className="muted mono cthread__time">{clockText(row.time, lang)}</span>}
         </span>
         {(row.reaches_client || (row.staff && row.role === "support")) && (
@@ -67,7 +72,7 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
             <span className="cthread__preview">{row.text}</span>
           </span>
           {row.unread > 0 && !active && (
-            <span className="cthread__unread" title={t("رسايل مااتقرتش", "Unread messages")}>
+            <span className={`cthread__unread${row.muted ? " is-muted" : ""}`} title={t("رسايل مااتقرتش", "Unread messages")}>
               {row.unread > 99 ? "99+" : row.unread}
             </span>
           )}

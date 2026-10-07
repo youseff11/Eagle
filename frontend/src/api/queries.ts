@@ -1126,6 +1126,37 @@ export function useReact(code: string) {
   });
 }
 
+/**
+ * Mute a conversation for yourself, or un-mute it (`/api/v1/chats/mute/`). The list rows, the open thread's own row and
+ * the sidebar badge (`me`) all change with it, so all three are asked for again.
+ */
+export function useMuteChat(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (muted: boolean) => api<{ ok: true; muted: boolean }>("/api/v1/chats/mute/", { json: { source: code, muted } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+      void client.invalidateQueries({ queryKey: qk.me });
+    },
+  });
+}
+
+/**
+ * Take back a message you sent (`/api/v1/chats/unsend/`). Whatever the answer, the thread and the lists are asked for
+ * again: a refusal changed nothing, but a dropped connection may have done either.
+ */
+export function useUnsend(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (uid: string) => api<{ ok: true; uid: string }>("/api/v1/chats/unsend/", { json: { source: code, uid } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+    },
+  });
+}
+
 /** What a forward carries: the conversation it comes from and goes to (their codes), the messages, and a word to go with them. */
 export interface ForwardDraft {
   source: string;

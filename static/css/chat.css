@@ -796,6 +796,22 @@ html.chat-locked body {
 
 /* -- forwarding ----------------------------------------------------------- */
 
+/* A message taken back: the place stays, the words do not. */
+.bub--gone .bub__box { opacity: .8; }
+.bub__deleted { display: flex; align-items: center; gap: 6px; font-style: italic; }
+/* The delete button in the bubble's own foot: small and quiet until it is pointed at. */
+.bub__undo {
+  display: inline-grid;
+  place-items: center;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.bub__undo:hover, .bub__undo:focus-visible { color: var(--danger, #c0392b); }
+.cchat__stream.is-selecting .bub__undo { display: none; }
+
 /* The forward arrow sits beside the reply arrow and shares its look. */
 .bub__fwd { margin-inline: 0 6px; }
 .bub--out .bub__fwd { margin-inline: 6px 0; }
@@ -1034,3 +1050,8 @@ html.chat-locked body {
   .cthread { padding: 10px 12px; gap: 10px; }
   .cthread__title, .cthread__title.mono { font-size: 12px; }
 }
+
+/* A muted conversation: a quiet bell beside the time, and its unread number in grey instead of the brand colour. */
+.cthread__muted { display: inline-flex; align-items: center; margin-inline-start: auto; }
+.cthread__muted + .cthread__time { margin-inline-start: 6px; }
+.cthread__unread.is-muted { background: var(--muted); color: var(--surface); }

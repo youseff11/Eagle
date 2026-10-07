@@ -217,6 +217,7 @@ export function Bubble({
   onToggle,
   onConfirm,
   onConvert,
+  onUnsend,
   fileMark,
   textMark,
   personal,
@@ -231,6 +232,8 @@ export function Bubble({
   /** «استلمت» and "turn into a task" under a client's message that carries a document (the server says who gets them). */
   onConfirm?: (entry: ThreadEntry) => void;
   onConvert?: (entry: ThreadEntry) => void;
+  /** Take the message back: shown on a bubble the server says this person may take back (`entry.can_unsend`). */
+  onUnsend?: (entry: ThreadEntry) => void;
   /** A mode that ticks files (see `FileMark`), or none. */
   fileMark?: FileMark;
   /** The box on the words of a message, while files are being picked for a task (see `TextMark`). */
@@ -248,7 +251,10 @@ export function Bubble({
   if (entry.status === "failed") classes.push("bub--failed");
   if (entry.reactions.length > 0) classes.push("has-reacts");
   if (selected) classes.push("is-selected");
-  const wordsOn = textMark !== undefined && textMark.active && textMark.show(entry);
+  // Taken back by its sender: nothing of it is left to answer, react to, forward, pick or open.
+  const gone = entry.unsent === true;
+  if (gone) classes.push("bub--gone");
+  const wordsOn = !gone && textMark !== undefined && textMark.active && textMark.show(entry);
   const wordsTicked = wordsOn && textMark.ticked(entry);
 
   return (
@@ -256,12 +262,12 @@ export function Bubble({
       className={classes.join(" ")}
       data-uid={entry.uid}
       onClick={(event) => {
-        if (!selecting || !onToggle) return;
+        if (!selecting || !onToggle || gone) return;
         if ((event.target as Element).closest("a, button, audio, input, .voice")) return;
         onToggle(entry);
       }}
     >
-      {onReply && (
+      {onReply && !gone && (
         <button
           className="bub__reply"
           type="button"
@@ -272,7 +278,7 @@ export function Bubble({
           <Icon name="reply" size="sm" />
         </button>
       )}
-      {onReact && (
+      {onReact && !gone && (
         <button
           className="bub__reply bub__react"
           type="button"
@@ -284,7 +290,7 @@ export function Bubble({
           <Icon name="smile" size="sm" />
         </button>
       )}
-      {onForward && (
+      {onForward && !gone && (
         <button
           className="bub__reply bub__fwd"
           type="button"
@@ -295,7 +301,7 @@ export function Bubble({
           <Icon name="forward" size="sm" />
         </button>
       )}
-      {onToggle && selecting && (
+      {onToggle && selecting && !gone && (
         <button
           type="button"
           className="bub__sel"
@@ -307,20 +313,26 @@ export function Bubble({
         </button>
       )}
       <div className="bub__box">
-        {entry.forwarded && (
+        {gone && (
+          <div className="bub__text bub__deleted muted">
+            <Icon name="trash" size="sm" />
+            <span>{t("الرسالة اتمسحت", "This message was deleted")}</span>
+          </div>
+        )}
+        {!gone && entry.forwarded && (
           <div className="bub__fwdtag">
             <Icon name="forward" size="sm" />
             <span>{t("محوّلة", "Forwarded")}</span>
           </div>
         )}
-        {entry.quote && (
+        {!gone && entry.quote && (
           <div className="bub__quote">
             {entry.quote_who && <b>{entry.quote_who}</b>}
             <span>{entry.quote}</span>
           </div>
         )}
-        {entry.subject && <div className="bub__subject">{entry.subject}</div>}
-        {entry.body &&
+        {!gone && entry.subject && <div className="bub__subject">{entry.subject}</div>}
+        {!gone && entry.body &&
           (wordsOn ? (
             <div
               className={`bub__text bub__text--pick${wordsTicked ? " is-picked" : ""}`}
@@ -341,14 +353,14 @@ export function Bubble({
           ) : (
             <div className="bub__text">{entry.body}</div>
           ))}
-        {fileBlocks(entry, fileMark).map((block) =>
+        {(gone ? [] : fileBlocks(entry, fileMark)).map((block) =>
           block.grid ? (
             <ImageGrid key={`grid-${block.start}`} images={block.grid} />
           ) : (
             <File key={`${block.file.id}-${block.start}`} file={block.file} entry={entry} mark={fileMark} />
           ),
         )}
-        {entry.actions && entry.has_docs && (onConfirm || onConvert) && (
+        {!gone && entry.actions && entry.has_docs && (onConfirm || onConvert) && (
           <div className="bub__actions">
             {/* One receipt per message: once somebody has said "received", the button is gone and their name is there. */}
             {onConfirm && !entry.claimed_by && (
@@ -382,11 +394,23 @@ export function Bubble({
             </span>
           )}
           <span className="bub__time mono">{clockText(entry.time, lang)}</span>
+          {/* In the bubble, not beside it: the buttons beside it are for a mouse, and a phone has to be able to take back too. */}
+          {onUnsend && entry.can_unsend && !gone && !selecting && (
+            <button
+              type="button"
+              className="bub__undo"
+              title={t("امسح الرسالة", "Delete the message")}
+              aria-label={t("امسح الرسالة", "Delete the message")}
+              onClick={() => onUnsend(entry)}
+            >
+              <Icon name="trash" size="sm" />
+            </button>
+          )}
           {out && <Ticks status={entry.status} receipt={entry.receipt} mine={entry.mine} seenBy={entry.seen_by} />}
         </div>
         {entry.error && <div className="bub__error">{entry.error}</div>}
         <Reactions
-          reactions={entry.reactions}
+          reactions={gone ? [] : entry.reactions}
           onOpen={onReact ? (trigger) => onReact(entry, trigger) : undefined}
           off={selecting}
         />
