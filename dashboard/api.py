@@ -3,6 +3,7 @@
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -743,14 +744,14 @@ def chat_fetch(request, room_id):
     })
 
 
-def _store_voice(message, upload):
-    """Save a browser recording as a chat attachment, converted for WhatsApp.
+def _prepare_voice(upload):
+    """A browser recording, converted for WhatsApp: ``(content, name, error)``.
 
     Converting before storing means the room and the client hold the same
-    bytes — the same rule the client chat follows.
+    bytes — the same rule the client chat follows. It is done before the
+    message is written (it takes a moment), and the error is the words for a
+    recording that could not be converted (it is kept as it is).
     """
-    from django.core.files.base import ContentFile
-
     from . import audio
 
     raw = upload.read()
@@ -761,14 +762,20 @@ def _store_voice(message, upload):
         content, name, mime = audio.prepare(raw, name, mime)
     except audio.AudioError as exc:
         content, error = raw, exc.message_ar
+    return content, name, error
 
+
+def _store_voice(message, prepared):
+    """Save what ``_prepare_voice`` made as a chat attachment of ``message``."""
+    from django.core.files.base import ContentFile
+
+    content, name, _error = prepared
     ChatAttachment.objects.create(
         message=message,
         file=ContentFile(content, name=name),
         original_name=services.short_name(name),
         size=len(content),
     )
-    return error
 
 
 def pick_refusal(error, choices):
@@ -813,16 +820,23 @@ def chat_send(request, room_id):
             return pick_refusal(pick_error, choices)
         picking = bool(choices) or raw_task.strip() == services.NO_TASK
 
-    message = ChatMessage.objects.create(
-        room=room, sender=request.user, body=body, reply_to=reply_to,
-    )
-    for item in uploads:
-        ChatAttachment.objects.create(
-            message=message, file=item, original_name=services.short_name(item.name), size=item.size
+    # The recording is converted first: it takes a moment, and the message must not wait in the open for it.
+    prepared = _prepare_voice(voice) if voice is not None else None
+    voice_error = prepared[2] if prepared else ""
+
+    # The message and its files are one write. Written one by one, a colleague's page that was told about the
+    # message (and asked for it) between the two drew it with nothing in it, and then drew it again with the
+    # photo or the player a moment later; the pings go out when the whole is saved (`realtime.push_room`).
+    with transaction.atomic():
+        message = ChatMessage.objects.create(
+            room=room, sender=request.user, body=body, reply_to=reply_to,
         )
-    voice_error = ""
-    if voice is not None:
-        voice_error = _store_voice(message, voice)
+        for item in uploads:
+            ChatAttachment.objects.create(
+                message=message, file=item, original_name=services.short_name(item.name), size=item.size
+            )
+        if prepared is not None:
+            _store_voice(message, prepared)
 
     # Files handed over in a one-to-one chat are work on a task when the two
     # of them have exactly one running between them. See tag_task_message -

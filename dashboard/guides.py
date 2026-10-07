@@ -384,12 +384,14 @@ GUIDES = (
             "علّم الرسايل اللي عايز تحوّلها واضغط «تحويل لشات».",
             "دوّر على الزميل أو الجروب واختاره (الأوبريشن بيقدر كمان يختار كود عميل: الرسالة وقتها بتوصل العميل على واتساب).",
             "لو عايز اكتب «كلمة مع التحويل (اختياري)» وبعدها اضغط «ابعت».",
+            "من شات عميل: الملفات بتروح لأي زميل أو جروب، وكلام العميل بيروح للأوبريشن والأدمن بس. الأدمن بس بيقدر يبعت كلام العميل لأي حد، ومن غير اسم العميل ولا رقمه لمن مالوش حق يعرفهم.",
         ],
         [
             "Open the conversation from «Chats» and press «Forward».",
             "Tick the messages you want to forward and press «Forward».",
             "Search a colleague or a group and pick it (operation can also pick a client code: the message then reaches the client on WhatsApp).",
             "If you like add «Add a note (optional)», then press «Send».",
+            "From a client's chat the files go to any colleague or group, and the client's words go to operation and admin only. Only the admin can send a client's words to anybody, without the client's name or number for those who may not know them.",
         ],
     ),
     _guide(

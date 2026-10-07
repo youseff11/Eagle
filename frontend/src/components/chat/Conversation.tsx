@@ -7,7 +7,7 @@ import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { useFilePick } from "../../hooks/useFilePick";
 import { kindOfCode } from "../../lib/chatCode";
-import { unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
+import { adopt, unmatched, useOutbox, useOutboxActions, type Outgoing, type ReplyTarget } from "../../lib/outbox";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { AiNotesPanel } from "../ai/AiNotesPanel";
 import { CallButtons } from "./CallButtons";
@@ -125,6 +125,7 @@ function Stream({
   fileMark,
   textMark,
   personal,
+  seenBy,
   onRetry,
   onDiscard,
 }: {
@@ -143,6 +144,8 @@ function Stream({
   textMark?: TextMark;
   /** A work group or a colleague's chat (see `Bubble`): the sides follow who wrote each message. */
   personal: boolean;
+  /** A group: under a message of ours, which of the others have read it. */
+  seenBy: boolean;
   onRetry: (key: number) => void;
   onDiscard: (key: number) => void;
 }) {
@@ -216,6 +219,7 @@ function Stream({
               fileMark={fileMark}
               textMark={textMark}
               personal={personal}
+              seenBy={seenBy}
             />
           </div>
         );
@@ -321,6 +325,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   const [sent, setSent] = useState(0);
   // What has reached the thread by another road (the doorbell, a poll) is not shown twice.
   const waiting = unmatched(queued, messages, me);
+  // A photo that has just arrived is drawn from the copy that was waiting, so the bubble does not change under the eyes.
+  adopt(queued, messages, me);
   const arrived = queued.filter((item) => item.state !== "sending" && !waiting.includes(item)).map((item) => item.key);
   const arrivedKeys = arrived.join(",");
   useEffect(() => {
@@ -605,6 +611,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             fileMark={selecting ? undefined : (pick.mark ?? handMark)}
             textMark={selecting ? undefined : pick.textMark}
             personal={kindOfCode(code) !== "clients"}
+            seenBy={row.group === true}
             onRetry={outbox.retry}
             onDiscard={outbox.discard}
           />
@@ -716,6 +723,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               uids={[]}
               files={pick.ids}
               kinds={forwardKinds}
+              admin={account?.user.is_admin === true}
               onClose={() => setForwardingFiles(false)}
               onDone={(target) => {
                 setForwardingFiles(false);
@@ -730,6 +738,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               count={selected.length}
               uids={selected}
               kinds={forwardKinds}
+              admin={account?.user.is_admin === true}
               onClose={() => setForwarding(false)}
               onDone={forwarded}
             />

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { usePreferences } from "../../i18n/Preferences";
+import { localSrc } from "../../lib/localPhotos";
 import { Lightbox, type LightboxImage } from "./Lightbox";
 
 /** How many photos the grid draws; the rest are the number on the last one. */
@@ -27,7 +28,7 @@ export function ImageGrid({ images }: { images: LightboxImage[] }) {
             aria-label={`${t("افتح الصورة", "Open the photo")} ${index + 1}: ${image.name}`}
             onClick={() => setOpen(index)}
           >
-            <img src={image.url} alt={image.name} loading="lazy" />
+            <img src={localSrc(image.url)} alt={image.name} loading="lazy" />
             {more > 0 && index === shown.length - 1 && <span className="imggrid__more">+{more}</span>}
           </button>
         ))}

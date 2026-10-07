@@ -43,6 +43,7 @@ export function ForwardDialog({
   uids,
   files = [],
   kinds,
+  admin = false,
   onClose,
   onDone,
 }: {
@@ -54,6 +55,8 @@ export function ForwardDialog({
   files?: number[];
   /** The lists this person may forward to. */
   kinds: ChatKind[];
+  /** The admin: a client's words go to any chat, where for everybody else they go only to the operation and the admin. */
+  admin?: boolean;
   onClose: () => void;
   /** The forward happened: the code of the conversation it went to, to open it - or `null` to stay. */
   onDone: (code: string | null) => void;
@@ -207,11 +210,16 @@ export function ForwardDialog({
                 </div>
               </div>
             )}
-            <p className="muted fwd-hint">
-              {t(
-                "كلام العميل بيتحول للأوبريشن والأدمن بس. لأي حد تاني بتتحول ملفاته من غير نصه.",
-                "A client's own words reach operation and admin only. Anyone else gets the files without the text.",
-              )}
+            <p className="muted fwd-hint" id="fwd-words-hint">
+              {admin
+                ? t(
+                    "كلام العميل وملفاته بيوصلوا لأي زميل أو جروب. اللي مش من الأوبريشن والأدمن بيشوف الكلام من غير اسم العميل ولا رقمه.",
+                    "The client's words and files reach any colleague or group. Whoever is not operation or admin reads the words without the client's name or number.",
+                  )
+                : t(
+                    "كلام العميل بيتحول للأوبريشن والأدمن بس. لأي حد تاني بتتحول ملفاته من غير نصه.",
+                    "A client's own words reach operation and admin only. Anyone else gets the files without the text.",
+                  )}
             </p>
 
             <input

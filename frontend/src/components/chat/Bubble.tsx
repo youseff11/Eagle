@@ -1,16 +1,16 @@
-import { useState, type MouseEvent } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
+import { localSrc } from "../../lib/localPhotos";
 import type { Outgoing } from "../../lib/outbox";
 import { formatSeconds } from "../../lib/recorder";
-import { prettySize } from "../../lib/size";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { Ticks } from "./Ticks";
 import { VoiceNote } from "./VoiceNote";
-import { DocumentPreview } from "./DocumentPreview";
+import { DocumentFace, DocumentPreview } from "./DocumentPreview";
 import { ImageGrid } from "./ImageGrid";
 import { Lightbox, type LightboxImage } from "./Lightbox";
 
@@ -56,7 +56,7 @@ function SinglePhoto({ url, name, enabled }: { url: string; name: string; enable
   return (
     <>
       <a className="bub__img" href={url} target="_blank" rel="noopener noreferrer" title={name} onClick={show}>
-        <img src={url} alt={name} loading="lazy" />
+        <img src={localSrc(url)} alt={name} loading="lazy" />
       </a>
       {open && <Lightbox images={[{ url, name }]} start={0} onClose={() => setOpen(false)} />}
     </>
@@ -166,6 +166,24 @@ function fileBlocks(entry: ThreadEntry, mark?: FileMark): FileBlock[] {
   return out;
 }
 
+/** Under a message of ours in a group: which of the others have read it (the first three by name, and how many more). */
+function SeenBy({ names }: { names: string[] }) {
+  const { t, lang } = usePreferences();
+  const joiner = lang === "ar" ? "، " : ", ";
+  const shown = names.slice(0, 3);
+  const more = names.length - shown.length;
+  return (
+    <div className="bub__seen" title={names.join(joiner)}>
+      <Icon name="eye" size="sm" />
+      <span>
+        {t("شافها: ", "Seen by: ")}
+        {shown.join(joiner)}
+        {more > 0 && t(` و${more} كمان`, ` and ${more} more`)}
+      </span>
+    </div>
+  );
+}
+
 /** The pill that hangs off the bubble: who reacted, and a tap on it opens the bar of reactions. */
 function Reactions({ reactions, onOpen, off }: { reactions: Reaction[]; onOpen?: (trigger: HTMLElement) => void; off: boolean }) {
   const { t } = usePreferences();
@@ -221,6 +239,7 @@ export function Bubble({
   fileMark,
   textMark,
   personal,
+  seenBy = false,
 }: {
   entry: ThreadEntry;
   onReply?: (entry: ThreadEntry) => void;
@@ -244,6 +263,8 @@ export function Bubble({
    * client is on the other.
    */
   personal?: boolean;
+  /** A group: under a message of ours, which of the others have read it. */
+  seenBy?: boolean;
 }) {
   const { t, lang } = usePreferences();
   const out = entry.kind === "out" && (!personal || entry.mine);
@@ -254,6 +275,8 @@ export function Bubble({
   // Taken back by its sender: nothing of it is left to answer, react to, forward, pick or open.
   const gone = entry.unsent === true;
   if (gone) classes.push("bub--gone");
+  // Who has read it, under a message of ours in a group - never under one that did not go (nothing reached anybody then).
+  const seenLine = seenBy && out && entry.mine && !gone && entry.status !== "failed" && entry.seen_by.length > 0;
   const wordsOn = !gone && textMark !== undefined && textMark.active && textMark.show(entry);
   const wordsTicked = wordsOn && textMark.ticked(entry);
 
@@ -406,8 +429,9 @@ export function Bubble({
               <Icon name="trash" size="sm" />
             </button>
           )}
-          {out && <Ticks status={entry.status} receipt={entry.receipt} mine={entry.mine} seenBy={entry.seen_by} />}
+          {out && <Ticks status={entry.status} receipt={entry.receipt} mine={entry.mine} seenBy={seenLine ? [] : entry.seen_by} />}
         </div>
+        {seenLine && <SeenBy names={entry.seen_by} />}
         {entry.error && <div className="bub__error">{entry.error}</div>}
         <Reactions
           reactions={gone ? [] : entry.reactions}
@@ -441,6 +465,63 @@ function refusal(code: string, t: (ar: string, en: string) => string): string {
   return t("الرسالة ماتبعتتش.", "The message was not sent.");
 }
 
+/** The file in a form the document card knows how to draw. */
+function asThreadFile(file: File): ThreadFile {
+  return { id: 0, url: "", name: file.name, size: file.size, mime: file.type, voice: false, audio: false, length: "", image: false };
+}
+
+/** A file that is on its way, drawn as it will be when it has arrived: its photo, its player or its card - never just the name of a file. */
+function PendingFile({ file, preview }: { file: File; preview: string }) {
+  const { t } = usePreferences();
+  if (preview !== "" && file.type.toLowerCase().startsWith("audio/")) {
+    return (
+      <div className="bub__voice">
+        <div className="bub__voice-head">
+          <Icon name="mic" size="sm" />
+          <span>{t("رسالة صوتية", "Voice note")}</span>
+        </div>
+        <VoiceNote url={preview} length="" />
+      </div>
+    );
+  }
+  if (preview !== "") {
+    return (
+      <div className="bub__file bub__file--img">
+        <span className="bub__img">
+          <img src={preview} alt={file.name} />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="bub__file bub__file--document">
+      <div className="document-card">
+        <DocumentFace file={asThreadFile(file)} />
+      </div>
+    </div>
+  );
+}
+
+/** The files of a message on its way, in the order they were chosen, with photos in a row as one grid exactly as the arrived message draws them. */
+function PendingFiles({ item }: { item: Outgoing }) {
+  const photo = (index: number) => item.previews[index] !== "" && item.files[index]!.type.toLowerCase().startsWith("image/");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+  while (index < item.files.length) {
+    let end = index;
+    while (end < item.files.length && photo(end)) end += 1;
+    if (end - index >= GRID_FROM) {
+      const images = item.files.slice(index, end).map((file, at) => ({ url: item.previews[index + at]!, name: file.name }));
+      blocks.push(<ImageGrid key={`grid-${index}`} images={images} />);
+      index = end;
+    } else {
+      blocks.push(<PendingFile key={`${item.files[index]!.name}-${index}`} file={item.files[index]!} preview={item.previews[index] ?? ""} />);
+      index += 1;
+    }
+  }
+  return <>{blocks}</>;
+}
+
 /**
  * A message this person has written and the server has not yet confirmed: it is on its way ("sending"), or it
  * did not go and says so with the two things that can be done about it. `unsure` is the case where nothing
@@ -470,20 +551,15 @@ export function OutgoingBubble({
           </div>
         )}
         {item.body && <div className="bub__text">{item.body}</div>}
-        {item.files.map((file, index) => (
-          <div className="bub__file" key={`${file.name}-${index}`}>
-            <Icon name="paperclip" size="sm" />
-            <span>{file.name}</span>
-            <span className="muted mono">{prettySize(file.size)}</span>
-          </div>
-        ))}
+        <PendingFiles item={item} />
         {item.voice && (
           <div className="bub__voice">
             <div className="bub__voice-head">
               <Icon name="mic" size="sm" />
               <span>{t("رسالة صوتية", "Voice note")}</span>
-              <span className="mono">{formatSeconds(item.voice.seconds)}</span>
+              {item.voicePreview === "" && <span className="mono">{formatSeconds(item.voice.seconds)}</span>}
             </div>
+            {item.voicePreview !== "" && <VoiceNote url={item.voicePreview} length={formatSeconds(item.voice.seconds)} />}
           </div>
         )}
         <div className="bub__foot">

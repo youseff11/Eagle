@@ -22,6 +22,7 @@ import { ApiError } from "../api/client";
 import { qk } from "../api/keys";
 import { fetchThread, postMessage } from "../api/queries";
 import type { ThreadEntry, ThreadResponse } from "../api/types";
+import { isKept, keep, previewOf, release } from "./localPhotos";
 import { formatSeconds, type Recorded } from "./recorder";
 
 /** The message a reply answers, as the reply bar and the bubble show it. */
@@ -44,6 +45,14 @@ export interface Composed {
 
 export interface Outgoing extends Composed {
   key: number;
+  /**
+   * What each file looks like while it is on its way, one for each of `files`: an object URL of the photo or the
+   * sound, or `""` for anything else. So the bubble that is waiting draws the photo and the player the message will
+   * have, not the name of a file. Let go when the message is (see `drop`).
+   */
+  previews: string[];
+  /** The same for the voice note, to play while it is on its way. */
+  voicePreview: string;
   /** The uids that were in the thread when it was first sent: whatever is new after them may be this message. */
   before: string[];
   state: "sending" | "refused" | "unsure";
@@ -86,19 +95,47 @@ function matches(entry: ThreadEntry, item: Outgoing, meId: number): boolean {
 }
 
 /**
- * The queue without what has already arrived: each message that is in the thread now is matched with one
- * queued message (the first, in order), so two identical lines sent in a row are two bubbles, not one. A
- * refused message is never matched - nothing of it was written.
+ * Which message of the thread each queued message has become: each message that is in the thread now is matched with one
+ * queued message (the first, in order), so two identical lines sent in a row are two bubbles, not one. A refused message is
+ * never matched - nothing of it was written.
  */
-export function unmatched(items: Outgoing[], messages: ThreadEntry[], meId: number): Outgoing[] {
+function pairs(items: Outgoing[], messages: ThreadEntry[], meId: number): Map<Outgoing, ThreadEntry> {
   const used = new Set<string>();
-  return items.filter((item) => {
-    if (item.state === "refused") return true;
+  const found = new Map<Outgoing, ThreadEntry>();
+  for (const item of items) {
+    if (item.state === "refused") continue;
     const hit = messages.find((entry) => !used.has(entry.uid) && matches(entry, item, meId));
-    if (!hit) return true;
+    if (!hit) continue;
     used.add(hit.uid);
-    return false;
-  });
+    found.set(item, hit);
+  }
+  return found;
+}
+
+/** The queue without what has already arrived. */
+export function unmatched(items: Outgoing[], messages: ThreadEntry[], meId: number): Outgoing[] {
+  const found = pairs(items, messages, meId);
+  return items.filter((item) => !found.has(item));
+}
+
+/**
+ * Remember which server address each photo that arrived has, against the copy that was drawn while it was on its way, so
+ * the real bubble shows the same picture at once (see `lib/localPhotos`). Asked wherever a queued message may have just
+ * become a message of the thread; asking again changes nothing.
+ */
+export function adopt(items: Outgoing[], messages: ThreadEntry[], meId: number): void {
+  for (const [item, entry] of pairs(items, messages, meId)) {
+    if (item.previews.every((preview) => preview === "")) continue;
+    const taken = new Set<number>();
+    for (const file of entry.files) {
+      if (!file.image || file.url === "") continue;
+      // By size, as `sameFiles` knows them: the server rewrites a name.
+      const at = item.files.findIndex((sent, index) => !taken.has(index) && sent.size === file.size && item.previews[index] !== "");
+      if (at < 0) continue;
+      taken.add(at);
+      keep(file.url, item.previews[at]!);
+    }
+  }
 }
 
 function items(client: QueryClient, code: string): Outgoing[] {
@@ -113,10 +150,15 @@ function patch(client: QueryClient, code: string, key: number, change: Partial<O
   put(client, code, items(client, code).map((item) => (item.key === key ? { ...item, ...change } : item)));
 }
 
-/** Take a message off the queue: it arrived, or the person gave it up. */
+/** Take a message off the queue: it arrived, or the person gave it up. What was drawn from its files is let go, except the photos that are kept. */
 export function drop(client: QueryClient, code: string, keys: number[]): void {
   if (keys.length === 0) return;
+  const gone = items(client, code).filter((item) => keys.includes(item.key));
   put(client, code, items(client, code).filter((item) => !keys.includes(item.key)));
+  for (const item of gone) {
+    for (const preview of item.previews) if (!isKept(preview)) release(preview);
+    release(item.voicePreview);
+  }
 }
 
 /**
@@ -142,6 +184,7 @@ export async function deliver(client: QueryClient, code: string, key: number, me
       task: item.task,
       voice: item.voice ?? undefined,
     });
+    adopt([item], answer.messages, meId);
     client.setQueryData(qk.thread(code), { ok: true, client: answer.client, messages: answer.messages });
     drop(client, code, [key]);
     // The row in the list now says what was just written.
@@ -154,6 +197,7 @@ export async function deliver(client: QueryClient, code: string, key: number, me
     patch(client, code, key, { state: "unsure", error: "" });
     try {
       const fresh = await lookAgain(client, code);
+      adopt([item], fresh.messages, meId);
       if (unmatched([item], fresh.messages, meId).length === 0) drop(client, code, [key]);
     } catch {
       // Still no news: it stays "not sure", with the person to decide.
@@ -172,6 +216,7 @@ export async function retry(client: QueryClient, code: string, key: number, meId
     patch(client, code, key, { state: "sending" });
     try {
       const fresh = await lookAgain(client, code);
+      adopt([item], fresh.messages, meId);
       if (unmatched([item], fresh.messages, meId).length === 0) {
         drop(client, code, [key]);
         return;
@@ -196,8 +241,10 @@ export function submit(
     body: draft.body,
     reply: draft.reply,
     files: draft.files,
+    previews: draft.files.map(previewOf),
     task: draft.task,
     voice: draft.voice,
+    voicePreview: draft.voice ? previewOf(draft.voice.blob) : "",
     before: draft.known,
     state: "sending",
     error: "",

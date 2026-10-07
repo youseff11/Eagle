@@ -608,6 +608,28 @@ describe("forwarding", () => {
     expect(within(dialog()).queryByRole("note")).not.toBeInTheDocument();
   });
 
+  it("tells the admin that a client's words reach any chat and tells everybody else that they do not", async () => {
+    const open = async (role: NonNullable<Parameters<typeof render>[1]>["role"]) => {
+      const view = render(
+        "/chats/CL-0001",
+        { lists, role, thread: { client: row("CL-0001"), messages: [entry(1, { uid: "in-1", body: "the client wrote" })] } },
+        { ...arrived },
+      );
+      await screen.findByText("the client wrote");
+      await userEvent.click(screen.getByRole("button", { name: "تحويل" }));
+      await userEvent.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "تحويل" }));
+      await screen.findByRole("dialog");
+      return view;
+    };
+    const admin = await open({ role: "admin", is_admin: true });
+    expect(within(dialog()).getByText(/كلام العميل وملفاته بيوصلوا لأي زميل أو جروب/)).toBeInTheDocument();
+    expect(within(dialog()).queryByText(/للأوبريشن والأدمن بس/)).not.toBeInTheDocument();
+    admin.unmount();
+    await open({ role: "operation" });
+    expect(within(dialog()).getByText(/للأوبريشن والأدمن بس/)).toBeInTheDocument();
+    expect(within(dialog()).queryByText(/بيوصلوا لأي زميل أو جروب/)).not.toBeInTheDocument();
+  });
+
   it("does not warn when the messages come from the client's own conversation", async () => {
     render(
       "/chats/CL-0001",

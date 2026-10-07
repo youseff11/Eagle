@@ -1871,6 +1871,11 @@ class ChatMessage(models.Model):
     origin_client = models.ForeignKey(
         Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
     )
+    #: The admin forwarded a client's words here on purpose, to a room where not everybody may read a client's words
+    #: (a translator, a team leader, HR). Whoever is in the room reads them, with the client's name and contacts taken
+    #: out for anybody who may not know the client (``services.words_of``). Only the admin opens words, and it is still
+    #: the client's record: it goes when the client does, and is never taken back or forwarded to another client.
+    words_open = models.BooleanField(default=False)
     reply_to = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="replies",

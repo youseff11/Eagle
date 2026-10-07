@@ -1134,7 +1134,7 @@ def group_thread(room, user, limit=200):
     """
     rows = (
         room.messages
-        .select_related("sender", "inbound", "reply_to", "reply_to__sender", "task")
+        .select_related("sender", "inbound", "reply_to", "reply_to__sender", "task", "origin_client")
         .prefetch_related("attachments", "inbound__attachments", "mentions")
         .order_by("-id")[:limit]
     )
@@ -1298,17 +1298,22 @@ def words_of(message, viewer):
     """A room message's words as ``viewer`` may read them.
 
     A client's own words are forwarded into a room only where everybody in it may read them (``forward_messages``:
-    the operation and the admin). That is a rule about who reads, so it holds when somebody reads, not only when it is
-    written: whoever is seated in the room afterwards - a translator, a team leader, HR - sees the files and not the
-    client's words, the same as if they had been forwarded to them. (The row says whose words they are:
-    ``origin_client``.)
+    the operation and the admin) - unless the admin opens them (``words_open``, the owner's choice). That is a rule about
+    who reads, so it holds when somebody reads, not only when it is written: whoever is seated in the room afterwards - a
+    translator, a team leader, HR - sees the files and not the client's words, the same as if they had been forwarded to
+    them, unless the admin opened these. (The row says whose words they are: ``origin_client``.)
     """
     if message.unsent_at is not None:
         return ""
     if message.origin_client_id and not (
         viewer is not None and (viewer.is_operation or viewer.is_admin_role)
     ):
-        return ""
+        if not message.words_open:
+            return ""
+        # The admin sent them here on purpose: they are read, but the client stays a code and a number stays out.
+        from . import identity
+
+        return identity.mask_client(message.body, message.origin_client, viewer)
     return message.body
 
 
@@ -3346,22 +3351,51 @@ def preview_from(last, out):
     Which of the two the person may see is decided where they are fetched; this
     is only what the row says about them, once for one row and once for a list.
     """
+    # A reply whose files are still being stored is not in the thread yet (``client_thread``), so it is not the last thing said.
+    state = _writing_state(out) if out and not out.uploads.all() else ""
+    if state == "writing":
+        out = None
     # An outbound with nothing from the client before it is still the last
     # thing said - it used to fall through and leave the row blank.
     if out and (last is None or out.created_at > last.received_at):
         text = out.body or _attachment_snippet(out.uploads.all())
         if text == "—" and out.file_count:
             text = f"{out.file_count} ملف"
+        status = OutboundMessage.Status.FAILED if state == "stuck" else out.status
         # The same ticks as the bubble: one grey, two grey, two blue.
         return {
             "text": text[:70], "at": out.created_at, "outgoing": True,
-            "status": out.status, "mine": True,
-            "receipt": out.wa_receipt if out.status == OutboundMessage.Status.SENT else "",
+            "status": status, "mine": True,
+            "receipt": out.wa_receipt if status == OutboundMessage.Status.SENT else "",
         }
     if last:
         text = clean_client_text(last.body) or _attachment_snippet(last.attachments.all())
         return {"text": text[:70], "at": last.received_at, "outgoing": False}
     return {"text": "", "at": None, "outgoing": False}
+
+
+#: How long a reply may take to get its files stored and sent before it is told as a send that broke (a worker that was
+#: killed half way leaves a row that nothing will ever finish).
+WRITING_MINUTES = 5
+
+
+def _writing_state(row):
+    """What a chat reply to a client is doing right now: ``""`` (nothing unusual), ``"writing"`` or ``"stuck"``.
+
+    ``send_client_message`` writes the row first and its files after, and storing them (and converting a
+    recording) takes seconds. A page that asked in between would draw the names with no picture or player
+    and then turn them into the real thing a moment later, so a reply that is ``writing`` is left out until
+    its files are there. One that has been at it for ``WRITING_MINUTES`` is ``stuck``: it is shown, as a send
+    that failed, so that nothing a person sent is ever missing from the thread. A reply that failed is shown as
+    it is, and so is a delivery (its files never become rows).
+    """
+    if row.kind != OutboundMessage.Kind.CHAT or row.status == OutboundMessage.Status.FAILED:
+        return ""
+    if not row.files or not all(entry.get("status") == "pending" for entry in row.files):
+        return ""
+    if row.created_at > timezone.now() - timedelta(minutes=WRITING_MINUTES):
+        return "writing"
+    return "stuck"
 
 
 def client_thread(client, user, limit=200):
@@ -3411,6 +3445,11 @@ def client_thread(client, user, limit=200):
     )
     for row in outbound.order_by("-created_at")[:limit]:
         files = [_file_json(a) for a in row.uploads.all()]
+        writing = _writing_state(row) if not files else ""
+        if writing == "writing":
+            continue
+        # A reply nothing finished is a send that broke, however it was left in the row.
+        status = OutboundMessage.Status.FAILED if writing == "stuck" else row.status
         # Task deliveries keep their file list in JSON (the bytes went straight
         # to WhatsApp), so show the names without a link.
         if not files:
@@ -3428,8 +3467,8 @@ def client_thread(client, user, limit=200):
             "channel": row.channel,
             "at": row.created_at,
             "blocked": False,
-            "status": row.status,
-            "error": row.error_message,
+            "status": status,
+            "error": SEND_UNSURE_AR if writing == "stuck" else row.error_message,
             "is_delivery": row.kind == OutboundMessage.Kind.DELIVERY,
             "task_code": row.task.code if row.task_id else "",
             "sender": row.created_by.short_name if row.created_by_id else "",
@@ -3441,7 +3480,7 @@ def client_thread(client, user, limit=200):
             "files": files,
             # Delivered / read on the client's phone, as WhatsApp reported it.
             # Only a message that actually left can have got anywhere.
-            "receipt": row.wa_receipt if row.status == OutboundMessage.Status.SENT else "",
+            "receipt": row.wa_receipt if status == OutboundMessage.Status.SENT else "",
         })
 
     items.sort(key=lambda entry: entry["at"])
@@ -3548,7 +3587,29 @@ def mark_room_read(user, room, upto=None):
     if upto is not None:
         messages = messages.filter(id__lte=upto)
     top = messages.aggregate(top=Max("id"))["top"] or 0
-    return _advance(_read_cursor(user, room=room), top)
+    cursor = _read_cursor(user, room=room)
+    before = cursor.last_read_id
+    moved = _advance(cursor, top)
+    if moved:
+        _tell_senders_seen(user, room, before, top)
+    return moved
+
+
+def _tell_senders_seen(reader, room, before, top):
+    """Ring the people whose messages ``reader`` has just read, so the "seen by" under them fills in at once.
+
+    Only they are rung, not the whole room: a room of ten that reads one message would otherwise ask every page
+    for the thread nine more times, for a line that only the sender draws. The ring carries nothing (see
+    ``realtime``): the page asks for the thread, as it does for any other change.
+    """
+    from . import realtime
+
+    senders = set(
+        room.messages.filter(id__gt=before, id__lte=top, is_system=False, sender__isnull=False)
+        .exclude(sender=reader).values_list("sender_id", flat=True).distinct()
+    )
+    if senders:
+        realtime.push_room_to(room.pk, senders)
 
 
 def _wa_inbound(client, user):
@@ -3767,15 +3828,17 @@ def room_receipts(room, viewer, rows):
     In a staff chat or a work group, a message has been seen once everybody
     else in the room has read past it. The names are kept for a group, where
     "two of three" is worth being able to find out. A room that relays to a
-    client is read on the client's phone, so WhatsApp's own receipt wins.
+    client is read on the client's phone, so WhatsApp's own receipt wins - and
+    its names are still the room's own people who have read it.
     """
     mine = [row for row in rows if row.sender_id == viewer.pk and not row.is_system]
     if not mine:
         return {}
-    if room.reaches_client:
-        return {row.id: (row.relay_receipt, []) for row in mine}
 
     others = [m for m in room.members.all() if m.pk != viewer.pk]
+    if room.reaches_client:
+        # Whoever kept a seat after losing the right to open the room (a changed role) has not "read" anything of it.
+        others = [m for m in others if m.is_active and room.can_open(m)]
     cursors = dict(
         ChatRead.objects.filter(room=room, user__in=others)
         .values_list("user_id", "last_read_id")
@@ -3784,6 +3847,9 @@ def room_receipts(room, viewer, rows):
     out = {}
     for row in mine:
         receipt, readers = receipt_of(room, row, list(by_id), cursors)
+        if room.reaches_client:
+            # The ticks are the client's phone's; the names are which of the room's own people have read it.
+            readers = [pk for pk in by_id if cursors.get(pk, 0) >= row.id]
         out[row.id] = (receipt, [by_id[pk].short_name for pk in readers])
     return out
 
@@ -4928,17 +4994,23 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
         if max_relayed is not None and len(items) > max_relayed:
             return False, _TOO_MANY_TO_CLIENT_AR % max_relayed, "", False
     members = list(room.members.all())
-    # Everyone in the room may read a client's own words - or nobody gets them.
+    # Everyone in the room may read a client's own words - or nobody gets them. Except that the admin may send them on
+    # to anybody: the words are then marked open, and the room reads them without the client's name and contacts.
     all_inbox = all(m.is_operation or m.is_admin_role for m in members)
+    opens = user.is_admin_role and not all_inbox
 
     # What will really be written is decided before anything is: a refusal leaves no note behind in the room.
     kept = []
     for item in items:
         text = item["text"]
+        opened = False
         if text and item["text_owner"] is not None and not all_inbox:
-            text = ""
+            if opens:
+                opened = True
+            else:
+                text = ""
         if text or item["files"]:
-            kept.append((item, text))
+            kept.append((item, text, opened))
     if not kept:
         return False, (
             "كلام العميل مابيتحولش للشات ده، والرسايل اللي اخترتها مفيهاش ملفات."
@@ -4947,10 +5019,10 @@ def forward_messages(user, source_code, target_code, uids=(), attachment_ids=(),
     written = []
     if note:
         written.append(ChatMessage.objects.create(room=room, sender=user, body=note))
-    for item, text in kept:
+    for item, text, opened in kept:
         message = ChatMessage.objects.create(
             room=room, sender=user, body=text, forwarded=True,
-            origin_client_id=item["text_owner"],
+            origin_client_id=item["text_owner"], words_open=opened,
         )
         for attachment, owner in item["files"]:
             ChatAttachment.objects.create(

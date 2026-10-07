@@ -25,7 +25,7 @@ from .models import (
     AuditLog, Channel, ChatMessage, ChatReaction, Client, InboundMessage, MessageAttachment, OutboundMessage, Role, User,
 )
 from .tests_chat_lists import _json
-from .tests_chat_send import PHONE, _Send
+from .tests_chat_send import NAME, PHONE, _Send
 
 
 class _Doors(_Send):
@@ -467,3 +467,100 @@ class ForwardTests(_Doors):
         self.forward(self.ops, f"g{self.team.pk}", f"u{self.tr.pk}", uids=[f"g{self.team.pk}-{self.talk_team.pk}"])
         self.assertTrue(Notification.objects.filter(user=self.tr, title_en="Forwarded messages").exists())
         self.assertFalse(Notification.objects.filter(user=self.ops, title_en="Forwarded messages").exists())
+
+
+class AdminOpensClientWordsTests(_Doors):
+    """The admin may send a client's own words to anybody (the owner's choice, 07/10/2026).
+
+    Everybody else still may not: a client's words reach a room only where all of it is operation and admin. What the admin
+    opens is read by the room - the translator, the team leader, HR - with the client's name and contacts taken out of it, and
+    it is still the client's record (it goes with the client, and is not taken back).
+    """
+
+    WORDS = f"I am {NAME}, call me on {PHONE} or 0100 123 4567 please"
+
+    def setUp(self):
+        super().setUp()
+        InboundMessage.objects.filter(pk=self.heard.pk).update(body=self.WORDS)
+        self.admin_in = lambda target, user=None: self.forward(user or self.admin, self.client_obj.code, target, uids=[f"in-{self.heard.pk}"])
+
+    def opened(self, room):
+        return list(room.messages.filter(forwarded=True))
+
+    def test_the_words_reach_a_translator_and_a_team_leader_who_could_not_be_sent_them_before(self):
+        for other in (self.tr, self.lead, self.hr):
+            ChatMessage.objects.filter(forwarded=True).delete()
+            answer = self.admin_in(f"u{other.pk}")
+            self.assertEqual(answer.status_code, 200, other.username)
+            (message,) = self.opened(services.staff_room(self.admin, other))
+            self.assertEqual(message.body, self.WORDS, other.username)
+            self.assertTrue(message.words_open)
+            self.assertEqual(message.origin_client_id, self.client_obj.pk)
+
+    def test_who_reads_them_sees_no_name_and_no_number_of_the_client(self):
+        self.admin_in(f"u{self.tr.pk}")
+        room = services.staff_room(self.admin, self.tr)
+        (entry,) = [e for e in services.group_thread(room, self.tr) if e["body"]]
+        self.assertIn("please", entry["body"])
+        self.assertIn(self.client_obj.code, entry["body"])
+        for secret in ("Zebulon", "Quartermaine", "1234567890", "0100 123 4567"):
+            self.assertNotIn(secret, entry["body"])
+
+    def test_the_operation_and_the_admin_read_them_as_they_were_written(self):
+        answer = self.admin_in(f"g{self.team.pk}")
+        self.assertEqual(answer.status_code, 200)
+        for reader in (self.ops, self.admin):
+            (entry,) = [e for e in services.group_thread(self.team, reader) if e["body"] == self.WORDS]
+            self.assertTrue(entry["body"])
+        # In the same room the others read the words with the client left out of them.
+        for reader in (self.lead, self.tr):
+            bodies = [e["body"] for e in services.group_thread(self.team, reader) if "please" in e["body"]]
+            self.assertEqual(len(bodies), 1, reader.username)
+            self.assertNotIn("Zebulon", bodies[0])
+
+    def test_the_answer_of_the_door_carries_neither_name_nor_number(self):
+        answer = self.admin_in(f"u{self.tr.pk}")
+        self.assertNotIn(b"Zebulon", answer.content)
+        self.assertNotIn(PHONE.encode(), answer.content)
+
+    def test_a_room_of_the_operation_and_the_admin_keeps_the_words_as_it_always_did(self):
+        self.admin_in(f"u{self.ops2.pk}")
+        (message,) = self.opened(services.staff_room(self.admin, self.ops2))
+        self.assertEqual(message.body, self.WORDS)
+        self.assertFalse(message.words_open)
+
+    def test_nobody_else_can_open_them_not_even_the_operation(self):
+        for user in (self.ops, self.ops2):
+            ChatMessage.objects.filter(forwarded=True).delete()
+            answer = self.admin_in(f"u{self.tr.pk}", user)
+            self.assertEqual(answer.status_code, 200, user.username)
+            (message,) = self.opened(services.staff_room(user, self.tr))
+            # The file went (it is the work); the words did not.
+            self.assertEqual(message.body, "")
+            self.assertFalse(message.words_open)
+
+    def test_what_the_admin_opened_cannot_be_opened_again_by_somebody_else_forwarding_it_on(self):
+        self.admin_in(f"g{self.team.pk}")
+        (message,) = self.opened(self.team)
+        answer = self.forward(self.ops, f"g{self.team.pk}", f"u{self.lead.pk}", uids=[f"g{self.team.pk}-{message.pk}"])
+        self.assertEqual(answer.status_code, 200)
+        (again,) = self.opened(services.staff_room(self.ops, self.lead))
+        self.assertEqual(again.body, "")
+        self.assertFalse(again.words_open)
+
+    def test_what_was_opened_is_still_the_clients_record_and_cannot_be_taken_back(self):
+        self.admin_in(f"u{self.tr.pk}")
+        (message,) = self.opened(services.staff_room(self.admin, self.tr))
+        self.assertFalse(services.can_unsend(self.admin, message))
+
+    def test_it_goes_when_the_client_is_deleted(self):
+        self.admin_in(f"u{self.tr.pk}")
+        self.admin_in(f"g{self.team.pk}")
+        self.assertEqual(ChatMessage.objects.filter(words_open=True).count(), 2)
+        done, error, *_rest = services.delete_clients(self.admin, [self.client_obj.pk])
+        self.assertTrue(done, error)
+        self.assertEqual(ChatMessage.objects.filter(words_open=True).count(), 0)
+
+    def test_it_is_in_the_audit_log_like_every_forward(self):
+        self.admin_in(f"u{self.tr.pk}")
+        self.assertTrue(AuditLog.objects.filter(action="chat.forward", actor=self.admin).exists())

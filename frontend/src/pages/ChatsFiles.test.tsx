@@ -174,8 +174,10 @@ describe("sending files", () => {
     await userEvent.type(box(), "with a file{Enter}");
     const pending = (await screen.findByText("with a file")).closest(".bub") as HTMLElement;
     expect(pending).toHaveClass("bub--pending");
+    // The card the arrived file will have: its badge, its name, its type and its size.
     expect(within(pending).getByText("slow.pdf")).toBeInTheDocument();
-    expect(within(pending).getByText("3 KB")).toBeInTheDocument();
+    expect(within(pending).getByText("PDF · 3 KB")).toBeInTheDocument();
+    expect(pending.querySelector(".document-card")).not.toBeNull();
     expect(chips()).toHaveLength(0);
     release(answer([entry(1), ours(9, "with a file", ["slow.pdf"])]));
     await waitFor(() => expect(document.querySelectorAll(".bub--pending")).toHaveLength(0));

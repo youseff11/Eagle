@@ -94,6 +94,34 @@ def push_room(room_id):
     transaction.on_commit(lambda: _deliver_room(room_id))
 
 
+def push_room_to(room_id, user_ids):
+    """Tell only these people that this room has something new - those of them who may still open it.
+
+    For a change that matters to a few (somebody read your message: the "seen by" under it), where telling the whole
+    room would make every page ask for the thread again.
+    """
+    ids = sorted({int(i) for i in user_ids if i})
+    if ids:
+        transaction.on_commit(lambda: _deliver_room_to(room_id, ids))
+
+
+def _deliver_room_to(room_id, user_ids):
+    if _is_muted():
+        return
+    try:
+        from .models import ChatRoom, User
+
+        room = ChatRoom.objects.select_related("task").filter(pk=room_id).first()
+        if room is None:
+            return
+        people = User.objects.filter(pk__in=user_ids, is_active=True)
+        audience = [user.pk for user in people if room.can_open(user)]
+        if audience:
+            _deliver(audience, {"t": ROOM, "id": room.pk})
+    except Exception:  # noqa: BLE001 - see the module note
+        log.exception("realtime: could not work out who to tell about room %s", room_id)
+
+
 def _deliver_room(room_id):
     if _is_muted():
         return
