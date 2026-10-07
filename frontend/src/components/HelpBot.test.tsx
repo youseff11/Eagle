@@ -28,7 +28,7 @@ function home(overrides: Partial<HelpHome> = {}): HelpHome {
 }
 
 function answer(overrides: Partial<HelpAnswer> = {}): HelpAnswer {
-  return { ok: true, answer: STEPS, answered: true, source: "guide", open: ACCEPT, related: [], order: null, keep: true, ...overrides };
+  return { ok: true, answer: STEPS, answered: true, source: "guide", open: ACCEPT, related: [], order: null, ran: null, keep: true, ...overrides };
 }
 
 function order(overrides: Partial<HelpOrder> = {}): HelpOrder {
@@ -282,6 +282,19 @@ describe("an order for the owner", () => {
     expect(screen.getByText(/عمل شيفت جديد «الصبح»/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "نفّذ" })).toBeEnabled();
     expect(view.calls.filter((call) => call.url.includes("/orders/"))).toHaveLength(0);
+  });
+
+  it("asks for the order to be carried out at once and shows what was done, with nothing to press", async () => {
+    const view = renderBot({
+      home: home({ orders: true }),
+      answers: [answer({ answer: "تمام", source: "action", open: null, order: order(), ran: { done: true, message: "الشيفت اتعمل." } })],
+    });
+    const user = await openIt();
+    await user.type(screen.getByRole("textbox"), "اعمل شيفت{Enter}");
+    expect(await screen.findByText("الشيفت اتعمل.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "نفّذ" })).toBeNull();
+    const ask = view.calls.find((one) => one.url === "/api/v1/help/ask/")!;
+    expect(JSON.parse(String(ask.init?.body)).auto).toBe(true);
   });
 
   it("runs it on «نفّذ», once, and says what was done", async () => {

@@ -63,6 +63,8 @@ def ask(request):
         history = body.get("history", [])
         if not isinstance(history, list) or len(history) > MAX_HISTORY_BODY:
             raise BadBody
+        # The owner's own screen asks for an order to be carried out at once instead of waiting for a press on its card.
+        auto = body.get("auto") is True
     except BadBody:
         return _error(400, "bad_body")
     if not question and not guide_id:
@@ -71,17 +73,44 @@ def ask(request):
         return _error(429, "slow_down")
     lang = helpbot.clean_lang(lang, user)
     result = helpbot.answer(user, question, lang=lang, page=page, history=history, guide_id=guide_id)
+    ran = None
+    if auto and result.proposal is not None and user.is_admin_role:
+        ran = _run_now(request, result.proposal, lang)
+        if lang == "ar":
+            result.text = "اتنفّذ:" if ran["done"] else "ماتنفّذش:"
+        else:
+            result.text = "Done:" if ran["done"] else "It was not carried out:"
     return JsonResponse({
         "ok": True,
         "answer": result.text,
         "answered": result.answered,
         "source": result.source,
-        "open": _card(result.guide, lang) if result.guide and result.guide.path else None,
+        "open": (
+            {"id": "", **result.link} if result.link
+            else _card(result.guide, lang) if result.guide and result.guide.path else None
+        ),
         "related": [_card(guide, lang) for guide in result.related],
         "order": helpactions.card(result.proposal, lang) if result.proposal else None,
+        # What happened to the order when it was carried out at once (``None``: it waits for a press on its card).
+        "ran": ran,
         # False for an answer that names people (an order that did not hold): the page does not send it back as conversation.
         "keep": result.keep,
     })
+
+
+def _run_now(request, row, lang):
+    """Carry out the order just prepared, through the same checks as a press on its card: ``{"done", "message"}``."""
+    if not helpactions.available(AppSettings.load(), request.user):
+        return {"done": False, "message": "الأوامر مقفولة من الإعدادات." if lang == "ar" else "Orders are switched off in the settings."}
+    try:
+        _row, ok, message = helpactions.run(request, request.user, row.pk, lang)
+    except helpactions.NotAllowed as refusal:
+        words = {
+            "busy": ("استنى شوية وجرّب تاني.", "Wait a moment and try again."),
+            "expired": ("الأمر انتهت مدته.", "The order has expired."),
+        }.get(refusal.code, ("الأمر ماتنفّذش.", "The order was not carried out."))
+        return {"done": False, "message": words[0 if lang == "ar" else 1]}
+    return {"done": ok, "message": message}
 
 
 _REFUSALS = {"gone": (404, "not_found"), "done": (409, "already_done"), "expired": (409, "expired"), "busy": (429, "slow_down")}

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAsk, useCancelOrder, useHelpHome, useRunOrder, type HelpTurn } from "../api/helpActions";
 import { ApiError } from "../api/client";
@@ -93,6 +94,7 @@ export function HelpBot() {
   const { t, lang } = usePreferences();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
@@ -155,7 +157,7 @@ export function HelpBot() {
     add({ who: "me", text: said });
     setText("");
     ask.mutate(
-      { question: guide ? "" : said, guide: guide?.id, lang, page: location.pathname, history },
+      { question: guide ? "" : said, guide: guide?.id, lang, page: location.pathname, history, auto: true },
       {
         onSuccess: (answer) => {
           // A new order withdraws the one before it (the server does the same): only the newest card can be pressed.
@@ -172,8 +174,14 @@ export function HelpBot() {
             forget: answer.keep === false,
             open: answer.open,
             related: answer.related,
-            order: answer.order ? { card: answer.order, state: "waiting" } : undefined,
+            order: answer.order
+              ? answer.ran
+                ? { card: answer.order, state: answer.ran.done ? "done" : "failed", message: answer.ran.message }
+                : { card: answer.order, state: "waiting" }
+              : undefined,
           });
+          // An order carried out at once changed something on the pages behind the chat.
+          if (answer.ran?.done) void queryClient.invalidateQueries();
         },
         onError: (error) => add({ who: "bot", text: asking(error), problem: true }),
       },
@@ -324,8 +332,8 @@ export function HelpBot() {
                 {home.data?.orders && (
                   <p>
                     {t(
-                      "وتقدر كمان تديني أوامر (زي «اعمل شيفت من 9 لـ 5»): بجهّزها لك وماتتنفّذش غير لما تأكّد.",
-                      "You can also give me orders (like \"make a shift from 9 to 5\"): I prepare them, and nothing runs until you confirm.",
+                      "وتقدر كمان تديني أوامر (زي «اعمل شيفت من 9 لـ 5»): بنفّذها فورًا وأقولك النتيجة.",
+                      "You can also give me orders (like \"make a shift from 9 to 5\"): I carry them out at once and tell you the result.",
                     )}
                   </p>
                 )}

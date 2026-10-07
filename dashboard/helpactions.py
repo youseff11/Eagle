@@ -34,7 +34,8 @@ from django.utils import timezone
 
 from . import clock, helpbot, services
 from .models import (
-    Client, ClientRequirement, HelpAction, LeaveRequest, LeaveStatus, Role, Task, TaskStatus, User, ViolationKind,
+    ApprovalStatus, Client, ClientRequirement, HelpAction, LeaveRequest, LeaveStatus, Role, Task, TaskStatus, User, Violation,
+    ViolationKind,
 )
 
 log = logging.getLogger("dashboard")
@@ -382,6 +383,53 @@ def _alias_check(v, today):
     v["address"] = address
 
 
+# -- a deadline --------------------------------------------------------------------------------------------------------
+
+def _deadline_check(v, today):
+    if not (v.get("days") or v.get("hours") or v.get("minutes")):
+        raise Problem("قول الديدلاين بعد كام يوم أو ساعة.", "Tell me the deadline as days or hours from now.")
+    if v["task"]["status"] in (TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+        raise Problem("التاسك دي اتسلّمت أو اتلغت.", "That task was delivered or cancelled.")
+
+
+def _deadline_summary(v, lang):
+    parts = [(v.get("days"), "يوم", "day(s)"), (v.get("hours"), "ساعة", "hour(s)"), (v.get("minutes"), "دقيقة", "minute(s)")]
+    ar = " و".join(f"{n} {a}" for n, a, _e in parts if n)
+    en = " and ".join(f"{n} {e}" for n, _a, e in parts if n)
+    return _t(lang, f"ديدلاين التاسك {v['task']['code']} بعد {ar} من دلوقتي.", f"Deadline of task {v['task']['code']}: {en} from now.")
+
+
+# -- a deduction waiting for a decision --------------------------------------------------------------------------------
+
+def _decide_violation_check(v, today):
+    rows = list(Violation.objects.filter(user_id=v["employee"]["id"], status=ApprovalStatus.PENDING).order_by("date")[:6])
+    if not rows:
+        raise Problem(f"مفيش خصم مستني عند {v['employee']['name']}.", f"{v['employee']['name']} has no deduction waiting.")
+    if len(rows) > 1:
+        dates = "، ".join(str(one.date) for one in rows)
+        raise Problem(f"عند {v['employee']['name']} أكتر من خصم مستني ({dates}). قرّر من «المخالفات والخصومات».",
+                      f"{v['employee']['name']} has more than one deduction waiting ({dates}). Decide from \"Violations\".")
+    v["violation"] = {"id": rows[0].pk, "date": str(rows[0].date)}
+
+
+def _decide_violation_summary(v, lang):
+    yes = v["decision"] == "approve"
+    return _t(lang, f"{'اعتماد' if yes else 'رفض'} خصم {v['employee']['name']} عن يوم {v['violation']['date']}.",
+              f"{'Approve' if yes else 'Reject'} {v['employee']['name']}'s deduction for {v['violation']['date']}.")
+
+
+def _client_check(v):
+    if not any(key in v for key in _CLIENT_FIELDS):
+        raise Problem("قول لي إيه اللي يتغيّر في العميل.", "Tell me what to change on the client.")
+
+
+_CLIENT_FIELDS = ("name", "company", "phone", "email", "admin_notes")
+
+
+def _client_changes(v):
+    return [f"{key} = {v[key]}" for key in _CLIENT_FIELDS if key in v]
+
+
 ACTIONS = {
     action.name: action
     for action in (
@@ -501,6 +549,55 @@ ACTIONS = {
             lambda v, lang: _t(lang, "المتطلب اتضاف.", "The requirement was added."),
         ),
         Action(
+            "task.deadline", ("ديدلاين تاسك", "Set a task's deadline"),
+            "Set the client deadline of a task, counted from now in days, hours and minutes.",
+            (
+                Param("task", "task", ("كود التاسك", "the task's code"), hint="like TSK-00012"),
+                Param("days", "int", ("أيام", "days"), required=False, default=0, lo=0, hi=365, hint="optional"),
+                Param("hours", "int", ("ساعات", "hours"), required=False, default=0, lo=0, hi=2000, hint="optional"),
+                Param("minutes", "int", ("دقايق", "minutes"), required=False, default=0, lo=0, hi=10000, hint="optional"),
+            ),
+            _deadline_check,
+            lambda v: Call("api_set_deadline", (v["task"]["code"],), form={
+                "deadline_days": str(v.get("days", 0) or ""), "deadline_hours": str(v.get("hours", 0) or ""),
+                "deadline_minutes": str(v.get("minutes", 0) or ""),
+            }),
+            _deadline_summary,
+            lambda v, lang: _t(lang, "الديدلاين اتحدد.", "The deadline was set."),
+        ),
+        Action(
+            "violation.decide", ("قرار خصم", "Decide a deduction"),
+            "Approve or reject the one deduction that is waiting for an employee. Approving makes it count in their pay.",
+            (
+                Param("employee", "person", ("الموظف", "the employee")),
+                Param("decision", "choice", ("القرار", "the decision"), choices=("approve", "reject"), hint="approve or reject"),
+            ),
+            _decide_violation_check,
+            lambda v: Call("v1_accounts_violation_decide", (v["violation"]["id"], v["decision"]), json={}),
+            _decide_violation_summary,
+            lambda v, lang: _t(lang, "القرار اتسجّل.", "The decision was recorded."),
+            danger=True,
+        ),
+        Action(
+            "client.update", ("تعديل عميل", "Edit a client"),
+            "Change a client's name, company, main phone, main e-mail or admin note, found by its code. Only the values given change.",
+            (
+                Param("client", "client", ("كود العميل", "the client's code"), hint="like CL-0007"),
+                Param("name", "text", ("الاسم", "the name"), required=False, limit=120),
+                Param("company", "text", ("الشركة", "the company"), required=False, limit=120),
+                Param("phone", "text", ("رقم الواتساب", "the WhatsApp number"), required=False, limit=30, hint="digits with the country code"),
+                Param("email", "text", ("الإيميل", "the e-mail"), required=False, limit=120),
+                Param("admin_notes", "text", ("ملاحظة الأدمن", "the admin note"), required=False, limit=1000),
+            ),
+            lambda v, today: _client_check(v),
+            lambda v: Call("v1_admin_client_save", (v["client"]["code"],), json={"values": {
+                key: v[key] for key in ("name", "company", "phone", "email", "admin_notes") if key in v
+            }}),
+            lambda v, lang: _t(lang, f"تعديل العميل {v['client']['code']}: " + "، ".join(_client_changes(v)) + ".",
+                               f"Edit client {v['client']['code']}: " + ", ".join(_client_changes(v)) + "."),
+            lambda v, lang: _t(lang, "العميل اتعدّل.", "The client was changed."),
+        ),
+        Action(
             "employee.set_active", ("إيقاف أو تفعيل حساب", "Switch an account off or on"),
             "Switch an employee's account off (they cannot sign in) or back on.",
             (
@@ -538,8 +635,8 @@ ORDERS_INSTRUCTIONS = (
     "The person you are talking to is the owner, and they have allowed you to prepare ORDERS for them. These are the only orders "
     "that exist; you cannot do anything else in the system.\n"
     "When the owner asks you to DO one of them (not to explain how), reply with \"action\": {\"name\": \"<order>\", \"params\": {...}} "
-    "and a one-sentence \"answer\". You never carry the order out and you never say it is done: the system shows the owner a "
-    "card with exactly what it will do, and runs it only if they press the button.\n"
+    "and a one-sentence \"answer\". You never carry the order out and you never say it is done: the system carries it out "
+    "itself and shows the owner what it did.\n"
     "- Use only the parameters listed for the order, with the formats given. Dates are YYYY-MM-DD and times are HH:MM (24-hour); "
     "work them out from today's date, which is given to you.\n"
     "- Refer to people by the name the owner used, exactly as they wrote it. Never invent a person, a number, an amount, a date or a "
@@ -547,6 +644,26 @@ ORDERS_INSTRUCTIONS = (
     "- One order per reply. If the owner only asks how to do something, answer from the guides and set \"action\" to null.\n"
     "- Add \"action\": null (or leave it out) in every reply that is not an order."
 )
+
+
+OPEN_INSTRUCTIONS = (
+    "The person you are talking to is the owner, and you can OPEN an employee's file for them. When they ask you to open, show or "
+    "go to a named employee's file or profile, reply with \"open_employee\": \"<the name exactly as they wrote it>\" and a one-sentence "
+    "\"answer\"; the system finds the person and puts the button on the screen. Never invent a name; leave \"open_employee\" out in "
+    "every other reply."
+)
+
+
+def open_employee(name, lang):
+    """The page of the employee file the owner named: ``(title, path)``. Raises :class:`Problem` when no one person fits.
+
+    Only a link: nothing is changed, and the file's own page decides what the owner sees there.
+    """
+    person = _find_person(name, (), anyone=True)
+    return (
+        _t(lang, f"ملف {person.short_name}", f"{person.short_name}'s file"),
+        f"/hr/employees/{person.pk}",
+    )
 
 
 def prompt_text():
@@ -699,7 +816,9 @@ def run(request, user, pk, lang):
     row.result = {"ok": ok, **message}
     row.finished_at = timezone.now()
     row.save(update_fields=["status", "result", "finished_at"])
-    services.log(user, "help.action", row.name, f"{'done' if ok else 'refused'}: {row.summary.get('en', '')}"[:250])
+    # Which boxes, not what is in them (the door's own rule for a client's identity).
+    said = ", ".join(sorted(key for key in _CLIENT_FIELDS if key in row.params)) if row.name == "client.update" else row.summary.get("en", "")
+    services.log(user, "help.action", row.name, f"{'done' if ok else 'refused'}: {said}"[:250])
     return row, ok, message["ar" if lang == "ar" else "en"]
 
 

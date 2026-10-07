@@ -293,6 +293,8 @@ class Answer:
     proposal: object = None
     #: False for an answer that must not be sent back to the model as part of the conversation (it names people of ours).
     keep: bool = True
+    #: A page the answer opens by name rather than by guide: ``{"title", "path"}``.
+    link: dict = None
 
     @property
     def answered(self):
@@ -457,6 +459,8 @@ def _from_ai(conf, user, visible, question, history, page, lang):
     by_id = {guide.id: guide for guide in visible}
     orders = helpactions.available(conf, user)
     system = system_text(visible, lang) + ("\n\n" + helpactions.prompt_text() if orders else "")
+    if user.is_admin_role:
+        system += "\n\n" + helpactions.OPEN_INSTRUCTIONS
     context = f"The person's role: {'admin' if user.is_admin_role else user.role}. Their screen language: {lang}."
     if page:
         context += f" The page they are on: {page}."
@@ -472,6 +476,16 @@ def _from_ai(conf, user, visible, question, history, page, lang):
         # The class only: an HTTP error's text could carry what the provider echoed back.
         log.warning("help assistant: the model's answer was not used (%s)", type(failure).__name__)
         return None
+    target = reply.get("open_employee") if user.is_admin_role else None
+    if isinstance(target, str) and target.strip():
+        try:
+            title, path = helpactions.open_employee(target, lang)
+        except helpactions.Problem as problem:
+            return Answer(problem.text(lang), HelpQuestion.Source.AI, keep=False)
+        return Answer(
+            _t(lang, "اتفضل، دوس على الزرار يفتح الملف:", "Here it is. Press the button to open the file:"),
+            HelpQuestion.Source.AI, keep=False, link={"title": title, "path": path},
+        )
     order = reply.get("action") if orders else None
     if isinstance(order, dict) and isinstance(order.get("name"), str):
         try:

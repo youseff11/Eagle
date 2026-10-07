@@ -28,6 +28,8 @@ export interface HelpQuestion {
   /** Where the person is (the path inside the app): the server keeps only its shape, `/tasks/:code`. */
   page: string;
   history: HelpTurn[];
+  /** True: an order the owner gives is carried out at once, not left waiting for a press. */
+  auto?: boolean;
 }
 
 export function useAsk() {

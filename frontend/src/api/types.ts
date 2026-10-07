@@ -2231,6 +2231,8 @@ export interface HelpAnswer {
   open: HelpGuide | null;
   related: HelpGuide[];
   order: HelpOrder | null;
+  /** What happened to the order when it was carried out at once; null when it waits for a press on its card. */
+  ran: { done: boolean; message: string } | null;
   /** False for an answer that names people (an order that did not hold): it is not sent back as part of the conversation. */
   keep: boolean;
 }

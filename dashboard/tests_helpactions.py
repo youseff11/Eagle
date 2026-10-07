@@ -544,7 +544,8 @@ class CatalogTests(TestCase):
             sample = {"employee": {"id": 1, "name": "x"}, "leader": {"id": 1, "name": "x"}, "task": {"code": "TSK-00001", "status": "new"},
                       "client": {"code": "CL-0001"}, "request": {"id": 1, "from": "2026-01-01", "to": "2026-01-02"},
                       "decision": "approve", "active": False, "address": "a@b.co", "text": "x", "kind": "rule", "reason": "x",
-                      "start": "09:00", "end": "17:00", "date": "2026-01-01", "days": "1.00", "amount": "0.00"}
+                      "start": "09:00", "end": "17:00", "date": "2026-01-01", "days": "1.00", "amount": "0.00",
+                      "violation": {"id": 1, "date": "2026-01-01"}}
             call = action.call(sample)
             with self.subTest(order=name):
                 path = reverse(f"dashboard:{call.url}", args=call.args)
@@ -639,3 +640,97 @@ class ReviewTests(_Owner):
         self.assertFalse(reply["done"])
         self.assertIn("مش متأكد", reply["message"])
         self.assertNotIn("محصلش حاجة", reply["message"])
+
+
+class OpenEmployeeTests(_Owner):
+    def _open(self, name):
+        return json.dumps({"answer": "x", "guides": [], "found": True, "open_employee": name})
+
+    def test_the_owner_gets_the_button_to_the_named_file(self):
+        data = self.ask("افتحلي ملف الموظف Tarek", self._open("Tarek"))
+        self.assertEqual(data["open"]["path"], f"/hr/employees/{self.tr.pk}")
+        self.assertIsNone(data["order"])
+        self.assertFalse(data["keep"])
+
+    def test_a_name_that_fits_no_one_opens_nothing(self):
+        data = self.ask("افتحلي ملف Nobody", self._open("Nobody"))
+        self.assertIsNone(data["open"])
+
+    def test_two_who_fit_are_asked_about(self):
+        data = self.ask("افتحلي ملف Translator", self._open("Translator"))
+        self.assertIsNone(data["open"])
+
+    def test_it_works_with_orders_switched_off(self):
+        self.switch(ai=True, orders=False)
+        data = self.ask("افتحلي ملف Tarek", self._open("Tarek"))
+        self.assertEqual(data["open"]["path"], f"/hr/employees/{self.tr.pk}")
+
+    def test_nobody_but_the_owner_is_given_it(self):
+        data = self.ask("افتحلي ملف Tarek", self._open("Tarek"), who=self.hr)
+        self.assertIsNone(data["open"])
+        self.assertNotIn("open_employee", self.call.call_args.args[1])
+
+    def test_the_owner_is_told_the_open_instruction(self):
+        self.ask("افتحلي ملف Tarek", self._open("Tarek"))
+        self.assertIn("open_employee", self.call.call_args.args[1])
+
+    def test_the_log_of_a_client_edit_holds_the_boxes_not_the_values(self):
+        from .models import AuditLog
+        reply = _order("client.update", client=self.client_obj.code, email="new@secret.example")
+        self.ask("عدل", reply, auto=True)
+        detail = AuditLog.objects.filter(action="help.action", target="client.update").latest("pk").detail
+        self.assertIn("email", detail)
+        self.assertNotIn("secret.example", detail)
+
+
+class RunAtOnceTests(_Owner):
+    def auto(self, question, reply, who=None, **extra):
+        return self.ask(question, reply, who=who, auto=True, **extra)
+
+    def test_an_order_is_carried_out_without_a_press(self):
+        before = ShiftTemplate.objects.count()
+        data = self.auto("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
+        self.assertTrue(data["ran"]["done"], data)
+        self.assertEqual(ShiftTemplate.objects.count(), before + 1)
+
+    def test_without_the_flag_it_still_waits(self):
+        data = self.ask("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
+        self.assertIsNone(data["ran"])
+        self.assertIsNotNone(data["order"])
+
+    def test_the_switch_off_runs_nothing(self):
+        self.switch(ai=True, orders=False)
+        data = self.auto("اعمل شيفت", _order("shift.create", start="09:07", end="17:43"))
+        self.assertIsNone(data["order"])
+        self.assertIsNone(data["ran"])
+
+    def test_a_refusal_by_the_door_is_told(self):
+        task = Task.objects.create(client=self.client_obj, title="t", status=TaskStatus.NEW)
+        data = self.auto("الغي", _order("task.cancel", task=task.code))
+        self.assertIn("done", data["ran"])
+
+    def test_the_deadline_is_set(self):
+        task = Task.objects.create(client=self.client_obj, title="t", status=TaskStatus.NEW)
+        data = self.auto("ديدلاين", _order("task.deadline", task=task.code, days=2, hours=3))
+        self.assertTrue(data["ran"]["done"], data)
+        task.refresh_from_db()
+        self.assertIsNotNone(task.deadline)
+
+    def test_a_waiting_deduction_is_decided(self):
+        from .models import ApprovalStatus, Violation
+        row = Violation.objects.create(user=self.tr, date=timezone.localdate(), kind="manual", penalty_days="1.00", reason="x")
+        data = self.auto("اعتمد", _order("violation.decide", employee="Tarek", decision="approve"))
+        self.assertTrue(data["ran"]["done"], data)
+        row.refresh_from_db()
+        self.assertEqual(row.status, ApprovalStatus.APPROVED)
+
+    def test_a_client_is_edited(self):
+        data = self.auto("عدل", _order("client.update", client=self.client_obj.code, company="New Co"))
+        self.assertTrue(data["ran"]["done"], data)
+        self.client_obj.refresh_from_db()
+        self.assertEqual(self.client_obj.company, "New Co")
+
+    def test_an_edit_with_nothing_to_change_is_refused(self):
+        data = self.auto("عدل", _order("client.update", client=self.client_obj.code))
+        self.assertIsNone(data["ran"])
+        self.assertIsNone(data["order"])
