@@ -33,7 +33,7 @@ from .models import (
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
-    BAND_MAP, EMPLOYMENT_MAP, EMPLOYMENT_STATUS_MAP, PROBATION_MAP, ROLE_MAP, WORK_MODE_MAP,
+    BAND_MAP, EMPLOYMENT_MAP, EMPLOYMENT_STATUS_MAP, LEVEL_MAP, PROBATION_MAP, ROLE_MAP, WORK_MODE_MAP,
 )
 
 can_recruit = api_gate(lambda user: user.can_recruit)
@@ -151,6 +151,7 @@ def register(request):
                 "employment": _two(EMPLOYMENT_MAP, one.employment_type),
                 "joining_date": one.joining_date.isoformat() if one.joining_date else None,
                 "status": _badge(EMPLOYMENT_STATUS_MAP, one.employment_status),
+                "level": _two(LEVEL_MAP, one.translator_level) if one.translator_level else None,
                 "state": _state(one, translators, leaders),
                 "seen": _seen_json(one),
                 # The owner has no roster and no rating: there is nothing to count, which is not a nought.
@@ -214,6 +215,7 @@ def employee(request, pk):
             "avatar": avatars.url_of(person),
             "role": _two(ROLE_MAP, person.role),
             "status": _badge(EMPLOYMENT_STATUS_MAP, person.employment_status),
+            "level": _two(LEVEL_MAP, person.translator_level) if person.translator_level else None,
             "code": person.employee_code or "",
             "job_title": person.job_title,
             "department": _label(person.department),

@@ -7,6 +7,8 @@ import { useAssignPlan, usePickHrShift } from "../api/hrActions";
 import { useAdminUser, useHrEmployee } from "../api/queries";
 import { Waiting, refusal } from "../components/accounts/shared";
 import { AccountCard } from "../components/hr/AccountCard";
+import { LevelBadge } from "../components/hr/LevelBadge";
+import { SalaryCard } from "../components/hr/SalaryCard";
 import { PenaltiesCard } from "../components/hr/Penalties";
 import { RosterCard } from "../components/hr/RosterCard";
 import { useHrAllowed } from "../components/hr/shared";
@@ -83,6 +85,7 @@ export function HrEmployeePage() {
         {admin.data && <small className="muted mono">{admin.data.user.username}</small>}
         <span className="chip">{words(person.role)}</span>
         <LeaveStatusBadge status={person.status} />
+        {person.level && <LevelBadge level={person.level} />}
         <div className="grow" />
         <Link className="btn btn--sm" to="/hr/employees">
           {t("كل الموظفين", "All staff")}
@@ -132,6 +135,13 @@ export function HrEmployeePage() {
               </div>
             </div>
           </div>
+
+          {person.level?.value === "trainee" && (
+            <div className="note note--info" data-note="trainee">
+              <Icon name="info" />
+              <div>{t("متدرب: الحضور شغال عادي، بس مفيش راتب ولا خصومات ولا أوفرتايم بيتحسبوا عليه. لما تغيّر مستواه من «عدّل» لـJunior وفوق بتبدأ عليه الحسابات.", "Trainee: attendance runs as usual, but no pay, deductions or overtime are worked out. Change the level under Edit to Junior or above and the accounts start.")}</div>
+            </div>
+          )}
 
           {exempt ? (
             <div className="note note--info" data-note="exempt">
@@ -286,6 +296,8 @@ export function HrEmployeePage() {
               <small className="muted">{t("الطلب اللي الموظف ده اتعيّن منه — محفوظ كامل بإجاباته.", "The application this employee came from, kept whole.")}</small>
             </div>
           )}
+
+          {!exempt && isAdmin && <SalaryCard id={person.id} onSaved={() => void query.refetch()} />}
 
           {data.salary.length > 0 && (
             <div className="card card--flat" data-card="salary">

@@ -885,3 +885,83 @@ describe("HrSalaryPlansPage", () => {
   });
 });
 
+
+describe("a translator's level", () => {
+  const trainee = { value: "trainee", ar: "متدرب", en: "Trainee" };
+  const expert = { value: "expert", ar: "مترجم خبير", en: "Expert Translator" };
+
+  it("is beside the name in the register: the trainee as waiting, a grade as a plain chip, and nothing for nobody graded", async () => {
+    const rows = register().rows.map((row) => (row.id === 11 ? { ...row, level: expert } : row.id === 12 ? { ...row, level: trainee } : row));
+    serve("hr", { "/api/v1/hr/employees/": () => jsonResponse(register({ rows })) });
+    const { container } = open("/hr/employees");
+    await screen.findByText("السجل");
+    expect(within(container.querySelector('[data-person="11"]') as HTMLElement).getByText("مترجم خبير")).toHaveClass("chip");
+    expect(within(container.querySelector('[data-person="12"]') as HTMLElement).getByText("متدرب")).toHaveClass("badge--wait");
+  });
+
+  it("is not drawn for somebody who has none", async () => {
+    serve("hr", { "/api/v1/hr/employees/": () => jsonResponse(register()) });
+    const { container } = open("/hr/employees");
+    await screen.findByText("السجل");
+    expect(container.querySelector("[data-level]")).toBeNull();
+  });
+
+  it("is in the head of the file, and a trainee's file says no pay or deductions run on them", async () => {
+    const base = employee();
+    serve("hr", { "/api/v1/hr/employees/11/": () => jsonResponse({ ...base, person: { ...base.person, level: trainee } }) });
+    const { container } = open("/hr/employees/11");
+    await screen.findByRole("heading", { name: "Sam" });
+    expect(container.querySelector('[data-level="trainee"]')).toHaveTextContent("متدرب");
+    expect(container.querySelector('[data-note="trainee"]')).not.toBeNull();
+  });
+
+  it("gives a graded translator's file the chip and no trainee note", async () => {
+    const base = employee();
+    serve("hr", { "/api/v1/hr/employees/11/": () => jsonResponse({ ...base, person: { ...base.person, level: expert } }) });
+    const { container } = open("/hr/employees/11");
+    await screen.findByRole("heading", { name: "Sam" });
+    expect(container.querySelector('[data-level="expert"]')).toHaveTextContent("مترجم خبير");
+    expect(container.querySelector('[data-note="trainee"]')).toBeNull();
+  });
+});
+
+describe("the salary typed from the file", () => {
+  const asAdmin = (answer: (url: URL, init: RequestInit | undefined) => Response) => {
+    const served = serve("admin", {
+      "/api/v1/hr/employees/11/": () => jsonResponse(employee({ can: { edit: true, shift: true, plan: true, decide_penalties: true } })),
+      ...adminHalf(11),
+      "/api/v1/accounts/salary/11/save/": (url, init) => answer(url, init),
+    });
+    return served;
+  };
+
+  it("is the admin's: a card with an amount and a day, sent to the salary door", async () => {
+    const served: ReturnType<typeof serve> = asAdmin((url, init) => served.record(url, init, { ok: true, id: 1 }));
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await screen.findByText("حدد الراتب");
+    await user.type(screen.getByLabelText("الراتب"), "4200");
+    await user.click(screen.getByRole("button", { name: "سجّل" }));
+    await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/accounts/salary/11/save/")).toBe(true));
+    const body = served.sent.find((post) => post.url === "/api/v1/accounts/salary/11/save/")!.body as { values: Record<string, string> };
+    expect(body.values.amount).toBe("4200");
+    expect(body.values.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("is not offered to HR", async () => {
+    serve("hr", { "/api/v1/hr/employees/11/": () => jsonResponse(employee()) });
+    open("/hr/employees/11");
+    await screen.findByRole("heading", { name: "Sam" });
+    expect(screen.queryByText("حدد الراتب")).toBeNull();
+  });
+
+  it("puts the form's refusal beside its box", async () => {
+    asAdmin(() => jsonResponse({ ok: false, error: "invalid", errors: { amount: ["Ensure this value is greater than or equal to 0."] } }, 400));
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await screen.findByText("حدد الراتب");
+    await user.type(screen.getByLabelText("الراتب"), "-5");
+    await user.click(screen.getByRole("button", { name: "سجّل" }));
+    expect(await screen.findByText("Ensure this value is greater than or equal to 0.")).toBeInTheDocument();
+  });
+});

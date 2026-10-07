@@ -485,6 +485,9 @@ def violation_decide(request, pk, action):
     row = get_object_or_404(Violation.objects.select_related("user"), pk=pk)
     if row.status != ApprovalStatus.PENDING:
         return JsonResponse({"ok": False, "error": "already_decided", "message": "اتقرر فيها قبل كده."}, status=409)
+    if action == "approve" and row.user.is_trainee:
+        # Written before the person went into training: it does not run on them until they are appointed. Rejecting is still open.
+        return JsonResponse({"ok": False, "error": "trainee", "message": "الموظف ده تحت التدريب: الخصومات مابتمشيش عليه لحد ما يتعيّن."}, status=409)
     if action == "approve":
         row.approve(request.user)
     else:

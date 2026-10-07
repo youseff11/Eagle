@@ -820,7 +820,7 @@ def raise_overtime(user, first_day, last_day, conf=None, day_value=Decimal("0.00
     nor quietly re-price one they already signed.
     """
     conf = conf or PayrollSettings.load()
-    if not conf.overtime_enabled:
+    if not conf.overtime_enabled or user.is_trainee:
         return []
 
     rate = conf.overtime_rate(day_value)
@@ -1203,7 +1203,7 @@ def _claim_extra(row, conf):
     ``raise_overtime`` does the same thing when the month is computed; doing
     it at the check-out as well puts the claim in HR's queue the same day.
     """
-    if not (conf.overtime_enabled and row.overtime_minutes):
+    if not (conf.overtime_enabled and row.overtime_minutes) or row.user.is_trainee:
         return None
     from . import payroll  # payroll imports this module at the top
     from .models import SalaryRecord

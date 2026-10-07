@@ -1735,6 +1735,8 @@ export interface HrRegister {
     employment: Labelled;
     joining_date: string | null;
     status: DayStatusJson;
+    /** A translator's rung: trainee (no accounts or deductions yet), then Junior, Translator, Senior, Expert. `null` when not graded. */
+    level?: Labelled | null;
     state: StaffState;
     seen: Stamp;
     /** `null` for the owner: they have no roster and no rating, which is not a nought. */
@@ -1762,6 +1764,8 @@ export interface HrEmployee {
     avatar?: string | null;
     role: Labelled;
     status: DayStatusJson;
+    /** Trainee (no payroll, deductions or overtime until promoted), Junior, Translator, Senior or Expert; `null` when not graded. */
+    level?: Labelled | null;
     code: string;
     job_title: string;
     department: string | null;

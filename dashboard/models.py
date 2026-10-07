@@ -134,6 +134,20 @@ class EmploymentType(models.TextChoices):
     FREELANCE = "freelance", "Freelancer / contractor"
 
 
+class TranslatorLevel(models.TextChoices):
+    """A translator's ladder: trainee, then up through the four grades as the owner promotes them.
+
+    The grades are names and nothing more: no pay or rule reads them, the owner works each person's accounts by hand. The first
+    rung is the exception: a trainee has no accounts (``User.is_trainee``) until they are promoted off it.
+    """
+
+    TRAINEE = "trainee", "Trainee"
+    JUNIOR = "junior", "Junior Translator"
+    TRANSLATOR = "translator", "Translator"
+    SENIOR = "senior", "Senior Translator"
+    EXPERT = "expert", "Expert Translator"
+
+
 class WorkMode(models.TextChoices):
     OFFICE = "office", "From the office"
     REMOTE = "remote", "Remote"
@@ -506,6 +520,9 @@ class User(AbstractUser):
     )
     probation_start = models.DateField(null=True, blank=True)
     probation_end = models.DateField(null=True, blank=True)
+    #: Translators only; empty means not graded. Shown beside the name; the only rung anything reads is ``trainee`` (see
+    #: ``is_trainee``). Pay is the owner's, by hand.
+    translator_level = models.CharField(max_length=10, choices=TranslatorLevel.choices, blank=True, default="")
     contract = models.FileField(upload_to=upload_hr_doc, blank=True, null=True)
     #: Optional. Nobody needs one: a person without a plan is priced by the
     #: company rules exactly as before this field existed.
@@ -532,6 +549,9 @@ class User(AbstractUser):
         if self.role != Role.SALES:
             self.wa_phone_number_id = ""
             self.wa_display_number = ""
+        # A grade is a translator's: whoever stops being one stops carrying it.
+        if self.role != Role.TRANSLATOR:
+            self.translator_level = ""
         # And the mail address, for anyone who no longer answers clients.
         if self.role not in MAIL_ALIAS_ROLES:
             self.mail_alias = ""
@@ -549,6 +569,12 @@ class User(AbstractUser):
     def follows_company_rules(self):
         """False for the owner and for technical support: attendance, leave, salary and the pay plans are not theirs."""
         return not (self.is_admin_role or self.role == Role.SUPPORT)
+
+    @property
+    def is_trainee(self):
+        """Still in training: works and clocks in, but no payroll line, deduction or overtime claim runs on them until the owner
+        promotes them to a grade. Not probation: that is a hired person under review, and paid."""
+        return self.role == Role.TRANSLATOR and self.translator_level == TranslatorLevel.TRAINEE
 
     @property
     def is_support(self):

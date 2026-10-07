@@ -88,6 +88,14 @@ VIOLATION_KIND_MAP = {
     "manual": ("تعديل يدوي", "Manual adjustment"),
 }
 
+LEVEL_MAP = {
+    "trainee": ("متدرب", "Trainee"),
+    "junior": ("مترجم جونيور", "Junior Translator"),
+    "translator": ("مترجم", "Translator"),
+    "senior": ("مترجم سينيور", "Senior Translator"),
+    "expert": ("مترجم خبير", "Expert Translator"),
+}
+
 WORK_MODE_MAP = {
     "office": ("من المكتب", "Office"),
     "remote": ("عن بُعد", "Remote"),

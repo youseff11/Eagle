@@ -295,7 +295,9 @@ def _draft(user, day, kind, key, reason, days=Decimal("0.00"), amount=Decimal("0
 
 
 def raise_drafts(user, year, month, days, rules, actor=None):
-    """Turn what the month shows into deductions waiting for a decision."""
+    """Turn what the month shows into deductions waiting for a decision. Nothing for somebody still in training."""
+    if user.is_trainee:
+        return []
     first_day, last_day = month_bounds(year, month)
     stamp = f"{year}-{month:02d}"
     drafts = []
@@ -572,7 +574,8 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
 
 def compute_period(year, month, actor=None, users=None):
     """Recompute every translator's line for a month. A locked month is left
-    exactly as it was paid."""
+    exactly as it was paid. Somebody in training has no line: the accounts
+    start when the admin takes the flag off."""
     period, _ = PayrollPeriod.objects.get_or_create(year=year, month=month)
     if period.is_locked:
         return period
@@ -583,6 +586,8 @@ def compute_period(year, month, actor=None, users=None):
         role=Role.TRANSLATOR, is_active=True
     )
     for person in people:
+        if person.is_trainee:
+            continue
         compute_line(person, year, month, conf=conf, tiers=tiers, save_to=period, actor=actor)
 
     period.computed_at = timezone.now()

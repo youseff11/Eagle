@@ -25,6 +25,7 @@ from .models import (
     ProductionTier,
     Role,
     ProbationOutcome,
+    TranslatorLevel,
     RecruitmentQuestion,
     RecruitmentSettings,
     SalaryChangeRequest,
@@ -469,7 +470,10 @@ class StaffCreateForm(UserCreationForm):
             "username", "first_name", "last_name", "email", "phone",
             "role", "team_lead", "languages",
             "employment_type", "work_mode", "schedule_kind",
+            "translator_level",
         )
+        labels = {"translator_level": "مستوى المترجم"}
+        help_texts = {"translator_level": "للمترجمين بس. المتدرب مفيش عليه حسابات ولا خصومات لحد ما تغيّر مستواه."}
         widgets = {
             "username": forms.TextInput(attrs={"class": "input", "dir": "ltr"}),
             "first_name": forms.TextInput(attrs={"class": "input"}),
@@ -492,6 +496,12 @@ class StaffCreateForm(UserCreationForm):
             if name in self.fields:
                 self.fields[name].widget.attrs.update({"class": "input", "dir": "ltr"})
 
+    def clean(self):
+        data = super().clean()
+        if data.get("translator_level") and data.get("role") != Role.TRANSLATOR:
+            self.add_error("translator_level", "المستوى للمترجمين بس.")
+        return data
+
 
 class StaffEditForm(forms.ModelForm):
     class Meta:
@@ -501,14 +511,20 @@ class StaffEditForm(forms.ModelForm):
             "team_lead", "languages", "is_active", "force_offline", "rating",
             "employment_type", "work_mode", "schedule_kind",
             "attendance_enabled", "attendance_manager",
+            "translator_level",
             "client_identity_access",
             "mail_alias",
         )
         labels = {
+            "translator_level": "مستوى المترجم",
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
             "mail_alias": "بيستقبل ميلات العنوان ده",
         }
         help_texts = {
+            "translator_level": (
+                "للمترجمين بس، وبيظهر جنب اسمه. «متدرب»: مفيش راتب ولا خصومات ولا أوفرتايم بيتحسبوا عليه، وبيشتغل ويسجّل حضور عادي. "
+                "لما تغيّر مستواه لـJunior وفوق يبقى اتعيّن والحسابات بتمشي عليه. المستويات نفسها أسماء بس: المرتب بتحطه إنت من ملفه."
+            ),
             "mail_alias": (
                 "الأوبريشن والـSales بس. الميل اللي يتبعت للعنوان ده يروحله هو والأدمن، "
                 "وردّه يطلع منه. عنوان واحد لكل موظف، ومحدش تاني ياخده. "
@@ -578,6 +594,8 @@ class StaffEditForm(forms.ModelForm):
 
     def clean(self):
         data = super().clean()
+        if data.get("translator_level") and data.get("role") != Role.TRANSLATOR:
+            self.add_error("translator_level", "المستوى للمترجمين بس.")
         # The grant means nothing on any other role (the model ignores it),
         # so it is refused here rather than left ticked to mislead whoever
         # reads the form next - or to wake up if the role is changed later.
@@ -1179,9 +1197,10 @@ class ViolationForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Nobody in training: the accounts do not run on them until the owner promotes them off the first rung.
         self.fields["user"].queryset = User.objects.filter(
             role=Role.TRANSLATOR, is_active=True
-        )
+        ).exclude(translator_level=TranslatorLevel.TRAINEE)
         self.fields["task"].required = False
         self.fields["task"].queryset = Task.objects.order_by("-created_at")
         non_negative(self, ("penalty_days", "penalty_amount"))

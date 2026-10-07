@@ -7,6 +7,7 @@ import { PenaltyQueue } from "../components/hr/Penalties";
 import { useHrAllowed } from "../components/hr/shared";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { Icon } from "../components/Icon";
+import { LevelBadge } from "../components/hr/LevelBadge";
 import { Presence } from "../components/Presence";
 import { usePreferences } from "../i18n/Preferences";
 
@@ -104,6 +105,7 @@ export function HrEmployeesPage() {
                       <Avatar src={row.avatar} initials={row.initials} tone="" className="avatar--sm" />
                       <div>
                         <Link to={`/hr/employees/${row.id}`}>{row.name}</Link>
+                        {row.level && <LevelBadge level={row.level} />}
                         <div>
                           <small className="muted mono">{[row.code, row.username].filter(Boolean).join(" · ") || "—"}</small>
                         </div>
