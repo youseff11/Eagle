@@ -419,6 +419,30 @@ GUIDES = (
         ),
     ),
     _guide(
+        "chat-mention", (Role.ADMIN, *STAFF), "/chats",
+        ("إزاي أنبّه زميل باسمه (منشن)", "How do I mention a colleague by name"),
+        (
+            "منشن، منشن لحد، نادي على حد باسمه، نبّه حد باسمه، @، تاج، اشارة",
+            "mention, tag, @, mention someone, ping someone in the group, notify a colleague in a group",
+        ),
+        [
+            "افتح الجروب من «الشات» (تبويب «الجروبات»).",
+            "في صندوق الكتابة اكتب @ أو اضغط زرار «منشن لحد في الجروب»، وهتظهر قايمة بالناس اللي في الجروب.",
+            "اكتب أول حروف الاسم عشان تضيّق القايمة، واختار الاسم بالأسهم وبعدها Enter أو بالضغط عليه.",
+            "كمّل رسالتك وابعتها: الشخص ده بيوصله إشعار بصوت باسمك، والرسالة بتتلوّن عنده.",
+        ],
+        [
+            "Open the group from «Chats» (the «Groups» tab).",
+            "In the message box type @ or press the «Mention someone in the group» button, and a list of the people in the group appears.",
+            "Type the first letters of the name to narrow the list, and pick the name with the arrows and Enter, or by tapping it.",
+            "Finish your message and send it: that person gets a notification with a sound in your name, and the message stands out for them.",
+        ],
+        note=(
+            "المنشن في الجروبات الداخلية بس. جروب فيه عميل مفيهوش منشن، لأن كلامه بيتبعت للعميل زي ما هو.",
+            "Mentions work in internal groups only. A group that reaches a client has none, because what is typed there goes to the client as it is.",
+        ),
+    ),
+    _guide(
         "contact-support", (Role.ADMIN, *STAFF), "/chats",
         ("إزاي أتواصل مع الدعم الفني", "How do I contact technical support"),
         (

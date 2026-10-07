@@ -1,11 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type SyntheticEvent } from "react";
 import { useFileTasks } from "../../api/queries";
 import type { MeResponse } from "../../api/types";
 import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import { usePreferences } from "../../i18n/Preferences";
+import { insertMention, matching, named, typing, type Mentionable, type Mentioned } from "../../lib/mentions";
 import type { ReplyTarget } from "../../lib/outbox";
 import type { Recorded } from "../../lib/recorder";
+import { ROLE_LABELS } from "../../lib/roles";
 import { prettySize } from "../../lib/size";
+import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { EmojiPicker } from "./EmojiPicker";
 import { VoiceBar } from "./VoiceBar";
@@ -14,6 +17,8 @@ import { VoiceBar } from "./VoiceBar";
 interface Unsent {
   text: string;
   files: File[];
+  /** The people picked from the list after an "@" (a work group's only). */
+  picked: Mentioned[];
 }
 const drafts = new Map<string, Unsent>();
 
@@ -23,6 +28,9 @@ export function forgetDrafts(): void {
 }
 
 const MAX_HEIGHT = 140;
+
+/** The most names the list of people shows under an "@". */
+const MENTION_ROWS = 8;
 
 /**
  * The limits, until the server says (`me.limits`): the longest message (WhatsApp cuts a text at 4000 characters,
@@ -53,6 +61,8 @@ export interface Written {
   files: File[];
   task: string;
   voice: Recorded | null;
+  /** The colleagues the words mention (a work group's only): picked from the list, and still named in the words. */
+  mentions: Mentioned[];
 }
 
 /**
@@ -63,6 +73,10 @@ export interface Written {
  * person writes in order, and a second tap cannot send the same words twice. When WhatsApp's 24-hour window
  * is closed (`closed`) the box is off and says why - the server would only be told "no" by Meta.
  *
+ * In a work group an "@" opens the list of the people in it (`mentionable`): the arrows and Enter (or a tap) put the name in
+ * the words and remember who was meant, because a name is not unique. The server pings those still named when the message
+ * is sent. Where `mentionable` is empty (a client's chat, a chat with one colleague) an "@" is only a character.
+ *
  * Files are chosen with the clip and shown as chips that can be taken off. In a work group or a chat with a
  * colleague they have to say which task they are for (`pickTasks`): a wrong guess once put a translation on
  * the wrong task, so with several to choose from the person is asked and the send waits for the answer.
@@ -71,6 +85,7 @@ export function Composer({
   code,
   toClient,
   pickTasks,
+  mentionable,
   limit,
   fileLimits,
   voiceLimits,
@@ -85,6 +100,8 @@ export function Composer({
   toClient: boolean;
   /** Files sent here are asked which task they are for (a work group, a colleague). */
   pickTasks: boolean;
+  /** The colleagues an "@" can name here: the others in a work group. Nobody in a chat that reaches a client or has one colleague. */
+  mentionable: Mentionable[];
   /** The most characters one message may have here (what the server allows this person in this conversation). */
   limit: number;
   fileLimits: MeResponse["limits"]["files"];
@@ -99,6 +116,11 @@ export function Composer({
   const [text, setText] = useState(() => drafts.get(code)?.text ?? "");
   const [files, setFiles] = useState<File[]>(() => drafts.get(code)?.files ?? []);
   const [task, setTask] = useState("");
+  const [picked, setPicked] = useState<Mentioned[]>(() => drafts.get(code)?.picked ?? []);
+  // Where the cursor is, for the "@" being typed; the row of the list that Enter would take; the "@" whose list was closed with Escape.
+  const [caret, setCaret] = useState(() => (drafts.get(code)?.text ?? "").length);
+  const [rowAt, setRowAt] = useState(0);
+  const [dismissed, setDismissed] = useState<number | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const voice = useVoiceRecorder(voiceLimits.seconds);
 
@@ -120,9 +142,9 @@ export function Composer({
     if (reply) box.current?.focus();
   }, [reply]);
 
-  const remember = (nextText: string, nextFiles: File[]) => {
+  const remember = (nextText: string, nextFiles: File[], nextPicked: Mentioned[] = picked) => {
     if (nextText === "" && nextFiles.length === 0) drafts.delete(code);
-    else drafts.set(code, { text: nextText, files: nextFiles });
+    else drafts.set(code, { text: nextText, files: nextFiles, picked: nextPicked });
   };
 
   const body = text.trim();
@@ -146,17 +168,64 @@ export function Composer({
     remember(value, files);
   };
 
+  // The cursor goes where it should be once the new words are in the box. Set as soon as the box has them (not a frame
+  // later): a letter typed in that frame would land in front of the name that was just put in.
+  const [wantCaret, setWantCaret] = useState<{ at: number } | null>(null);
+  const putCaret = (at: number) => {
+    setCaret(at);
+    setWantCaret({ at });
+  };
+  useLayoutEffect(() => {
+    if (!wantCaret) return;
+    const node = box.current;
+    node?.focus();
+    node?.setSelectionRange(wantCaret.at, wantCaret.at);
+  }, [wantCaret]);
+
   // An emoji goes in where the cursor is (or over what is selected), and the cursor stays after it, as in WhatsApp.
   const addEmoji = (emoji: string) => {
     const node = box.current;
     const from = node?.selectionStart ?? text.length;
     const to = node?.selectionEnd ?? from;
     changeText(text.slice(0, from) + emoji + text.slice(to));
-    const caret = from + emoji.length;
-    window.requestAnimationFrame(() => {
-      node?.focus();
-      node?.setSelectionRange(caret, caret);
-    });
+    putCaret(from + emoji.length);
+  };
+
+  // The list of people under an "@": open while the cursor is in one that is being typed and somebody matches it.
+  const mentioning = mentionable.length > 0 && !closed;
+  const typed = mentioning ? typing(text, caret) : null;
+  const options = typed && dismissed !== typed.start ? matching(mentionable, typed.query).slice(0, MENTION_ROWS) : [];
+  const listing = options.length > 0;
+  const row = listing ? Math.min(rowAt, options.length - 1) : 0;
+  const looking = typed?.query;
+  useEffect(() => {
+    setRowAt(0);
+  }, [looking]);
+
+  const follow = (event: SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
+
+  // A name picked from the list goes in where "@..." was being typed, followed by a space; who was meant is kept.
+  const choosePerson = (person: Mentionable) => {
+    if (!typed) return;
+    const next = insertMention(text, typed.start, caret, person.name);
+    const nextPicked = picked.some((one) => one.id === person.id) ? picked : [...picked, { id: person.id, name: person.name }];
+    setPicked(nextPicked);
+    // A name has spaces in it, so "@Mona " still reads as an "@" being typed: its list stays shut until another "@" is begun.
+    setDismissed(typed.start);
+    setText(next.text);
+    remember(next.text, files, nextPicked);
+    putCaret(next.caret);
+  };
+
+  // The "@" button does what typing it does, for a keyboard where it is out of reach.
+  const startMention = () => {
+    const node = box.current;
+    const from = node?.selectionStart ?? text.length;
+    const to = node?.selectionEnd ?? from;
+    const lead = from > 0 && !/\s/.test(text[from - 1]!) ? " @" : "@";
+    setDismissed(null);
+    changeText(text.slice(0, from) + lead + text.slice(to));
+    putCaret(from + lead.length);
   };
 
   const pick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -179,23 +248,48 @@ export function Composer({
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     if (!ready) return;
-    onSend({ body, files, task: wantsTask && choices.length > 0 ? chosen : "", voice: null });
+    onSend({ body, files, task: wantsTask && choices.length > 0 ? chosen : "", voice: null, mentions: mentioning ? named(body, picked, mentionable) : [] });
     setText("");
     setFiles([]);
     setTask("");
-    remember("", []);
+    setPicked([]);
+    setCaret(0);
+    setDismissed(null);
+    remember("", [], []);
   };
 
   // The take is sent with the words typed beside it, and the files that are attached stay for their own send.
   const sendVoice = () => {
     if (!voice.recorded || busy || closed || over) return;
-    onSend({ body, files: [], task: "", voice: voice.recorded });
+    onSend({ body, files: [], task: "", voice: voice.recorded, mentions: mentioning ? named(body, picked, mentionable) : [] });
     setText("");
-    remember("", files);
+    setPicked([]);
+    setCaret(0);
+    setDismissed(null);
+    remember("", files, []);
     voice.discard();
   };
 
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The list of people has the keys while it is open: nothing is sent, and a reply is not dropped, by the same press.
+    if (listing && typed && !event.nativeEvent.isComposing) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : options.length - 1;
+        setRowAt((row + step) % options.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        choosePerson(options[row]!);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissed(typed.start);
+        return;
+      }
+    }
     if (event.key === "Escape" && reply) {
       onClearReply();
     } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -300,6 +394,38 @@ export function Composer({
           <Icon name="mic" />
         </button>
         <EmojiPicker disabled={closed} onPick={addEmoji} />
+        {mentioning && (
+          <button
+            type="button"
+            className="icon-btn cchat__at"
+            onClick={startMention}
+            title={t("منشن لحد في الجروب", "Mention someone in the group")}
+            aria-label={t("منشن لحد في الجروب", "Mention someone in the group")}
+          >
+            @
+          </button>
+        )}
+        {listing && (
+          <div className="mention" id={`mention-${code}`} role="listbox" aria-label={t("الناس اللي في الجروب", "People in the group")}>
+            {options.map((person, index) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === row}
+                id={`mention-${code}-${person.id}`}
+                key={person.id}
+                className={`mention__item${index === row ? " is-on" : ""}`}
+                // The box keeps the cursor: a press on the list must not take it away.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choosePerson(person)}
+              >
+                <Avatar src={person.avatar} initials={person.initials} tone="staff" className="avatar--xs" />
+                <b>{person.name}</b>
+                <span className="mention__role muted">{t(...(ROLE_LABELS[person.role as keyof typeof ROLE_LABELS] ?? [person.role, person.role]))}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={box}
           className="input grow cchat__input"
@@ -308,7 +434,17 @@ export function Composer({
           disabled={closed}
           placeholder={placeholder}
           aria-label={t("الرسالة", "Message")}
-          onChange={(event) => changeText(event.target.value)}
+          aria-autocomplete={mentioning ? "list" : undefined}
+          aria-controls={listing ? `mention-${code}` : undefined}
+          aria-activedescendant={listing ? `mention-${code}-${options[row]!.id}` : undefined}
+          onChange={(event) => {
+            const at = event.target.selectionStart;
+            // A list that was shut (Escape, or a name just chosen) stays shut for that "@" only.
+            if (typing(event.target.value, at)?.start !== dismissed) setDismissed(null);
+            setCaret(at);
+            changeText(event.target.value);
+          }}
+          onSelect={follow}
           onKeyDown={keys}
         />
         <button className="btn btn--primary" type="submit" id="chatSend" disabled={!ready}>

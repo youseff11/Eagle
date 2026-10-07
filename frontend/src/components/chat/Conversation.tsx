@@ -333,8 +333,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     if (arrivedKeys) outbox.prune(arrivedKeys.split(",").map(Number));
   }, [arrivedKeys, outbox.prune]);
 
-  const write = ({ body, files, task, voice }: Written) => {
-    outbox.send({ body, files, task, voice, reply: replyTo, known: messages.map((entry) => entry.uid) });
+  const write = ({ body, files, task, voice, mentions }: Written) => {
+    outbox.send({ body, files, task, voice, mentions, reply: replyTo, known: messages.map((entry) => entry.uid) });
     setReplyTo(null);
     setSent((count) => count + 1);
   };
@@ -416,6 +416,9 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   const isGroup = /^g\d+$/.test(code);
   const members = useGroupMembers(row?.room, isGroup && known);
   const [adding, setAdding] = useState(false);
+  // An "@" names the others in a group that stays inside. A group that reaches a client relays every word, so a colleague's
+  // name there would be put in front of the client: nobody is offered, and the server refuses it as well.
+  const mentionable = isGroup && row?.reaches_client !== true ? (members.data?.members ?? []).filter((person) => person.id !== me) : [];
 
   // «خلصت التاسك»: a translator hands in their own files from a work group, and the task goes to review.
   const handTasks = useHandInTasks(row?.room, isGroup && known && row?.team === true && account?.user.role === "translator");
@@ -661,6 +664,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               code={code}
               toClient={!row.staff && (row.reaches_client === true || !row.group)}
               pickTasks={row.staff === true || row.team === true}
+              mentionable={mentionable}
               fileLimits={limits.files}
               voiceLimits={limits.voice}
               limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}

@@ -23,6 +23,7 @@ import { qk } from "../api/keys";
 import { fetchThread, postMessage } from "../api/queries";
 import type { ThreadEntry, ThreadResponse } from "../api/types";
 import { isKept, keep, previewOf, release } from "./localPhotos";
+import type { Mentioned } from "./mentions";
 import { formatSeconds, type Recorded } from "./recorder";
 
 /** The message a reply answers, as the reply bar and the bubble show it. */
@@ -41,6 +42,8 @@ export interface Composed {
   task: string;
   /** A voice note, sent by itself (with words, if there are any). */
   voice: Recorded | null;
+  /** The colleagues picked after an "@" (a work group's only); the ones still named in the words are pinged. */
+  mentions?: Mentioned[];
 }
 
 export interface Outgoing extends Composed {
@@ -183,6 +186,7 @@ export async function deliver(client: QueryClient, code: string, key: number, me
       files: item.files,
       task: item.task,
       voice: item.voice ?? undefined,
+      mentions: (item.mentions ?? []).map((person) => person.id),
     });
     adopt([item], answer.messages, meId);
     client.setQueryData(qk.thread(code), { ok: true, client: answer.client, messages: answer.messages });
@@ -244,6 +248,7 @@ export function submit(
     previews: draft.files.map(previewOf),
     task: draft.task,
     voice: draft.voice,
+    mentions: draft.mentions ?? [],
     voicePreview: draft.voice ? previewOf(draft.voice.blob) : "",
     before: draft.known,
     state: "sending",

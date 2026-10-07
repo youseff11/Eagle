@@ -650,6 +650,9 @@ export interface ThreadEntry {
   receipt: string;
   seen_by: string[];
   forwarded: boolean;
+  /** The colleagues this message mentions and pinged, by id (a work group's only); and whether it mentions the viewer. */
+  mentions?: { id: number; name: string }[];
+  mentions_me?: boolean;
   reactions: Reaction[];
   /** The buttons under a client's message are for this person (the operation and the admin, on what a client wrote). */
   actions: boolean;

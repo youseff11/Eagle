@@ -3,6 +3,7 @@ import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
 import { localSrc } from "../../lib/localPhotos";
+import { pieces, type Mentioned } from "../../lib/mentions";
 import type { Outgoing } from "../../lib/outbox";
 import { formatSeconds } from "../../lib/recorder";
 import { safeInternalPath } from "../../lib/safeUrl";
@@ -184,6 +185,23 @@ function SeenBy({ names }: { names: string[] }) {
   );
 }
 
+/** The words of a message, with the colleagues it mentions drawn as names (only those the server says it pinged: any other "@" stays plain). */
+function Words({ body, mentions }: { body: string; mentions?: Mentioned[] }) {
+  return (
+    <>
+      {pieces(body, mentions).map((piece, index) =>
+        piece.mention ? (
+          <span key={index} className="bub__mention" data-mention={piece.mention.id}>
+            {piece.text}
+          </span>
+        ) : (
+          piece.text
+        ),
+      )}
+    </>
+  );
+}
+
 /** The pill that hangs off the bubble: who reacted, and a tap on it opens the bar of reactions. */
 function Reactions({ reactions, onOpen, off }: { reactions: Reaction[]; onOpen?: (trigger: HTMLElement) => void; off: boolean }) {
   const { t } = usePreferences();
@@ -272,6 +290,8 @@ export function Bubble({
   if (entry.status === "failed") classes.push("bub--failed");
   if (entry.reactions.length > 0) classes.push("has-reacts");
   if (selected) classes.push("is-selected");
+  // It names this person: the bubble stands out in a long group, the way a mention does elsewhere.
+  if (entry.mentions_me === true && !entry.unsent) classes.push("bub--ping");
   // Taken back by its sender: nothing of it is left to answer, react to, forward, pick or open.
   const gone = entry.unsent === true;
   if (gone) classes.push("bub--gone");
@@ -371,10 +391,14 @@ export function Bubble({
                 onChange={() => textMark.toggle(entry)}
                 aria-label={t("حدد الرسالة للتفاصيل", "Select the message for the details")}
               />
-              <span>{entry.body}</span>
+              <span>
+                <Words body={entry.body} mentions={entry.mentions} />
+              </span>
             </div>
           ) : (
-            <div className="bub__text">{entry.body}</div>
+            <div className="bub__text">
+              <Words body={entry.body} mentions={entry.mentions} />
+            </div>
           ))}
         {(gone ? [] : fileBlocks(entry, fileMark)).map((block) =>
           block.grid ? (
@@ -550,7 +574,11 @@ export function OutgoingBubble({
             <span>{item.reply.text}</span>
           </div>
         )}
-        {item.body && <div className="bub__text">{item.body}</div>}
+        {item.body && (
+          <div className="bub__text">
+            <Words body={item.body} mentions={item.mentions} />
+          </div>
+        )}
         <PendingFiles item={item} />
         {item.voice && (
           <div className="bub__voice">

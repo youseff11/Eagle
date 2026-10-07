@@ -69,6 +69,45 @@ textarea.cchat__input:disabled { cursor: not-allowed; opacity: .7; }
 .bub__seen span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bub__retry { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 8px; }
 
+/* Mentioning a colleague in a group: the list of people over the box, and the name drawn in the words. The blue is
+   WhatsApp's own for a mention, one for each of the two grounds the bubbles have (dark, and the light theme's white and pale green). */
+.cchat__composer { position: relative; }
+.cchat__at { font-weight: 700; font-size: calc(17px * var(--fs, 1)); line-height: 1; }
+.mention {
+  position: absolute;
+  z-index: 60;
+  inset-inline: 8px;
+  inset-block-end: calc(100% + 6px);
+  max-height: 240px;
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .3);
+}
+button.mention__item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+button.mention__item:hover,
+button.mention__item.is-on { background: var(--brand-soft); }
+.mention__role { margin-inline-start: auto; font-size: calc(11px * var(--fs, 1)); }
+.bub__mention { color: #53bdeb; font-weight: 650; }
+[data-theme="light"] .bub__mention { color: #0a6e9e; }
+.bub--ping .bub__box { box-shadow: 0 0 0 2px var(--brand-line); }
+
 /* Where files and voice notes are still sent from. */
 .cchat__hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 14px 10px; font-size: calc(12px * var(--fs, 1)); }
 

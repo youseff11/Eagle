@@ -1066,6 +1066,8 @@ export interface Draft {
   task?: string;
   /** A voice note the page recorded. */
   voice?: Recorded;
+  /** The colleagues picked from the list after an "@" (a work group's only): the server pings those still named in the words. */
+  mentions?: number[];
 }
 
 /**
@@ -1085,15 +1087,17 @@ export async function postMessage(code: string, draft: Draft): Promise<SendRespo
   const abort = new AbortController();
   const timer = window.setTimeout(() => abort.abort(), uploads ? SEND_TIMEOUT_FILES_MS : SEND_TIMEOUT_MS);
   try {
+    const mentions = (draft.mentions ?? []).join(",");
     if (!uploads) {
       return await api<SendResponse>(path, {
-        form: { body: draft.body, ...(draft.replyUid ? { reply_uid: draft.replyUid } : {}) },
+        form: { body: draft.body, ...(draft.replyUid ? { reply_uid: draft.replyUid } : {}), ...(mentions ? { mentions } : {}) },
         signal: abort.signal,
       });
     }
     const multipart = new FormData();
     multipart.append("body", draft.body);
     if (draft.replyUid) multipart.append("reply_uid", draft.replyUid);
+    if (mentions) multipart.append("mentions", mentions);
     if (draft.task) multipart.append("task", draft.task);
     for (const file of files) multipart.append("files", file, file.name);
     if (draft.voice) {
