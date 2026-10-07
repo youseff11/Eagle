@@ -197,6 +197,9 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* `.mono` forces ltr, which pushed an English name to the far side of the row, away from the avatar. */
+[dir="rtl"] .cthread__title.mono { text-align: right; }
+[dir="ltr"] .cthread__title.mono { text-align: left; }
 .cthread__time {
   flex: none;
   white-space: nowrap;
