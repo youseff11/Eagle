@@ -530,6 +530,9 @@ class User(AbstractUser):
         "SalaryPlan", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="members",
     )
+    #: Typed by the owner by hand: a flat sum added to this person's pay every month until he changes it. No rule
+    #: earns it and none takes it away (that is what the plan's bonuses are for); the month's line keeps what it was.
+    incentive = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
         ordering = ("role", "username")
@@ -1876,6 +1879,9 @@ class ChatMessage(models.Model):
     #: out for anybody who may not know the client (``services.words_of``). Only the admin opens words, and it is still
     #: the client's record: it goes when the client does, and is never taken back or forwarded to another client.
     words_open = models.BooleanField(default=False)
+    #: The team leader uploaded this as the version he corrected (``services.upload_reviewed``): what the review sends on in the
+    #: translator's place. Only that upload sets it - a file he happens to send in chat (notes, instructions) never counts as final.
+    reviewed_version = models.BooleanField(default=False)
     reply_to = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="replies",
@@ -3207,6 +3213,8 @@ class PayrollLine(models.Model):
     #: one. Stored on the line so releasing the bonuses can rebuild `gross`
     #: without going back to today's plan for a month already run.
     allowance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    #: The owner's manual incentive for this person (``User.incentive``) as it was when the month was run.
+    incentive = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     production_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     overtime_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     discipline_bonus = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))

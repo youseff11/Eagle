@@ -192,7 +192,7 @@ def _direct_json():
 
 
 def _deliverables_json(task):
-    """The files the operation may send to the client, the translator's own ticked.
+    """The files the operation may send to the client, the final version ticked: the leader's corrected file if he put one, else the translator's.
 
     A voice note is talk, not a translation: offered and ticked as final, a private word to the leader would be
     one click from the client's phone (``views.task_detail`` leaves them out the same way).
@@ -201,6 +201,8 @@ def _deliverables_json(task):
         ChatAttachment.objects.filter(services.task_files_filter(task))
         .select_related("message", "message__sender").order_by("-id")[:40]
     )
+    # Ticked: what the review sends on - the leader's corrected version when he uploaded one, the translator's own otherwise.
+    final = {a.pk for a in services.final_files(task)}
     out = []
     for attachment in rows:
         if attachment.is_audio:
@@ -211,7 +213,7 @@ def _deliverables_json(task):
             "name": attachment.original_name or attachment.file.name.rsplit("/", 1)[-1],
             "size": attachment.pretty_size,
             "sender": sender.short_name if sender else None,
-            "final": bool(task.translator_id and sender and sender.pk == task.translator_id),
+            "final": attachment.pk in final,
         })
     return out
 
@@ -257,6 +259,8 @@ def _lead_json(task, user):
         "translators": translators,
         "can_set_translator_deadline": bool(task.translator_id),
         "can_review": task.status == TaskStatus.UNDER_REVIEW,
+        # His own corrected file: asked while the task is under review and (if he notices late) after it, until it reaches the client.
+        "can_upload_reviewed": services.can_upload_reviewed(task, user),
         "client_due": _stamp(task.deadline, "%Y-%m-%d"),
         "extension": {
             "id": pending.pk,
@@ -336,6 +340,11 @@ def task(request, code):
                 "translation": [] if watching else [
                     dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"))
                     for a in services.translator_files(task)
+                ],
+                # The leader's own corrected version, which the review sends on in its place.
+                "reviewed": [] if watching else [
+                    dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"))
+                    for a in services.reviewed_files(task)
                 ],
             },
             "chat": services.task_chat_link(task, user),

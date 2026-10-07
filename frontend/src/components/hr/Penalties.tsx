@@ -22,20 +22,36 @@ function refusalWords(failure: unknown, t: (ar: string, en: string) => string): 
  * One penalty: how many stars, why, on which task, and what was done with it. While it waits and the reader may decide, the two
  * buttons: apply it (the stars stay off) or forgive it (they are given back to the person, who is told). A penalty is decided once.
  */
-export function PenaltyRow({ row, canDecide, showPerson }: { row: HrPenalty; canDecide: boolean; showPerson: boolean }) {
+export function PenaltyRow({
+  row,
+  canDecide,
+  canChange = false,
+  showPerson,
+}: {
+  row: HrPenalty;
+  canDecide: boolean;
+  /** The admin: what was decided can be turned round - forgive what stands, apply again what was forgiven. */
+  canChange?: boolean;
+  showPerson: boolean;
+}) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
   const decide = useDecidePenalty();
   const [note, setNote] = useState("");
   const [problem, setProblem] = useState("");
   const waiting = row.decision.value === "pending";
+  // What is there already is not offered again: a decided penalty gets the one button that changes it.
+  const turn = !waiting && canChange ? (row.decision.value === "confirmed" ? "forgive" : "confirm") : null;
 
   const send = (action: "confirm" | "forgive") => {
     setProblem("");
     decide.mutate(
       { id: row.id, action, note: note.trim() },
       {
-        onSuccess: () => push({ level: "success", title: action === "forgive" ? t("اتسامح ورجعت النجوم", "Forgiven, the stars are back") : t("الخصم اتطبق", "Penalty applied") }),
+        onSuccess: () => {
+          setNote("");
+          push({ level: "success", title: action === "forgive" ? t("اتسامح ورجعت النجوم", "Forgiven, the stars are back") : t("الخصم اتطبق", "Penalty applied") });
+        },
         onError: (failure) => setProblem(refusalWords(failure, t)),
       },
     );
@@ -80,6 +96,23 @@ export function PenaltyRow({ row, canDecide, showPerson }: { row: HrPenalty; can
           </button>
         </div>
       )}
+      {turn && (
+        <div className="row row--tight penalty__actions">
+          <input
+            className="input"
+            type="text"
+            maxLength={200}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder={t("ملاحظة (اختياري)", "Note (optional)")}
+            aria-label={t("ملاحظة", "Note")}
+          />
+          <button className={`btn btn--sm${turn === "confirm" ? " btn--danger" : ""}`} type="button" data-turn={turn} disabled={decide.isPending} onClick={() => send(turn)}>
+            <Icon name={turn === "confirm" ? "check" : "refresh"} size="sm" />
+            <span>{turn === "confirm" ? t("طبّق الخصم تاني", "Apply it again") : t("سامحه وارجّع النجوم", "Forgive and give the stars back")}</span>
+          </button>
+        </div>
+      )}
       {problem && (
         <div className="note note--high" role="alert">
           <Icon name="alert" />
@@ -91,7 +124,7 @@ export function PenaltyRow({ row, canDecide, showPerson }: { row: HrPenalty; can
 }
 
 /** What took stars off one person, newest first, on their file: for HR and the admin. */
-export function PenaltiesCard({ rows, canDecide }: { rows: HrPenalty[]; canDecide: boolean }) {
+export function PenaltiesCard({ rows, canDecide, canChange = false }: { rows: HrPenalty[]; canDecide: boolean; canChange?: boolean }) {
   const { t } = usePreferences();
   return (
     <div className="card" data-card="penalties">
@@ -101,7 +134,7 @@ export function PenaltiesCard({ rows, canDecide }: { rows: HrPenalty[]; canDecid
       </div>
       <ul className="timeline">
         {rows.map((row) => (
-          <PenaltyRow key={row.id} row={row} canDecide={canDecide} showPerson={false} />
+          <PenaltyRow key={row.id} row={row} canDecide={canDecide} canChange={canChange} showPerson={false} />
         ))}
         {rows.length === 0 && <li className="muted">{t("مفيش خصومات.", "No penalties.")}</li>}
       </ul>

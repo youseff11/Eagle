@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -76,6 +76,18 @@ describe("PayrollPage", () => {
     // Deductions are drawn as a loss only when there are any.
     expect(container.querySelectorAll(".kpi--danger")).toHaveLength(1);
     expect(container.querySelectorAll(".kpi--ok")).toHaveLength(1);
+  });
+
+  it("shows the owner's incentive among the month's figures when there is one, and nothing when there is none", async () => {
+    serve(slip({ line: { ...slip().line!, incentive: "250.00" } }));
+    open();
+    expect(await screen.findByText("الحوافز")).toBeInTheDocument();
+    expect(screen.getByText("250.00")).toBeInTheDocument();
+    cleanup();
+    serve(slip({ line: { ...slip().line!, incentive: "0.00" } }));
+    open();
+    await screen.findByText("بونص الإنتاج");
+    expect(screen.queryByText("الحوافز")).not.toBeInTheDocument();
   });
 
   it("draws no loss for no deductions, and no waiting bonus for none waiting", async () => {

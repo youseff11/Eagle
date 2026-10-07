@@ -3,11 +3,14 @@
 The stars come off the moment the penalty is written (``User.apply_penalty``): the assignment order reads them, and a miss that
 took nothing off until somebody noticed would be a miss with no consequence. What a person at HR or the admin decides is whether
 the penalty *stands*. Applying it only marks it (the stars are already gone); forgiving it gives the stars back, up to the
-company's maximum, and says so to the employee. A penalty is decided once.
+company's maximum, and says so to the employee. HR decides a penalty once; the admin (the owner) may change what was decided -
+forgive what was applied, apply again what was forgiven - and the stars follow.
 
 Both writes leave an audit row, and the employee is told either way - a penalty that changes after they read it must not change
 behind their back.
 """
+
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
@@ -26,6 +29,11 @@ MAX_NOTE = 200
 def may_decide(user):
     """HR and the admin: the two the penalty is put in front of."""
     return bool(user and user.is_authenticated and user.is_active and (user.is_admin_role or user.role == Role.HR))
+
+
+def may_change(user):
+    """The admin alone: a decision HR or the admin took is his to take back."""
+    return bool(user and user.is_authenticated and user.is_active and user.is_admin_role)
 
 
 def announce(event):
@@ -47,7 +55,7 @@ def decide(event_pk, actor, action, note=""):
     """Apply or forgive one penalty. ``(event, "")`` on success, ``(None, error)`` when it is refused.
 
     Errors: ``forbidden`` (not HR or the admin), ``bad_action``, ``not_found``, ``own_record`` (HR deciding a penalty of their
-    own - the admin may), ``decided`` (already applied or forgiven).
+    own - the admin may), ``decided`` (already decided, and either the actor is not the admin or it already stands as asked).
     """
     if not may_decide(actor):
         return None, "forbidden"
@@ -60,7 +68,9 @@ def decide(event_pk, actor, action, note=""):
         person = User.objects.select_for_update().get(pk=event.user_id)
         if person.pk == actor.pk and not actor.is_admin_role:
             return None, "own_record"
-        if event.decision != RatingEvent.Decision.PENDING:
+        was = event.decision
+        # Decided once, except by the admin, who may turn it round: what stands already is not decided again.
+        if was != RatingEvent.Decision.PENDING and (not may_change(actor) or was == ACTIONS[action]):
             return None, "decided"
         # A raise is never made here: a penalty is a negative number, and the stars given back are what it took.
         amount = abs(event.delta)
@@ -68,12 +78,19 @@ def decide(event_pk, actor, action, note=""):
             ceiling = AppSettings.load().max_rating
             person.rating = min(ceiling, person.rating + amount)
             person.save(update_fields=["rating"])
+        elif was == RatingEvent.Decision.FORGIVEN:
+            # Applied again: the stars that were given back come off again, never below nought.
+            person.rating = max(Decimal("0.000"), person.rating - amount)
+            person.save(update_fields=["rating"])
         event.decision = ACTIONS[action]
         event.decided_by = actor
         event.decided_at = timezone.now()
         event.decision_note = (note or "").strip()[:MAX_NOTE]
         event.save(update_fields=["decision", "decided_by", "decided_at", "decision_note"])
-        services.log(actor, f"rating.{action}", person.username, f"{event.pk}: {event.delta}")
+        services.log(
+            actor, f"rating.{action}", person.username,
+            f"{event.pk}: {event.delta}" + ("" if was == RatingEvent.Decision.PENDING else f" (was {was})"),
+        )
 
     amount_text = f"{amount.normalize():f}"
     if action == "forgive":

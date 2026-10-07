@@ -34,6 +34,7 @@ function Month({ data }: { data: PayrollResponse }) {
           <div className="grid grid--4">
             <Kpi label={t("الراتب الأساسي", "Base salary")} value={line.base_salary} />
             <Kpi label={t("بونص الإنتاج", "Production bonus")} value={line.production_bonus} tone="ok" />
+            {Number(line.incentive ?? 0) > 0 && <Kpi label={t("الحوافز", "Incentive")} value={line.incentive ?? "0"} tone="ok" />}
             <Kpi label={t("خصومات", "Deductions")} value={line.deductions} tone={Number(line.deductions) > 0 ? "danger" : undefined} />
             <Kpi label={t("الصافي", "Net")} value={line.net} />
           </div>

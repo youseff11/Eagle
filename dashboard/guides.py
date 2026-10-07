@@ -1042,6 +1042,7 @@ GUIDES = (
             "لو الـAI مفعّل هتلاقي «ملاحظات الـ AI على الترجمة» (وفيها «أعد الفحص»)؛ دي اقتراحات بس والقرار ليك.",
             "علّم «اقبلها» على الملاحظات اللي صح واضغط زرار قبول المحدد، أو «اقبل الكل» لو كلها صح. كل ملاحظة بتتقبل بتخصم نجوم من تقييم المترجم بس، وبيطلع لك سؤال بعدد النجوم قبل ما يتنفذ.",
             "لو فيه ملاحظات كلّم المترجم في جروب الشغل من «الشات» واستنى الملف المعدّل.",
+            "لو انت اللي عدّلت الملف: من «الملف اللي ظبطته» اختار ملفك واضغط «احفظ الملف المعدّل». ده اللي هيروح للأوبريشن مع المراجعة بدل ملف المترجم. لو مارفعتش ملف هيروح ملف المترجم زي ما هو.",
             "لما تبقى تمام اضغط «تمت المراجعة» وأكّد «أيوه، خلصت». التاسك بتروح للأوبريشن تستلمها وتسلّمها للعميل.",
         ],
         [
@@ -1050,9 +1051,70 @@ GUIDES = (
             "If the AI is on you will find «AI notes on the translation» (with «Check again»); they are suggestions only and the decision is yours.",
             "Tick «Accept» on the notes that are right and press the accept-selected button, or «Accept all» if all are. Each accepted note takes stars off the translator's rating only, and you are asked how many before it is done.",
             "If there are notes, talk to the translator in the work group from «Chats» and wait for the corrected file.",
+            "If you corrected the file yourself: under «The file you corrected» choose your file and press «Save the corrected file». That is what the operation gets with the review, in place of the translator's file. With none put there, the translator's file goes as it is.",
             "When it is right press «Review completed» and confirm «Yes, it is done». The task goes to operation to take over and deliver to the client.",
         ],
         starter=True,
+    ),
+    _guide(
+        "lead-send-corrected-file", (Role.TEAM_LEAD, Role.ADMIN), "/lead",
+        ("إزاي أبعت للأوبريشن الملف اللي أنا ظبطته", "How do I send the operation the file I corrected"),
+        (
+            "ملفي المعدّل، الملف اللي عدلته، ابعت ملفي مش ملف المترجم، نسختي بعد المراجعة، ملف معدل، غيرت الملف",
+            "my corrected file, the file I edited, send my file not the translator's, my version after review, corrected file",
+        ),
+        [
+            "افتح التاسك من «تاسكاتي». وانت في مرحلة المراجعة هتلاقي في «الإجراءات» خانة «الملف اللي ظبطته».",
+            "اختار ملفك (أو أكتر من ملف) واضغط «احفظ الملف المعدّل». ملفك هو اللي هيتبعت للأوبريشن، مش ملف المترجم.",
+            "اضغط «تمت المراجعة» وأكّد «أيوه، خلصت». الأوبريشن بيستلم ملفك في الشات بتاعك معاه، وهو اللي بيتعلّم تلقائيًا لما يسلّم للعميل.",
+            "لو افتكرت تعديل بعد ما ضغطت «تمت المراجعة»: ارفع الملف الجديد من نفس الخانة واضغط «ابعت الملف المعدّل للأوبريشن». بيوصله على طول ومكتوب إنه بدل اللي قبله.",
+        ],
+        [
+            "Open the task from «My tasks». While it is under review you will find «The file you corrected» in «Actions».",
+            "Choose your file (or several) and press «Save the corrected file». Your file is what goes to the operation, not the translator's.",
+            "Press «Review completed» and confirm «Yes, it is done». The operation receives your file in their chat with you, and it is the one ticked for the client.",
+            "If you notice a fix after pressing «Review completed»: put the new file in the same box and press «Send the corrected file to the operation». It reaches them at once and says it replaces the first.",
+        ],
+    ),
+    _guide(
+        "hr-incentive", (Role.ADMIN,), "/hr/employees",
+        ("إزاي أضيف حوافز (زيادة مرتب) لموظف", "How do I add an incentive (a pay raise) to an employee"),
+        (
+            "حوافز، زيادة مرتب، علاوة، حافز شهري، ضيف على المرتب، مبلغ يدوي على المرتب",
+            "incentive, pay raise, monthly bonus, add to the salary, manual amount on the salary",
+        ),
+        [
+            "افتح «ملفات الموظفين» واختار الموظف.",
+            "تحت «خطة الراتب» هتلاقي «الحوافز (زيادة مرتب)». اكتب المبلغ الشهري واضغط «سجّل».",
+            "المبلغ بيتضاف على مرتب الموظف كل شهر لحد ما تغيّره، بالإيد من غير أي قاعدة بتحسبه. اكتب صفر عشان تشيله.",
+            "الشهر اللي اتحسب قبل كده بيفضل زي ما اتدفع، والحوافز بتظهر في كشف المرتب.",
+        ],
+        [
+            "Open «Employee files» and choose the person.",
+            "Under «Salary plan» you will find «Incentive (pay raise)». Type the monthly amount and press «Record».",
+            "The amount is added to the person's pay every month until you change it, by hand, with no rule working it out. Type zero to take it off.",
+            "A month that was already run stays as it was paid, and the incentive shows on the payslip.",
+        ],
+    ),
+    _guide(
+        "hr-penalty-change", (Role.ADMIN,), "/hr/employees",
+        ("إزاي أغيّر قرار خصم نجوم اتاخد قبل كده", "How do I change a decision on a star penalty"),
+        (
+            "خصم التقييم، خصومات التقييم، سامح الخصم، اطبق الخصم تاني، غيّر قرار الخصم، رجّع النجوم",
+            "rating penalty, forgive a penalty, apply the penalty again, change the decision, give the stars back",
+        ),
+        [
+            "افتح «ملفات الموظفين» واختار الموظف وانزل لـ«خصومات التقييم».",
+            "الخصم اللي اتطبق عليه زرار «سامحه وارجّع النجوم». اضغطه والنجوم بترجع للموظف وبيتبلّغ.",
+            "الخصم اللي اتسامح عليه زرار «طبّق الخصم تاني». اضغطه والنجوم بتتخصم تاني وبيتبلّغ.",
+            "القرار اللي بيتاخد من الـHR بيفضل مرة واحدة؛ انت بس اللي بتقدر تغيّره بعد كده.",
+        ],
+        [
+            "Open «Employee files», choose the person and scroll to «Rating penalties».",
+            "A penalty that was applied has the button «Forgive and give the stars back». Press it and the stars go back to the person, who is told.",
+            "A penalty that was forgiven has the button «Apply it again». Press it and the stars come off again, and the person is told.",
+            "A decision HR takes stands once; only you can change it afterwards.",
+        ],
     ),
     _guide(
         "lead-translators-board", (Role.TEAM_LEAD, Role.ADMIN), "/lead/translators",

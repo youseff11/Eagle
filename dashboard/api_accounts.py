@@ -214,6 +214,7 @@ def _line_full(line, conf):
         "day_value": _money(line.day_value),
         "target_words": line.target_words,
         "under_target_days": line.under_target_days,
+        "incentive": _money(line.incentive),
         "overtime_bonus": _money(line.overtime_bonus),
         "overtime_minutes": line.overtime_minutes,
         "discipline_bonus": _money(line.discipline_bonus),

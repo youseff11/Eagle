@@ -352,7 +352,12 @@ export interface OpsTask {
   people: { operation: string | null; team_lead: string | null; translator: string | null };
   /** Who has been asked to take it and has not answered yet, and how long they have. */
   waiting_for: { name: string; seconds_left: number } | null;
-  files: { original: TaskFile[]; translation: (TaskFile & { at: Stamp | null })[] };
+  files: {
+    original: TaskFile[];
+    translation: (TaskFile & { at: Stamp | null })[];
+    /** The team leader's own corrected version, which the review sends on in the translator's place. */
+    reviewed?: (TaskFile & { at: Stamp | null })[];
+  };
   chat: { url: string; label_ar: string; label_en: string } | null;
   client_chat_url: string | null;
   can: {
@@ -467,6 +472,8 @@ export interface PayrollResponse {
     id: number;
     base_salary: string;
     production_bonus: string;
+    /** The owner's manual incentive, when there is one. */
+    incentive?: string;
     deductions: string;
     net: string;
     pending_bonus: string;
@@ -971,6 +978,8 @@ export interface LeadTools {
   can_set_translator_deadline: boolean;
   /** It is under review: the review can be finished. */
   can_review: boolean;
+  /** The leader may put the file he corrected: under review, and after it until the client has it. */
+  can_upload_reviewed?: boolean;
   /** The client's date, to remind the leader of the review time they keep. */
   client_due: Stamp | null;
   /** The translator's request for more time, waiting for this person's yes or no. */
@@ -1341,6 +1350,8 @@ export interface AccountsLine {
     day_value: string;
     target_words: number;
     under_target_days: number;
+    /** The owner's manual incentive, as it was when the month was run. */
+    incentive?: string;
     overtime_bonus: string;
     overtime_minutes: number;
     discipline_bonus: string;
@@ -1804,7 +1815,18 @@ export interface HrEmployee {
   salary: { effective_from: string; amount: string }[];
   /** The stars that came off this person, newest first, and what HR or the admin did with each. */
   penalties: HrPenalty[];
-  can: { edit: boolean; shift: boolean; plan: boolean; decide_penalties: boolean };
+  /** The incentive, as text, for the admin; `null` for everybody else (money is the owner's) and for a file that has no pay. */
+  incentive?: string | null;
+  can: {
+    edit: boolean;
+    shift: boolean;
+    plan: boolean;
+    decide_penalties: boolean;
+    /** The admin may turn a decision round (forgive what stands, apply again what was forgiven). */
+    change_penalties?: boolean;
+    /** The admin may set the incentive. */
+    incentive?: boolean;
+  };
 }
 
 /** One star penalty (`api_people._penalty_json`): who, how many stars, why, and whether it stands. */

@@ -2751,8 +2751,12 @@ def mark_translated(task, user):
     return True
 
 
-def share_reviewed_files(task, lead):
+def share_reviewed_files(task, lead, updated=False):
     """Put the reviewed translation into the leader's chat with the operation.
+
+    What goes is the leader's own version when he uploaded one (``final_files``), the translator's file otherwise.
+    ``updated`` says these files replace what the operation was given at the review: the leader fixed something after
+    pressing it, and the card says so.
 
     The operation used to hear "reviewed" and then go to the task page to find
     the files. Now the files arrive in the private chat with the leader, under
@@ -2779,7 +2783,7 @@ def share_reviewed_files(task, lead):
     if ops is None or lead is None or ops.pk == lead.pk:
         return None
     try:
-        files = translator_files(task, since=task.returned_at) or translator_files(task)
+        files = final_files(task)
         room = pair_room(lead, ops)
         if room is None or not files:
             return None
@@ -2789,13 +2793,18 @@ def share_reviewed_files(task, lead):
             system_message(
                 room, key="reviewed_files",
                 body_ar=(
-                    f"الترجمة النهائية بعد المراجعة: {facts} · {len(files)} ملف. "
-                    "تقدر تستلمها وتبعتها للعميل: حدد رسالة الملفات اللي تحت "
-                    "وحوّلها لشات العميل."
+                    (
+                        f"تحديث من التيم ليدر - النسخة المعدّلة بدل اللي اتبعتت قبل كده: {facts} · {len(files)} ملف. "
+                        if updated else f"الترجمة النهائية بعد المراجعة: {facts} · {len(files)} ملف. "
+                    )
+                    + "تقدر تستلمها وتبعتها للعميل: حدد رسالة الملفات اللي تحت وحوّلها لشات العميل."
                 ),
                 body_en=(
-                    f"Final translation after review: {facts} · {len(files)} file(s). "
-                    "Pick the files message below and forward it to the client's chat."
+                    (
+                        f"Update from the team leader - the corrected version replaces what was sent before: {facts} · {len(files)} file(s). "
+                        if updated else f"Final translation after review: {facts} · {len(files)} file(s). "
+                    )
+                    + "Pick the files message below and forward it to the client's chat."
                 ),
             )
             message = ChatMessage.objects.create(room=room, sender=lead, body="")
@@ -3952,6 +3961,76 @@ def translator_files(task, since=None):
     if since is not None:
         qs = qs.filter(message__created_at__gt=since)
     return [a for a in qs if not a.is_audio]
+
+
+def reviewed_files(task):
+    """The files the team leader (or the admin) uploaded on this task as the version he corrected (``upload_reviewed``).
+
+    Only an upload from the task page counts: a file he sent in chat - notes, instructions, a sample - is not the translation, even
+    when it carries the task. And only what came after the translator's newest file: a file from before it was the version the
+    translator then replaced. Voice notes are talk, and are left out.
+    """
+    translated = translator_files(task)
+    since = max((a.message.created_at for a in translated), default=None)
+    qs = (
+        ChatAttachment.objects
+        .filter(task_files_filter(task), message__reviewed_version=True)
+        .select_related("message")
+        .order_by("id")
+    )
+    if since is not None:
+        qs = qs.filter(message__created_at__gt=since)
+    return [a for a in qs if not a.is_audio]
+
+
+def final_files(task):
+    """What goes on to the operation and, ticked, to the client: the leader's corrected version when there is one, else the translator's.
+
+    After a send-back only a translator file that came in after it counts, as in ``translation_missing``.
+    """
+    return reviewed_files(task) or translator_files(task, since=task.returned_at) or translator_files(task)
+
+
+UPLOAD_REVIEWED_STATUSES = (TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED)
+
+
+def can_upload_reviewed(task, user):
+    """The task's own team leader and the admin, while the task is under review or reviewed and not yet sent on to the client."""
+    if user is None or not (user.is_admin_role or (user.is_team_lead and task.team_lead_id == user.pk)):
+        return False
+    return task.status in UPLOAD_REVIEWED_STATUSES
+
+
+def upload_reviewed(task, user, uploads):
+    """The team leader hands in the file he corrected, from the task page: ``(message, error)``.
+
+    It is what the review sends on (``final_files``). Uploaded before «تمت المراجعة», it waits for it and goes with it; after it
+    (he noticed something once it was pressed), it goes to the operation at once, under a card that says it replaces what they
+    were given. Errors: ``forbidden``, ``bad_status`` (not under review, or already delivered), ``empty``, ``no_room``.
+    """
+    if not (user.is_admin_role or (user.is_team_lead and task.team_lead_id == user.pk)):
+        return None, "forbidden"
+    if task.status not in UPLOAD_REVIEWED_STATUSES:
+        return None, "bad_status"
+    uploads = [u for u in (uploads or []) if u]
+    if not uploads:
+        return None, "empty"
+    lead = task.team_lead or user
+    room = pair_room(lead, task.translator) or pair_room(lead, task.created_by)
+    if room is None:
+        return None, "no_room"
+
+    with transaction.atomic():
+        message = ChatMessage.objects.create(
+            room=room, sender=user, task=task, body=f"النسخة بعد المراجعة - {task.code}", reviewed_version=True,
+        )
+        for item in uploads:
+            ChatAttachment.objects.create(message=message, file=item, original_name=short_name(item.name), size=item.size)
+    log(user, "task.reviewed_uploaded", task.code, str(len(uploads)))
+    if task.status == TaskStatus.REVIEWED:
+        # Pressed already: what the operation holds is the old version, so the new one is sent on to them now.
+        share_reviewed_files(task, lead, updated=True)
+    return message, ""
 
 
 TRANSLATION_MISSING_AR = "ارفع ملف الترجمة الأول من صفحة التاسك، وبعدين دوس «خلصت»."

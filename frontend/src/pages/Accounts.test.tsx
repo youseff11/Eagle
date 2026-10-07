@@ -370,6 +370,20 @@ function fullLine(over: Partial<AccountsLine["line"]> = {}): AccountsLine {
 describe("AccountsLinePage", () => {
   const line = (data: AccountsLine = fullLine()) => ({ "/api/v1/accounts/lines/9/bonus/": undefined as never, "/api/v1/accounts/lines/9/": () => jsonResponse(data) });
 
+  it("lists the incentive in how the net was reached only when the person has one", async () => {
+    serve("admin", { "/api/v1/accounts/lines/9/": () => jsonResponse(fullLine({ incentive: "350.50" })) });
+    open("/accounts/lines/9");
+    expect(await screen.findByText("الحوافز")).toBeInTheDocument();
+    expect(screen.getByText("+ 350.50")).toBeInTheDocument();
+  });
+
+  it("leaves the incentive out of how the net was reached when there is none", async () => {
+    serve("admin", { "/api/v1/accounts/lines/9/": () => jsonResponse(fullLine({ incentive: "0.00" })) });
+    open("/accounts/lines/9");
+    await screen.findByText("بونص الإنتاج");
+    expect(screen.queryByText("الحوافز")).not.toBeInTheDocument();
+  });
+
   it("draws the payslip the way it was frozen: the four numbers, the days and the deductions", async () => {
     serve("admin", { "/api/v1/accounts/lines/9/": () => jsonResponse(fullLine()) });
     const { container } = open("/accounts/lines/9");

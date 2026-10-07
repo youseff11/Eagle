@@ -14,6 +14,9 @@ Rules that matter on these pages:
 * A GET changes nothing. Deciding a review or a request that has been decided is refused by the engine, in its own words.
 """
 
+import re
+from decimal import Decimal
+
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -251,10 +254,14 @@ def employee(request, pk):
             for one in person.rating_events.select_related("user", "task", "decided_by")[:MAX_PENALTIES]
         ] if bound else [],
         "application": {"code": application.code, "applied_on": application.applied_at.date().isoformat()} if application else None,
+        # Money is the owner's: nobody else is told what an incentive is, or that there is one.
+        "incentive": str(person.incentive) if bound and viewer.is_admin_role else None,
         "salary": [{"effective_from": one.effective_from.isoformat(), "amount": str(one.amount)} for one in person.salary_records.all()[:MAX_FILE_ROWS]] if bound else [],
         "can": {
             "edit": viewer.is_admin_role, "shift": bound and viewer.can_manage_attendance, "plan": bound and viewer.is_admin_role,
             "decide_penalties": penalties.may_decide(viewer),
+            "change_penalties": penalties.may_change(viewer),
+            "incentive": bound and viewer.is_admin_role,
         },
     })
 
@@ -323,6 +330,37 @@ def employee_plan(request, pk):
     person.save(update_fields=["salary_plan"])
     services.log(request.user, "salary.plan.assign", person.username, plan.name if plan else "company rules")
     return JsonResponse({"ok": True})
+
+
+#: The most an incentive may be (the column holds ten digits, two of them decimals).
+MAX_INCENTIVE = Decimal("99999999.99")
+_AMOUNT = re.compile(r"\d{1,8}(\.\d{1,2})?")
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def employee_incentive(request, pk):
+    """Set a person's incentive: the sum added to their pay every month, by hand (``{"amount": "500"}``, ``"0"`` takes it off). The admin's alone."""
+    person = get_object_or_404(User, pk=pk)
+    if not person.follows_company_rules:
+        return _error(400, "owner")
+    try:
+        raw = _object(request).get("amount")
+    except BadBody:
+        return _error(400, "bad_body")
+    # Plain digits with at most two decimals, typed as text or as a whole number: no sign, no exponent, no "NaN".
+    if isinstance(raw, bool) or not isinstance(raw, (str, int)) or not _AMOUNT.fullmatch(str(raw).strip()):
+        return _error(400, "bad_amount")
+    amount = Decimal(str(raw).strip())
+    if amount > MAX_INCENTIVE:
+        return _error(400, "bad_amount")
+    before = person.incentive
+    amount = amount.quantize(Decimal("0.01"))
+    if amount != before:
+        person.incentive = amount
+        person.save(update_fields=["incentive"])
+        services.log(request.user, "salary.incentive", person.username, f"{before} -> {amount}")
+    return JsonResponse({"ok": True, "incentive": str(person.incentive)})
 
 
 # ---------------------------------------------------------------------------

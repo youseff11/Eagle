@@ -124,7 +124,7 @@ class WatchingTheTasksTests(_Support):
         self.assertEqual(answer.status_code, 200)
         task = _json(answer)["task"]
         self.assertTrue(task["watching"])
-        self.assertEqual(task["files"], {"original": [], "translation": []})
+        self.assertEqual(task["files"], {"original": [], "translation": [], "reviewed": []})
         self.assertEqual((task["requirements"], task["deliveries"], task["messages"]), ([], [], []))
         self.assertIsNone(task["chat"])
         self.assertIsNone(task["client_chat_url"])
@@ -163,7 +163,7 @@ class WatchingTheTasksTests(_Support):
         self.assertTrue(seen["messages"])
         answer = self.client_get(f"/api/v1/tasks/{task.code}/", self.support)
         watched = _json(answer)["task"]
-        self.assertEqual(watched["files"], {"original": [], "translation": []})
+        self.assertEqual(watched["files"], {"original": [], "translation": [], "reviewed": []})
         self.assertEqual((watched["requirements"], watched["deliveries"], watched["messages"]), ([], [], []))
         text = answer.content.decode("utf-8")
         for leaked in ("lease.pdf", "secret lease", "Formal tone", "here it is"):

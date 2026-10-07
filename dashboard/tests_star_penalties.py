@@ -388,3 +388,85 @@ class OldRowsTests(_Penalties):
         self.assertIsNone(newest.task)
         row = _json(self.listing(self.hr))["rows"][0]
         self.assertIn(row["task"], (None, self.task.code))
+
+
+class AdminChangesADecisionTests(_Penalties):
+    """What HR decides once, the owner may take back: forgive what stands, apply again what was forgiven (07/10/2026)."""
+
+    def test_the_admin_forgives_what_was_applied_and_the_stars_come_back(self):
+        self.decide(self.hr, "confirm")
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("4.875"))
+        answer = self.decide(self.admin, "forgive", body={"note": "changed my mind"})
+        self.assertEqual(answer.status_code, 200)
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("5.000"))
+        self.assertEqual((self.event.decision, self.event.decided_by), (RatingEvent.Decision.FORGIVEN, self.admin))
+        self.assertEqual(self.event.decision_note, "changed my mind")
+        self.assertTrue(Notification.objects.filter(user=self.tr, title_en="A penalty was forgiven").exists())
+        log = AuditLog.objects.filter(action="rating.forgive", actor=self.admin).get()
+        self.assertIn("(was confirmed)", log.detail)
+
+    def test_the_admin_applies_again_what_was_forgiven_and_the_stars_go_off_again(self):
+        self.decide(self.hr, "forgive")
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("5.000"))
+        self.assertEqual(self.decide(self.admin, "confirm").status_code, 200)
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("4.875"))
+        self.assertEqual(self.event.decision, RatingEvent.Decision.CONFIRMED)
+        self.assertTrue(Notification.objects.filter(user=self.tr, title_en="A penalty was applied").exists())
+
+    def test_turning_it_round_twice_leaves_the_stars_where_they_were(self):
+        self.decide(self.hr, "confirm")
+        for action in ("forgive", "confirm", "forgive", "confirm"):
+            self.assertEqual(self.decide(self.admin, action).status_code, 200, action)
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("4.875"))
+        self.assertEqual(self.event.decision, RatingEvent.Decision.CONFIRMED)
+
+    def test_what_stands_already_is_not_decided_again_so_the_stars_are_not_given_back_twice(self):
+        self.decide(self.admin, "forgive")
+        self.fresh()
+        stars = self.tr.rating
+        for who in (self.admin, self.hr):
+            answer = self.decide(who, "forgive")
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (409, "decided"), who.username)
+        self.fresh()
+        self.assertEqual(self.tr.rating, stars)
+
+    def test_hr_still_decides_once_and_cannot_turn_a_decision_round(self):
+        self.decide(self.hr, "confirm")
+        for who in (self.hr, self.hr_two):
+            answer = self.decide(who, "forgive")
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (409, "decided"), who.username)
+        self.fresh()
+        self.assertEqual((self.event.decision, self.tr.rating), (RatingEvent.Decision.CONFIRMED, Decimal("4.875")))
+
+    def test_nobody_else_turns_a_decision_round(self):
+        self.decide(self.hr, "confirm")
+        for user in (self.ops, self.lead, self.tr, self.accounting):
+            self.assertEqual(self.decide(user, "forgive").status_code, 403, user.username)
+        self.fresh()
+        self.assertEqual(self.event.decision, RatingEvent.Decision.CONFIRMED)
+
+    def test_applying_again_never_takes_the_stars_below_nought(self):
+        self.decide(self.hr, "forgive")
+        User.objects.filter(pk=self.tr.pk).update(rating=Decimal("0.050"))
+        self.decide(self.admin, "confirm")
+        self.fresh()
+        self.assertEqual(self.tr.rating, Decimal("0.000"))
+
+    def test_forgiving_never_lifts_the_stars_above_the_companys_maximum(self):
+        self.decide(self.hr, "confirm")
+        User.objects.filter(pk=self.tr.pk).update(rating=AppSettings.load().max_rating)
+        self.decide(self.admin, "forgive")
+        self.fresh()
+        self.assertEqual(self.tr.rating, AppSettings.load().max_rating)
+
+    def test_the_file_says_who_may_turn_a_decision_round(self):
+        for who, expected in ((self.admin, True), (self.hr, False)):
+            browser = self.browser(who)
+            body = _json(browser.get(reverse(EMPLOYEE, args=[self.tr.pk])))
+            self.assertEqual(body["can"]["change_penalties"], expected, who.username)
+            self.assertTrue(body["can"]["decide_penalties"], who.username)

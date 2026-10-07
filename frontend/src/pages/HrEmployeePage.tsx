@@ -8,6 +8,7 @@ import { useAdminUser, useHrEmployee } from "../api/queries";
 import { Waiting, refusal } from "../components/accounts/shared";
 import { AccountCard } from "../components/hr/AccountCard";
 import { LevelBadge } from "../components/hr/LevelBadge";
+import { IncentiveCard } from "../components/hr/IncentiveCard";
 import { SalaryCard } from "../components/hr/SalaryCard";
 import { PenaltiesCard } from "../components/hr/Penalties";
 import { RosterCard } from "../components/hr/RosterCard";
@@ -210,7 +211,7 @@ export function HrEmployeePage() {
           {data.work_mode_card && <WorkModeCard id={person.id} card={data.work_mode_card} />}
 
           {!exempt && <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />}
-          {!exempt && <PenaltiesCard rows={data.penalties} canDecide={data.can.decide_penalties} />}
+          {!exempt && <PenaltiesCard rows={data.penalties} canDecide={data.can.decide_penalties} canChange={data.can.change_penalties === true} />}
 
           {data.probation.length > 0 && (
             <div className="card" data-card="probation">
@@ -281,6 +282,10 @@ export function HrEmployeePage() {
                 </div>
               )}
             </div>
+          )}
+
+          {!exempt && data.can.incentive === true && typeof data.incentive === "string" && (
+            <IncentiveCard key={data.incentive} id={person.id} current={data.incentive} />
           )}
 
           {data.application && (

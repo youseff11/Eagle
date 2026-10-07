@@ -131,6 +131,7 @@ urlpatterns = [
     path("api/v1/hr/employees/<int:pk>/shift/", api_people.employee_shift, name="v1_hr_employee_shift"),
     path("api/v1/hr/employees/<int:pk>/work-mode/", api_people.employee_workmode, name="v1_hr_employee_workmode"),
     path("api/v1/hr/employees/<int:pk>/plan/", api_people.employee_plan, name="v1_hr_employee_plan"),
+    path("api/v1/hr/employees/<int:pk>/incentive/", api_people.employee_incentive, name="v1_hr_employee_incentive"),
     path("api/v1/hr/penalties/", api_people.penalty_list, name="v1_hr_penalties"),
     path("api/v1/hr/penalties/<int:pk>/<str:action>/", api_people.penalty_decide, name="v1_hr_penalty_decide"),
     path("api/v1/hr/probation/", api_people.probation, name="v1_hr_probation"),
@@ -263,6 +264,7 @@ urlpatterns = [
     path("api/tasks/<str:code>/ai-recheck/", api.ai_recheck, name="api_ai_recheck"),
     path("api/tasks/<str:code>/deliver/", api.deliver, name="api_deliver"),
     path("api/tasks/<str:code>/translation/", api.upload_translation, name="api_task_translation"),
+    path("api/tasks/<str:code>/reviewed-files/", api.upload_reviewed, name="api_task_reviewed"),
     path("api/tasks/<str:code>/extension/", api.request_extension, name="api_request_extension"),
     path(
         "api/extensions/<int:pk>/<str:decision>/",

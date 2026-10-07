@@ -45,6 +45,18 @@ export function useAssignDirect(code: string) {
   );
 }
 
+/**
+ * The team leader's corrected file (`api.upload_reviewed`): what the review sends to the operation in the translator's place. Files go
+ * as a form with parts. After the review it reaches the operation at once, under a card that says it replaces the first.
+ */
+export function useUploadReviewed(code: string) {
+  return useOpsAction<File[], { ok: boolean; files: number }>(code, (files) => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file, file.name);
+    return api<{ ok: boolean; files: number }>(`${base(code)}/reviewed-files/`, { multipart: form });
+  });
+}
+
 /** «استلمت التاسك»: somebody is on record as having it before anything leaves for the client. */
 export function useTakeOver(code: string) {
   return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/ack/`, { form: {} }));

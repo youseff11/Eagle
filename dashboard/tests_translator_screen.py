@@ -92,7 +92,7 @@ class PayrollApiTests(_Screen):
         # Money is text, to the cent: a float would round it.
         self.assertEqual(
             body["line"],
-            {"id": line.pk, "base_salary": "5000.00", "production_bonus": "750.50", "deductions": "120.00", "net": "5630.50",
+            {"id": line.pk, "base_salary": "5000.00", "production_bonus": "750.50", "incentive": "0.00", "deductions": "120.00", "net": "5630.50",
              "pending_bonus": str(line.pending_bonus), "url": f"/accounts/line/{line.pk}/"},
         )
         self.assertEqual([(d["date"], d["status"]["value"], d["words"]) for d in body["days"]],

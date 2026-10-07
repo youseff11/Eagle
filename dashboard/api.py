@@ -431,6 +431,21 @@ def upload_translation(request, code):
 
 @login_required
 @require_POST
+def upload_reviewed(request, code):
+    """The team leader's corrected file, from the task page: what the review sends on to the operation."""
+    task = get_object_or_404(Task.objects.select_related("team_lead", "translator", "created_by"), code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    message, error = services.upload_reviewed(task, user, request.FILES.getlist("files"))
+    if message is None:
+        status = 403 if error == "forbidden" else 400
+        return JsonResponse({"ok": False, "error": error}, status=status)
+    return JsonResponse({"ok": True, "files": message.attachments.count(), "status": task.status})
+
+
+@login_required
+@require_POST
 def hand_in_from_chat(request, code):
     """«خلصت التاسك» in the group: these files are the translation, it is done."""
     task = get_object_or_404(Task.objects.select_related("team_lead"), code=code)

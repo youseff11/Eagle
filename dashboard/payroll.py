@@ -486,9 +486,11 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
 
     # A flat monthly addition the plan grants (section 23's "extra payment").
     allowance = rules.fixed_allowance
+    # The owner's manual incentive: a flat sum, whatever the month was like.
+    incentive = money(Decimal(user.incentive or 0))
 
     gross = money(
-        base + allowance + production_bonus + overtime_bonus
+        base + allowance + incentive + production_bonus + overtime_bonus
         + discipline_bonus + target_bonus
     )
     net = money(gross - deductions)
@@ -515,6 +517,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
         work_minutes=summary["work_minutes"],
         overtime_minutes=summary["overtime_minutes"],
         allowance=money(allowance),
+        incentive=incentive,
         production_bonus=money(production_bonus),
         overtime_bonus=money(overtime_bonus),
         discipline_bonus=money(discipline_bonus),
@@ -554,6 +557,7 @@ def compute_line(user, year, month, conf=None, tiers=None, save_to=None, actor=N
                     str(rules.extra_word_rate) if rules.extra_word_rate is not None else ""
                 ),
                 "fixed_allowance": str(allowance),
+                "incentive": str(incentive),
             },
         },
     )
@@ -612,7 +616,7 @@ def approve_bonuses(line, by):
     line.target_bonus = rules.target_bonus if line.target_bonus_earned else Decimal("0.00")
     line.bonuses_approved = True
     line.gross = money(
-        line.base_salary + line.allowance + line.production_bonus
+        line.base_salary + line.allowance + line.incentive + line.production_bonus
         + line.overtime_bonus + line.discipline_bonus + line.target_bonus
     )
     line.net = money(line.gross - line.deductions)

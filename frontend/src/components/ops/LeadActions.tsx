@@ -1,7 +1,15 @@
 import { useState } from "react";
-import { useAssignTranslator, useDecideExtension, useFinishReview, useSaveTranslatorDeadline, type TranslatorDate } from "../../api/opsActions";
+import {
+  useAssignTranslator,
+  useDecideExtension,
+  useFinishReview,
+  useSaveTranslatorDeadline,
+  useUploadReviewed,
+  type TranslatorDate,
+} from "../../api/opsActions";
 import type { OpsTask } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { prettySize } from "../../lib/size";
 import { taskProblem } from "../../lib/taskProblem";
 import { Confirm } from "../Confirm";
 import { Icon } from "../Icon";
@@ -254,6 +262,78 @@ export function ExtensionBox({ task }: { task: OpsTask }) {
         />
       )}
     </>
+  );
+}
+
+/**
+ * The file the leader corrected. The review sends on what is put here; with nothing put, it sends the translator's own file, and the box
+ * says which of the two it will be. Put after the review, it goes to the operation at once and replaces what they were given.
+ */
+export function ReviewedFilesBox({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const upload = useUploadReviewed(task.code);
+  const [chosen, setChosen] = useState<File[]>([]);
+  const [problem, setProblem] = useState("");
+  if (!task.lead?.can_upload_reviewed) return null;
+  const reviewed = task.files.reviewed ?? [];
+  const late = !task.lead.can_review;
+
+  const send = () => {
+    if (chosen.length === 0 || upload.isPending) return;
+    setProblem("");
+    upload.mutate(chosen, {
+      onSuccess: () => {
+        setChosen([]);
+        push({
+          level: "success",
+          title: late ? t("اتبعتت للأوبريشن بدل اللي قبلها", "Sent to the operation in place of the first") : t("اتحفظت. هتروح مع المراجعة", "Saved. It goes with the review"),
+        });
+      },
+      onError: (error) => setProblem(taskProblem(error, t)),
+    });
+  };
+
+  return (
+    <div className="field mt" data-box="reviewed-files">
+      <label htmlFor="reviewed-files">{t("الملف اللي ظبطته", "The file you corrected")}</label>
+      <input
+        id="reviewed-files"
+        className="input"
+        type="file"
+        multiple
+        onChange={(event) => {
+          setChosen(Array.from(event.target.files ?? []));
+          event.target.value = "";
+        }}
+      />
+      {chosen.length > 0 && (
+        <ul className="muted" style={{ margin: "6px 0", paddingInlineStart: 18 }}>
+          {chosen.map((file, index) => (
+            <li key={`${file.name}-${index}`}>
+              {file.name} <span className="mono">{prettySize(file.size)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button className="btn btn--block btn--sm mt" type="button" disabled={chosen.length === 0 || upload.isPending} onClick={send}>
+        <Icon name="upload" size="sm" />
+        <span>{upload.isPending ? t("بيترفع...", "Uploading...") : late ? t("ابعت الملف المعدّل للأوبريشن", "Send the corrected file to the operation") : t("احفظ الملف المعدّل", "Save the corrected file")}</span>
+      </button>
+      <small className="muted">
+        {reviewed.length > 0
+          ? t(`هيتبعت للأوبريشن ملفك (${reviewed.length}) مش ملف المترجم.`, `The operation gets your file (${reviewed.length}), not the translator's.`)
+          : t("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف المترجم زي ما هو.", "With none put here, the operation gets the translator's file as it is.")}
+      </small>
+      {reviewed.length > 0 && (
+        <ul className="muted" style={{ margin: "6px 0 0", paddingInlineStart: 18 }}>
+          {reviewed.map((file) => (
+            <li key={file.id}>{file.name}</li>
+          ))}
+        </ul>
+      )}
+      <Problem text={problem} />
+    </div>
   );
 }
 

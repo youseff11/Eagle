@@ -1000,6 +1000,92 @@ describe("OperationTaskPage: the team leader's page", () => {
     });
   });
 
+  describe("the file the leader corrected", () => {
+    const FILES = A("reviewed-files");
+    const fixed = (name = "fixed.docx") => new File(["x".repeat(2048)], name, { type: "application/octet-stream" });
+    const withReviewed = (reviewed: object[]) => ({
+      files: { original: [], translation: [{ id: 5, url: "/files/out/t.txt", name: "t.txt", size: "1 B", image: false, at: null }], reviewed },
+    });
+    const box = () => screen.getByLabelText("الملف اللي ظبطته") as HTMLInputElement;
+
+    it("is a box beside the review button, and says the translator's file goes when none is put", async () => {
+      serve(leaderTask({ can_review: true, can_upload_reviewed: true }), {}, "team_lead");
+      open();
+      await loaded();
+      expect(box()).toBeInTheDocument();
+      expect(screen.getByText("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف المترجم زي ما هو.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "احفظ الملف المعدّل" })).toBeDisabled();
+    });
+
+    it("sends the files on their own door as a form with parts, and says it goes with the review", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: true, can_upload_reviewed: true }), { [FILES]: () => jsonResponse({ ok: true, files: 2 }) }, "team_lead");
+      open();
+      await loaded();
+      await user.upload(box(), [fixed("a.docx"), fixed("b.docx")]);
+      expect(screen.getByText("a.docx")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "احفظ الملف المعدّل" }));
+      expect(await screen.findByText("اتحفظت. هتروح مع المراجعة")).toBeInTheDocument();
+      expect(calls(mocked, FILES)).toHaveLength(1);
+      const sent = parts(calls(mocked, FILES)[0]!);
+      expect(sent).toBeInstanceOf(FormData);
+      expect((sent.getAll("files") as File[]).map((file) => file.name)).toEqual(["a.docx", "b.docx"]);
+      // The review's own door was not touched.
+      expect(calls(mocked, A("reviewed"))).toHaveLength(0);
+    });
+
+    it("names what the operation will get once there is one, and lists it", async () => {
+      serve(
+        leaderTask({ can_review: true, can_upload_reviewed: true }, withReviewed([{ id: 9, url: "/files/out/fixed.docx", name: "fixed.docx", size: "2.0 KB", image: false, at: stamp("10-07 1:00") }]) as Partial<OpsTask>),
+        {},
+        "team_lead",
+      );
+      open();
+      await loaded();
+      expect(screen.getByText("هيتبعت للأوبريشن ملفك (1) مش ملف المترجم.")).toBeInTheDocument();
+      const set = document.querySelector(".task-files__set--reviewed") as HTMLElement;
+      expect(within(set).getByText("بعد مراجعة التيم ليدر (النسخة النهائية)")).toBeInTheDocument();
+      expect(within(set).getByRole("link", { name: /fixed\.docx/ })).toHaveAttribute("href", "/files/out/fixed.docx");
+    });
+
+    it("after the review it sends on at once, and says so", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: false, can_upload_reviewed: true }), { [FILES]: () => jsonResponse({ ok: true, files: 1 }) }, "team_lead");
+      open();
+      await loaded();
+      await user.upload(box(), fixed());
+      await user.click(screen.getByRole("button", { name: "ابعت الملف المعدّل للأوبريشن" }));
+      expect(await screen.findByText("اتبعتت للأوبريشن بدل اللي قبلها")).toBeInTheDocument();
+      expect(calls(mocked, FILES)).toHaveLength(1);
+    });
+
+    it("says why when it was refused, and keeps what was chosen", async () => {
+      const user = userEvent.setup();
+      serve(leaderTask({ can_review: true, can_upload_reviewed: true }), { [FILES]: () => jsonResponse({ ok: false, error: "bad_status" }, 400) }, "team_lead");
+      open();
+      await loaded();
+      await user.upload(box(), fixed("keep.docx"));
+      await user.click(screen.getByRole("button", { name: "احفظ الملف المعدّل" }));
+      expect(await screen.findAllByRole("alert")).not.toHaveLength(0);
+      expect(screen.getByText("keep.docx")).toBeInTheDocument();
+    });
+
+    it("is not there for a task the leader may not put files on, and the operation never has it", async () => {
+      serve(leaderTask({ can_review: false, can_upload_reviewed: false, can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.queryByLabelText("الملف اللي ظبطته")).toBeNull();
+    });
+
+    it("shows the operation what the leader put, with nothing to put itself", async () => {
+      serve(task(withReviewed([{ id: 9, url: "/files/out/fixed.docx", name: "fixed.docx", size: "2.0 KB", image: false, at: null }]) as Partial<OpsTask>));
+      open();
+      await loaded();
+      expect(document.querySelector(".task-files__set--reviewed")).not.toBeNull();
+      expect(screen.queryByLabelText("الملف اللي ظبطته")).toBeNull();
+    });
+  });
+
   describe("the review", () => {
     it("is finished after asking, and goes on to the operation", async () => {
       const user = userEvent.setup();

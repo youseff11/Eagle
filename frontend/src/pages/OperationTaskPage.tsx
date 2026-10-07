@@ -6,7 +6,7 @@ import type { OpsTask, TaskFile } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
-import { AssignTranslatorBox, ExtensionBox, ReviewButton, TranslatorDeadlineBox } from "../components/ops/LeadActions";
+import { AssignTranslatorBox, ExtensionBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
 import { DeliveriesCard, HistoryCard, MessagesCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
@@ -44,6 +44,7 @@ function Person({ label, name }: { label: string; name: string | null }) {
 function Files({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
   const { original, translation } = task.files;
+  const reviewed = task.files.reviewed ?? [];
   if (original.length === 0 && !task.people.translator) return null;
   return (
     <div className="task-files mt">
@@ -79,6 +80,19 @@ function Files({ task }: { task: OpsTask }) {
           )}
         </div>
       )}
+      {reviewed.length > 0 && (
+        <div className="task-files__set task-files__set--reviewed">
+          <div className="label">
+            <Icon name="check-circle" size="sm" />
+            <span>{t("بعد مراجعة التيم ليدر (النسخة النهائية)", "After the team leader's review (the final version)")}</span> <span className="chip chip--sm">{reviewed.length}</span>
+          </div>
+          <div className="files">
+            {reviewed.map((file) => (
+              <FileLink key={file.id} file={file} detail={file.at ? (lang === "ar" ? file.at.ar : file.at.en) : undefined} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -90,7 +104,8 @@ function Task({ task }: { task: OpsTask }) {
   const reviewer = account?.is_admin === true || account?.role === "team_lead";
   const { can, lead } = task;
   // The leader's own tools, drawn only when there is one to use; and the card only when anything is in it.
-  const leadTools = lead !== null && (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.extension !== null);
+  const leadTools =
+    lead !== null && (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_upload_reviewed === true || lead.extension !== null);
   const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
@@ -201,6 +216,7 @@ function Task({ task }: { task: OpsTask }) {
               <AssignTranslatorBox task={task} />
               <TranslatorDeadlineBox task={task} />
               <ExtensionBox task={task} />
+              <ReviewedFilesBox task={task} />
               <ReviewButton task={task} />
             </div>
           )}

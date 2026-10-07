@@ -1096,6 +1096,7 @@ def translator_payroll(request):
             "id": line.pk,
             "base_salary": str(line.base_salary),
             "production_bonus": str(line.production_bonus),
+            "incentive": str(line.incentive),
             "deductions": str(line.deductions),
             "net": str(line.net),
             "pending_bonus": str(line.pending_bonus),

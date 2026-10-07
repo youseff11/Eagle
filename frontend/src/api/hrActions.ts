@@ -114,6 +114,11 @@ export function useSetWorkMode(id: number) {
   return useWrite<string, { ok: true }>((mode) => api(`/api/v1/hr/employees/${id}/work-mode/`, { json: { work_mode: mode } }));
 }
 
+/** Set a person's incentive - the sum added to their pay each month, by hand (`"0"` takes it off): the admin's alone. */
+export function useSetIncentive(id: number) {
+  return useWrite<string, { ok: true; incentive: string }>((amount) => api(`/api/v1/hr/employees/${id}/incentive/`, { json: { amount } }));
+}
+
 /** Give a person a salary plan, or none (`null`): the admin's alone. */
 export function useAssignPlan(id: number) {
   return useWrite<number | null, { ok: true }>((plan) => api(`/api/v1/hr/employees/${id}/plan/`, { json: { plan } }));

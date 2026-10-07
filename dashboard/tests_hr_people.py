@@ -28,6 +28,7 @@ EMPLOYEE = "dashboard:v1_hr_employee"
 EMP_SHIFT = "dashboard:v1_hr_employee_shift"
 EMP_MODE = "dashboard:v1_hr_employee_workmode"
 EMP_PLAN = "dashboard:v1_hr_employee_plan"
+EMP_INCENTIVE = "dashboard:v1_hr_employee_incentive"
 PROBATION = "dashboard:v1_hr_probation"
 PROB_DECIDE = "dashboard:v1_hr_probation_decide"
 PROB_OPEN = "dashboard:v1_hr_probation_open"
@@ -215,10 +216,10 @@ class FileTests(_People):
     def test_who_may_edit_a_person_or_assign_a_plan_is_the_admin_alone(self):
         SalaryPlan.objects.create(name="Plan A")
         as_hr = _json(self.read(EMPLOYEE, args=[self.tr.pk]))
-        self.assertEqual(as_hr["can"], {"edit": False, "shift": True, "plan": False, "decide_penalties": True})
+        self.assertEqual(as_hr["can"], {"edit": False, "shift": True, "plan": False, "decide_penalties": True, "change_penalties": False, "incentive": False})
         self.assertEqual(as_hr["plan"]["options"], [])
         as_admin = _json(self.read(EMPLOYEE, self.admin, args=[self.tr.pk]))
-        self.assertEqual(as_admin["can"], {"edit": True, "shift": True, "plan": True, "decide_penalties": True})
+        self.assertEqual(as_admin["can"], {"edit": True, "shift": True, "plan": True, "decide_penalties": True, "change_penalties": True, "incentive": True})
         self.assertEqual([one["name"] for one in as_admin["plan"]["options"]], ["Plan A"])
 
     def test_the_plan_a_person_is_on_is_named_with_what_it_changes(self):
@@ -746,3 +747,62 @@ class HandOnTests(_People):
         for name in ("hr_employees", "hr_probation", "hr_performance", "hr_complaints", "hr_salary_requests"):
             self.assertEqual(self.classic(name, classic=1).status_code, 302, name)
         self.assertEqual(self.classic("hr_probation", who=self.flagged).status_code, 302)
+
+
+class IncentiveTests(_People):
+    """The incentive: a sum the owner types by hand, added to a person's pay every month (07/10/2026)."""
+
+    def set(self, who, body, pk=None):
+        return self.post(who, EMP_INCENTIVE, body, [pk or self.tr.pk])
+
+    def file(self, who):
+        return _json(self.read(EMPLOYEE, who, [self.tr.pk]))
+
+    def test_the_admin_sets_it_and_it_is_in_the_file_and_the_trail(self):
+        answer = self.set(self.admin, {"amount": "750.50"})
+        self.assertEqual((answer.status_code, _json(answer)["incentive"]), (200, "750.50"))
+        self.tr.refresh_from_db()
+        self.assertEqual(self.tr.incentive, Decimal("750.50"))
+        body = self.file(self.admin)
+        self.assertEqual((body["incentive"], body["can"]["incentive"]), ("750.50", True))
+        log = AuditLog.objects.get(action="salary.incentive", actor=self.admin)
+        self.assertEqual(log.detail, "0.00 -> 750.50")
+
+    def test_a_whole_number_and_a_number_are_taken_too_and_zero_takes_it_off(self):
+        for given, kept in (("500", "500.00"), (300, "300.00"), ("0", "0.00")):
+            self.assertEqual(self.set(self.admin, {"amount": given}).status_code, 200, given)
+            self.tr.refresh_from_db()
+            self.assertEqual(str(self.tr.incentive), kept, given)
+
+    def test_setting_what_is_there_already_writes_nothing_to_the_trail(self):
+        self.set(self.admin, {"amount": "100"})
+        self.set(self.admin, {"amount": "100.00"})
+        self.assertEqual(AuditLog.objects.filter(action="salary.incentive").count(), 1)
+
+    def test_money_is_the_owners_so_nobody_else_sets_it_or_is_told_what_it_is(self):
+        self.set(self.admin, {"amount": "900"})
+        for who in (self.hr, self.flagged, self.ops, self.tr, self.accounting):
+            self.assertEqual(self.set(who, {"amount": "1"}).status_code, 403, who.username)
+        self.tr.refresh_from_db()
+        self.assertEqual(self.tr.incentive, Decimal("900.00"))
+        body = self.file(self.hr)
+        self.assertIsNone(body["incentive"])
+        self.assertFalse(body["can"]["incentive"])
+        self.assertNotIn(b"900", self.read(EMPLOYEE, self.hr, [self.tr.pk]).content)
+
+    def test_what_is_not_an_amount_is_refused_and_nothing_changes(self):
+        self.set(self.admin, {"amount": "100"})
+        for bad in ("abc", "", "-5", "1.234", "NaN", "Infinity", "1e3", "100000000", True, None, [], {}, "1" * 30):
+            answer = self.set(self.admin, {"amount": bad})
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_amount"), repr(bad))
+        self.assertEqual(self.set(self.admin, {}).status_code, 400)
+        self.tr.refresh_from_db()
+        self.assertEqual(self.tr.incentive, Decimal("100.00"))
+
+    def test_a_person_the_company_rules_do_not_bind_has_none(self):
+        owner = self.admin
+        answer = self.set(self.admin, {"amount": "5"}, pk=owner.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "owner"))
+
+    def test_a_person_who_is_not_there_is_not_there(self):
+        self.assertEqual(self.set(self.admin, {"amount": "5"}, pk=999999).status_code, 404)

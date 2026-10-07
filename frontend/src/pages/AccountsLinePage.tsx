@@ -202,6 +202,7 @@ export function AccountsLinePage() {
               {line.day_value} <span className="muted">= {line.base_salary} / {line.working_days}</span>
             </Kv>
             <Kv label={t("بونص الإنتاج", "Production bonus")}>+ {line.production_bonus}</Kv>
+            {hasMoney(line.incentive ?? "0") && <Kv label={t("الحوافز", "Incentive")}>+ {line.incentive}</Kv>}
             <Kv label={t("الأوفرتايم", "Overtime")}>
               {hasMoney(line.overtime_bonus) ? (
                 <>

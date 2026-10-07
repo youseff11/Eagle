@@ -439,6 +439,64 @@ describe("a person's file: the account form", () => {
     expect(screen.queryByRole("button", { name: "سامحه وارجّع النجوم" })).toBeNull();
   });
 
+  const decided = (value: "confirmed" | "forgiven") =>
+    penaltyRow({
+      decision: { value, tone: value === "confirmed" ? "dead" : "ok", ar: value === "confirmed" ? "اتطبق" : "اتسامح", en: value } as HrPenalty["decision"],
+      decided_by: "Huda",
+    });
+  const withChange = (rows: HrPenalty[], change: boolean) =>
+    ({
+      "/api/v1/hr/employees/5/": () =>
+        jsonResponse(hrHalf({ penalties: rows, can: { edit: change, shift: true, plan: change, decide_penalties: true, change_penalties: change } })),
+    }) as Record<string, Handler>;
+
+  it("gives the admin the one button that turns an applied penalty round, and it forgives on its own door", async () => {
+    const served = serve("admin", {
+      ...withChange([decided("confirmed")], true),
+      "/api/v1/hr/penalties/71/forgive/": (url, init) => served.record(url, init, { ok: true }),
+      "/api/v1/hr/penalties/71/confirm/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    open("/hr/employees/5");
+    expect(await screen.findByText("اتطبق")).toBeInTheDocument();
+    // What stands is not offered again: an applied penalty can only be forgiven.
+    expect(screen.queryByRole("button", { name: "طبّق الخصم تاني" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "طبّق الخصم" })).toBeNull();
+    await userEvent.type(screen.getByPlaceholderText("ملاحظة (اختياري)"), "غيّرت رأيي");
+    await userEvent.click(screen.getByRole("button", { name: "سامحه وارجّع النجوم" }));
+    await waitFor(() => expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/forgive/")).toHaveLength(1));
+    expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/forgive/")[0].body).toEqual({ note: "غيّرت رأيي" });
+    expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/confirm/")).toHaveLength(0);
+  });
+
+  it("gives the admin the way to apply a forgiven penalty again, and only that", async () => {
+    const served = serve("admin", {
+      ...withChange([decided("forgiven")], true),
+      "/api/v1/hr/penalties/71/confirm/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    open("/hr/employees/5");
+    expect(await screen.findByText("اتسامح")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "سامحه وارجّع النجوم" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "طبّق الخصم تاني" }));
+    await waitFor(() => expect(served.sent.filter((post) => post.url === "/api/v1/hr/penalties/71/confirm/")).toHaveLength(1));
+  });
+
+  it("gives nobody else a button on what was decided", async () => {
+    serve("hr", withChange([decided("confirmed"), decided("forgiven")].map((row, index) => ({ ...row, id: 71 + index })), false));
+    open("/hr/employees/5");
+    expect(await screen.findByText("اتطبق")).toBeInTheDocument();
+    for (const name of ["سامحه وارجّع النجوم", "طبّق الخصم تاني", "طبّق الخصم"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
+  it("says so when the server will not turn the decision round", async () => {
+    serve("admin", {
+      ...withChange([decided("confirmed")], true),
+      "/api/v1/hr/penalties/71/forgive/": () => jsonResponse({ ok: false, error: "decided" }, 409),
+    });
+    open("/hr/employees/5");
+    await userEvent.click(await screen.findByRole("button", { name: "سامحه وارجّع النجوم" }));
+    expect(await screen.findByText("اتقرر في الخصم ده قبل كده.")).toBeInTheDocument();
+  });
+
   it("offers no buttons to somebody who may not decide", async () => {
     serve("hr", withPenalties([penaltyRow()], false));
     open("/hr/employees/5");
@@ -663,5 +721,80 @@ describe("the owner is not bound by the company's rules", () => {
     const sam = container.querySelector('[data-person="5"]') as HTMLElement;
     expect(sam.querySelector(".rating")).not.toBeNull();
     expect(within(sam).getByText("3")).toHaveClass("mono");
+  });
+});
+
+
+describe("the incentive", () => {
+  const withIncentive = (incentive: string | null, can = true, over: Partial<HrEmployee> = {}) =>
+    ({
+      "/api/v1/hr/employees/5/": () =>
+        jsonResponse(hrHalf({ incentive, can: { edit: can, shift: true, plan: can, decide_penalties: true, change_penalties: can, incentive: can }, ...over })),
+    }) as Record<string, Handler>;
+  const box = () => screen.getByLabelText("المبلغ الشهري") as HTMLInputElement;
+  // The salary box above it has a «سجّل» of its own.
+  const record = () => within(document.querySelector('[data-card="incentive"]') as HTMLElement).getByRole("button", { name: "سجّل" });
+
+  it("is a box on the admin's file beside the salary plan, with what is there now", async () => {
+    serve("admin", withIncentive("350.50"));
+    const { container } = open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    const card = (await waitFor(() => {
+      const found = container.querySelector('[data-card="incentive"]');
+      expect(found).not.toBeNull();
+      return found;
+    })) as HTMLElement;
+    expect(within(card).getByRole("heading", { name: "الحوافز (زيادة مرتب)" })).toBeInTheDocument();
+    expect(box()).toHaveValue("350.50");
+    // Nothing to record until the figure is changed.
+    expect(within(card).getByRole("button", { name: "سجّل" })).toBeDisabled();
+  });
+
+  it("is not on the file of anybody who may not set it, nor of the owner", async () => {
+    serve("hr", withIncentive(null, false));
+    const hr = open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    expect(hr.container.querySelector('[data-card="incentive"]')).toBeNull();
+    hr.unmount();
+    vi.unstubAllGlobals();
+    serve("admin", withIncentive("0.00", true, { person: { ...hrHalf().person, exempt: true, exempt_why: "owner" } }));
+    const owner = open("/hr/employees/5");
+    await screen.findByText(/.+/);
+    await waitFor(() => expect(owner.container.querySelector('[data-card="plan"]')).toBeNull());
+    expect(owner.container.querySelector('[data-card="incentive"]')).toBeNull();
+  });
+
+  it("records the figure that was typed on its own door and shows the new one", async () => {
+    let current = "0.00";
+    const served = serve("admin", {
+      "/api/v1/hr/employees/5/incentive/": (url, init) => {
+        current = String(JSON.parse(String(init?.body)).amount);
+        return served.record(url, init, { ok: true, incentive: current });
+      },
+      "/api/v1/hr/employees/5/": () => jsonResponse(hrHalf({ incentive: current, can: { edit: true, shift: true, plan: true, decide_penalties: true, change_penalties: true, incentive: true } })),
+    });
+    open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    await userEvent.clear(await waitFor(() => box()));
+    await userEvent.type(box(), "500");
+    await userEvent.click(record());
+    await waitFor(() => expect(served.sent.filter((post) => post.url === "/api/v1/hr/employees/5/incentive/")).toHaveLength(1));
+    expect(served.sent.filter((post) => post.url === "/api/v1/hr/employees/5/incentive/")[0].body).toEqual({ amount: "500" });
+    await waitFor(() => expect(box()).toHaveValue("500"));
+    expect(record()).toBeDisabled();
+  });
+
+  it("says what is wrong with a figure the server refuses, and keeps what was typed", async () => {
+    serve("admin", {
+      ...withIncentive("0.00"),
+      "/api/v1/hr/employees/5/incentive/": () => jsonResponse({ ok: false, error: "bad_amount" }, 400),
+    });
+    open("/hr/employees/5");
+    await screen.findByText("البيانات");
+    await userEvent.clear(await waitFor(() => box()));
+    await userEvent.type(box(), "-5");
+    await userEvent.click(record());
+    expect(await screen.findByText(/اكتب رقم من غير سالب/)).toBeInTheDocument();
+    expect(box()).toHaveValue("-5");
   });
 });
