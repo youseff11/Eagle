@@ -226,6 +226,43 @@ def _value(param, raw, today):
     raise AssertionError(f"unknown kind {kind}")
 
 
+def _owners_own_word(question, roles, anyone):
+    """The one name in what the owner typed that is a person of ours, or ``""``.
+
+    The model is told to copy the name as written, but it sometimes puts a name from earlier in the conversation, or a translation
+    of the name, in its place. When the name it gave finds nobody, the owner's own words are looked through, and a word is taken
+    only when exactly one of them is exactly one person.
+    """
+    found = {}
+    for word in helpbot.words_of(question):
+        if len(word) < 3 or word in _GENERIC_WORDS:
+            continue
+        try:
+            found[_find_person(word, roles, anyone).pk] = word
+        except Problem:
+            continue
+    return next(iter(found.values())) if len(found) == 1 else ""
+
+
+def _repair_names(action, raw, question):
+    """``raw`` with a person the model named wrongly put right from the owner's own words (nothing else is touched)."""
+    if not question or not isinstance(raw, dict):
+        return raw
+    fixed = dict(raw)
+    for param in action.params:
+        if param.kind != "person" or not isinstance(fixed.get(param.name), str):
+            continue
+        try:
+            _find_person(fixed[param.name], param.roles, param.anyone)
+        except Problem as problem:
+            if "أكتر من واحد" in problem.ar:
+                continue
+            word = _owners_own_word(question, param.roles, param.anyone)
+            if word:
+                fixed[param.name] = word
+    return fixed
+
+
 def check_values(action, raw, today=None):
     """The values of an order, checked. ``raw`` is whatever the model wrote; only the order's own parameters are read."""
     today = today or timezone.localdate()
@@ -685,8 +722,11 @@ ORDERS_INSTRUCTIONS = (
     "itself and shows the owner what it did.\n"
     "- Use only the parameters listed for the order, with the formats given. Dates are YYYY-MM-DD and times are HH:MM (24-hour); "
     "work them out from today's date, which is given to you.\n"
-    "- Refer to people by the name the owner used, exactly as they wrote it. Never invent a person, a number, an amount, a date or a "
+    "- Refer to people by the name the owner used in their LATEST message, letter for letter, in the script they wrote it (never translate it, never take a name from an earlier message). Never invent a person, a number, an amount, a date or a "
     "reason: if a required value is missing or unclear, ask for it in \"answer\" and set \"action\" to null.\n"
+    "- A client appears as a code like CL-0007. A name of a person (\"Sara\", \"yousef osama\") is an employee: use it as the employee "
+    "parameter and let the system look it up. Never refuse an order because a name could be somebody's; the system answers if it cannot find them.\n"
+    "- Do the order when you can. If the owner asked for something none of these orders can do, say in one line what you can do instead.\n"
     "- One order per reply. If the owner only asks how to do something, answer from the guides and set \"action\" to null.\n"
     "- Add \"action\": null (or leave it out) in every reply that is not an order."
 )
@@ -700,12 +740,18 @@ OPEN_INSTRUCTIONS = (
 )
 
 
-def open_employee(name, lang):
+def open_employee(name, lang, question=""):
     """The page of the employee file the owner named: ``(title, path)``. Raises :class:`Problem` when no one person fits.
 
     Only a link: nothing is changed, and the file's own page decides what the owner sees there.
     """
-    person = _find_person(name, (), anyone=True)
+    try:
+        person = _find_person(name, (), anyone=True)
+    except Problem:
+        word = _owners_own_word(question, (), True)
+        if not word:
+            raise
+        person = _find_person(word, (), anyone=True)
     return (
         _t(lang, f"ملف {person.short_name}", f"{person.short_name}'s file"),
         f"/hr/employees/{person.pk}",
@@ -728,7 +774,7 @@ def prompt_text():
 # Preparing, confirming, running
 # ----------------------------------------------------------------------------------------------------------------------
 
-def prepare(user, name, raw_params, lang, today=None):
+def prepare(user, name, raw_params, lang, today=None, question=""):
     """Check an order the model proposed and keep it, waiting for the owner. Raises :class:`Problem` with nothing kept.
 
     One order waits at a time: preparing a new one withdraws the one before it, so the card on the screen is the only live one.
@@ -738,7 +784,7 @@ def prepare(user, name, raw_params, lang, today=None):
         raise Problem("الأمر ده مش من الأوامر اللي أقدر أجهزها.", "That is not an order I can prepare.")
     today = today or timezone.localdate()
     try:
-        values = check_values(action, raw_params, today)
+        values = check_values(action, _repair_names(action, raw_params, question), today)
         if "date" in {param.name for param in action.params} and "date" not in values:
             values["date"] = today.isoformat()
         action.check(values, today)

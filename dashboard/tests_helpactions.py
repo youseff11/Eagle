@@ -759,3 +759,35 @@ class TaskCreateOrderTests(RunAtOnceTests):
     def test_a_task_needs_its_languages(self):
         data = self.auto("اعمل تاسك", _order("task.create", client=self.client_obj.code, title="عقد"))
         self.assertIsNone(data["order"])
+
+
+class ClientWithAStaffNameTests(RunAtOnceTests):
+    def test_a_client_named_like_a_colleague_does_not_turn_the_colleague_into_a_code(self):
+        Client.objects.create(name="Tarek Translator", phone="+201000000999")
+        self.auto("ابعت اهلا ل tarek translator", _order("staff.message", employee="Tarek", text="اهلا"))
+        sent = self.call.call_args.args[3]
+        self.assertIn("tarek translator", str(sent).lower())
+
+    def test_a_client_name_that_is_nobodys_is_still_a_code(self):
+        self.ask("سؤال عن ACME Secret Ltd", json.dumps({"answer": "x", "guides": [], "found": True}))
+        self.assertNotIn("ACME Secret", str(self.call.call_args.args[3]))
+
+
+class WrongNameRepairTests(RunAtOnceTests):
+    def test_a_name_the_model_changed_is_found_again_in_the_owners_words(self):
+        from .models import ChatMessage
+        data = self.auto("طب ابعت اهلا ل Tarek", _order("staff.message", employee="يوسف", text="اهلا"))
+        self.assertTrue(data["ran"]["done"], data)
+        self.assertTrue(ChatMessage.objects.filter(body="اهلا").exists())
+
+    def test_a_name_nobody_said_is_still_refused(self):
+        data = self.auto("طب ابعت اهلا", _order("staff.message", employee="يوسف", text="اهلا"))
+        self.assertIsNone(data["order"])
+
+    def test_two_people_in_the_words_are_not_guessed_between(self):
+        data = self.auto("ابعت اهلا ل Tarek او Omar", _order("staff.message", employee="يوسف", text="اهلا"))
+        self.assertIsNone(data["order"])
+
+    def test_the_file_opens_from_the_owners_words_too(self):
+        data = self.ask("افتح ملف Tarek", json.dumps({"answer": "x", "guides": [], "found": True, "open_employee": "يوسف"}))
+        self.assertEqual(data["open"]["path"], f"/hr/employees/{self.tr.pk}")

@@ -30,7 +30,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import ai, guides, net
-from .models import AppSettings, Client, HelpQuestion, Role
+from .models import AppSettings, Client, HelpQuestion, Role, User
 
 log = logging.getLogger("dashboard")
 
@@ -163,11 +163,17 @@ def mask_clients(text):
     """
     if not text:
         return text
+    # A client who has the name of one of our own people: the name is the person's as much as the client's, and written as a
+    # code it would turn "message Sara" into "message CL-0004" - an order about a colleague that reads like one about a client.
+    staff = set()
+    for first, last, username in User.objects.values_list("first_name", "last_name", "username"):
+        staff.add(f"{first} {last}".strip().lower())
+        staff.add((username or "").strip().lower())
     codes = {}
     for name, company, code in Client.objects.values_list("name", "company", "code"):
         for word in (name, company):
             word = (word or "").strip()
-            if len(word) >= 3:
+            if len(word) >= 3 and word.lower() not in staff:
                 codes[word.lower()] = code
     if not codes:
         return text
@@ -479,7 +485,7 @@ def _from_ai(conf, user, visible, question, history, page, lang):
     target = reply.get("open_employee") if user.is_admin_role else None
     if isinstance(target, str) and target.strip():
         try:
-            title, path = helpactions.open_employee(target, lang)
+            title, path = helpactions.open_employee(target, lang, question)
         except helpactions.Problem as problem:
             return Answer(problem.text(lang), HelpQuestion.Source.AI, keep=False)
         return Answer(
@@ -489,7 +495,7 @@ def _from_ai(conf, user, visible, question, history, page, lang):
     order = reply.get("action") if orders else None
     if isinstance(order, dict) and isinstance(order.get("name"), str):
         try:
-            row = helpactions.prepare(user, order["name"], order.get("params"), lang)
+            row = helpactions.prepare(user, order["name"], order.get("params"), lang, question=question)
         except helpactions.Problem as problem:
             # The order did not hold: the owner is told why, in the server's words, and nothing was kept.
             return Answer(problem.text(lang), HelpQuestion.Source.AI, keep=False)
