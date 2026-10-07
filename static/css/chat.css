@@ -62,7 +62,7 @@
   padding: 5px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
   text-decoration: none;
   color: var(--muted);
   transition: background .12s ease, color .12s ease;
@@ -86,7 +86,7 @@
   border-radius: 999px;
   background: var(--ok);
   color: #fff;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -205,7 +205,7 @@
   white-space: nowrap;
   direction: ltr;
   unicode-bidi: isolate;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   line-height: 21px;
   margin-inline-start: auto;
 }
@@ -217,7 +217,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -243,7 +243,7 @@
   border-radius: 999px;
   background: var(--ok);
   color: #fff;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -280,7 +280,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
 }
 
 .cchat__window { margin: 10px 14px 0; flex: none; }
@@ -317,7 +317,7 @@
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface-2, rgba(127, 127, 127, .10));
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--fs, 1));
   line-height: 1.55;
   word-break: break-word;
 }
@@ -346,7 +346,7 @@
   border-radius: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
 }
 .bub__file a { color: var(--brand); text-decoration: none; }
 .bub__file a:hover { text-decoration: underline; }
@@ -360,7 +360,7 @@
 .bub__file .document-card:hover { text-decoration: none; }
 .document-card__badge {
   flex: none; width: 42px; height: 50px; display: grid; place-items: center; border-radius: 6px;
-  color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .04em; background: #5b6472;
+  color: #fff; font-size: calc(11px * var(--fs, 1)); font-weight: 800; letter-spacing: .04em; background: #5b6472;
 }
 .document-card__badge--pdf { background: #d6403a; }
 .document-card__badge--word { background: #2b6cb0; }
@@ -369,7 +369,7 @@
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   overflow-wrap: anywhere; font-weight: 600; line-height: 1.4;
 }
-.document-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.document-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: calc(11px * var(--fs, 1)); color: var(--muted); }
 
 /* A photo in a bubble: the picture itself, not its file name. */
 .bub__file--img {
@@ -412,11 +412,11 @@
   border-inline-start: 3px solid var(--brand);
   border-radius: 6px;
   background: color-mix(in srgb, var(--brand) 7%, transparent);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
   line-height: 1.45;
   color: var(--muted);
 }
-.bub__quote b { display: block; color: var(--brand); font-size: 11px; }
+.bub__quote b { display: block; color: var(--brand); font-size: calc(11px * var(--fs, 1)); }
 .bub__quote span {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
@@ -466,10 +466,10 @@
   border-inline-start: 3px solid var(--brand);
   border-radius: 8px;
   background: var(--surface-2, rgba(127, 127, 127, .10));
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
 }
 .cchat__replybar-body { flex: 1; min-width: 0; }
-.cchat__replybar-body b { display: block; color: var(--brand); font-size: 11px; }
+.cchat__replybar-body b { display: block; color: var(--brand); font-size: calc(11px * var(--fs, 1)); }
 .cchat__replybar-body span {
   display: block; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -490,7 +490,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   color: var(--muted);
   margin-block-end: 5px;
 }
@@ -505,7 +505,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
 }
 
 .rec-dot {
@@ -542,18 +542,18 @@
   padding-block-start: 8px;
   border-block-start: 1px solid var(--border);
 }
-.bub__actions .btn { padding: 3px 9px; font-size: 11px; }
+.bub__actions .btn { padding: 3px 9px; font-size: calc(11px * var(--fs, 1)); }
 
 .bub__foot {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-block-start: 4px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--fs, 1));
   color: var(--muted);
 }
 
-.bub__time { font-size: 10.5px; }
+.bub__time { font-size: calc(10.5px * var(--fs, 1)); }
 .bub__sender { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 
 /* Ticks: grey while it is on its way, blue once it has been read. */
@@ -610,7 +610,7 @@
   padding: 10px 12px;
   border-block-start: 1px solid var(--border);
   background: var(--brand-soft);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--fs, 1));
 }
 
 #pickToggle.is-on {
@@ -621,13 +621,13 @@
 
 .bub__error {
   margin-block-start: 5px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--fs, 1));
   color: var(--danger, #e5484d);
 }
 
 .bub__day {
   align-self: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   color: var(--muted);
   background: var(--surface-2, rgba(127, 127, 127, .12));
   border-radius: 999px;
@@ -668,7 +668,7 @@
   padding: 0;
 }
 
-.chip--sm { font-size: 10.5px; padding: 1px 7px; }
+.chip--sm { font-size: calc(10.5px * var(--fs, 1)); padding: 1px 7px; }
 
 /* -- the group's member strip --------------------------------------------- */
 
@@ -759,7 +759,7 @@ html.chat-locked body {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .cchat__meta { font-size: 11px; }
+  .cchat__meta { font-size: calc(11px * var(--fs, 1)); }
   .cchat__head .avatar { flex: none; }
   /* The header is the name and the way back; the rest is icon-sized. */
   .cchat__profile { display: none; }
@@ -777,13 +777,13 @@ html.chat-locked body {
   .cchat__members .chip { flex: none; }
 
   /* Keep the warning, drop the paragraph — screen space is the scarce thing. */
-  .cchat__window { margin: 8px 10px 0; padding: 8px 10px; font-size: 12px; }
+  .cchat__window { margin: 8px 10px 0; padding: 8px 10px; font-size: calc(12px * var(--fs, 1)); }
   .cchat__window > div > div { display: none; }
 
   /* Rows get taller and roomier — a thumb target, not a mouse target. */
   .cthread { padding: 12px 14px; gap: 12px; }
-  .cthread__snippet { font-size: 13px; }
-  .cthread__time { font-size: 12px; }
+  .cthread__snippet { font-size: calc(13px * var(--fs, 1)); }
+  .cthread__time { font-size: calc(12px * var(--fs, 1)); }
 
   .bub__box { max-width: 84%; }
   .cchat__composer { padding: 8px 10px; }
@@ -822,7 +822,7 @@ html.chat-locked body {
   align-items: center;
   gap: 4px;
   margin-block-end: 3px;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   font-style: italic;
   color: var(--muted);
 }
@@ -865,7 +865,7 @@ html.chat-locked body {
   width: auto;
   max-width: 190px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs, 1));
 }
 
 .fwd-list {
@@ -890,7 +890,7 @@ html.chat-locked body {
 .fwd-row input { accent-color: var(--brand); }
 .fwd-row__body { display: flex; flex-direction: column; min-width: 0; }
 .fwd-row__body b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fwd-row__body .muted { font-size: 11px; }
+.fwd-row__body .muted { font-size: calc(11px * var(--fs, 1)); }
 .fwd-hint { font-size: .78rem; margin: 0 0 8px; }
 
 /* -- reactions ------------------------------------------------------------ */
@@ -923,7 +923,7 @@ html.chat-locked body {
   background: var(--surface);
   box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs, 1));
   line-height: 1;
   color: var(--muted);
   cursor: pointer;
@@ -1036,10 +1036,10 @@ html.chat-locked body {
    `.mono` made the title larger than the rest of the row; the filter pills and the search field are sized for a thumb
    and fit the width instead of overflowing it. */
 @media (max-width: 860px) {
-  .cthread__title, .cthread__title.mono { font-size: 12.5px; line-height: 1.5; -webkit-line-clamp: 1; overflow-wrap: normal; }
-  .cthread__time { font-size: 10.5px; line-height: 19px; }
-  .cthread__preview { font-size: 12px; }
-  .cthread > .avatar { inline-size: 38px; block-size: 38px; font-size: 11px; align-self: center; }
+  .cthread__title, .cthread__title.mono { font-size: calc(12.5px * var(--fs, 1)); line-height: 1.5; -webkit-line-clamp: 1; overflow-wrap: normal; }
+  .cthread__time { font-size: calc(10.5px * var(--fs, 1)); line-height: 19px; }
+  .cthread__preview { font-size: calc(12px * var(--fs, 1)); }
+  .cthread > .avatar { inline-size: 38px; block-size: 38px; font-size: calc(11px * var(--fs, 1)); align-self: center; }
   .cchat__filter { gap: 6px; padding: 8px 10px; }
   .cchat__pill { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cchat__search { padding: 8px 10px; }
@@ -1048,10 +1048,13 @@ html.chat-locked body {
 @media (max-width: 400px) {
   .cchat__list { border-radius: 12px; }
   .cthread { padding: 10px 12px; gap: 10px; }
-  .cthread__title, .cthread__title.mono { font-size: 12px; }
+  .cthread__title, .cthread__title.mono { font-size: calc(12px * var(--fs, 1)); }
 }
 
 /* A muted conversation: a quiet bell beside the time, and its unread number in grey instead of the brand colour. */
 .cthread__muted { display: inline-flex; align-items: center; margin-inline-start: auto; }
 .cthread__muted + .cthread__time { margin-inline-start: 6px; }
 .cthread__unread.is-muted { background: var(--muted); color: var(--surface); }
+
+/* Arabic in a bubble: more room between the lines than the Latin default (see the Arabic block in app.css). */
+html[lang="ar"] .bub__box { line-height: 1.75; }

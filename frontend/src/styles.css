@@ -26,7 +26,7 @@
 .desk-actions { margin-top: 11px; }
 
 /* The date between two days of messages. */
-.chat-day { text-align: center; font-size: 11px; margin: 6px 0; }
+.chat-day { text-align: center; font-size: calc(11px * var(--fs, 1)); margin: 6px 0; }
 .chat-entry { display: flex; flex-direction: column; gap: 8px; }
 
 /* The chat tabs are buttons in this app (links in the classic page): drawn the same, not as browser buttons. */
@@ -57,7 +57,7 @@ textarea.cchat__input:disabled { cursor: not-allowed; opacity: .7; }
 .bub__retry { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 8px; }
 
 /* Where files and voice notes are still sent from. */
-.cchat__hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 14px 10px; font-size: 12px; }
+.cchat__hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 14px 10px; font-size: calc(12px * var(--fs, 1)); }
 
 /* A phone has no hover to show the reply button and no swipe in this app: the button stays, quietly. The smile stays
    too; the forward arrow does not (the "Forward" button in the header is the way in there), so three do not crowd a
@@ -90,7 +90,7 @@ button.bub__reacts:disabled { cursor: default; opacity: 1; }
 }
 
 /* How long the message is, once it is nearly too long; and a conversation in which a message did not go. */
-.cchat__count { flex: none; padding: 0 14px; font-size: 11px; text-align: end; color: var(--muted); }
+.cchat__count { flex: none; padding: 0 14px; font-size: calc(11px * var(--fs, 1)); text-align: end; color: var(--muted); }
 .cchat__count.is-over { color: var(--danger, #e5484d); }
 .cthread__problem { display: inline-flex; color: var(--danger, #e5484d); }
 
@@ -156,7 +156,7 @@ button.help__chip:hover:not(:disabled) { border-color: var(--brand-line); color:
 .help__go { margin-block-start: 8px; }
 .help__form { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px 4px; flex: none; }
 textarea.help__input { resize: none; min-height: 38px; max-height: 110px; line-height: 1.5; padding-block: 8px; flex: 1; }
-.help__hint { padding: 0 14px 8px; font-size: 11px; color: var(--muted); flex: none; }
+.help__hint { padding: 0 14px 8px; font-size: calc(11px * var(--fs, 1)); color: var(--muted); flex: none; }
 .help__typing { display: inline-flex; gap: 4px; padding: 12px 14px; }
 .help__typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: help-dot 1s infinite ease-in-out; }
 .help__typing span:nth-child(2) { animation-delay: .15s; }
