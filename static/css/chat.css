@@ -1004,8 +1004,10 @@ html.chat-locked body {
    `.mono` made the title larger than the rest of the row; the filter pills and the search field are sized for a thumb
    and fit the width instead of overflowing it. */
 @media (max-width: 860px) {
-  .cthread__title, .cthread__title.mono { font-size: 14px; line-height: 1.45; }
-  .cthread > .avatar { inline-size: 40px; block-size: 40px; font-size: 12px; }
+  .cthread__title, .cthread__title.mono { font-size: 12.5px; line-height: 1.5; -webkit-line-clamp: 1; overflow-wrap: normal; }
+  .cthread__time { font-size: 10.5px; line-height: 19px; }
+  .cthread__preview { font-size: 12px; }
+  .cthread > .avatar { inline-size: 38px; block-size: 38px; font-size: 11px; align-self: center; }
   .cchat__filter { gap: 6px; padding: 8px 10px; }
   .cchat__pill { flex: 1 1 0; min-width: 0; padding-inline: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cchat__search { padding: 8px 10px; }
@@ -1014,4 +1016,5 @@ html.chat-locked body {
 @media (max-width: 400px) {
   .cchat__list { border-radius: 12px; }
   .cthread { padding: 10px 12px; gap: 10px; }
+  .cthread__title, .cthread__title.mono { font-size: 12px; }
 }
