@@ -273,6 +273,29 @@ def assign_lead(request, code):
     return JsonResponse({"ok": True, "assignment": assignment.id, "status": task.status})
 
 
+@api_role_required(Role.OPERATION)
+@require_POST
+def assign_translator_direct(request, code):
+    """A new task straight to a translator, for when no team leader has the site open.
+
+    The server decides that, not the page: with any leader online the answer is ``lead_online`` and nothing happens, so
+    the way past a leader cannot be used while there is one to ask. The translator has to be one who has a leader
+    (``services.direct_translators``): that leader keeps the review.
+    """
+    task = get_object_or_404(Task, code=code)
+    translator = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TRANSLATOR, is_active=True)
+    if task.status not in (TaskStatus.NEW, TaskStatus.AWAITING_LEAD):
+        return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
+    if services.leads_online():
+        return JsonResponse({"ok": False, "error": "lead_online"}, status=400)
+    if not translator.team_lead_id or not translator.team_lead.is_active:
+        return JsonResponse({"ok": False, "error": "no_leader"}, status=400)
+    assignment = services.assign_direct_to_translator(
+        task, translator, request.user, note=request.POST.get("note", "")[:250]
+    )
+    return JsonResponse({"ok": True, "assignment": assignment.id, "status": task.status})
+
+
 @api_role_required(Role.TEAM_LEAD)
 @require_POST
 def assign_translator(request, code):

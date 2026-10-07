@@ -34,6 +34,17 @@ export interface FileMark {
   start?: { label: string; run: (entry: ThreadEntry, file: ThreadFile) => void };
 }
 
+/**
+ * A tick box beside the words of a message, in the operation's "select files": the messages ticked here are written in
+ * the task's details. Drawn only while `active`, and only on a message `show` allows.
+ */
+export interface TextMark {
+  active: boolean;
+  show: (entry: ThreadEntry) => boolean;
+  ticked: (entry: ThreadEntry) => boolean;
+  toggle: (entry: ThreadEntry) => void;
+}
+
 /** One photo: a press opens it over the chat (with the button that saves it); a modified press still opens the address in a tab. */
 function SinglePhoto({ url, name, enabled }: { url: string; name: string; enabled: boolean }) {
   const [open, setOpen] = useState(false);
@@ -207,6 +218,7 @@ export function Bubble({
   onConfirm,
   onConvert,
   fileMark,
+  textMark,
   personal,
 }: {
   entry: ThreadEntry;
@@ -221,6 +233,8 @@ export function Bubble({
   onConvert?: (entry: ThreadEntry) => void;
   /** A mode that ticks files (see `FileMark`), or none. */
   fileMark?: FileMark;
+  /** The box on the words of a message, while files are being picked for a task (see `TextMark`). */
+  textMark?: TextMark;
   /**
    * A work group or a colleague's chat: only what this person wrote is on their side, and what the others wrote is on the other,
    * as in WhatsApp. In a client's conversation every message of ours is on our side (a colleague answered the client), and the
@@ -234,6 +248,8 @@ export function Bubble({
   if (entry.status === "failed") classes.push("bub--failed");
   if (entry.reactions.length > 0) classes.push("has-reacts");
   if (selected) classes.push("is-selected");
+  const wordsOn = textMark !== undefined && textMark.active && textMark.show(entry);
+  const wordsTicked = wordsOn && textMark.ticked(entry);
 
   return (
     <div
@@ -304,7 +320,27 @@ export function Bubble({
           </div>
         )}
         {entry.subject && <div className="bub__subject">{entry.subject}</div>}
-        {entry.body && <div className="bub__text">{entry.body}</div>}
+        {entry.body &&
+          (wordsOn ? (
+            <div
+              className={`bub__text bub__text--pick${wordsTicked ? " is-picked" : ""}`}
+              onClick={(event) => {
+                if ((event.target as Element).closest("input")) return;
+                textMark.toggle(entry);
+              }}
+            >
+              <input
+                type="checkbox"
+                className="bub__pick"
+                checked={wordsTicked}
+                onChange={() => textMark.toggle(entry)}
+                aria-label={t("حدد الرسالة للتفاصيل", "Select the message for the details")}
+              />
+              <span>{entry.body}</span>
+            </div>
+          ) : (
+            <div className="bub__text">{entry.body}</div>
+          ))}
         {fileBlocks(entry, fileMark).map((block) =>
           block.grid ? (
             <ImageGrid key={`grid-${block.start}`} images={block.grid} />

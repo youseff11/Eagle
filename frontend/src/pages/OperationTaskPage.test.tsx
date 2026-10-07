@@ -42,6 +42,7 @@ function task(over: Partial<OpsTask> = {}): OpsTask {
     can: { assign_lead: false, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true },
     lead: null,
     leads: [],
+    direct: null,
     handover: null,
     deliver: null,
     group_candidates: [],
@@ -370,6 +371,63 @@ describe("OperationTaskPage: sending a new task to a leader", () => {
     open();
     await loaded();
     expect(screen.queryByLabelText("اعمل assign لتيم ليدر")).toBeNull();
+  });
+
+  describe("with no team leader online", () => {
+    const CAN = { assign_lead: true, take_over: false, deliver: false, cancel: true, add_member: false, new_request: true, set_deadline: true, set_words: true };
+    const offline = [{ id: 10, name: "Mona", online: false, tasks: 2 }];
+    const direct = {
+      translators: [
+        { id: 21, name: "Sara", lead: "Mona", state: "free" as const, rating: 4.5 },
+        { id: 22, name: "Omar", lead: "Mona", state: "off" as const, rating: 3.25 },
+      ],
+    };
+
+    it("offers the translators with who is free and whose team they are, and not while a leader is here", async () => {
+      serve(task({ can: CAN, leads: offline, direct }));
+      const view = open();
+      const select = (await screen.findByLabelText("ابعتها لمترجم دايركت")) as HTMLSelectElement;
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Sara — فاضي · 4.50 · Mona", "Omar — أوفلاين · 3.25 · Mona"]);
+      view.unmount();
+      vi.unstubAllGlobals();
+      serve(task({ can: CAN, leads: [{ ...offline[0]!, online: true }], direct: null }));
+      open();
+      await screen.findByLabelText("اعمل assign لتيم ليدر");
+      expect(screen.queryByLabelText("ابعتها لمترجم دايركت")).toBeNull();
+    });
+
+    it("sends the chosen translator, says so, and reads the task again", async () => {
+      const mocked = serve(task({ can: CAN, leads: offline, direct }), {
+        [A("assign-translator-direct")]: () => {
+          mocked.state.task = task({ status: { value: "awaiting_translator", tone: "wait", ar: "بانتظار المترجم", en: "Awaiting translator" } });
+          return jsonResponse({ ok: true, assignment: 5, status: "awaiting_translator" });
+        },
+      });
+      open();
+      await userEvent.selectOptions(await screen.findByLabelText("ابعتها لمترجم دايركت"), "22");
+      await userEvent.click(screen.getByRole("button", { name: /ابعتها للمترجم دايركت/ }));
+      expect(await screen.findByText("اتبعتت للمترجم")).toBeInTheDocument();
+      expect(form(posts(mocked.calls, A("assign-translator-direct"))[0]!)).toEqual({ user: "22" });
+      expect(await screen.findByText("بانتظار المترجم")).toBeInTheDocument();
+      expect(screen.queryByLabelText("ابعتها لمترجم دايركت")).toBeNull();
+    });
+
+    it("sends the first translator when none was chosen, and says why when a leader came online meanwhile", async () => {
+      const mocked = serve(task({ can: CAN, leads: offline, direct }), {
+        [A("assign-translator-direct")]: () => jsonResponse({ ok: false, error: "lead_online" }, 400),
+      });
+      open();
+      await userEvent.click(await screen.findByRole("button", { name: /ابعتها للمترجم دايركت/ }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("فيه تيم ليدر أونلاين دلوقتي");
+      expect(form(posts(mocked.calls, A("assign-translator-direct"))[0]!)).toEqual({ user: "21" });
+    });
+
+    it("is offered when there are no team leaders at all, and says so when there is no translator to give it to", async () => {
+      serve(task({ can: CAN, leads: [], direct: { translators: [] } }));
+      open();
+      expect(await screen.findByText("مفيش تيم ليدرز مسجلين تبعتلهم التاسك.")).toBeInTheDocument();
+      expect(screen.getByText("مفيش مترجم تحت تيم ليدر تبعتله التاسك.")).toBeInTheDocument();
+    });
   });
 });
 

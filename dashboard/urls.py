@@ -246,6 +246,11 @@ urlpatterns = [
         api.assign_translator,
         name="api_assign_translator",
     ),
+    path(
+        "api/tasks/<str:code>/assign-translator-direct/",
+        api.assign_translator_direct,
+        name="api_assign_translator_direct",
+    ),
     path("api/tasks/<str:code>/deadline/", api.set_deadline, name="api_set_deadline"),
     path(
         "api/tasks/<str:code>/translator-deadline/",

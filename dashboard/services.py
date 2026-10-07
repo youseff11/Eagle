@@ -1985,6 +1985,49 @@ def assign_to_lead(task, lead, by_user, note=""):
     return assignment
 
 
+def leads_online():
+    """The team leaders who have the site open right now (the same "online" the team page and the task page show)."""
+    return [lead for lead in User.objects.filter(role=Role.TEAM_LEAD, is_active=True) if lead.is_online]
+
+
+def direct_translators():
+    """The translators a task can be sent to without going through a team leader first.
+
+    Only those who have an active leader: the leader keeps the review, the translator's date and the way back when
+    the translator declines, so a translator under nobody would leave the task with no one to look at the work.
+    """
+    return list(
+        User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead__isnull=False, team_lead__is_active=True)
+        .select_related("team_lead").prefetch_related("shifts").order_by("first_name", "username")
+    )
+
+
+@transaction.atomic
+def assign_direct_to_translator(task, translator, by_user, note=""):
+    """The operation gives a new task straight to a translator, because no team leader is here to hand it out.
+
+    The task becomes the translator's own leader's (so the review, the translator's date and a refusal all go where they
+    always go), the translator has the usual window to say yes, and the leader - who is away - is told what was done in
+    their team, in the notification they will find when they open the site. Nothing is skipped after this: the
+    leader still reviews before the operation takes the task over.
+    """
+    lead = translator.team_lead
+    task.team_lead = lead
+    task.lead_accepted_at = None
+    task.save(update_fields=["team_lead", "lead_accepted_at", "updated_at"])
+    assignment = assign_to_translator(task, translator, by_user, note=note)
+    notify(
+        lead,
+        title_ar="تاسك اتبعتت لمترجم عندك",
+        title_en="A task was sent to a translator of yours",
+        body_ar=f"{by_user.short_name} بعت {task.code} لـ{translator.short_name} مباشرة لأن مفيش تيم ليدر أونلاين. المراجعة عندك.",
+        body_en=f"{by_user.short_name} sent {task.code} straight to {translator.short_name} because no team leader was online. The review is yours.",
+        level="info", url=f"/tasks/{task.code}/", task=task,
+    )
+    log(by_user, "task.assign_direct", task.code, f"→ {translator} (leader {lead}, no leader online)")
+    return assignment
+
+
 def deadline_problem(task, moment):
     """Why this cannot be the translator's deadline. Empty when it can.
 

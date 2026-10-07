@@ -17,6 +17,10 @@ export function taskProblem(error: unknown, t: (ar: string, en: string) => strin
         return t("مش من حقك تعمل ده.", "You may not do that.");
       case "bad_status":
         return t("حالة التاسك دلوقتي مش بتسمح بده.", "The task is not in a state that allows it.");
+      case "lead_online":
+        return t("فيه تيم ليدر أونلاين دلوقتي: ابعتها ليه.", "A team leader is online now: send it to them.");
+      case "no_leader":
+        return t("المترجم ده مالوش تيم ليدر.", "That translator has no team leader.");
       case "empty":
         return t("اختار ملف الأول.", "Choose a file first.");
       case "no_room":

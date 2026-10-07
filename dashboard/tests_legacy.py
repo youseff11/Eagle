@@ -94,6 +94,10 @@ class QueryTests(_Door):
                    message="4", messages="3, 4", files="8,9", **{"from": "TSK-00001"})
         self.lands(self.ops, "ops_task_new", "/app/tasks/new", message="4; drop", **{"from": "//evil.example"})
 
+    def test_the_messages_ticked_for_the_details_go_through_too(self):
+        self.lands(self.ops, "ops_task_new", "/app/tasks/new?messages=3%2C4&texts=4", messages="3,4", texts="4", x="1")
+        self.lands(self.ops, "ops_task_new", "/app/tasks/new", texts="4; drop")
+
     def test_a_month_goes_as_the_one_period_the_app_reads(self):
         self.lands(self.accounting, "accounts_overview", "/app/accounts?period=2026-9", period="2026-09")
         self.lands(self.accounting, "accounts_overview", "/app/accounts?period=2026-3", year="2026", month="3")

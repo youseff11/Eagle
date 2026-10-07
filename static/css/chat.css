@@ -586,6 +586,19 @@
   cursor: pointer;
 }
 .cchat__stream.is-picking .bub__pick { display: inline-block; }
+/* The words of a message, ticked for the task's details: the whole line is the target, as a file is. */
+.cchat__stream.is-picking .bub__text--pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.cchat__stream.is-picking .bub__text--pick.is-picked {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  background: var(--brand-soft);
+}
 .cchat__stream.is-picking .bub__pick:disabled { cursor: not-allowed; opacity: .45; }
 
 .cchat__pickbar {

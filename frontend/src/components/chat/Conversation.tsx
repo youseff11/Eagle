@@ -14,7 +14,7 @@ import { CallButtons } from "./CallButtons";
 import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
 import { AddMembersDialog } from "./AddMembersDialog";
-import { Bubble, OutgoingBubble, type FileMark } from "./Bubble";
+import { Bubble, OutgoingBubble, type FileMark, type TextMark } from "./Bubble";
 import { newFilesRun } from "../../lib/fileRun";
 import { ConvertDialog } from "./ConvertDialog";
 import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
@@ -120,6 +120,7 @@ function Stream({
   selecting,
   selected,
   fileMark,
+  textMark,
   personal,
   onRetry,
   onDiscard,
@@ -135,6 +136,8 @@ function Stream({
   selected: string[];
   /** A mode that ticks files is on, or could be started from a file. */
   fileMark?: FileMark;
+  /** Picking files for a task: the words of a message can be ticked for its details. */
+  textMark?: TextMark;
   /** A work group or a colleague's chat (see `Bubble`): the sides follow who wrote each message. */
   personal: boolean;
   onRetry: (key: number) => void;
@@ -207,6 +210,7 @@ function Stream({
               selecting={selecting}
               selected={selected.includes(entry.uid)}
               fileMark={fileMark}
+              textMark={textMark}
               personal={personal}
             />
           </div>
@@ -568,6 +572,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
             selecting={selecting}
             selected={selected}
             fileMark={selecting ? undefined : (pick.mark ?? handMark)}
+            textMark={selecting ? undefined : pick.textMark}
             personal={kindOfCode(code) !== "clients"}
             onRetry={outbox.retry}
             onDiscard={outbox.discard}
@@ -595,6 +600,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               allIn={pick.allIn}
               messages={pick.messageIds}
               files={pick.ids}
+              texts={pick.texts}
               onDay={pick.chooseDay}
               onAll={pick.toggleAll}
               onCancel={pick.stop}

@@ -38,6 +38,13 @@ export function useAssignLead(code: string) {
   );
 }
 
+/** «ابعتها للمترجم دايركت»: while no leader has the site open, a new task goes straight to a translator (`api.assign_translator_direct`). */
+export function useAssignDirect(code: string) {
+  return useOpsAction<number, { ok: boolean }>(code, (translator) =>
+    api<{ ok: boolean }>(`${base(code)}/assign-translator-direct/`, { form: { user: String(translator) } }),
+  );
+}
+
 /** «استلمت التاسك»: somebody is on record as having it before anything leaves for the client. */
 export function useTakeOver(code: string) {
   return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/ack/`, { form: {} }));

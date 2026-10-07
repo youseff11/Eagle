@@ -379,6 +379,69 @@ class OpsTaskDoorTests(_Ops):
         other = self.body()
         self.assertEqual((other["can"]["assign_lead"], other["leads"]), (False, []))
 
+    def fresh(self):
+        """A new task: nobody has it yet, no leader and no translator."""
+        task = _make_task(self, status=TaskStatus.NEW, title="Fresh")
+        Task.objects.filter(pk=task.pk).update(translator=None, team_lead=None)
+        return Task.objects.get(pk=task.pk)
+
+    def direct(self, user, task, translator):
+        browser = DjangoClient()
+        browser.force_login(user)
+        return browser.post(reverse("dashboard:api_assign_translator_direct", args=[task.code]), {"user": translator.pk})
+
+    def test_the_way_past_the_leader_is_offered_only_while_no_leader_is_online(self):
+        task = self.fresh()
+        User.objects.filter(pk=self.lead.pk).update(last_seen=timezone.now())
+        self.assertIsNone(self.body(code=task.code)["direct"])
+        User.objects.filter(pk=self.lead.pk).update(last_seen=None)
+        loose = User.objects.create_user("person_loose_translator", password="pw", role=Role.TRANSLATOR)
+        direct = self.body(code=task.code)["direct"]
+        # The translator with no leader is not offered: nobody would review their work.
+        self.assertEqual([p["id"] for p in direct["translators"]], [self.tr.pk])
+        self.assertNotIn(loose.pk, [p["id"] for p in direct["translators"]])
+        self.assertEqual(direct["translators"][0]["lead"], self.lead.short_name)
+        # Not on a task that has moved on, and not for what is not new.
+        self.assertIsNone(self.body()["direct"])
+
+    def test_a_new_task_goes_straight_to_a_translator_and_the_leader_keeps_the_review(self):
+        from .models import Notification
+
+        task = self.fresh()
+        answer = self.direct(self.ops, task, self.tr)
+        self.assertEqual((answer.status_code, _json(answer)["status"]), (200, "awaiting_translator"))
+        task.refresh_from_db()
+        self.assertEqual((task.translator_id, task.team_lead_id), (self.tr.pk, self.lead.pk))
+        self.assertTrue(task.assignments.filter(assignee=self.tr, target_role=Role.TRANSLATOR, assigned_by=self.ops).exists())
+        self.assertTrue(Notification.objects.filter(user=self.lead, task=task).exists())
+        self.assertTrue(Notification.objects.filter(user=self.tr, task=task, sound=True).exists())
+        self.assertTrue(AuditLog.objects.filter(action="task.assign_direct", target=task.code, actor=self.ops).exists())
+
+    def test_it_is_refused_while_a_leader_is_online_and_nothing_is_written(self):
+        User.objects.filter(pk=self.lead.pk).update(last_seen=timezone.now())
+        task = self.fresh()
+        answer = self.direct(self.ops, task, self.tr)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "lead_online"))
+        task.refresh_from_db()
+        self.assertEqual((task.status, task.translator_id), (TaskStatus.NEW, None))
+
+    def test_it_is_refused_for_a_translator_with_no_leader_and_for_a_task_that_is_not_new(self):
+        loose = User.objects.create_user("person_loose_translator", password="pw", role=Role.TRANSLATOR)
+        task = self.fresh()
+        self.assertEqual(_json(self.direct(self.ops, task, loose))["error"], "no_leader")
+        started = _make_task(self, status=TaskStatus.IN_PROGRESS, title="Going", translator=self.tr)
+        self.assertEqual(_json(self.direct(self.ops, started, self.tr))["error"], "bad_status")
+        task.refresh_from_db()
+        self.assertIsNone(task.translator_id)
+
+    def test_only_the_operation_and_the_admin_may_send_a_task_past_the_leader(self):
+        task = self.fresh()
+        for user in (self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            self.assertEqual(self.direct(user, task, self.tr).status_code, 403, user.username)
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.NEW)
+        self.assertEqual(self.direct(self.admin, task, self.tr).status_code, 200)
+
     def test_who_is_being_waited_for_and_for_how_long(self):
         task = _make_task(self, status=TaskStatus.LEAD_ACCEPTED, title="Needs an answer")
         services.assign_to_translator(task, self.tr, self.lead)
@@ -749,6 +812,38 @@ class TaskStartDoorTests(_Start):
         self.assertEqual([m["id"] for m in body["messages"]], [self.heard.pk, second.pk])
         self.assertEqual([f["name"] for f in body["picked"]], ["annex.pdf"])
         self.assertEqual(body["initial"]["description"], "Please translate the contract\n\nand this one")
+
+    def test_only_the_messages_ticked_for_the_details_are_written_there(self):
+        from .models import Channel, InboundMessage
+
+        second = InboundMessage.objects.create(client=self.client_obj, channel=Channel.WHATSAPP, body="and this one",
+                                               sender_identity=CLIENT_PHONE)
+        both = f"{self.heard.pk},{second.pk}"
+        body = _json(self.start(messages=both, files=str(self.annex.pk), texts=str(second.pk)))
+        self.assertEqual(body["initial"]["description"], "and this one")
+        self.assertEqual([m["id"] for m in body["messages"]], [self.heard.pk, second.pk])
+        self.assertEqual([f["name"] for f in body["picked"]], ["annex.pdf"])
+        # A message ticked for the details is a message of the task even when none of its files is: it is found by id.
+        body = _json(self.start(messages=both, texts=f"{second.pk},{self.heard.pk}"))
+        self.assertEqual(body["initial"]["description"], "Please translate the contract\n\nand this one")
+        # Ticked but not among the messages (another client's): not written, and not offered.
+        body = _json(self.start(messages=str(second.pk), texts=f"{self.elsewhere.pk}"))
+        self.assertEqual(body["initial"]["description"], "")
+        self.assertNotIn("from another client", self.start(messages=str(second.pk), texts=str(self.elsewhere.pk)).content.decode())
+        # Nothing ticked is every message's words, as before.
+        body = _json(self.start(messages=both))
+        self.assertEqual(body["initial"]["description"], "Please translate the contract\n\nand this one")
+
+    def test_one_message_ticked_alone_is_the_title_and_the_details(self):
+        from .models import Channel, InboundMessage
+
+        first = InboundMessage.objects.create(client=self.client_obj, channel=Channel.WHATSAPP, body="Not this one",
+                                              sender_identity=CLIENT_PHONE)
+        second = InboundMessage.objects.create(client=self.client_obj, channel=Channel.WHATSAPP, body="Only this line",
+                                               sender_identity=CLIENT_PHONE)
+        body = _json(self.start(messages=f"{first.pk},{second.pk}", texts=str(second.pk)))
+        self.assertEqual(body["initial"]["description"], "Only this line")
+        self.assertEqual(body["initial"]["title"], "Only this line")
 
     def test_a_task_has_one_client_a_message_of_another_does_not_join_it(self):
         body = _json(self.start(messages=f"{self.heard.pk},{self.elsewhere.pk}"))

@@ -105,7 +105,7 @@ def _tasks(request):
 def _start(request):
     """The new-task form's address: the messages, the files and the task it repeats, each only when it is plainly an id or a code."""
     out = []
-    for name in ("message", "messages", "files"):
+    for name in ("message", "messages", "files", "texts"):
         for value in request.GET.getlist(name):
             if IDS.fullmatch(value):
                 out.append((name, value.replace(" ", "")))

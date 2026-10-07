@@ -202,6 +202,7 @@ class WatchingTheTasksTests(_Support):
             ("api_task_action", [code, "delivered"], {"form": {}}),
             ("api_task_action", [code, "ack"], {"form": {}}),
             ("api_assign_lead", [code], {"form": {"user": str(self.lead.pk)}}),
+            ("api_assign_translator_direct", [code], {"form": {"user": str(self.lead.pk)}}),
             ("api_deliver", [code], {"form": {"send": "1"}}),
             ("v1_task_words", [code], {"body": {"words": 100}}),
             ("v1_task_requirement", [code], {"body": {"kind": "rule", "text": "x"}}),

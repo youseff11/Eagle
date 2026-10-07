@@ -371,6 +371,8 @@ export interface OpsTask {
   /** What the task's team leader (and the admin) may do on it; `null` for everybody else. */
   lead: LeadTools | null;
   leads: { id: number; name: string; online: boolean; tasks: number }[];
+  /** Only while no team leader has the site open: the translators the task can be sent to with no leader in between. */
+  direct: { translators: { id: number; name: string; lead: string; state: "free" | "busy" | "off"; rating: number }[] } | null;
   handover: { by: string | null; at: Stamp | null } | null;
   deliver: {
     files: { id: number; name: string; size: string; sender: string | null; final: boolean }[];

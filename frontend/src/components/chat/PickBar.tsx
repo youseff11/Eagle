@@ -17,7 +17,7 @@ export function dayLabel(day: string, t: (ar: string, en: string) => string, now
 /**
  * The bar that replaces the box to write in while files are being picked: how many, which day, "select all", and
  * where they go - into another conversation, or into one task (a link to the task form, with the messages they are
- * in and the files that were ticked).
+ * in, the files that were ticked, and the messages ticked to be its details).
  */
 export function PickBar({
   count,
@@ -26,6 +26,7 @@ export function PickBar({
   allIn,
   messages,
   files,
+  texts,
   onDay,
   onAll,
   onCancel,
@@ -37,6 +38,8 @@ export function PickBar({
   allIn: boolean;
   messages: number[];
   files: number[];
+  /** The messages ticked to be written in the task's details. */
+  texts: number[];
   onDay: (day: string) => void;
   onAll: () => void;
   onCancel: () => void;
@@ -48,6 +51,12 @@ export function PickBar({
       <Icon name="paperclip" size="sm" />
       <span aria-live="polite">
         <b className="mono">{count}</b> {t("ملف متحدد", "selected")}
+        {texts.length > 0 && (
+          <>
+            {" + "}
+            <b className="mono">{texts.length}</b> {t("رسالة للتفاصيل", "for the details")}
+          </>
+        )}
       </span>
       <select className="input cchat__pickday" value={day} onChange={(event) => onDay(event.target.value)} aria-label={t("ملفات يوم معيّن", "Files from one day")}>
         <option value="">{t("كل الأيام", "All days")}</option>
@@ -68,13 +77,13 @@ export function PickBar({
         <Icon name="forward" size="sm" />
         <span>{t("تحويل لشات", "Forward")}</span>
       </button>
-      {count === 0 ? (
+      {count === 0 && texts.length === 0 ? (
         <button type="button" className="btn btn--sm btn--primary" disabled>
           <Icon name="arrow-right" size="sm" />
           <span>{t("تحويل لتاسك", "Convert to task")}</span>
         </button>
       ) : (
-        <a className="btn btn--sm btn--primary" href={newTaskUrl(messages, files)}>
+        <a className="btn btn--sm btn--primary" href={newTaskUrl(messages, files, texts)}>
           <Icon name="arrow-right" size="sm" />
           <span>{t("تحويل لتاسك", "Convert to task")}</span>
         </a>

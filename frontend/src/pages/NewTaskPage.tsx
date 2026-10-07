@@ -15,7 +15,7 @@ const REQUIREMENT_ICON: Record<string, string> = { like: "thumbs-up", dislike: "
 /** What the address may pass on to the server: the ids of messages and files, and the code of the task it repeats. */
 function startQuery(params: URLSearchParams): string {
   const out = new URLSearchParams();
-  for (const name of ["message", "messages", "files"]) {
+  for (const name of ["message", "messages", "files", "texts"]) {
     for (const value of params.getAll(name)) {
       if (/^[0-9, ]{1,400}$/.test(value)) out.append(name, value.replace(/ /g, ""));
     }

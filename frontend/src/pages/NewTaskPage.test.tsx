@@ -107,6 +107,14 @@ describe("NewTaskPage: what it starts from", () => {
     expect(asked).toEqual([`${START}?messages=7%2C8&files=3&from=TSK-00001`]);
   });
 
+  it("passes on the messages ticked for the details, and drops them when they are not ids", async () => {
+    const mocked = serve(start());
+    open("/tasks/new?messages=7,8&texts=8&texts=%3Cb%3E");
+    await ready();
+    const asked = mocked.calls.filter((c) => c.url.startsWith(START)).map((c) => c.url);
+    expect(asked).toEqual([`${START}?messages=7%2C8&texts=8`]);
+  });
+
   it("is filled from a message: its client, its words as the title and the details, and the message beside the form", async () => {
     serve(fromMessage());
     open("/tasks/new?message=7");

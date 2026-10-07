@@ -50,6 +50,11 @@ describe("the link to the task form", () => {
     expect(newTaskUrl([5], [])).toBe("/ops/tasks/new/?messages=5");
   });
 
+  it("names the messages ticked for the details only when there are some", () => {
+    expect(newTaskUrl([1, 5], [12], [5])).toBe("/ops/tasks/new/?messages=1,5&files=12&texts=5");
+    expect(newTaskUrl([5], [], [5])).toBe("/ops/tasks/new/?messages=5&texts=5");
+  });
+
   it("calls a day by its name when it is today or yesterday, and by its date otherwise", () => {
     const t = (ar: string) => ar;
     const now = new Date(2026, 9, 2, 12);
@@ -256,6 +261,7 @@ describe("select files", () => {
   const count = () => within(bar()).getByText(/^\d+$/);
   const dayBox = () => within(bar()).getByRole("combobox", { name: "ملفات يوم معيّن" });
   const boxes = () => screen.queryAllByRole("checkbox");
+  const fileBoxes = () => boxes().filter((box) => box.getAttribute("aria-label")?.startsWith("حدد الملف"));
   const dialog = () => screen.getByRole("dialog");
 
   it("is offered when the conversation has documents to pick, and not when it has none", async () => {
@@ -272,7 +278,7 @@ describe("select files", () => {
   it("draws a box on every document - not on a voice note - and takes the box to write in away", async () => {
     await open();
     await userEvent.click(toggle());
-    expect(boxes().map((box) => box.getAttribute("aria-label"))).toEqual([
+    expect(fileBoxes().map((box) => box.getAttribute("aria-label"))).toEqual([
       "حدد الملف: contract.pdf", "حدد الملف: stamps.pdf", "حدد الملف: page.pdf", "حدد الملف: appendix.pdf",
     ]);
     expect(document.querySelector(".cchat__stream")).toHaveClass("is-picking");
@@ -292,6 +298,38 @@ describe("select files", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /stamps/ }));
     expect(count()).toHaveTextContent("1");
     expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=3&files=14");
+  });
+
+  it("draws a box on the words of the client's messages too, and ticking one sends it to the task's details", async () => {
+    await open();
+    await userEvent.click(toggle());
+    const words = () => screen.getAllByRole("checkbox", { name: "حدد الرسالة للتفاصيل" });
+    // The three messages with a document and the one with only words; a voice note and our own message have none.
+    expect(words()).toHaveLength(4);
+    await userEvent.click(screen.getByRole("checkbox", { name: /stamps/ }));
+    expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1&files=12");
+    // Ticking the words of the message that has no file adds it to the task and names it for the details.
+    await userEvent.click(words()[3]!);
+    expect(words()[3]).toBeChecked();
+    expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1,5&files=12&texts=5");
+    // A tap on the words ticks them as a tap on a file does; the count of files is not touched.
+    await userEvent.click(screen.getByText("the appendix"));
+    expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1,3,5&files=12&texts=3,5");
+    await userEvent.click(screen.getByText("the appendix"));
+    await userEvent.click(words()[3]!);
+    expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=1&files=12");
+  });
+
+  it("makes a task of messages alone when no file is ticked, and cancel forgets them", async () => {
+    await open();
+    await userEvent.click(toggle());
+    expect(within(bar()).getByRole("button", { name: "تحويل لتاسك" })).toBeDisabled();
+    await userEvent.click(screen.getAllByRole("checkbox", { name: "حدد الرسالة للتفاصيل" })[3]!);
+    expect(within(bar()).getByRole("link", { name: "تحويل لتاسك" })).toHaveAttribute("href", "/ops/tasks/new/?messages=5&texts=5");
+    expect(within(bar()).getByRole("button", { name: "تحويل لشات" })).toBeDisabled();
+    await userEvent.click(within(bar()).getByRole("button", { name: "إلغاء" }));
+    await userEvent.click(toggle());
+    expect(within(bar()).getByRole("button", { name: "تحويل لتاسك" })).toBeDisabled();
   });
 
   it("ticks a file when a tap lands on it instead of opening it", async () => {

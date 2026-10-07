@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useAddMember,
+  useAssignDirect,
   useAssignLead,
   useCancelTask,
   useDeliver,
@@ -25,6 +26,71 @@ function Problem({ text }: { text: string }) {
   );
 }
 
+/**
+ * While no team leader has the site open, the task can go straight to a translator (who has a minute to say yes). That
+ * translator's own leader keeps the review and is told. The server offers the list only while nobody is online, and
+ * refuses the send as well, so this box is gone the moment a leader opens the site.
+ */
+function DirectBox({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const assign = useAssignDirect(task.code);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [problem, setProblem] = useState("");
+  if (!task.direct) return null;
+  const word = { free: t("فاضي", "free"), busy: t("مشغول", "busy"), off: t("أوفلاين", "offline") };
+
+  if (task.direct.translators.length === 0) {
+    return (
+      <div className="note note--warn mt">
+        <Icon name="alert" />
+        <div>{t("مفيش مترجم تحت تيم ليدر تبعتله التاسك.", "There is no translator under a team leader to send it to.")}</div>
+      </div>
+    );
+  }
+  const translator = picked ?? task.direct.translators[0]!.id;
+
+  return (
+    <div className="mt" id="directBox">
+      <div className="note note--warn">
+        <Icon name="alert" />
+        <div>
+          {t(
+            "مفيش تيم ليدر فاتح دلوقتي. تقدر تبعتها للمترجم دايركت — التيم ليدر بتاعه هيتبلّغ وهو اللي هيراجع الشغل.",
+            "No team leader is online. You can send it straight to a translator: their team leader is told and still reviews the work.",
+          )}
+        </div>
+      </div>
+      <div className="field mt">
+        <label htmlFor="direct-select">{t("ابعتها لمترجم دايركت", "Send straight to a translator")}</label>
+        <select id="direct-select" className="input" value={translator} onChange={(event) => setPicked(Number(event.target.value))}>
+          {task.direct.translators.map((person) => (
+            <option key={person.id} value={person.id}>
+              {person.name} — {word[person.state]} · {person.rating.toFixed(2)} · {person.lead}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button
+        className="btn btn--block"
+        type="button"
+        disabled={assign.isPending}
+        onClick={() => {
+          setProblem("");
+          assign.mutate(translator, {
+            onSuccess: () => push({ level: "success", title: t("اتبعتت للمترجم", "Sent to the translator") }),
+            onError: (error) => setProblem(taskProblem(error, t)),
+          });
+        }}
+      >
+        <Icon name="send" size="sm" />
+        <span>{assign.isPending ? t("بيتبعت...", "Sending...") : t("ابعتها للمترجم دايركت", "Send to the translator")}</span>
+      </button>
+      <Problem text={problem} />
+    </div>
+  );
+}
+
 /** A new task goes to one team leader, who has a minute to say yes. Who is here and how loaded each is, beside the name. */
 export function AssignLeadBox({ task }: { task: OpsTask }) {
   const { t } = usePreferences();
@@ -37,10 +103,13 @@ export function AssignLeadBox({ task }: { task: OpsTask }) {
 
   if (task.leads.length === 0) {
     return (
-      <div className="note note--warn">
-        <Icon name="alert" />
-        <div>{t("مفيش تيم ليدرز مسجلين تبعتلهم التاسك.", "There are no team leaders to send it to.")}</div>
-      </div>
+      <>
+        <div className="note note--warn">
+          <Icon name="alert" />
+          <div>{t("مفيش تيم ليدرز مسجلين تبعتلهم التاسك.", "There are no team leaders to send it to.")}</div>
+        </div>
+        <DirectBox task={task} />
+      </>
     );
   }
 
@@ -78,6 +147,7 @@ export function AssignLeadBox({ task }: { task: OpsTask }) {
         <span>{assign.isPending ? t("بيتبعت...", "Sending...") : t("ابعتها للتيم ليدر", "Send to team leader")}</span>
       </button>
       <Problem text={problem} />
+      <DirectBox task={task} />
     </>
   );
 }

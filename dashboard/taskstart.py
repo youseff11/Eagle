@@ -80,12 +80,16 @@ class Start:
         return self.messages[0] if self.messages else None
 
 
-def resolve(user, message_ids=(), file_ids=(), from_code=""):
+def resolve(user, message_ids=(), file_ids=(), from_code="", text_ids=None):
     """Work out what a new task starts from.
 
     ``from_code`` is "a new request on the same files": a new task on a finished (or running) one's material - the
     same contract into another language, say. It starts from that task's messages and files; everything else is a
     fresh task. Nothing ticked means every file of the messages, which is what it meant before the picker existed.
+
+    ``text_ids`` are the messages ticked to be the task's details (the brief): only their words are written there, in
+    the order they arrived, and only if they are among the messages this person may make a task from. ``None`` - nothing
+    was ticked - is every message's words, as before.
     """
     from_code = (from_code or "").strip()
     from_task = Task.objects.filter(code=from_code).select_related("client").first() if from_code else None
@@ -112,11 +116,15 @@ def resolve(user, message_ids=(), file_ids=(), from_code=""):
     if message:
         # "[document]" is what the webhook writes for a file with no caption. It says nothing in a task, so it goes;
         # the files are on the task.
-        texts = [services.clean_client_text(m.body) for m in messages]
+        wanted = None if text_ids is None else set(ids(text_ids))
+        worded = messages if wanted is None else [m for m in messages if m.pk in wanted]
+        texts = [services.clean_client_text(m.body) for m in worded]
         description = "\n\n".join(text for text in texts if text)
         files = len(picked) or sum(len(m.attachments.all()) for m in messages)
-        if len(messages) == 1 and (message.subject or texts[0]):
+        if len(messages) == 1 and (message.subject or (texts and texts[0])):
             title = message.subject or texts[0][:60]
+        elif len(worded) == 1 and texts[0] and not files:
+            title = texts[0][:60]
         elif files:
             # A title that says what the job is rather than whichever line happened to come first.
             title = f"{files} ملفات من {message.client_code}"

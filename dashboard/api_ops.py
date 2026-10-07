@@ -170,6 +170,27 @@ def _leads_json():
     ]
 
 
+def _direct_json():
+    """The translators a new task can go to with no leader in between - only offered while no leader has the site open.
+
+    ``None`` while any leader is here: the way past the leader is not shown, and the server refuses it as well.
+    """
+    if services.leads_online():
+        return None
+    return {
+        "translators": [
+            {
+                "id": person.pk,
+                "name": person.short_name,
+                "lead": person.team_lead.short_name,
+                "state": "off" if not person.is_online else "busy" if person.is_busy else "free",
+                "rating": float(person.rating),
+            }
+            for person in services.direct_translators()
+        ]
+    }
+
+
 def _deliverables_json(task):
     """The files the operation may send to the client, the translator's own ticked.
 
@@ -334,6 +355,7 @@ def task(request, code):
             },
             "lead": _lead_json(task, user),
             "leads": _leads_json() if new else [],
+            "direct": _direct_json() if new else None,
             "handover": {
                 "by": task.handover_ack_by.short_name if task.handover_ack_by_id else None,
                 "at": _stamp(task.handover_ack_at, "%m-%d"),
@@ -486,7 +508,9 @@ def _start_json(start, user):
 @endpoint("GET")
 @api_role_required(Role.OPERATION)
 def task_start(request):
-    """What the new-task form starts from: ``?message=``, ``?messages=1,2``, ``?files=3``, ``?from=TSK-00001``.
+    """What the new-task form starts from: ``?message=``, ``?messages=1,2``, ``?files=3``, ``?texts=2``, ``?from=TSK-00001``.
+
+    ``texts`` are the messages whose words go in the details box; without it that is every message's.
 
     Resolved by ``taskstart`` - the classic form's own rules - so a message this person may not read, one of
     another client, or a file that is not on those messages finds nothing and is not offered. Nothing is written.
@@ -495,12 +519,16 @@ def task_start(request):
     user = request.user
     messages = _start_ids(request, "message", "messages")
     files = _start_ids(request, "files")
-    if messages is None or files is None:
+    texts = _start_ids(request, "texts")
+    if messages is None or files is None or texts is None:
         return _error(400, "too_many")
     source = request.GET.get("from", "")
     if len(source) > 40 or "\x00" in source:
         return _error(400, "bad_request")
-    start = taskstart.resolve(user, message_ids=messages, file_ids=files, from_code=source)
+    # Absent is "every message's words"; present is only the messages ticked for the details.
+    start = taskstart.resolve(
+        user, message_ids=messages, file_ids=files, from_code=source, text_ids=texts if "texts" in request.GET else None,
+    )
     return JsonResponse({
         "ok": True,
         **_start_json(start, user),
