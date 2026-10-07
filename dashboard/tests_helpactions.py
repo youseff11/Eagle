@@ -542,7 +542,7 @@ class CatalogTests(TestCase):
         for name, action in helpactions.ACTIONS.items():
             # Build the request with plausible values and make sure the address exists and is a POST-only view.
             sample = {"employee": {"id": 1, "name": "x"}, "leader": {"id": 1, "name": "x"}, "task": {"code": "TSK-00001", "status": "new"},
-                      "client": {"code": "CL-0001"}, "request": {"id": 1, "from": "2026-01-01", "to": "2026-01-02"},
+                      "client": {"code": "CL-0001", "id": 1}, "title": "x", "source_lang": "en", "target_lang": "ar", "request": {"id": 1, "from": "2026-01-01", "to": "2026-01-02"},
                       "decision": "approve", "active": False, "address": "a@b.co", "text": "x", "kind": "rule", "reason": "x",
                       "start": "09:00", "end": "17:00", "date": "2026-01-01", "days": "1.00", "amount": "0.00",
                       "violation": {"id": 1, "date": "2026-01-01"}}
@@ -733,4 +733,29 @@ class RunAtOnceTests(_Owner):
     def test_an_edit_with_nothing_to_change_is_refused(self):
         data = self.auto("عدل", _order("client.update", client=self.client_obj.code))
         self.assertIsNone(data["ran"])
+        self.assertIsNone(data["order"])
+
+
+class MessageOrderTests(RunAtOnceTests):
+    def test_a_message_reaches_the_colleague(self):
+        from .models import ChatMessage
+        data = self.auto("ابعت", _order("staff.message", employee="Tarek", text="اهلا"))
+        self.assertTrue(data["ran"]["done"], data)
+        self.assertTrue(ChatMessage.objects.filter(body="اهلا").exists())
+
+    def test_the_owner_cannot_message_themselves(self):
+        data = self.auto("ابعت", _order("staff.message", employee="owner_one", text="x"))
+        self.assertIsNone(data["order"])
+
+
+class TaskCreateOrderTests(RunAtOnceTests):
+    def test_a_task_is_created_for_the_client(self):
+        data = self.auto("اعمل تاسك", _order("task.create", client=self.client_obj.code, title="عقد", source_lang="English", target_lang="Arabic", days=2))
+        self.assertTrue(data["ran"]["done"], data)
+        task = Task.objects.get(title="عقد")
+        self.assertEqual(task.client_id, self.client_obj.pk)
+        self.assertIsNotNone(task.deadline)
+
+    def test_a_task_needs_its_languages(self):
+        data = self.auto("اعمل تاسك", _order("task.create", client=self.client_obj.code, title="عقد"))
         self.assertIsNone(data["order"])

@@ -423,6 +423,13 @@ def _client_check(v):
         raise Problem("قول لي إيه اللي يتغيّر في العميل.", "Tell me what to change on the client.")
 
 
+def _task_create_check(v, today):
+    client = Client.objects.filter(code=v["client"]["code"], is_active=True).first()
+    if client is None:
+        raise Problem("العميل ده مش شغال أو مش موجود.", "That client is inactive or does not exist.")
+    v["client"]["id"] = client.pk
+
+
 _CLIENT_FIELDS = ("name", "company", "phone", "email", "admin_notes")
 
 
@@ -501,6 +508,33 @@ ACTIONS = {
             lambda v: Call("v1_leave_decide", (v["request"]["id"], v["decision"]), json={"note": v.get("note", "")}),
             _leave_summary,
             lambda v, lang: _t(lang, "القرار اتسجّل.", "The decision was recorded."),
+        ),
+        Action(
+            "task.create", ("تاسك جديدة", "Create a task"),
+            "Create a new task for a client (found by its code): title, languages and optional deadline, priority and word count.",
+            (
+                Param("client", "client", ("كود العميل", "the client's code"), hint="like CL-0007"),
+                Param("title", "text", ("عنوان التاسك", "the title"), limit=200),
+                Param("source_lang", "text", ("لغة الأصل", "the source language"), limit=30, hint="like English or EN"),
+                Param("target_lang", "text", ("لغة الترجمة", "the target language"), limit=30, hint="like Arabic or AR"),
+                Param("description", "text", ("وصف", "a description"), required=False, limit=2000),
+                Param("priority", "choice", ("الأولوية", "the priority"), required=False, default="normal", choices=("low", "normal", "high", "urgent"), hint="low, normal (default), high or urgent"),
+                Param("word_count", "int", ("عدد الكلمات", "the word count"), required=False, lo=0, hi=1000000, hint="optional"),
+                Param("days", "int", ("ديدلاين أيام", "deadline days"), required=False, default=0, lo=0, hi=365, hint="optional; days from now"),
+                Param("hours", "int", ("ديدلاين ساعات", "deadline hours"), required=False, default=0, lo=0, hi=2000, hint="optional; hours from now"),
+            ),
+            _task_create_check,
+            lambda v: Call("v1_task_create", (), json={
+                "client": v["client"]["id"], "title": v["title"], "description": v.get("description", ""),
+                "source_lang": v["source_lang"], "target_lang": v["target_lang"], "priority": v.get("priority", "normal"),
+                "word_count": v.get("word_count"),
+                "deadline": {"days": str(v.get("days") or ""), "hours": str(v.get("hours") or ""), "minutes": ""},
+            }),
+            lambda v, lang: _t(
+                lang, f"عمل تاسك جديدة «{v['title']}» للعميل {v['client']['code']} ({v['source_lang']} إلى {v['target_lang']}).",
+                f"Create a task \"{v['title']}\" for client {v['client']['code']} ({v['source_lang']} to {v['target_lang']}).",
+            ),
+            lambda v, lang: _t(lang, "التاسك اتعملت. هتلاقيها في «التاسكات».", "The task was created. You will find it under \"Tasks\"."),
         ),
         Action(
             "task.cancel", ("إلغاء تاسك", "Cancel a task"),
@@ -596,6 +630,18 @@ ACTIONS = {
             lambda v, lang: _t(lang, f"تعديل العميل {v['client']['code']}: " + "، ".join(_client_changes(v)) + ".",
                                f"Edit client {v['client']['code']}: " + ", ".join(_client_changes(v)) + "."),
             lambda v, lang: _t(lang, "العميل اتعدّل.", "The client was changed."),
+        ),
+        Action(
+            "staff.message", ("رسالة لموظف", "Message a colleague"),
+            "Send a chat message from the owner to one employee, in the colleagues chat (never to a client).",
+            (
+                Param("employee", "person", ("الموظف", "the employee")),
+                Param("text", "text", ("نص الرسالة", "the message"), limit=1000, hint="exactly the words the owner wants sent"),
+            ),
+            _nothing,
+            lambda v: Call("v1_staff_send", (v["employee"]["id"],), form={"body": v["text"]}),
+            lambda v, lang: _t(lang, f"إرسال رسالة لـ {v['employee']['name']}: «{v['text']}».", f"Send {v['employee']['name']} the message: \"{v['text']}\"."),
+            lambda v, lang: _t(lang, "الرسالة اتبعتت.", "The message was sent."),
         ),
         Action(
             "employee.set_active", ("إيقاف أو تفعيل حساب", "Switch an account off or on"),
