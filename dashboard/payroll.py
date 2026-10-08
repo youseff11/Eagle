@@ -28,6 +28,8 @@ from django.utils import timezone
 from . import attendance
 from .models import (
     ApprovalStatus,
+    Assignment,
+    AssignmentStatus,
     SalaryPlan,
     AuditLog,
     DayStatus,
@@ -207,14 +209,50 @@ COUNTED_TASK_STATUSES = (
 
 
 def tasks_for(user, first_day, last_day):
-    """Jobs whose translation landed inside the window."""
+    """Jobs whose translation landed inside the window - the ones that were whole (one translator, no share handed in)."""
     start = timezone.make_aware(datetime.combine(first_day, time.min))
     end = timezone.make_aware(datetime.combine(last_day, time.max))
     return Task.objects.filter(
         translator=user,
         status__in=COUNTED_TASK_STATUSES,
         translated_at__range=(start, end),
+    ).exclude(pk__in=Assignment.objects.filter(
+        assignee=user, target_role=Role.TRANSLATOR, done_at__isnull=False,
+    ).values("task_id"))
+
+
+class Produced:
+    """One thing a person translated: the task it was part of, the words that count for them, and the day they finished it."""
+
+    __slots__ = ("task", "words", "day", "moment")
+
+    def __init__(self, task, words, day, moment):
+        self.task, self.words, self.day, self.moment = task, words, day, moment
+
+
+def production(user, first_day, last_day):
+    """What ``user`` translated inside the window, as a list of :class:`Produced`.
+
+    Two kinds, never both for the same task. A **share** the team leader gave them (07/10/2026), counted on the day *they* handed it in
+    and for the words the leader gave them - a colleague finishing the rest a week later moves nothing of theirs. And a **whole job** (one
+    translator, made before shares existed or sent without words), counted on the task's own day for the task's own count.
+    """
+    start = timezone.make_aware(datetime.combine(first_day, time.min))
+    end = timezone.make_aware(datetime.combine(last_day, time.max))
+    out = []
+    shares = (
+        Assignment.objects.filter(
+            assignee=user, target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED, done_at__range=(start, end),
+        ).exclude(task__status=TaskStatus.CANCELLED).select_related("task").order_by("done_at")
     )
+    for share in shares:
+        task = share.task
+        # Words left at 0 are "not said" (a job sent without them): read the task's own count, when nobody else shares the job.
+        words = share.words or (0 if task.is_split else task.word_count or 0)
+        out.append(Produced(task, words, timezone.localtime(share.done_at).date(), share.done_at))
+    for task in tasks_for(user, first_day, last_day):
+        out.append(Produced(task, task.word_count or 0, task.production_date, task.translated_at))
+    return out
 
 
 def refresh_words(user, first_day, last_day):
@@ -224,17 +262,14 @@ def refresh_words(user, first_day, last_day):
     the person worked, and a missing row would silently drop their production.
     """
     by_day = {}
-    for task in tasks_for(user, first_day, last_day).only(
-        "word_count", "translated_at", "delivered_at", "is_difficult",
-        "is_secondary_language",
-    ):
-        day = task.production_date
+    for done in production(user, first_day, last_day):
+        day = done.day
         if day is None:
             continue
         bucket = by_day.setdefault(day, {"words": 0, "difficult": False, "secondary": False})
-        bucket["words"] += task.word_count or 0
-        bucket["difficult"] = bucket["difficult"] or task.is_difficult
-        bucket["secondary"] = bucket["secondary"] or task.is_secondary_language
+        bucket["words"] += done.words
+        bucket["difficult"] = bucket["difficult"] or done.task.is_difficult
+        bucket["secondary"] = bucket["secondary"] or done.task.is_secondary_language
 
     existing = {row.date: row for row in WorkDay.objects.filter(
         user=user, date__range=(first_day, last_day)

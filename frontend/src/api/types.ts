@@ -220,6 +220,17 @@ export interface Labelled {
   en: string;
 }
 
+/** A translator's share of a task (`services.part_json`): the pair, the words and the pages the team leader gave them. */
+export interface PartJson {
+  source_lang: string;
+  target_lang: string;
+  words: number;
+  page_from: number | null;
+  page_to: number | null;
+  text_ar: string;
+  text_en: string;
+}
+
 export interface DeskTask {
   code: string;
   title: string;
@@ -228,8 +239,10 @@ export interface DeskTask {
   origin: (Labelled & { icon: string }) | null;
   /** A client code. The translator is never given a name. */
   client: string;
+  /** The pair this translator was given (their share's; the task's own when the leader said nothing). */
   source_lang: string;
   target_lang: string;
+  part: PartJson | null;
   /** The translator's own date, formatted by the server in both languages; null when there is none. */
   due: { ar: string; en: string } | null;
   due_state: "none" | "ok" | "soon" | "late" | "done";
@@ -270,6 +283,8 @@ export interface PendingAssignment {
   deadline_iso: string;
   /** The sender's note, with the client's name taken out. */
   note: string;
+  /** What the leader gave this translator of the task; null for a team leader's hand-off. */
+  part: PartJson | null;
 }
 
 /** GET /api/v1/assignments/<id>/ : a hand-off read before it is taken. */
@@ -286,6 +301,7 @@ export interface AssignmentResponse {
     note: string;
     from: string | null;
     mine: boolean;
+    part: PartJson | null;
   };
   task: {
     code: string;
@@ -329,6 +345,25 @@ export interface TasksResponse {
 
 export type Channel = "whatsapp" | "email";
 
+/** One translator's share of a task, as the leader and the operation read it. */
+export interface OpsPart {
+  id: number;
+  translator: number;
+  name: string;
+  initials: string;
+  status: "pending" | "accepted";
+  source_lang: string;
+  target_lang: string;
+  words: number;
+  page_from: number | null;
+  page_to: number | null;
+  /** They handed their share in. */
+  done: boolean;
+  done_at: Stamp | null;
+  /** The seconds they have left to answer, while the offer waits. */
+  seconds_left: number | null;
+}
+
 /** One task as the operation reads it (`api_ops.task`). */
 export interface OpsTask {
   /** Technical support reads the task and nothing of the client's or the work's: the page leaves those cards out. */
@@ -353,11 +388,13 @@ export interface OpsTask {
   translator_due_iso?: string;
   description: string;
   people: { operation: string | null; team_lead: string | null; translator: string | null };
+  /** Each translator on it and what they were given (`api_ops._parts_json`): offered or taken, and whether they handed in. */
+  parts: OpsPart[];
   /** Who has been asked to take it and has not answered yet, and how long they have. */
   waiting_for: { name: string; seconds_left: number } | null;
   files: {
     original: TaskFile[];
-    translation: (TaskFile & { at: Stamp | null })[];
+    translation: (TaskFile & { at: Stamp | null; by?: string | null })[];
     /** The team leader's own corrected version, which the review sends on in the translator's place. */
     reviewed?: (TaskFile & { at: Stamp | null })[];
   };
@@ -524,6 +561,9 @@ export interface TranslatorTask {
   people: { operation: string | null; team_lead: string | null; translator: string | null };
   /** Whether this task is the person's own (the admin may look at any). */
   mine: boolean;
+  /** Their share of the task - the pair, the words, the pages - and whether they have handed it in. */
+  part: PartJson | null;
+  handed_in: boolean;
   files: { original: TaskFile[]; translation: (TaskFile & { at: Stamp | null })[] };
   can_upload: boolean;
   translation_missing: boolean;
@@ -945,13 +985,9 @@ export interface AiNote {
   meaning: string;
 }
 
-/** GET /api/v1/tasks/<code>/ai-notes/: the box at the top of a task page, for the admin and the task's own team leader. */
-export interface TaskAiNotes {
-  ok: true;
-  task: { code: string; title: string };
-  /** The switch is on, the key is there and no check is running. */
-  can_recheck: boolean;
-  /** There are notes left to accept and somebody holds the task to lose the stars for them. */
+/** One check of the box: its notes, whether they can be accepted, and what accepting costs and whom. */
+export interface AiCheckView {
+  /** There are notes left to accept and somebody is there to lose the stars for them. */
   can_accept: boolean;
   /** What accepting costs, said before it is pressed: stars for each note, and whose. */
   accept_cost: { each: string; translator: string | null };
@@ -971,6 +1007,20 @@ export interface TaskAiNotes {
   issues: AiNote[];
 }
 
+/**
+ * GET /api/v1/tasks/<code>/ai-notes/: the box at the top of a task page, for the admin and the task's own team leader. The fields of
+ * the newest check are at the top; a task shared between translators has a check for each of them (`checks`, newest first), and the box
+ * draws a section for each.
+ */
+export interface TaskAiNotes extends AiCheckView {
+  ok: true;
+  task: { code: string; title: string };
+  /** The switch is on, the key is there and no check is running. */
+  can_recheck: boolean;
+  /** Only when more than one translator has been checked. */
+  checks?: (AiCheckView & { translator: { id: number; name: string } | null })[];
+}
+
 /** GET /api/v1/groups/<id>/ai-notes/ and /api/v1/staff/<id>/ai-notes/: the panel beside the leader's chat, or `null`. */
 export interface ChatAiNotes {
   ok: true;
@@ -986,12 +1036,14 @@ export interface LeadTools {
   can_set_translator_deadline: boolean;
   /** It is under review: the review can be finished. */
   can_review: boolean;
+  /** Every share still on it is in and none is waiting: the leader may close the translation and review what there is. */
+  can_close_translation?: boolean;
   /** The leader may put the file he corrected: under review, and after it until the client has it. */
   can_upload_reviewed?: boolean;
   /** The client's date, to remind the leader of the review time they keep. */
   client_due: Stamp | null;
   /** The translator's request for more time, waiting for this person's yes or no. */
-  extension: { id: number; length: string; reason: string; new_due: Stamp | null } | null;
+  extension: { id: number; by?: string | null; length: string; reason: string; new_due: Stamp | null } | null;
 }
 
 /** One person of a team leader's team (`api_lead._person_json`) and whether they can take a job now. */

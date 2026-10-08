@@ -31,6 +31,7 @@ function pending(overrides: Partial<PendingAssignment> = {}): PendingAssignment 
     deadline: "2026-10-30 5:30 PM",
     deadline_iso: "2026-10-30T14:30:00+00:00",
     note: "Please take this one",
+    part: null,
     ...overrides,
   };
 }
@@ -89,6 +90,36 @@ describe("AssignmentModal: what it shows", () => {
     expect(dialog()).not.toBeNull();
     await tell(view, null);
     expect(dialog()).toBeNull();
+  });
+
+  it("shows the share the leader gave: the pair, the words and the pages", async () => {
+    serve();
+    await open(
+      pending({
+        part: {
+          source_lang: "EN", target_lang: "AR", words: 1200, page_from: 3, page_to: 9,
+          text_ar: "EN → AR · 1,200 كلمة · صفحات 3-9", text_en: "EN → AR · 1,200 words · pages 3-9",
+        },
+      }),
+    );
+    const box = within(screen.getByRole("dialog")).getByText("المطلوب منك").closest("[data-box='my-part']") as HTMLElement;
+    expect(within(box).getByText("EN → AR")).toBeInTheDocument();
+    expect(within(box).getByText("1,200")).toBeInTheDocument();
+    expect(within(box).getByText("3-9")).toBeInTheDocument();
+  });
+
+  it("draws no share for a hand-off that carries none", async () => {
+    serve();
+    await open();
+    expect(screen.queryByText("المطلوب منك")).toBeNull();
+  });
+
+  it("names one page as a page, not a range", async () => {
+    serve();
+    await open(pending({ part: { source_lang: "EN", target_lang: "AR", words: 80, page_from: 4, page_to: 4, text_ar: "", text_en: "" } }));
+    const box = screen.getByText("المطلوب منك").closest("[data-box='my-part']") as HTMLElement;
+    expect(within(box).getByText("4")).toBeInTheDocument();
+    expect(within(box).queryByText("4-4")).toBeNull();
   });
 
   it("shows the task, the client's code, who sent it, the date and the note", async () => {

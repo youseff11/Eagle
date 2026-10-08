@@ -476,3 +476,77 @@ describe("AiNotesCard: accepting notes", () => {
     expect(typeof interval === "function" ? interval(state) : interval).not.toBe(5000);
   });
 });
+
+describe("AiNotesCard: a task shared between translators", () => {
+  const view = (id: number, name: string, over: Partial<TaskAiNotes> = {}) => {
+    const { ok: _ok, task: _task, can_recheck: _recheck, ...one } = notes({
+      can_accept: true,
+      accept_cost: { each: "0.125", translator: name },
+      issues: [note({ id: id * 10, severity: "high" }), note({ id: id * 10 + 1, severity: "low", location: "", category: null })],
+      ...over,
+    }, { id });
+    return { translator: { id: id + 100, name }, ...one };
+  };
+
+  function open(checks: ReturnType<typeof view>[]) {
+    const sent: unknown[] = [];
+    const mocked = mockFetch({
+      "/api/v1/tasks/TSK-00001/ai-notes/accept/": (_url: URL, init: RequestInit | undefined) => {
+        sent.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ ok: true, taken: "0.125" });
+      },
+      "/api/tasks/TSK-00001/ai-recheck/": () => jsonResponse({ ok: true }),
+      "/api/v1/tasks/TSK-00001/ai-notes/": () => jsonResponse({ ...notes(), ...checks[0], checks }),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+    renderWithProviders(
+      <ToastProvider>
+        <AiNotesCard code="TSK-00001" />
+      </ToastProvider>,
+      { lang: "ar", client },
+    );
+    return { sent };
+  }
+
+  it("draws a section for each translator, saying whose translation it is about", async () => {
+    open([view(8, "Sam"), view(7, "Nada")]);
+    expect(await screen.findByText("ملاحظات الـ AI على ترجمة Sam")).toBeInTheDocument();
+    expect(screen.getByText("ملاحظات الـ AI على ترجمة Nada")).toBeInTheDocument();
+    expect(screen.queryByText("ملاحظات الـ AI على الترجمة")).toBeNull();
+    expect(document.querySelectorAll(".ai-notes")).toHaveLength(2);
+    expect(document.querySelectorAll("#aiNotes")).toHaveLength(1);
+  });
+
+  it("has the button that asks again on the first section only", async () => {
+    open([view(8, "Sam"), view(7, "Nada")]);
+    await screen.findByText("ملاحظات الـ AI على ترجمة Sam");
+    expect(screen.getAllByRole("button", { name: "أعد الفحص" })).toHaveLength(1);
+  });
+
+  it("says in each section whose rating pays for the notes accepted there", async () => {
+    open([view(8, "Sam"), view(7, "Nada")]);
+    await screen.findByText("ملاحظات الـ AI على ترجمة Sam");
+    const sam = document.querySelector('[data-ai-translator="Sam"]') as HTMLElement;
+    const nada = document.querySelector('[data-ai-translator="Nada"]') as HTMLElement;
+    expect(within(sam).getByText(/من تقييم المترجم \(Sam\)/)).toBeInTheDocument();
+    expect(within(nada).getByText(/من تقييم المترجم \(Nada\)/)).toBeInTheDocument();
+  });
+
+  it("accepts the notes of one translator with that translator's check, and nobody else's", async () => {
+    const { sent } = open([view(8, "Sam"), view(7, "Nada")]);
+    await screen.findByText("ملاحظات الـ AI على ترجمة Sam");
+    const nada = document.querySelector('[data-ai-translator="Nada"]') as HTMLElement;
+    await userEvent.click(within(nada).getByRole("checkbox", { name: "اقبل الملاحظة 1" }));
+    await userEvent.click(within(nada).getByRole("button", { name: /اقبل المحدد \(1\)/ }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "اقبل واخصم" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ issues: [70], check: 7 });
+  });
+
+  it("is the ordinary box when only one translator has been checked", async () => {
+    open([view(8, "Sam")]);
+    expect(await screen.findByText("ملاحظات الـ AI على الترجمة")).toBeInTheDocument();
+    expect(document.querySelectorAll(".ai-notes")).toHaveLength(1);
+  });
+});

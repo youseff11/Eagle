@@ -3618,6 +3618,7 @@ class SuggestionsArchiveAndHeaderTests(TestCase):
     def _notes(self, status=None):
         return self.AICheckResult.objects.create(
             task=self.task,
+            translator=self.tr,
             status=status or self.AICheckResult.Status.ISSUES,
             summary="fine",
             issues=[{"location": "p2", "issue": "رقم مختلف", "severity": "high"}],
@@ -5078,7 +5079,8 @@ class TranslatorDeadlineTests(TestCase):
     def _hand_over(self, task, days=2):
         self.client.force_login(self.lead)
         return self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": str(days),
+            "user": self.tr.pk, "source_lang": "EN", "target_lang": "AR", "words": "500",
+            "tdeadline_mode": "shorter", "tdeadline_days": str(days),
         })
 
     # -- the two dates ----------------------------------------------------
@@ -5098,8 +5100,8 @@ class TranslatorDeadlineTests(TestCase):
         task = self._task()
         self.client.force_login(self.lead)
         self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_mode": "same", "tdeadline_days": "", "tdeadline_hours": "",
-            "tdeadline_minutes": "",
+            "user": self.tr.pk, "source_lang": "EN", "target_lang": "AR", "words": "500",
+            "tdeadline_mode": "same", "tdeadline_days": "", "tdeadline_hours": "", "tdeadline_minutes": "",
         })
         task.refresh_from_db()
         self.assertIsNone(task.translator_deadline)
@@ -5240,7 +5242,8 @@ class TranslatorDeadlineTests(TestCase):
         task = self._task()
         self.client.force_login(self.lead)
         self.client.post(f"/api/tasks/{task.code}/assign-translator/", {
-            "user": self.tr.pk, "tdeadline_mode": "same", "tdeadline_days": "",
+            "user": self.tr.pk, "source_lang": "EN", "target_lang": "AR", "words": "500",
+            "tdeadline_mode": "same", "tdeadline_days": "",
         })
         task.refresh_from_db()
         services.accept_assignment(task.assignments.order_by("-id").first(), self.tr)

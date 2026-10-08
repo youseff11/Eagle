@@ -738,7 +738,7 @@ class User(AbstractUser):
     # -- workload ----------------------------------------------------------
     def active_tasks(self):
         if self.is_translator:
-            return Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator=self)
+            return Task.objects.filter(pk__in=[task.pk for task in translator_holdings([self.pk]).get(self.pk, [])])
         qs = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
         if self.is_team_lead:
             return qs.filter(team_lead=self)
@@ -1533,8 +1533,93 @@ class Task(models.Model):
         return "ok"
 
 
+    # -- the translators on it ----------------------------------------------
+    #
+    # A task is usually one translator's, but a big one can be split: the team leader hands each translator a part of it
+    # (an ``Assignment`` that carries the pages, the words and the language pair). ``translator`` stays the first of them, so
+    # every place that only wants to say "who has this" keeps working; the places that decide who may open it, who is paid
+    # and who is told ask these instead.
+    def live_hand_offs(self):
+        """Every translator hand-off of this task that is alive (offered and not answered, or taken), whoever the task names."""
+        return self.assignments.filter(
+            target_role=Role.TRANSLATOR, status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+        ).select_related("assignee").order_by("id")
+
+    def translator_parts(self, accepted_only=False):
+        """The translator hand-offs of this task that are still alive: offered and not answered, or taken. Oldest first.
+
+        If the task's translator was set by hand to somebody who was never handed it (the admin changed it in the site's admin), the
+        hand-offs are old news and there are none: the translator it names is the only one. (A translator whose own hand-off was
+        turned down or cancelled is not that: they were handed it, and the rest still stand.)
+        """
+        live = self.live_hand_offs()
+        # A task that is back with the leader (or never left the operation) has no translators, whatever rows are left from before.
+        if self.status in (TaskStatus.NEW, TaskStatus.AWAITING_LEAD, TaskStatus.LEAD_ACCEPTED):
+            return live.none()
+        if self.translator_id and not self.assignments.filter(target_role=Role.TRANSLATOR, assignee_id=self.translator_id).exists():
+            return live.none()
+        return live.filter(status=AssignmentStatus.ACCEPTED) if accepted_only else live
+
+    def part_of(self, user, accepted_only=True):
+        """The hand-off ``user`` holds on this task as a translator, or ``None``."""
+        if user is None or not user.pk:
+            return None
+        return self.translator_parts(accepted_only).filter(assignee=user).first()
+
+    def translator_ids(self):
+        """Everyone working on it as a translator (offered or taken), the primary one included even when no hand-off row says so."""
+        ids = {self.translator_id} if self.translator_id else set()
+        ids.update(self.translator_parts().values_list("assignee_id", flat=True))
+        return ids
+
+    def translator_users(self, still_working=False):
+        """Everyone translating it, the primary translator first. ``still_working`` leaves out those who handed their share in."""
+        ids = self.translator_ids()
+        if still_working:
+            ids -= set(
+                self.translator_parts(accepted_only=True).filter(done_at__isnull=False).values_list("assignee_id", flat=True)
+            )
+        people = list(User.objects.filter(pk__in=ids).order_by("id"))
+        people.sort(key=lambda person: person.pk != self.translator_id)
+        return people
+
+    def has_translator(self, user):
+        """Is this person one of the translators on the task (the one it was handed to, or one of the several)?"""
+        if user is None or not user.pk:
+            return False
+        if self.translator_id == user.pk:
+            return True
+        return self.translator_parts().filter(assignee=user).exists()
+
+    def is_working(self, user):
+        """May this person hand work in: they took a share of it - or it was theirs before shares existed.
+
+        A share that was offered and not answered is not work yet: ``has_translator`` is true of it (they may read what they
+        are being asked to take), this is not.
+        """
+        if self.part_of(user) is not None:
+            return True
+        if user is None or self.translator_id != user.pk:
+            return False
+        return not self.assignments.filter(
+            target_role=Role.TRANSLATOR, assignee=user, status=AssignmentStatus.PENDING,
+        ).exists()
+
+    @property
+    def is_split(self):
+        """Is the work shared, or cut to pages: more than one translator is on it, or a hand-off of it named pages.
+
+        A share that was turned down or timed out still counts when it named pages - what its translator did not do is missing from
+        the files, and a check or a mark that reads "the translator's file" against the whole source would judge the wrong thing.
+        """
+        if self.assignments.filter(target_role=Role.TRANSLATOR, page_from__isnull=False).exclude(
+            status=AssignmentStatus.CANCELLED
+        ).exists():
+            return True
+        return len(self.translator_ids()) > 1
+
     def participants(self):
-        people = [self.created_by, self.team_lead, self.translator]
+        people = [self.created_by, self.team_lead, *self.translator_users()]
         return [p for p in people if p is not None]
 
 
@@ -1544,7 +1629,7 @@ class Task(models.Model):
         if user.is_team_lead:
             return self.team_lead_id == user.id
         if user.is_translator:
-            return self.translator_id == user.id
+            return self.has_translator(user)
         return False
 
     def can_watch(self, user):
@@ -1641,6 +1726,21 @@ class Assignment(models.Model):
         related_name="assignments",
     )
 
+    # -- what a translator is given (07/10/2026) --------------------------------------------------------------
+    #
+    # The team leader says, for each translator, which language pair they translate, how many words, and - when the task is
+    # split between several of them - which pages. The translator does not type any of it: the words are what the leader
+    # gave them, and they are what the month's production is counted from. Empty on a team leader's hand-off and on the
+    # ones made before this existed (those are read as the whole task).
+    source_lang = models.CharField(max_length=40, blank=True)
+    target_lang = models.CharField(max_length=40, blank=True)
+    words = models.PositiveIntegerField(default=0, help_text="Words the leader gave this translator. 0 = not said.")
+    page_from = models.PositiveIntegerField(null=True, blank=True)
+    page_to = models.PositiveIntegerField(null=True, blank=True)
+    #: When this translator handed their part in. A task with one translator goes to review at that moment; one with
+    #: several goes when the last of them has. Production is counted on this day, not on the task's.
+    done_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ("-assigned_at",)
         indexes = [models.Index(fields=["status", "expires_at"])]
@@ -1661,6 +1761,66 @@ class Assignment(models.Model):
     @property
     def is_expired(self):
         return self.status == AssignmentStatus.PENDING and timezone.now() >= self.expires_at
+
+    @property
+    def has_part(self):
+        """Did the leader say what this hand-off covers (languages, pages or words)?"""
+        return bool(self.source_lang or self.target_lang or self.words or self.page_from)
+
+    @property
+    def pages_text(self):
+        if self.page_from is None:
+            return ""
+        if self.page_to is None or self.page_to == self.page_from:
+            return str(self.page_from)
+        return f"{self.page_from}-{self.page_to}"
+
+
+def translator_q(user):
+    """The tasks ``user`` is on as a translator: the one it was handed to, or one of the several it was split between.
+
+    A hand-off turned down, timed out or taken back is not on it any more. It is a subquery, not a join, so a task with several
+    hand-offs still comes once and the database keeps its indexes. This is the list's question and ``Task.can_view`` is the door's:
+    they agree except for a task whose translator was changed by hand in the site's admin, which a list can still show to the people it
+    was handed to (the door stays shut).
+    """
+    mine = Assignment.objects.filter(
+        assignee=user, target_role=Role.TRANSLATOR, status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+    ).values("task_id")
+    return models.Q(translator=user) | models.Q(pk__in=mine)
+
+
+def translator_holdings(user_ids):
+    """``{translator id: [task, ...]}`` - the tasks each of them is holding now (``TRANSLATOR_HOLDING_STATUSES``).
+
+    A task they were offered or took counts. One where they have already handed their own part in does not, even though
+    the task is still being worked by the others: they are free for the next one.
+    """
+    ids = set(user_ids)
+    held = {}
+    seen = set()
+    legacy = Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator_id__in=ids).select_related("client")
+    # A share is alive only while the task is with its translators; once it is back with the leader (or beyond), nobody holds it.
+    parts = Assignment.objects.filter(
+        target_role=Role.TRANSLATOR, assignee_id__in=ids,
+        status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+        task__status__in=(TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS),
+    ).select_related("task", "task__client")
+    finished = {(a.task_id, a.assignee_id) for a in parts if a.done_at is not None}
+    for task in legacy:
+        if (task.pk, task.translator_id) in finished:
+            continue
+        seen.add((task.pk, task.translator_id))
+        held.setdefault(task.translator_id, []).append(task)
+    for part in parts:
+        key = (part.task_id, part.assignee_id)
+        if part.done_at is not None or key in seen:
+            continue
+        seen.add(key)
+        held.setdefault(part.assignee_id, []).append(part.task)
+    for tasks in held.values():
+        tasks.sort(key=lambda task: (task.deadline is None, task.deadline or timezone.now(), task.code))
+    return held
 
 
 class RatingEvent(models.Model):
@@ -2086,6 +2246,10 @@ class AICheckResult(models.Model):
     #: Null means the check ran by itself when the translator handed the job
     #: over - nobody asked for it.
     requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    #: Whose translation this check judged (07/10/2026). A task shared between translators is checked once for each of them, on their
+    #: own files and their own share of the source, and the stars of an accepted note come off *them*. Empty on a check made before
+    #: this existed, which judged the task's one translator.
+    translator = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CLEAN)
     summary = models.TextField(blank=True)
     #: [{"location": "...", "issue": "...", "severity": "..."}]

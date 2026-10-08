@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useAssignTranslator,
+  useCloseTranslation,
   useDecideExtension,
   useFinishReview,
   useSaveTranslatorDeadline,
@@ -10,6 +11,7 @@ import {
 } from "../../api/opsActions";
 import type { OpsTask } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { MAX_PARTS, rowProblems, wordsGiven, type PartRow } from "../../lib/parts";
 import { prettySize } from "../../lib/size";
 import { taskProblem } from "../../lib/taskProblem";
 import { Confirm } from "../Confirm";
@@ -67,18 +69,35 @@ const seconds = (value: TranslatorDate) => {
   return part(value.days) * 86400 + part(value.hours) * 3600 + part(value.minutes) * 60;
 };
 
+/** The languages offered as suggestions in the two boxes; anything else can still be typed and the server reads it. */
+const LANGUAGES = ["AR", "EN", "FR", "DE", "IT", "ES", "TR", "RU", "ZH", "JA", "PT", "NL"];
+
+/** Keys for the rows the leader adds; the first row of an untouched form is key 0. */
+let nextKey = 1;
+const freshRow = (key: number, translator: number | null, source: string, target: string, words = ""): PartRow => ({
+  key,
+  translator,
+  source,
+  target,
+  words,
+  from: "",
+  to: "",
+});
+
 /**
- * «ابعتها للمترجم»: the task goes to one translator of the leader's team, who has a minute to say yes. The leader is handed the operation's
- * deadline and the time left, and CHOOSES what the translator gets: the same deadline, or a shorter one (the difference being the time
- * he keeps to review). Nothing is chosen for him - the send waits for the answer - and a shorter one has to be written and has to be
- * shorter than what is left. Who is free is said beside the name, so nobody is handed work blind.
+ * «ابعتها للمترجم»: the task goes to one translator of the leader's team - or to several, each with their own share - and each has a minute
+ * to say yes. For every translator the leader says which language pair they translate and how many words (the translator types none of
+ * it); with more than one translator on the task he says which pages as well, so nobody translates the same page twice. The leader is
+ * handed the operation's deadline and the time left, and CHOOSES what the translators get: the same deadline, or a shorter one (the
+ * difference being the time he keeps to review). Nothing is chosen for him - the send waits for the answer. Who is free is said beside
+ * the name, so nobody is handed work blind. A task already being translated takes one more share without touching the others.
  */
 export function AssignTranslatorBox({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
   const assign = useAssignTranslator(task.code);
   const lead = task.lead;
-  const [chosen, setChosen] = useState<number | null>(null);
+  const [rows, setRows] = useState<PartRow[] | null>(null);
   const [choice, setChoice] = useState<DeadlineChoice | null>(null);
   const [date, setDate] = useState<TranslatorDate>(EMPTY);
   const [problem, setProblem] = useState("");
@@ -92,30 +111,192 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
       </div>
     );
   }
-  const translator = chosen ?? lead.translators[0]!.id;
+
+  // The shares already taken stay; the offers nobody has answered yet are replaced by what goes out now.
+  const taken = task.parts.filter((part) => part.status === "accepted");
+  const waiting = task.parts.filter((part) => part.status === "pending");
+  const takenIds = new Set(taken.map((part) => part.translator));
+  const available = lead.translators.filter((person) => !takenIds.has(person.id));
+  if (available.length === 0) return null;
+
+  const names = new Map(lead.translators.map((person) => [person.id, person.name]));
+  const confirmed = task.words.state === "confirmed" ? task.words.value : null;
+  // Until the leader touches anything the form is one row with a key of its own that does not change between draws.
+  const current = rows ?? [freshRow(0, available[0]!.id, task.source_lang, task.target_lang, confirmed !== null && taken.length === 0 ? String(confirmed) : "")];
+  const problems = rowProblems(
+    current,
+    taken.map((part) => ({ name: part.name, page_from: part.page_from, page_to: part.page_to })),
+    names,
+    t,
+  );
   const word = { free: t("فاضي", "free"), busy: t("مشغول", "busy"), off: t("أوفلاين", "offline") };
+  const edit = (key: number, change: Partial<PartRow>) => setRows(current.map((row) => (row.key === key ? { ...row, ...change } : row)));
+  const many = taken.length + current.length > 1;
 
   // What is left of the operation's deadline, and whether the shorter one typed is really shorter (the server asks the same).
   const left = task.due_iso ? Math.floor((Date.parse(task.due_iso) - Date.now()) / 1000) : null;
   const typedLength = seconds(date);
   const tooLong = left !== null && typedLength >= left;
-  const ready = choice === "same" || (choice === "shorter" && typed(date) && typedLength > 0 && !tooLong);
+  const dateReady = choice === "same" || (choice === "shorter" && typed(date) && typedLength > 0 && !tooLong);
+  const ready = dateReady && problems.every((text) => text === "");
+  const given = wordsGiven(current);
 
   return (
     <>
-      <div className="field mt">
-        <label htmlFor="translator-select">{t("اعمل assign لمترجم من فريقك", "Assign a translator from your team")}</label>
-        <select id="translator-select" className="input" value={translator} onChange={(event) => setChosen(Number(event.target.value))}>
-          {lead.translators.map((person) => (
-            <option key={person.id} value={person.id}>
-              {person.name} — {word[person.state]} · {person.rating.toFixed(2)}
-            </option>
-          ))}
-        </select>
-      </div>
+      {taken.length > 0 && (
+        <div className="note note--info mt">
+          <Icon name="info" />
+          <div>
+            {t(
+              "فيه مترجمين شغالين على التاسك دي. اللي هتبعته دلوقتي بيتضاف عليهم من غير ما يتأثروا.",
+              "Translators are already on this task. What you send now is added to them, and they are not touched.",
+            )}
+          </div>
+        </div>
+      )}
+      {waiting.length > 0 && (
+        <div className="note note--warn mt">
+          <Icon name="timer" />
+          <div>
+            {t(
+              "فيه عروض لسه ماتردش عليها. الإرسال الجديد بيلغيها ويحط الجديد مكانها.",
+              "Some offers have not been answered. Sending again cancels them and puts the new ones in their place.",
+            )}
+          </div>
+        </div>
+      )}
+
+      {current.map((row, index) => (
+        <fieldset className="card card--flat mt" key={row.key} data-part={index} style={{ padding: "10px 12px" }}>
+          <legend className="label">
+            {t("المترجم", "Translator")} {taken.length + index + 1}
+          </legend>
+          <div className="field">
+            <label htmlFor={`part-translator-${row.key}`}>{t("اعمل assign لمترجم من فريقك", "Assign a translator from your team")}</label>
+            <select
+              id={`part-translator-${row.key}`}
+              className="input"
+              value={row.translator ?? ""}
+              onChange={(event) => edit(row.key, { translator: Number(event.target.value) })}
+            >
+              {available.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.name} — {word[person.state]} · {person.rating.toFixed(2)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="row row--tight" style={{ flexWrap: "wrap" }}>
+            <div className="field grow">
+              <label htmlFor={`part-source-${row.key}`}>{t("من لغة", "From language")}</label>
+              <input
+                id={`part-source-${row.key}`}
+                className="input"
+                dir="ltr"
+                list="part-languages"
+                autoComplete="off"
+                placeholder="EN"
+                value={row.source}
+                onChange={(event) => edit(row.key, { source: event.target.value })}
+              />
+            </div>
+            <div className="field grow">
+              <label htmlFor={`part-target-${row.key}`}>{t("إلى لغة", "To language")}</label>
+              <input
+                id={`part-target-${row.key}`}
+                className="input"
+                dir="ltr"
+                list="part-languages"
+                autoComplete="off"
+                placeholder="AR"
+                value={row.target}
+                onChange={(event) => edit(row.key, { target: event.target.value })}
+              />
+            </div>
+          </div>
+          <div className="row row--tight" style={{ flexWrap: "wrap" }}>
+            <div className="field grow">
+              <label htmlFor={`part-words-${row.key}`}>{t("عدد كلمات المترجم", "Translator's words")}</label>
+              <input
+                id={`part-words-${row.key}`}
+                className="input"
+                dir="ltr"
+                inputMode="numeric"
+                placeholder="1200"
+                value={row.words}
+                onChange={(event) => edit(row.key, { words: event.target.value })}
+              />
+            </div>
+            <div className="field grow">
+              <label htmlFor={`part-from-${row.key}`}>
+                {t("من صفحة", "From page")} {!many && <small className="muted">({t("اختياري", "optional")})</small>}
+              </label>
+              <input
+                id={`part-from-${row.key}`}
+                className="input"
+                dir="ltr"
+                inputMode="numeric"
+                placeholder="1"
+                value={row.from}
+                onChange={(event) => edit(row.key, { from: event.target.value })}
+              />
+            </div>
+            <div className="field grow">
+              <label htmlFor={`part-to-${row.key}`}>{t("لحد صفحة", "To page")}</label>
+              <input
+                id={`part-to-${row.key}`}
+                className="input"
+                dir="ltr"
+                inputMode="numeric"
+                placeholder="10"
+                value={row.to}
+                onChange={(event) => edit(row.key, { to: event.target.value })}
+              />
+            </div>
+          </div>
+          {problems[index] && (
+            <small className="note note--high" role="alert">
+              {problems[index]}
+            </small>
+          )}
+          {current.length > 1 && (
+            <button className="btn btn--sm btn--ghost mt" type="button" onClick={() => setRows(current.filter((one) => one.key !== row.key))}>
+              <Icon name="x" size="sm" />
+              <span>{t("شيل المترجم ده", "Remove this translator")}</span>
+            </button>
+          )}
+        </fieldset>
+      ))}
+
+      <datalist id="part-languages">
+        {LANGUAGES.map((code) => (
+          <option key={code} value={code} />
+        ))}
+      </datalist>
+
+      <button
+        className="btn btn--sm mt"
+        type="button"
+        disabled={current.length >= Math.min(MAX_PARTS, available.length)}
+        onClick={() => {
+          const last = current[current.length - 1]!;
+          const used = new Set(current.map((row) => row.translator));
+          const next = available.find((person) => !used.has(person.id));
+          if (next) setRows([...current, freshRow(nextKey++, next.id, last.source, last.target)]);
+        }}
+      >
+        <Icon name="plus" size="sm" />
+        <span>{t("إضافة مترجم تاني على نفس التاسك", "Add another translator to this task")}</span>
+      </button>
+      <small className="muted mono" style={{ display: "block" }}>
+        {t("إجمالي الكلمات اللي هتتوزع:", "Words handed out in all:")} {given}
+        {confirmed !== null && confirmed !== given + taken.reduce((sum, part) => sum + part.words, 0) && (
+          <span> · {t(`الأوبريشن كاتب ${confirmed} كلمة للتاسك`, `the operation wrote ${confirmed} words for the task`)}</span>
+        )}
+      </small>
 
       <fieldset className="field" id="translatorDeadline" style={{ border: 0, padding: 0 }}>
-        <legend className="label">{t("الديدلاين اللي هتديه للمترجم", "The deadline you are giving the translator")}</legend>
+        <legend className="label">{t("الديدلاين اللي هتديه للمترجمين", "The deadline you are giving the translators")}</legend>
         <div className="muted mono" title={t("الديدلاين اللي حدده الأوبريشن", "The deadline the operation gave")}>
           <Icon name="clock" size="sm" /> {lead.client_due ? (lang === "ar" ? lead.client_due.ar : lead.client_due.en) : t("من غير ديدلاين", "No deadline")}
         </div>
@@ -154,15 +335,30 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
         type="button"
         disabled={assign.isPending || !ready}
         onClick={() => {
-          if (choice === null) return;
+          if (choice === null || !ready) return;
           setProblem("");
           assign.mutate(
-            { translator, choice, date },
+            {
+              parts: current.map((row) => ({
+                translator: row.translator as number,
+                source_lang: row.source.trim(),
+                target_lang: row.target.trim(),
+                words: row.words.trim(),
+                page_from: row.from.trim(),
+                page_to: row.to.trim(),
+              })),
+              choice,
+              date,
+            },
             {
               onSuccess: () => {
                 setDate(EMPTY);
                 setChoice(null);
-                push({ level: "success", title: t("اتبعتت للمترجم", "Sent to the translator") });
+                setRows(null);
+                push({
+                  level: "success",
+                  title: current.length > 1 ? t("اتبعتت للمترجمين", "Sent to the translators") : t("اتبعتت للمترجم", "Sent to the translator"),
+                });
               },
               onError: (error) => setProblem(taskProblem(error, t)),
             },
@@ -170,7 +366,13 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
         }}
       >
         <Icon name="send" size="sm" />
-        <span>{assign.isPending ? t("بيتبعت...", "Sending...") : t("ابعتها للمترجم", "Send to translator")}</span>
+        <span>
+          {assign.isPending
+            ? t("بيتبعت...", "Sending...")
+            : current.length > 1
+              ? t("ابعتها للمترجمين", "Send to the translators")
+              : t("ابعتها للمترجم", "Send to translator")}
+        </span>
       </button>
       <Problem text={problem} />
     </>
@@ -254,7 +456,11 @@ export function ExtensionBox({ task }: { task: OpsTask }) {
       <div className="note note--warn mt">
         <Icon name="timer" />
         <div>
-          <strong>{t("المترجم طالب وقت إضافي", "The translator asks for more time")}</strong>
+          <strong>
+            {extension.by
+              ? t(`${extension.by} طالب وقت إضافي`, `${extension.by} asks for more time`)
+              : t("المترجم طالب وقت إضافي", "The translator asks for more time")}
+          </strong>
           <div>
             {extension.length}
             {extension.reason ? ` — ${extension.reason}` : ""}
@@ -373,6 +579,64 @@ export function ReviewedFilesBox({ task }: { task: OpsTask }) {
       )}
       <Problem text={problem} />
     </div>
+  );
+}
+
+/**
+ * «اقفل الترجمة»: a share fell through after the other translators had handed theirs in, and the leader is not giving it to anybody
+ * else. Nobody is left who can hand in, so he closes the translation himself and reviews what there is. Asked first: it cannot be taken
+ * back from here, and the part that fell through is not in the files.
+ */
+export function CloseTranslationButton({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const close = useCloseTranslation(task.code);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState("");
+  if (!task.lead?.can_close_translation) return null;
+
+  return (
+    <>
+      <div className="note note--warn mt">
+        <Icon name="alert" />
+        <div>
+          {t(
+            "الكل سلّم وفيه جزء اترفض أو الوقت خلص عليه. وزّعه على مترجم تاني من فوق، أو اقفل الترجمة وراجع اللي اتسلّم.",
+            "Everyone has handed in and one share fell through. Give it to another translator above, or close the translation and review what was handed in.",
+          )}
+        </div>
+      </div>
+      <button
+        className="btn btn--block mt"
+        type="button"
+        onClick={() => {
+          setProblem("");
+          setAsking(true);
+        }}
+      >
+        <Icon name="check" size="sm" />
+        <span>{t("اقفل الترجمة وراجع اللي اتسلّم", "Close the translation and review what was handed in")}</span>
+      </button>
+      {asking && (
+        <Confirm
+          title={t("تقفل الترجمة من غير الجزء الناقص؟", "Close the translation without the missing part?")}
+          yes={t("أيوه، اقفلها", "Yes, close it")}
+          icon="check"
+          busy={close.isPending}
+          problem={problem}
+          onNo={() => setAsking(false)}
+          onYes={() =>
+            close.mutate(undefined, {
+              onSuccess: () => {
+                setAsking(false);
+                push({ level: "success", title: t("الترجمة اتقفلت وبقت عندك للمراجعة", "The translation is closed and with you for review") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
+    </>
   );
 }
 

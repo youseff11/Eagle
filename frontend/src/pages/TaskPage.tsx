@@ -8,6 +8,7 @@ import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../compo
 import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
+import { PartBox } from "../components/PartBox";
 import { AiCheckCard } from "../components/task/AiCheckCard";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
@@ -397,7 +398,7 @@ function Task({ task }: { task: TranslatorTask }) {
               {task.title} <OriginBadge origin={task.origin} />
             </h2>
             <div className="muted mono" style={{ fontSize: ".82rem" }}>
-              {task.client} · {task.source_lang || "—"} → {task.target_lang || "—"}
+              {task.client} · {task.part?.source_lang || task.source_lang || "—"} → {task.part?.target_lang || task.target_lang || "—"}
             </div>
           </div>
           <div className="row" style={{ gap: 22 }}>
@@ -411,6 +412,7 @@ function Task({ task }: { task: TranslatorTask }) {
             {task.description}
           </div>
         )}
+        <PartBox part={task.part} handedIn={task.handed_in} />
         <Files task={task} />
       </div>
 
@@ -437,7 +439,11 @@ function Task({ task }: { task: TranslatorTask }) {
             {task.under_review && (
               <div className="note note--info">
                 <Icon name="info" />
-                <div>{t("التيم ليدر بيراجع دلوقتي.", "The team leader is reviewing.")}</div>
+                <div>
+                  {task.handed_in && task.status.value === "in_progress"
+                    ? t("سلّمت جزءك. مستنيين باقي المترجمين على التاسك.", "Your part is in. Waiting for the other translators on the task.")
+                    : t("التيم ليدر بيراجع دلوقتي.", "The team leader is reviewing.")}
+                </div>
               </div>
             )}
             {task.mine && <MoreTime task={task} open={more} onToggle={() => setMore((current) => !current)} />}

@@ -29,6 +29,7 @@ from .models import (
     Task,
     TaskStatus,
     User,
+    translator_q,
 )
 from .permissions import api_role_required
 
@@ -89,6 +90,9 @@ def _pending_json(assignment, viewer):
         "deadline_iso": task.deadline_for(viewer).isoformat() if task.deadline_for(viewer) else "",
         # Typed by the sender, who writes the client's name in it: for a person who may not know it, the code.
         "note": identity.mask_client(assignment.note, task.client, viewer),
+        # What the leader gave this translator of the task: the pair, the words and - on a split task - the pages. ``None`` for a
+        # team leader's hand-off.
+        "part": services.part_json(assignment),
     }
 
 
@@ -146,7 +150,7 @@ def heartbeat(request):
     else:
         data["counters"] = {
             "open": Task.objects.filter(
-                translator=user, status__in=ACTIVE_TASK_STATUSES
+                translator_q(user), status__in=ACTIVE_TASK_STATUSES
             ).count(),
             "rating": float(user.rating),
         }
@@ -297,18 +301,58 @@ def assign_translator_direct(request, code):
     return JsonResponse({"ok": True, "assignment": assignment.id, "status": task.status})
 
 
+def _parts_from_request(request):
+    """What the leader sent as the shares of the task: ``parts`` (a JSON list, for several translators), or - for one translator - the
+    flat boxes ``user`` / ``source_lang`` / ``target_lang`` / ``words`` / ``page_from`` / ``page_to``. A list that is not JSON is ``None``."""
+    import json
+
+    raw = request.POST.get("parts")
+    if raw is not None:
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, RecursionError):
+            return None
+        return parsed
+    return [{
+        "translator": request.POST.get("user"),
+        "source_lang": request.POST.get("source_lang"),
+        "target_lang": request.POST.get("target_lang"),
+        "words": request.POST.get("words"),
+        "page_from": request.POST.get("page_from"),
+        "page_to": request.POST.get("page_to"),
+    }]
+
+
 @api_role_required(Role.TEAM_LEAD)
 @require_POST
 def assign_translator(request, code):
+    """Give the task to one translator or to several, each with their own share (07/10/2026).
+
+    A share is a translator, the language pair they translate, how many words, and - once the task has more than one translator -
+    which pages. The leader types all of it, every time: the translator types none. They go as ``parts`` (a JSON list) or, for one
+    translator, as the flat boxes (``user``, ``source_lang``, ``target_lang``, ``words``, ``page_from``, ``page_to``). The date the
+    translators get is the leader's choice, as before, and it is one date for the task.
+    """
     task = get_object_or_404(Task, code=code)
     user = request.user
     if not user.is_admin_role and task.team_lead_id != user.id:
         # Another leader's job is not found (a 403 would say the code exists), and the try is written down.
         identity.hidden(request, "task")
-    translator = get_object_or_404(User, pk=request.POST.get("user"), role=Role.TRANSLATOR, is_active=True)
-    if not user.is_admin_role and translator.team_lead_id != user.id:
-        return JsonResponse({"ok": False, "error": "not_in_your_team"}, status=403)
-    if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR):
+    raw_parts = _parts_from_request(request)
+    if raw_parts is None:
+        return JsonResponse({"ok": False, "error": "bad_parts"}, status=400)
+    # Who is asked first: a name that is not a translator of the leader's team is refused as that, whatever else is missing.
+    try:
+        services.check_translators(raw_parts, user)
+    except services.PartError as problem:
+        if problem.code == services.NOT_IN_YOUR_TEAM:
+            return JsonResponse({"ok": False, "error": services.NOT_IN_YOUR_TEAM}, status=403)
+        if problem.code == "no_such_translator" and len(raw_parts) == 1 and "parts" not in request.POST:
+            # The flat form named somebody who is not a translator: the same 404 it always was.
+            raise Http404 from problem
+        return JsonResponse({"ok": False, "error": str(problem), "code": problem.code}, status=400)
+    # A share can be added while the others are being translated (one fell through, or the job grew), so a job in progress is open to this.
+    if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS):
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
 
     # The date the leader is handing over with the job is his choice, and it is asked every time (07/10/2026): the same as the operation
@@ -336,11 +380,19 @@ def assign_translator(request, code):
             return JsonResponse({"ok": False, "error": services.SHORTER_THAN_OPERATIONS_AR}, status=400)
         their_deadline = given
 
-    assignment = services.assign_to_translator(
-        task, translator, user, note=request.POST.get("note", "")[:250],
-        deadline=their_deadline,
-    )
-    return JsonResponse({"ok": True, "assignment": assignment.id, "status": task.status})
+    try:
+        parts = services.parse_parts(task, raw_parts, user)
+    except services.PartError as problem:
+        return JsonResponse({"ok": False, "error": str(problem), "code": problem.code}, status=400)
+
+    try:
+        assignments = services.assign_to_translators(
+            task, parts, user, note=request.POST.get("note", "")[:250], deadline=their_deadline,
+        )
+    except services.PartError as problem:
+        # Found out under the lock: somebody else's batch got there first.
+        return JsonResponse({"ok": False, "error": str(problem), "code": problem.code}, status=400)
+    return JsonResponse({"ok": True, "assignment": assignments[0].id, "assignments": [a.id for a in assignments], "status": task.status})
 
 
 # ---------------------------------------------------------------------------
@@ -383,21 +435,22 @@ def task_action(request, code, action):
         return JsonResponse({"ok": False, "error": "unknown_action"}, status=400)
 
     guard = {
-        "translated": task.translator_id == user.id,
-        "reviewed": task.team_lead_id == user.id,
-        "delivered": user.is_operation,
-        "cancel": user.is_operation,
-        "return": task.team_lead_id == user.id,
-        "score": task.team_lead_id == user.id,
-        "ack": user.is_operation,
-        "add-member": user.is_admin_role,
+        # The translator who took it - or the leader, once a share has fallen through and nothing is left to wait for.
+        "translated": lambda: task.is_working(user) or services.lead_may_close(task, user),
+        "reviewed": lambda: task.team_lead_id == user.id,
+        "delivered": lambda: user.is_operation,
+        "cancel": lambda: user.is_operation,
+        "return": lambda: task.team_lead_id == user.id,
+        "score": lambda: task.team_lead_id == user.id,
+        "ack": lambda: user.is_operation,
+        "add-member": lambda: user.is_admin_role,
     }[action]
-    if not (guard or user.is_admin_role):
+    if not (user.is_admin_role or guard()):
         return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
 
     # "Finished" needs something finished: the translator's file on the task.
     # Said here in words; the service refuses on its own as well.
-    if action == "translated" and services.translation_missing(task):
+    if action == "translated" and services.translation_missing(task, user if task.part_of(user) else None):
         return JsonResponse({
             "ok": False, "code": "no_translation_file",
             # The action buttons toast ``error`` as it is, so it is the sentence.
@@ -592,17 +645,9 @@ def set_deadline(request, code):
     # the only one who was not told the job moved.
     pulled = services.cap_translator_deadline(task, request.user)
 
-    if task.translator_id and not pulled:
-        # Their own date, which is not the client's when the leader set one.
-        due = task.translator_due
-        services.notify(
-            task.translator,
-            title_ar="اتحدد ديدلاين جديد",
-            title_en="Deadline updated",
-            body_ar=f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}" if due else "الديدلاين اتشال.",
-            body_en=f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}" if due else "Deadline cleared.",
-            level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
-        )
+    if not pulled:
+        # Their own date, which is not the client's when the leader set one - said to everyone translating it.
+        services.tell_translators_deadline(task)
     return JsonResponse({"ok": True})
 
 
@@ -1547,7 +1592,8 @@ def ai_recheck(request, code):
     conf = AppSettings.load()
     if not conf.ai_check_enabled or not conf.claude_api_key:
         return JsonResponse({"ok": False, "error": "فحص الـAI متوقف من الإعدادات."}, status=400)
-    if ai.start_background_check(task) is None:
+    # Asked again by hand: every translator of the task is checked again, each on their own share.
+    if ai.start_background_check(task, force=True) is None:
         return JsonResponse({"ok": False, "error": "فيه فحص شغال دلوقتي على التاسك دي."}, status=400)
     services.log(user, "task.ai_recheck", task.code)
     return JsonResponse({"ok": True})
@@ -1565,15 +1611,33 @@ def ai_check(request, code):
     if not conf.ai_check_enabled:
         return JsonResponse({"ok": False, "error": "disabled"}, status=400)
 
+    # A translator checks their own work. One who is only being offered a share has none yet, and must not be handed a colleague's file
+    # (the first translator's) by a door that reads "the task's translator" when nobody is named.
+    one_of_them = user.is_translator and not user.is_admin_role
+    if one_of_them and not task.is_working(user):
+        return JsonResponse({"ok": False, "error": "forbidden"}, status=403)
+
     source_text = request.POST.get("source_text", "")
     translated_text = request.POST.get("translated_text", "")
 
     # Blank boxes mean "read the files" - the same ones the automatic check
     # reads, so a re-run by hand cannot quietly look at something else.
     source_docs, translated_docs = [], []
+    # A translator with a share of the task checks their own files against their own share. Anyone else says whose work it is when more
+    # than one translator is on it (it is stored against that one, and nobody is charged for a guess), and otherwise it is the one's.
+    mine = user if task.part_of(user) is not None else None
+    if mine is None and not one_of_them:
+        on_it = task.translator_ids()
+        asked = _int(request.POST.get("translator"), 0)
+        if asked:
+            mine = User.objects.filter(pk=asked, pk__in=on_it).first()
+            if mine is None:
+                return JsonResponse({"ok": False, "error": "bad_translator"}, status=400)
+        elif len(on_it) > 1:
+            return JsonResponse({"ok": False, "error": "choose_translator"}, status=400)
     if not source_text.strip() or not translated_text.strip():
-        from_files_source, from_files_translated = ai.collect_texts(task)
-        docs_source, docs_translated = ai.collect_documents(task)
+        from_files_source, from_files_translated = ai.collect_texts(task, mine)
+        docs_source, docs_translated = ai.collect_documents(task, mine)
         if not source_text.strip():
             source_text, source_docs = from_files_source, docs_source
         if not translated_text.strip():
@@ -1583,7 +1647,7 @@ def ai_check(request, code):
 
     result = ai.run_check(
         task, user, source_text, translated_text, requirements,
-        source_docs, translated_docs,
+        source_docs, translated_docs, translator=mine or task.translator,
     )
     # The words come from reading the client's files and quote them: for whoever may not know the client the name and number
     # are taken out, as they are on every other page that shows a check.

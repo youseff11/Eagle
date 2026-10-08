@@ -30,9 +30,9 @@ from .api_ops import _seen_json
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeRequestForm, SalaryPlanForm
 from .models import (
-    ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, ApprovalStatus, ClientComplaint, ComplaintSeverity, Department, EmploymentStatus, OffSitePolicy, OfficeLocation,
-    PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, RatingEvent, Role, SalaryChangeRequest, SalaryPlan, SalaryRecord, Task,
-    User, WorkMode, rule_followers,
+    ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, ApprovalStatus, Assignment, AssignmentStatus, ClientComplaint, ComplaintSeverity, Department,
+    EmploymentStatus, OffSitePolicy, OfficeLocation, PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, RatingEvent, Role,
+    SalaryChangeRequest, SalaryPlan, SalaryRecord, Task, User, WorkMode, rule_followers, translator_holdings,
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
@@ -97,10 +97,13 @@ def _label(department):
 def _busy_people():
     """The ids of the translators and team leaders who hold a task being worked: ``User.is_busy`` for all of them at once."""
     active = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
-    translators = set(
-        Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator__isnull=False)
-        .values_list("translator_id", flat=True)
-    )
+    translators = set(translator_holdings(
+        set(Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator__isnull=False).values_list("translator_id", flat=True))
+        | set(Assignment.objects.filter(
+            target_role=Role.TRANSLATOR, status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+            task__status__in=TRANSLATOR_HOLDING_STATUSES,
+        ).values_list("assignee_id", flat=True))
+    ))
     leaders = set(active.filter(team_lead__isnull=False).values_list("team_lead_id", flat=True))
     return translators, leaders
 

@@ -367,7 +367,7 @@ class TaskApiTests(_Screen):
         base = timezone.now() - timedelta(hours=1)
         for index in range(7):
             # The newest is the one that ran by itself (nobody asked). Distinct moments: a clock may not tick between rows.
-            row = AICheckResult.objects.create(task=self.task, requested_by=None if index == 6 else self.tr,
+            row = AICheckResult.objects.create(task=self.task, translator=self.tr, requested_by=None if index == 6 else self.tr,
                                                status="clean", summary=f"Check {index}")
             AICheckResult.objects.filter(pk=row.pk).update(created_at=base + timedelta(minutes=index))
         ai = _json(self.task_page(self.tr))["task"]["ai"]

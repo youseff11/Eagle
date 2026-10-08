@@ -28,6 +28,8 @@ function task(overrides: Partial<TranslatorTask> = {}): TranslatorTask {
     description: "Translate pages 2-4\nKeep the table",
     people: { operation: "Nour", team_lead: "Mona", translator: "Sam" },
     mine: true,
+    part: null,
+    handed_in: false,
     files: {
       original: [
         { id: 1, url: "/files/in/contract.pdf", name: "contract.pdf", size: "2.0 KB", image: false },
@@ -52,6 +54,11 @@ function task(overrides: Partial<TranslatorTask> = {}): TranslatorTask {
     ...overrides,
   };
 }
+
+const SHARE = {
+  source_lang: "EN", target_lang: "FR", words: 400, page_from: 11, page_to: 15,
+  text_ar: "EN → FR · 400 كلمة · صفحات 11-15", text_en: "EN → FR · 400 words · pages 11-15",
+};
 
 /** The server's state: an action changes it, and the next read of the page sees the change. */
 function serve(initial: TranslatorTask | Response, extra: FetchRoutes = {}, role: Role = "translator") {
@@ -130,6 +137,49 @@ describe("TaskPage: what the translator reads", () => {
     const brief = screen.getByText(/Translate pages 2-4/);
     expect(brief).toHaveStyle({ whiteSpace: "pre-wrap" });
     expect(brief.textContent).toBe("Translate pages 2-4\nKeep the table");
+  });
+
+  it("shows the translator their own share: the pair they were given, the words and the pages", async () => {
+    serve(task({ part: SHARE }));
+    const { container } = open();
+    await loaded();
+    // The header reads the share's pair, not the task's (the leader may give this translator another one).
+    expect(container.querySelector("h2 + .muted")).toHaveTextContent("CL-0001 · EN → FR");
+    const box = screen.getByText("المطلوب منك").closest("[data-box='my-part']") as HTMLElement;
+    expect(within(box).getByText("EN → FR")).toBeInTheDocument();
+    expect(within(box).getByText("400")).toBeInTheDocument();
+    expect(within(box).getByText("11-15")).toBeInTheDocument();
+    expect(within(box).queryByText("سلّمت جزءك")).toBeNull();
+  });
+
+  it("draws no share, and keeps the task's own pair, for a task given whole", async () => {
+    serve(task());
+    const { container } = open();
+    await loaded();
+    expect(screen.queryByText("المطلوب منك")).toBeNull();
+    expect(container.querySelector("h2 + .muted")).toHaveTextContent("CL-0001 · English → Arabic");
+  });
+
+  it("says the part is in, and waits for the others, when this translator has handed in but the task is still being translated", async () => {
+    serve(task({ part: SHARE, handed_in: true, under_review: true, can_upload: false, translation_missing: false }));
+    open();
+    await loaded();
+    expect(screen.getByText("سلّمت جزءك")).toBeInTheDocument();
+    expect(screen.getByText("سلّمت جزءك. مستنيين باقي المترجمين على التاسك.")).toBeInTheDocument();
+    expect(screen.queryByText("التيم ليدر بيراجع دلوقتي.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "خلصت الترجمة" })).toBeNull();
+  });
+
+  it("says the leader is reviewing once the whole task is in", async () => {
+    serve(
+      task({
+        part: SHARE, handed_in: true, under_review: true, can_upload: false, translation_missing: false,
+        status: { value: "under_review", tone: "review", ar: "تحت المراجعة", en: "Under review" },
+      }),
+    );
+    open();
+    await loaded();
+    expect(screen.getByText("التيم ليدر بيراجع دلوقتي.")).toBeInTheDocument();
   });
 
   it("speaks English when asked", async () => {

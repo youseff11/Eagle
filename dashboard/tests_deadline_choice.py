@@ -18,6 +18,10 @@ from . import services
 from .models import Client, Role, TaskStatus, User
 
 
+#: What the leader has to say about the share he gives, with or without a deadline: the pair and the words.
+PART = {"source_lang": "EN", "target_lang": "AR", "words": "500"}
+
+
 class DeadlineChoiceTests(TestCase):
     def setUp(self):
         make = lambda name, role, **kw: User.objects.create_user(name, password="x", role=role, **kw)
@@ -35,7 +39,7 @@ class DeadlineChoiceTests(TestCase):
     def assign(self, user=None, **data):
         browser = DjangoClient()
         browser.force_login(user or self.lead)
-        return browser.post(reverse("dashboard:api_assign_translator", args=[self.task.code]), {"user": self.tr.pk, **data})
+        return browser.post(reverse("dashboard:api_assign_translator", args=[self.task.code]), {"user": self.tr.pk, **PART, **data})
 
     def fresh(self):
         self.task.refresh_from_db()
@@ -110,7 +114,7 @@ class DeadlineChoiceTests(TestCase):
         browser.force_login(self.lead)
         answer = browser.post(
             reverse("dashboard:api_assign_translator", args=[task.code]),
-            {"user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": "2"},
+            {"user": self.tr.pk, **PART, "tdeadline_mode": "shorter", "tdeadline_days": "2"},
         )
         self.assertEqual(answer.status_code, 200)
         task.refresh_from_db()

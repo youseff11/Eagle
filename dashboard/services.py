@@ -7,6 +7,7 @@ same logic can be reused by the webhooks, the management commands and the API.
 import logging
 import os
 import re
+from collections import namedtuple
 from datetime import timedelta
 
 from django.db import transaction
@@ -16,7 +17,6 @@ from django.utils import timezone
 from . import avatars, clock
 from .models import (
     ACTIVE_TASK_STATUSES,
-    TRANSLATOR_HOLDING_STATUSES,
     AICheckResult,
     AppSettings,
     Assignment,
@@ -38,6 +38,9 @@ from .models import (
     Task,
     TaskStatus,
     User,
+    WordCountState,
+    translator_holdings,
+    translator_q,
 )
 
 logger = logging.getLogger(__name__)
@@ -849,7 +852,7 @@ def ensure_room(task, kind):
     # need to ask the client goes through the operation.
     members = [task.created_by, task.team_lead]
     if kind == RoomKind.GROUP:
-        members.append(task.translator)
+        members.extend(task.translator_users())
     elif kind == RoomKind.CLIENT:
         members = [m for m in members if m is not None and m.handles_clients]
     members = [m for m in members if m is not None]
@@ -1867,11 +1870,16 @@ def tag_task_message(message):
     ) | {message.sender_id}
     if len(pair) < 2:
         return None
+    # Only the tasks every one of the pair works on are looked at (asked in the database, one filter for each person), and a pair of two
+    # translators - colleagues on a task shared between them - is never "the leader and the translator": one of the two has to be the
+    # task's operation or leader.
+    near = Task.objects.filter(status__in=ACTIVE_TASK_STATUSES).select_related("team_lead", "translator", "created_by")
+    for person in pair:
+        near = near.filter(Q(created_by_id=person) | Q(team_lead_id=person) | translator_q(person))
     candidates = [
-        task for task in Task.objects.filter(
-            status__in=ACTIVE_TASK_STATUSES
-        ).select_related("team_lead", "translator", "created_by")
-        if pair <= {task.created_by_id, task.team_lead_id, task.translator_id}
+        task for task in near
+        if pair & {task.created_by_id, task.team_lead_id}
+        and pair <= {task.created_by_id, task.team_lead_id, *task.translator_ids()}
     ]
     if len(candidates) != 1:
         return None
@@ -1923,16 +1931,20 @@ def _shared_tasks(user, others):
     if not others:
         return []
     mine = (
-        Q(created_by=user) | Q(team_lead=user) | Q(translator=user)
+        Q(created_by=user) | Q(team_lead=user) | translator_q(user)
     )
     theirs = (
         Q(created_by_id__in=others) | Q(team_lead_id__in=others)
         | Q(translator_id__in=others)
+        | Q(pk__in=Assignment.objects.filter(
+            assignee_id__in=others, target_role=Role.TRANSLATOR,
+            status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+        ).values("task_id"))
     )
     return list(
         Task.objects.filter(status__in=ACTIVE_TASK_STATUSES)
         .filter(mine).filter(theirs)
-        .select_related("client").distinct().order_by("id")
+        .select_related("client").order_by("id")
     )
 
 
@@ -2006,15 +2018,26 @@ def ai_suggestions_for(viewer, other):
     if viewer is None or other is None or not viewer.is_team_lead:
         return None
     task = (
-        Task.objects.filter(
-            team_lead=viewer, translator=other, status=TaskStatus.UNDER_REVIEW
-        )
+        Task.objects.filter(translator_q(other), team_lead=viewer, status=TaskStatus.UNDER_REVIEW)
         .order_by("-translated_at", "-id")
         .first()
     )
     if task is None:
+        # A task shared between translators is not under review until the last has handed in; the notes on this one's share are
+        # there from the moment they did.
+        share = (
+            Assignment.objects.filter(
+                assignee=other, target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED, done_at__isnull=False,
+                task__team_lead=viewer, task__status=TaskStatus.IN_PROGRESS,
+            ).select_related("task").order_by("-done_at", "-id").first()
+        )
+        task = share.task if share is not None else None
+    if task is None:
         return None
-    result = task.ai_checks.order_by("-created_at").first()
+    # Their own work: the checks about a colleague on the same task are not read beside this chat.
+    from . import ai
+
+    result = next((one for one in task.ai_checks.filter(translator=other).order_by("-created_at", "-id") if not ai.is_self_check(one)), None)
     if result is None or result.status != AICheckResult.Status.ISSUES:
         return None
     return {"task": task, "result": result, "issues": result.issues or []}
@@ -2039,6 +2062,41 @@ def notify_in_chat(to_user, from_user, *, body_ar, body_en, key):
         return None
 
 
+def part_text(assignment, lang="ar"):
+    """What a translator's hand-off covers, in one line: ``EN → AR · 1,200 words · pages 3-9``.
+
+    Empty when the leader said nothing (the hand-offs made before this existed, and a team leader's): the whole task.
+    """
+    ar = lang == "ar"
+    bits = []
+    langs = " → ".join(x for x in (assignment.source_lang, assignment.target_lang) if x)
+    if langs:
+        bits.append(langs)
+    if assignment.words:
+        bits.append(f"{assignment.words:,} كلمة" if ar else f"{assignment.words:,} words")
+    if assignment.page_from is not None:
+        single = assignment.page_to in (None, assignment.page_from)
+        word = ("صفحة" if single else "صفحات") if ar else ("page" if single else "pages")
+        bits.append(f"{word} {assignment.pages_text}")
+    return " · ".join(bits)
+
+
+def part_json(assignment):
+    """A translator's share as a page draws it: the pair, the words, the pages, and the same in a sentence. ``None`` when the leader
+    said nothing (a team leader's hand-off, one made before shares existed)."""
+    if assignment is None or not assignment.has_part:
+        return None
+    return {
+        "source_lang": assignment.source_lang,
+        "target_lang": assignment.target_lang,
+        "words": assignment.words,
+        "page_from": assignment.page_from,
+        "page_to": assignment.page_to if assignment.page_to is not None else assignment.page_from,
+        "text_ar": part_text(assignment, "ar"),
+        "text_en": part_text(assignment, "en"),
+    }
+
+
 def post_handoff(assignment, by_user):
     """Put the task and its files into the chat between the two of them.
 
@@ -2058,15 +2116,20 @@ def post_handoff(assignment, by_user):
         room = pair_room(by_user, assignment.assignee)
         if room is None:
             return None
+        covers_ar, covers_en = part_text(assignment, "ar"), part_text(assignment, "en")
         system_message(
             room, key="handoff",
             body_ar=(
                 f"{by_user.short_name} سلّمك التاسك {task.code} "
-                f"({task.client.code}). افتح الملفات وقرر قبل ما الوقت يخلص."
+                f"({task.client.code})."
+                + (f" المطلوب منك: {covers_ar}." if covers_ar else "")
+                + " افتح الملفات وقرر قبل ما الوقت يخلص."
             ),
             body_en=(
                 f"{by_user.short_name} handed you task {task.code} "
-                f"({task.client.code}). Open the files and decide before the window closes."
+                f"({task.client.code})."
+                + (f" Your part: {covers_en}." if covers_en else "")
+                + " Open the files and decide before the window closes."
             ),
         )
         share_source_files(task, room=room)
@@ -2170,6 +2233,28 @@ def deadline_problem(task, moment):
     return ""
 
 
+def tell_translators_deadline(task, skip=()):
+    """Say the translator's date to everyone translating the task (``skip``: people who have just been told something else).
+
+    Their own date, never the client's: when the leader gave no shorter one, it is the same date and they are told that.
+    """
+    due = task.translator_due
+    skipped = {one.pk for one in ([skip] if hasattr(skip, "pk") else (skip or ()))}
+    for person in task.translator_users():
+        if person.pk in skipped:
+            continue
+        notify(
+            person,
+            title_ar="اتحدد ديدلاين جديد",
+            title_en="Deadline updated",
+            body_ar=(f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}"
+                     if due else "الديدلاين اتشال."),
+            body_en=(f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}"
+                     if due else "Deadline cleared."),
+            level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
+
+
 def set_translator_deadline(task, moment, by_user, tell_translator=True):
     """Set what the translator is working to. ``(ok, error)``.
 
@@ -2188,19 +2273,8 @@ def set_translator_deadline(task, moment, by_user, tell_translator=True):
         "translator_missed_notified", "updated_at",
     ])
 
-    if tell_translator and task.translator_id:
-        due = task.translator_due
-        notify(
-            task.translator,
-            title_ar="اتحدد ديدلاين جديد",
-            title_en="Deadline updated",
-            # The translator's own date, never the client's.
-            body_ar=(f"ديدلاين {task.code}: {clock.fmt12(due, 'ar', '%Y-%m-%d')}"
-                     if due else "الديدلاين اتشال."),
-            body_en=(f"Deadline for {task.code}: {clock.fmt12(due, 'en', '%Y-%m-%d')}"
-                     if due else "Deadline cleared."),
-            level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
-        )
+    if tell_translator:
+        tell_translators_deadline(task)
     log(by_user, "task.translator_deadline", task.code,
         f"{timezone.localtime(moment):%Y-%m-%d %H:%M}" if moment else "cleared")
     return True, ""
@@ -2230,17 +2304,22 @@ def extension_new_due(task, minutes, now=None):
 def extension_state(task, user):
     """What a task page shows about requests for more time, for this person.
 
-    The translator sees their own request and the answer. The team leader
-    (and the admin) sees the open one with where the deadline would land -
-    and the client's date next to it, which the translator never sees.
+    The translator sees their own request and the answer - never a colleague's
+    on the same task: the reason they wrote and the leader's note to them are
+    theirs. The team leader (and the admin) sees the open one with where the
+    deadline would land - and the client's date next to it, which the
+    translator never sees.
     """
     from .models import ExtensionRequest
 
-    is_translator = task.translator_id == user.id
+    is_translator = task.has_translator(user)
     is_lead = task.team_lead_id == user.id or user.is_admin_role
     if not (is_translator or is_lead):
         return {}
-    rows = list(task.extension_requests.select_related("requested_by", "decided_by")[:5])
+    requests = task.extension_requests.select_related("requested_by", "decided_by")
+    if not is_lead:
+        requests = requests.filter(requested_by=user)
+    rows = list(requests[:5])
     pending = next((r for r in rows if r.status == ExtensionRequest.Status.PENDING), None)
     last = next((r for r in rows if r.status != ExtensionRequest.Status.PENDING), None)
     return {
@@ -2250,7 +2329,8 @@ def extension_state(task, user):
             extension_new_due(task, pending.minutes) if pending and is_lead else None
         ),
         "extension_can_ask": (
-            is_translator and task.status == TaskStatus.IN_PROGRESS and pending is None
+            is_translator and task.is_working(user) and task.status == TaskStatus.IN_PROGRESS and pending is None
+            and not getattr(task.part_of(user), "done_at", None)
         ),
         "extension_can_decide": is_lead and pending is not None,
     }
@@ -2259,11 +2339,11 @@ def extension_state(task, user):
 def request_extension(task, user, minutes, reason=""):
     """The translator asks the team leader for more time. ``(request, error)``.
 
-    Nothing moves until the leader answers. One open request per task.
+    Nothing moves until the leader answers. One open request per translator.
     """
     from .models import ExtensionRequest
 
-    if task.translator_id != user.id:
+    if not task.is_working(user):
         return None, "التاسك دي مش بتاعتك."
     if task.status != TaskStatus.IN_PROGRESS:
         return None, "الطلب بيتبعت والتاسك شغالة بس."
@@ -2277,7 +2357,7 @@ def request_extension(task, user, minutes, reason=""):
         return None, "اكتب قد إيه محتاج — يوم أو ساعة أو دقايق."
     if minutes > MAX_EXTENSION_MINUTES:
         return None, "أقصى طلب مرة واحدة 14 يوم."
-    if task.extension_requests.filter(status=ExtensionRequest.Status.PENDING).exists():
+    if task.extension_requests.filter(status=ExtensionRequest.Status.PENDING, requested_by=user).exists():
         return None, "عندك طلب لسه التيم ليدر مارّدش عليه."
 
     reason = (reason or "").strip()[:300]
@@ -2344,8 +2424,10 @@ def decide_extension(row, user, approve, note=""):
     row.decision_note = note
     row.save(update_fields=["status", "decided_by", "decided_at", "decision_note"])
 
-    translator = task.translator
+    # The one who asked is answered; the others on the task are told only that their date moved (it is one date for all).
+    translator = row.requested_by or task.translator
     if approve:
+        tell_translators_deadline(task, skip=translator)
         body_ar = f"التيم ليدر وافق على الوقت الإضافي. الديدلاين الجديد: {_moment_text(task.translator_due)}"
         title_ar, title_en, level = "اتوافق على الوقت الإضافي", "More time approved", "success"
     else:
@@ -2386,42 +2468,304 @@ def cap_translator_deadline(task, by_user):
 KEEP_DEADLINE = object()
 
 
+#: What a translator's share of a task is made of (07/10/2026): who, which language pair, how many words, and - when the task is split
+#: between several people - which pages. The team leader types all of it; the translator types none.
+Part = namedtuple("Part", "translator source_lang target_lang words page_from page_to")
+
+#: The most translators one task is split between, and the biggest page number or word count one share may carry.
+MAX_PARTS = 10
+MAX_PAGE = 100_000
+MAX_PART_WORDS = 10_000_000
+#: The width of the language column on a hand-off: a longer name is refused here, not by the database.
+MAX_LANGUAGE = 40
+
+PICK_TRANSLATOR_AR = "اختار مترجم واحد على الأقل."
+TOO_MANY_PARTS_AR = f"أقصى عدد مترجمين على التاسك الواحدة {MAX_PARTS}."
+NOT_IN_YOUR_TEAM = "not_in_your_team"
+
+
+class PartError(Exception):
+    """Why the shares the leader typed cannot go out: the sentence, in his words, and a ``code`` for the page."""
+
+    def __init__(self, message, code="bad_part"):
+        super().__init__(message)
+        self.code = code
+
+
+def default_part(task, translator):
+    """A share for the callers that say nothing about it (the operation sending a task straight to a translator, an old script):
+    the task's own language pair, no pages, and words left at 0 - "not said" - so the month's production reads the task's own count."""
+    return Part(translator, task.source_lang, task.target_lang, 0, None, None)
+
+
+def _whole(raw):
+    """A whole number from what was typed, or ``None``."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    text = str(raw if raw is not None else "").strip()
+    return int(text) if re.fullmatch(r"\d{1,12}", text) else None
+
+
+def check_translators(raw_parts, by_user):
+    """The first thing asked of the shares: each names an active translator the leader may give work to -> ``[User]``.
+
+    Asked before anything else, so a name that is not a translator, or is somebody else's, is refused as that and not as a missing box.
+    """
+    if not isinstance(raw_parts, list) or not raw_parts or not all(isinstance(item, dict) for item in raw_parts):
+        raise PartError(PICK_TRANSLATOR_AR, "no_parts")
+    if len(raw_parts) > MAX_PARTS:
+        raise PartError(TOO_MANY_PARTS_AR, "too_many")
+    people = []
+    for number, raw in enumerate(raw_parts, start=1):
+        who = f"المترجم رقم {number}: " if len(raw_parts) > 1 else ""
+        pk = _whole(raw.get("translator"))
+        translator = User.objects.filter(pk=pk, role=Role.TRANSLATOR, is_active=True).first() if pk else None
+        if translator is None:
+            raise PartError(f"{who}اختار مترجم.", "no_such_translator")
+        if not by_user.is_admin_role and translator.team_lead_id != by_user.pk:
+            raise PartError(f"{who}المترجم ده مش في فريقك.", NOT_IN_YOUR_TEAM)
+        people.append(translator)
+    return people
+
+
+def parse_parts(task, raw_parts, by_user):
+    """The shares the leader typed -> ``[Part]``, or a :class:`PartError` that says what to fix. Nothing is written.
+
+    Each needs a translator of the leader's team, a language pair and a word count. Pages are asked as soon as the task
+    would have more than one translator, because that is how they know where to start and stop; they must not overlap
+    (a share that overlaps another is two people paid for the same page). A translator who already holds a share of
+    this task is not given another: one person, one share.
+    """
+    from .forms import _language_code
+
+    if not isinstance(raw_parts, list) or not raw_parts or not all(isinstance(item, dict) for item in raw_parts):
+        raise PartError(PICK_TRANSLATOR_AR, "no_parts")
+    if len(raw_parts) > MAX_PARTS:
+        raise PartError(TOO_MANY_PARTS_AR, "too_many")
+
+    kept = list(task.translator_parts(accepted_only=True))
+    held = {a.assignee_id for a in kept}
+    many = len(kept) + len(raw_parts) > 1
+    out, seen = [], set()
+    translators = check_translators(raw_parts, by_user)
+    for number, (raw, translator) in enumerate(zip(raw_parts, translators), start=1):
+        who = f"المترجم رقم {number}: " if len(raw_parts) > 1 else ""
+        if translator.pk in held:
+            raise PartError(f"{who}{translator.short_name} معاه جزء من التاسك دي بالفعل.", "already_has_part")
+        if translator.pk in seen:
+            raise PartError(f"{who}{translator.short_name} اتكرر. كل مترجم ليه جزء واحد.", "duplicate")
+        seen.add(translator.pk)
+
+        typed_pair = (raw.get("source_lang"), raw.get("target_lang"))
+        if not all(isinstance(one, str) for one in typed_pair):
+            raise PartError(f"{who}حدد الترجمة من لغة إيه لغة إيه.", "need_languages")
+        source, target = _language_code(typed_pair[0]), _language_code(typed_pair[1])
+        if not source or not target:
+            raise PartError(f"{who}حدد الترجمة من لغة إيه لغة إيه.", "need_languages")
+        if len(source) > MAX_LANGUAGE or len(target) > MAX_LANGUAGE:
+            raise PartError(f"{who}اسم اللغة طويل: اكتب الكود (EN أو AR) أو الاسم بحد أقصى {MAX_LANGUAGE} حرف.", "bad_language")
+        words = _whole(raw.get("words"))
+        if words is None or not 1 <= words <= MAX_PART_WORDS:
+            raise PartError(f"{who}اكتب عدد الكلمات اللي المترجم هيترجمها (رقم أكبر من صفر).", "need_words")
+
+        first, last = _whole(raw.get("page_from")), _whole(raw.get("page_to"))
+        typed_pages = str(raw.get("page_from") or "").strip() != "" or str(raw.get("page_to") or "").strip() != ""
+        if typed_pages or many:
+            if first is None or last is None or first < 1 or last < 1:
+                raise PartError(
+                    f"{who}اكتب من صفحة كام لحد صفحة كام."
+                    if many else f"{who}الصفحات لازم تتكتب كاملة: من صفحة كام لحد صفحة كام.",
+                    "need_pages",
+                )
+            if first > last or last > MAX_PAGE:
+                raise PartError(f"{who}الصفحة الأخيرة لازم تكون بعد الأولى أو نفسها.", "bad_pages")
+        else:
+            first = last = None
+        out.append(Part(translator, source, target, words, first, last))
+
+    # Pages that touch: against each other, and against the shares that are already taken and stay.
+    ranges = [(p.page_from, p.page_to, p.translator.short_name) for p in out if p.page_from is not None]
+    ranges += [(a.page_from, a.page_to or a.page_from, a.assignee.short_name) for a in kept if a.page_from is not None]
+    ranges.sort()
+    for before, after in zip(ranges, ranges[1:]):
+        if after[0] <= before[1]:
+            raise PartError(f"الصفحات متداخلة بين {before[2]} و{after[2]} ({before[0]}-{before[1]} و{after[0]}-{after[1]}).", "overlap")
+    return out
+
+
+def sync_translation_state(task):
+    """Put the task's translator and status where its translator hand-offs say they are.
+
+    One place decides it, so a decline, a time-out, an acceptance and a new offer cannot disagree: someone has taken a share ->
+    in progress; shares offered and none taken -> waiting for a translator; nobody left -> back to the team leader. ``translator``
+    stays the same person while they are still on it (the first of several), so the places that only name "the" translator do not
+    flip about. A task whose translator was put there by hand, with no hand-off behind them (the oldest data), is left as it is.
+    Only a task in the translator's phase is touched: a task under review does not go back because someone declined late.
+    """
+    if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS):
+        return task
+    parts = list(task.live_hand_offs())
+    ever = task.assignments.filter(target_role=Role.TRANSLATOR).exists()
+    if not parts:
+        if not ever:
+            return task
+        task.translator = None
+        task.status = TaskStatus.LEAD_ACCEPTED
+    else:
+        accepted = [p for p in parts if p.status == AssignmentStatus.ACCEPTED]
+        head = next((p for p in parts if p.assignee_id == task.translator_id), None) or (accepted or parts)[0]
+        task.translator = head.assignee
+        task.status = TaskStatus.IN_PROGRESS if accepted else TaskStatus.AWAITING_TRANSLATOR
+    task.save(update_fields=["translator", "status", "updated_at"])
+    return task
+
+
+def _cancel_pending_parts(task):
+    """A new batch replaces the offers nobody has answered yet; the shares already taken stay. Returns the offers withdrawn."""
+    waiting = list(task.assignments.filter(status=AssignmentStatus.PENDING, target_role=Role.TRANSLATOR).select_related("assignee"))
+    if waiting:
+        task.assignments.filter(pk__in=[a.pk for a in waiting]).update(
+            status=AssignmentStatus.CANCELLED, responded_at=timezone.now(),
+        )
+    return waiting
+
+
 @transaction.atomic
-def assign_to_translator(task, translator, by_user, note="", deadline=KEEP_DEADLINE):
+def assign_to_translators(task, parts, by_user, note="", deadline=KEEP_DEADLINE):
+    """Hand a task to one translator or several, each with their own share. ``[Assignment]``, one per share.
+
+    Every translator has the usual window to say yes, and answers for their own share only: one who declines or lets the
+    time run out sends back just that share, and the others carry on. The offers nobody has answered yet are replaced by
+    this batch; the shares already taken stay, so a share that fell through can be given to someone else while the rest is
+    being translated. The date is one for the task (the leader's choice, as before).
+    """
     conf = AppSettings.load()
-    _cancel_pending(task)
+    _lock_task(task)
+    if task.status in (TaskStatus.NEW, TaskStatus.AWAITING_LEAD):
+        _cancel_pending(task)
+        withdrawn = []
+    else:
+        withdrawn = _cancel_pending_parts(task)
+    # Checked again under the lock: two batches sent at the same moment (a double press, the leader and the admin) must not give one
+    # translator two shares, which would leave the second never handed in and the task never ready.
+    holding = {a.assignee_id for a in task.translator_parts(accepted_only=True)}
+    for part in parts:
+        if part.translator.pk in holding:
+            raise PartError(f"{part.translator.short_name} معاه جزء من التاسك دي بالفعل.", "already_has_part")
     now = timezone.now()
-    assignment = Assignment.objects.create(
-        task=task, assignee=translator, assigned_by=by_user,
-        target_role=Role.TRANSLATOR, assigned_at=now,
-        expires_at=now + timedelta(seconds=conf.response_window_seconds),
-        note=note,
-    )
-    post_handoff(assignment, by_user)
-    task.translator = translator
-    task.status = TaskStatus.AWAITING_TRANSLATOR
-    task.translator_accepted_at = None
+    made = []
+    for part in parts:
+        assignment = Assignment.objects.create(
+            task=task, assignee=part.translator, assigned_by=by_user,
+            target_role=Role.TRANSLATOR, assigned_at=now,
+            expires_at=now + timedelta(seconds=conf.response_window_seconds),
+            note=note, source_lang=part.source_lang or "", target_lang=part.target_lang or "", words=part.words or 0,
+            page_from=part.page_from, page_to=part.page_to,
+        )
+        post_handoff(assignment, by_user)
+        made.append(assignment)
+
+    if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS):
+        task.status = TaskStatus.AWAITING_TRANSLATOR
+    if not task.translator_parts(accepted_only=True).exists():
+        task.translator_accepted_at = None
     # The date the leader is giving them, which is theirs alone: a moment (shorter than the client's), or ``None`` for the same as the
     # client's. Not saying leaves whatever was there.
+    moved = deadline is not KEEP_DEADLINE and deadline != task.translator_deadline
     if deadline is not KEEP_DEADLINE:
         task.translator_deadline = deadline
         task.translator_warned_at = None
         task.translator_missed_notified = False
     task.save(update_fields=[
-        "translator", "status", "translator_accepted_at", "translator_deadline",
+        "status", "translator_accepted_at", "translator_deadline",
         "translator_warned_at", "translator_missed_notified", "updated_at",
     ])
+    sync_translation_state(task)
+    # The date is one for the task: adding a share with another date moves it for the translators already working, and they are told
+    # (the new ones read it in their offer).
+    if moved:
+        tell_translators_deadline(task, skip=[a.assignee for a in made])
 
-    notify(
-        translator,
-        title_ar="تاسك ترجمة جديدة",
-        title_en="New translation task",
-        body_ar=f"عندك {conf.response_window_seconds} ثانية تأكد استلام التاسك {task.code}.",
-        body_en=f"You have {conf.response_window_seconds}s to accept task {task.code}.",
-        level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
-    )
-    log(by_user, "task.assign_translator", task.code, f"→ {translator}")
-    return assignment
+    # The leader has just said how big the work is. When nobody had settled the task's own count yet, that is the count - and it follows
+    # the shares while it is still the sum of them (a share added later grows it), but never a number a person settled.
+    given = sum(a.words for a in task.translator_parts())
+    before = given - sum(a.words for a in made)
+    if given and (task.word_count_state != WordCountState.CONFIRMED or (before and task.word_count == before)):
+        from . import wordcount
+
+        wordcount.confirm_task(task, by_user, words=given)
+    # An offer that this batch took back is told so, unless the same translator is offered again.
+    again = {a.assignee_id for a in made}
+    for offer in withdrawn:
+        if offer.assignee_id not in again:
+            notify(
+                offer.assignee,
+                title_ar="العرض اتسحب",
+                title_en="The offer was withdrawn",
+                body_ar=f"التيم ليدر سحب عرض التاسك {task.code} منك قبل ما ترد.",
+                body_en=f"Your team leader withdrew the offer of task {task.code} before you answered.",
+                level="info", url=f"/tasks/{task.code}/", task=task,
+            )
+
+    for assignment in made:
+        covers = part_text(assignment, "ar")
+        notify(
+            assignment.assignee,
+            title_ar="تاسك ترجمة جديدة",
+            title_en="New translation task",
+            body_ar=(
+                f"عندك {conf.response_window_seconds} ثانية تأكد استلام التاسك {task.code}."
+                + (f" المطلوب: {covers}." if covers else "")
+            ),
+            body_en=(
+                f"You have {conf.response_window_seconds}s to accept task {task.code}."
+                + (f" Your part: {part_text(assignment, 'en')}." if covers else "")
+            ),
+            level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
+        log(by_user, "task.assign_translator", task.code, f"→ {assignment.assignee} {part_text(assignment, 'en')}".strip())
+    return made
+
+
+def assign_to_translator(task, translator, by_user, note="", deadline=KEEP_DEADLINE, part=None):
+    """One translator for the task. The share is ``part`` (a :class:`Part`) or, said nothing, the whole task as it is."""
+    return assign_to_translators(
+        task, [part or default_part(task, translator)], by_user, note=note, deadline=deadline,
+    )[0]
+
+
+def _give_back_share(task, assignment):
+    """A translator's share is turned down or timed out (the hand-off row is already marked): the task takes it back.
+
+    With nobody else on the task it is the team leader's again, as it always was. With others who have a share, it stays in progress
+    (or waiting for the rest to answer) - only this share is open, and the leader gives it to someone else.
+    """
+    task.refresh_from_db(fields=["translator", "status"])
+    others = list(task.live_hand_offs().exclude(pk=assignment.pk))
+    if not others:
+        if task.translator_id in (None, assignment.assignee_id):
+            task.translator = None
+            task.status = TaskStatus.LEAD_ACCEPTED
+            task.save(update_fields=["status", "translator", "updated_at"])
+        return
+    if task.translator_id == assignment.assignee_id:
+        task.translator = others[0].assignee
+        task.save(update_fields=["translator", "updated_at"])
+    sync_translation_state(task)
+
+
+def _lock_task(task):
+    """Take the task's row, and read it again under the lock. Always before an assignment's own row (task, then assignment, on every path).
+
+    Several translators answer one task at about the same moment, and each answer reads who else is on it before it writes what the
+    task now is. Without this one lock the second read can miss the first answer and write the state over it: a task still "waiting"
+    after its translator said yes, or "waiting" with nobody left. (SQLite ignores the lock; Postgres does not.)
+    """
+    Task.objects.select_for_update().filter(pk=task.pk).first()
+    task.refresh_from_db()
+    return task
 
 
 def _lock_assignment(assignment):
@@ -2438,13 +2782,29 @@ def accept_assignment(assignment, user):
     """Confirm an assignment. Returns ``(ok, reason)``."""
     if assignment.assignee_id != user.id:
         return False, "forbidden"
+    _lock_task(assignment.task)
     _lock_assignment(assignment)
     if assignment.status != AssignmentStatus.PENDING:
         return False, assignment.status
-    # An offer the task has moved on from (it was handed to somebody else since) is not a job to accept.
-    held = assignment.task.team_lead_id if assignment.target_role == Role.TEAM_LEAD else assignment.task.translator_id
-    if held is not None and held != assignment.assignee_id:
+    # A task whose translation is in (or that is cancelled) takes no more translators: an offer still open on it is not a job.
+    if assignment.target_role == Role.TRANSLATOR and assignment.task.status in (
+        TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED, TaskStatus.DELIVERED, TaskStatus.CANCELLED,
+    ):
+        assignment.status = AssignmentStatus.CANCELLED
+        assignment.responded_at = timezone.now()
+        assignment.save(update_fields=["status", "responded_at"])
         return False, AssignmentStatus.CANCELLED
+    # An offer the task has moved on from (it was handed to somebody else since) is not a job to accept. A translator's offer is
+    # moved on from when it is cancelled (status, checked above) - or when the task now names a translator that no hand-off covers:
+    # the task can have several translators at once, so another name on it is not that by itself.
+    if assignment.target_role == Role.TEAM_LEAD:
+        held = assignment.task.team_lead_id
+        if held is not None and held != assignment.assignee_id:
+            return False, AssignmentStatus.CANCELLED
+    else:
+        held = assignment.task.translator_id
+        if held not in (None, assignment.assignee_id) and not assignment.task.live_hand_offs().filter(assignee_id=held).exists():
+            return False, AssignmentStatus.CANCELLED
     if timezone.now() >= assignment.expires_at:
         expire_assignment(assignment)
         return False, "expired"
@@ -2486,9 +2846,15 @@ def accept_assignment(assignment, user):
             level="success", url=f"/tasks/{task.code}/", task=task,
         )
     else:
-        task.status = TaskStatus.IN_PROGRESS
-        task.translator_accepted_at = timezone.now()
-        task.save(update_fields=["status", "translator_accepted_at", "updated_at"])
+        # The first to say yes starts the work; the others who are offered a share join it as they answer.
+        task.translator_accepted_at = task.translator_accepted_at or timezone.now()
+        task.save(update_fields=["translator_accepted_at", "updated_at"])
+        sync_translation_state(task)
+        if task.status != TaskStatus.IN_PROGRESS:
+            # An offer taken on a task that is not in the translator's phase (a hand-made test row, an old one): the old rule.
+            task.status = TaskStatus.IN_PROGRESS
+            task.translator = task.translator or user
+            task.save(update_fields=["status", "translator", "updated_at"])
         # The work happens between the leader and the translator, in the chat
         # they already have. No group is opened for the task. The files went
         # into this same chat when it was handed over and share_source_files
@@ -2530,6 +2896,7 @@ def accept_assignment(assignment, user):
 @transaction.atomic
 def expire_assignment(assignment):
     """Mark a pending assignment as expired, apply the penalty and alert."""
+    _lock_task(assignment.task)
     _lock_assignment(assignment)
     if assignment.status != AssignmentStatus.PENDING:
         return assignment
@@ -2581,14 +2948,16 @@ def expire_assignment(assignment):
                 level="danger", url=f"/tasks/{task.code}/", sound=True, task=task,
             )
     else:
-        task.status = TaskStatus.LEAD_ACCEPTED
-        task.translator = None
-        task.save(update_fields=["status", "translator", "updated_at"])
+        _give_back_share(task, assignment)
+        covers = part_text(assignment, "ar")
         notify(
             task.team_lead,
             title_ar="المترجم مردش — تصرف",
             title_en="Translator did not respond",
-            body_ar=f"{assignment.assignee.short_name} مردش على {task.code}. اعمل assign لمترجم تاني.",
+            body_ar=(
+                f"{assignment.assignee.short_name} مردش على {task.code}"
+                + (f" ({covers})" if covers else "") + ". اعمل assign لمترجم تاني."
+            ),
             body_en=f"{assignment.assignee.short_name} missed {task.code}. Assign another translator.",
             level="danger", url=f"/tasks/{task.code}/", sound=True, task=task,
         )
@@ -2596,7 +2965,11 @@ def expire_assignment(assignment):
             task.created_by,
             title_ar="المترجم مردش",
             title_en="Translator did not respond",
-            body_ar=f"التاسك {task.code} رجعت للتيم ليدر عشان يعيد التوزيع.",
+            body_ar=(
+                f"التاسك {task.code} رجعت للتيم ليدر عشان يعيد التوزيع."
+                if task.status == TaskStatus.LEAD_ACCEPTED else
+                f"{assignment.assignee.short_name} مردش على جزئه من {task.code}، والتيم ليدر هيعيد توزيعه."
+            ),
             body_en=f"Task {task.code} went back to the team leader for reassignment.",
             level="warning", url=f"/tasks/{task.code}/", task=task,
         )
@@ -2604,6 +2977,7 @@ def expire_assignment(assignment):
     return assignment
 
 
+@transaction.atomic
 def decline_assignment(assignment, user, reason=""):
     """Refuse a hand-off. A reason is required - returns ``(ok, error_ar)``.
 
@@ -2613,6 +2987,7 @@ def decline_assignment(assignment, user, reason=""):
     """
     if assignment.assignee_id != user.id:
         return False, "التسليمة دي مش مستنية ردك."
+    _lock_task(assignment.task)
     _lock_assignment(assignment)
     if assignment.status != AssignmentStatus.PENDING:
         return False, "التسليمة دي مش مستنية ردك."
@@ -2630,9 +3005,7 @@ def decline_assignment(assignment, user, reason=""):
         task.save(update_fields=["status", "team_lead", "updated_at"])
         target = task.created_by
     else:
-        task.status = TaskStatus.LEAD_ACCEPTED
-        task.translator = None
-        task.save(update_fields=["status", "translator", "updated_at"])
+        _give_back_share(task, assignment)
         target = task.team_lead
     notify(
         target,
@@ -2687,8 +3060,84 @@ def create_task(*, client, title, created_by, description="", deadline=None,
     return task
 
 
+def _shares_still_out(task):
+    """Is another share of the task not in yet: taken and not handed in, or offered and not answered?"""
+    return task.translator_parts().filter(
+        Q(status=AssignmentStatus.PENDING) | Q(status=AssignmentStatus.ACCEPTED, done_at__isnull=True)
+    ).exists()
+
+
+def _say_share_handed_in(task, user, share):
+    """One translator of several is done: the leader hears which share and how many are in, and the task stays in progress."""
+    taken = task.translator_parts(accepted_only=True)
+    total, done = taken.count(), taken.filter(done_at__isnull=False).count()
+    covers_ar, covers_en = part_text(share, "ar"), part_text(share, "en")
+    notify_in_chat(
+        task.team_lead, user,
+        body_ar=f"{user.short_name} خلص جزئه من {task.code}" + (f" ({covers_ar})" if covers_ar else "") + f". اتسلّم {done} من {total}.",
+        body_en=f"{user.short_name} finished their part of {task.code}" + (f" ({covers_en})" if covers_en else "") + f". {done} of {total} are in.",
+        key="part_translated",
+    )
+    notify(
+        task.team_lead,
+        title_ar="مترجم سلّم جزئه",
+        title_en="A translator handed in their part",
+        body_ar=f"{user.short_name} سلّم جزئه من {task.code}. اتسلّم {done} من {total}.",
+        body_en=f"{user.short_name} handed in their part of {task.code}. {done} of {total} are in.",
+        level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
+    )
+    log(user, "task.part_translated", task.code, f"{done}/{total}")
+
+
+def lead_may_close(task, user):
+    """May this person close the translation for the translators: the task's own leader (or the admin) when every share still on it
+    is in and no offer is waiting - a share fell through and he is not giving it to anybody else.
+
+    Without this a task whose last open share was turned down after the rest had handed in would wait for ever: the ones who are done
+    cannot hand in again, and the leader cannot review what is still "in progress".
+    """
+    if not (user.is_admin_role or (user.is_team_lead and task.team_lead_id == user.id)):
+        return False
+    if task.status != TaskStatus.IN_PROGRESS:
+        return False
+    taken = list(task.translator_parts(accepted_only=True))
+    return bool(taken) and all(p.done_at is not None for p in taken) and not task.translator_parts().filter(
+        status=AssignmentStatus.PENDING
+    ).exists()
+
+
 def mark_translated(task, user):
-    if task.translator_id != user.id and not user.is_admin_role:
+    """A translator hands their share in (the task goes to review when the last one has), or the leader / admin closes the translation.
+
+    One transaction with the task locked first: two translators finishing together must not both send it to review, and a failure
+    half-way must not leave a share marked done with the task still in progress (it could never be handed in again).
+    """
+    with transaction.atomic():
+        _lock_task(task)
+        done = _mark_translated(task, user)
+    if done:
+        # After the commit: the check runs on its own thread and reads the row this transaction wrote. A translator's own share is checked
+        # the moment they hand it in - the leader reads the notes while the others are still translating - and a close by the leader or
+        # the admin checks whoever has not been checked since they handed in.
+        try:
+            from . import ai
+
+            handed = task.part_of(user) is not None and task.part_of(user).done_at is not None
+            if handed:
+                ai.start_background_check(task, translator=user)
+            elif task.status == TaskStatus.UNDER_REVIEW:
+                ai.start_background_check(task)
+        except Exception:  # noqa: BLE001 - never block a handover on the check
+            log(user, "task.ai_check.failed_to_start", task.code)
+    return done
+
+
+def _mark_translated(task, user):
+    parts = list(task.translator_parts(accepted_only=True))
+    mine = next((p for p in parts if p.assignee_id == user.id), None)
+    # Their own share, or the whole translation: the one it was handed to before shares existed, the admin, and the leader when
+    # nothing is left to wait for.
+    if mine is None and not user.is_admin_role and not task.is_working(user) and not lead_may_close(task, user):
         return False
     # Only a job being worked can be handed in. A delivered or cancelled one handed in again would come back to life, and its
     # words (counted by the day they were translated) would move into another month's pay.
@@ -2697,10 +3146,25 @@ def mark_translated(task, user):
     # "Finished" with nothing handed in used to go through. It does not any
     # more: the translator's file is what the review, the AI check, the word
     # count and the delivery all read, so no file means nothing is finished.
-    if translation_missing(task):
+    # A translator who has a share of the task is held to their own file, not to a colleague's.
+    if translation_missing(task, user if mine is not None else None):
         return False
+    now = timezone.now()
+    if mine is not None:
+        if mine.done_at is not None:
+            return False
+        mine.done_at = now
+        mine.save(update_fields=["done_at"])
+    else:
+        # The admin (or a translator with no hand-off row behind them) closes the whole translation.
+        Assignment.objects.filter(pk__in=[p.pk for p in parts], done_at__isnull=True).update(done_at=now)
+    if mine is not None and _shares_still_out(task):
+        _say_share_handed_in(task, user, mine)
+        return True
+    # Closing it closes the offers nobody answered: a translator must not be able to take a share of a task that is under review.
+    _cancel_pending_parts(task)
     task.status = TaskStatus.UNDER_REVIEW
-    task.translated_at = timezone.now()
+    task.translated_at = now
     task.save(update_fields=["status", "translated_at", "updated_at"])
 
     # The word count is typed by a person now (28/09/2026) - nothing is read
@@ -2717,16 +3181,6 @@ def mark_translated(task, user):
         task.save(update_fields=["word_count_state", "word_count_note", "updated_at"])
 
     room = task_thread(task, task.team_lead, user)
-    # The quality pass runs itself. A gate somebody has to remember to press
-    # is a gate that gets skipped on the busy days, which are the days it is
-    # for. It runs on its own thread - see ai.start_background_check.
-    try:
-        from . import ai
-
-        ai.start_background_check(task)
-    except Exception:  # noqa: BLE001 - never block a handover on the check
-        log(user, "task.ai_check.failed_to_start", task.code)
-
     # The way back up is the same line the task came down: the person who
     # handed it over is told in the conversation they handed it over in, not
     # only in a notification they may never open.
@@ -2864,8 +3318,9 @@ def mark_reviewed(task, user):
     # The group is the audience, not whoever happened to create the task: an
     # admin who took the client's message opens a group with no operation in
     # it, and telling only the creator leaves the handover with nobody in it.
+    translators = task.translator_ids()
     for person in room.members.exclude(pk=user.pk):
-        if person.id == task.translator_id:
+        if person.id in translators:
             notify(
                 person,
                 title_ar="\u062a\u0645\u062a \u0645\u0631\u0627\u062c\u0639\u0629 \u062a\u0631\u062c\u0645\u062a\u0643",
@@ -2986,20 +3441,23 @@ def send_back_for_revision(task, user, reason=""):
         "status", "revision_count", "returned_at", "reviewed_at",
         "handover_ack_at", "handover_ack_by", "updated_at",
     ])
-    room = task_thread(task, task.translator, user)
-    system_message(
-        room, key="returned",
-        body_ar=f"{user.short_name} رجّع الترجمة للتعديل. {reason}".strip(),
-        body_en=f"{user.short_name} sent the translation back. {reason}".strip(),
-    )
-    notify(
-        task.translator,
-        title_ar="الترجمة رجعتلك للتعديل",
-        title_en="Your translation came back",
-        body_ar=reason or f"التيم ليدر رجّع {task.code} للتعديل.",
-        body_en=reason or f"The team leader returned {task.code}.",
-        level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
-    )
+    # Every share is open again: each translator hands their own back in (a share is "in" only until the task comes back).
+    task.assignments.filter(target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED).update(done_at=None)
+    for person in task.translator_users() or [None]:
+        room = task_thread(task, person, user)
+        system_message(
+            room, key="returned",
+            body_ar=f"{user.short_name} رجّع الترجمة للتعديل. {reason}".strip(),
+            body_en=f"{user.short_name} sent the translation back. {reason}".strip(),
+        )
+        notify(
+            person,
+            title_ar="الترجمة رجعتلك للتعديل",
+            title_en="Your translation came back",
+            body_ar=reason or f"التيم ليدر رجّع {task.code} للتعديل.",
+            body_en=reason or f"The team leader returned {task.code}.",
+            level="warning", url=f"/tasks/{task.code}/", sound=True, task=task,
+        )
     log(user, "task.returned", task.code, reason)
     return True
 
@@ -3952,20 +4410,22 @@ def task_source_files(task):
     return [a for a in picked if not a.is_audio]
 
 
-def translator_files(task, since=None):
-    """The files the translator handed in on this task, oldest first.
+def translator_files(task, since=None, user=None):
+    """The files the translators handed in on this task, oldest first.
 
     Wherever they were handed in: uploaded from the task page, or dropped in
     their group and tagged there (``tag_task_message``) - both carry the task
     on the message. Voice notes are talk, not a translation, and are left out.
-    ``since`` keeps only what came in after that moment.
+    ``since`` keeps only what came in after that moment; ``user`` keeps one
+    translator's files (the rest of a split task is not theirs to hand in).
     """
-    if not task.translator_id:
+    senders = {user.pk} if user is not None else task.translator_ids()
+    if not senders:
         return []
     qs = (
         ChatAttachment.objects
-        .filter(task_files_filter(task), message__sender_id=task.translator_id)
-        .select_related("message")
+        .filter(task_files_filter(task), message__sender_id__in=senders)
+        .select_related("message", "message__sender")
         .order_by("id")
     )
     if since is not None:
@@ -4026,7 +4486,14 @@ def upload_reviewed(task, user, uploads):
     if not uploads:
         return None, "empty"
     lead = task.team_lead or user
-    room = pair_room(lead, task.translator) or pair_room(lead, task.created_by)
+    # On a task shared between translators his corrected file holds everyone's pages, so it goes to the operation, not into the group of
+    # whichever translator comes first.
+    ops_room = pair_room(lead, task.created_by)
+    if task.is_split and ops_room is not None:
+        room = ops_room
+    else:
+        room = next((r for r in (pair_room(lead, person) for person in task.translator_users()) if r is not None), None)
+        room = room or ops_room
     if room is None:
         return None, "no_room"
 
@@ -4047,13 +4514,13 @@ TRANSLATION_MISSING_AR = "ارفع ملف الترجمة الأول من صفح�
 TRANSLATION_MISSING_EN = "Upload the translated file on the task page first, then press Finished."
 
 
-def translation_missing(task):
-    """True while there is nothing to review: no translator file on the task.
+def translation_missing(task, user=None):
+    """True while there is nothing to review: no translator file on the task (or, with ``user``, none from that translator).
 
     After a send-back only a file that came in after it counts - the one the
     leader returned is the version that was not good enough.
     """
-    return not translator_files(task, since=task.returned_at)
+    return not translator_files(task, since=task.returned_at, user=user)
 
 
 def upload_translation(task, user, uploads, body=""):
@@ -4067,7 +4534,7 @@ def upload_translation(task, user, uploads, body=""):
 
     Returns ``(message, error)``.
     """
-    if task.translator_id != user.id:
+    if not task.is_working(user):
         return None, "forbidden"
     if task.status != TaskStatus.IN_PROGRESS:
         return None, "bad_status"
@@ -4114,11 +4581,11 @@ def handin_tasks_for(user, room):
     members = set(room.members.values_list("pk", flat=True))
     if user.pk not in members:
         return []
-    return list(
-        Task.objects.filter(
-            translator=user, status=TaskStatus.IN_PROGRESS, team_lead_id__in=members,
-        ).select_related("client").order_by("id")
-    )
+    return [
+        task for task in Task.objects.filter(translator_q(user), status=TaskStatus.IN_PROGRESS, team_lead_id__in=members)
+        .select_related("client").order_by("id")
+        if task.is_working(user)
+    ]
 
 
 def hand_in_from_chat(task, user, attachment_ids):
@@ -4135,7 +4602,7 @@ def hand_in_from_chat(task, user, attachment_ids):
     A tag is per message: a message carrying three files that has one of
     them ticked brings all three.
     """
-    if task.translator_id != user.id:
+    if not task.is_working(user):
         return False, "التاسك دي مش بتاعتك."
     if task.status != TaskStatus.IN_PROGRESS:
         return False, "التاسك دي مش شغالة دلوقتي."
@@ -4191,6 +4658,9 @@ def task_chat_link(task, viewer):
     Returns ``{"url", "label_ar", "label_en"}``.
     """
     lead, translator, ops = task.team_lead, task.translator, task.created_by
+    # A translator on a split task opens their own group with the leader; the leader and the admin open the first translator's.
+    if lead is not None and viewer.pk != lead.pk and viewer.pk in task.translator_ids():
+        translator = viewer
     if lead is not None and translator is not None and (
         viewer.pk in (lead.pk, translator.pk) or viewer.is_admin_role
     ):
@@ -4789,7 +5259,7 @@ def visible_tasks(user):
     if user.is_team_lead:
         return qs.filter(team_lead=user)
     if user.is_translator:
-        return qs.filter(translator=user)
+        return qs.filter(translator_q(user))
     return qs.none()
 
 
@@ -4805,7 +5275,7 @@ def translator_desk(user):
     ``/api/v1/translator/home/`` both read it from here, so the two cannot come
     to show different people different work.
     """
-    tasks = Task.objects.filter(translator=user).select_related("client", "team_lead")
+    tasks = Task.objects.filter(translator_q(user)).select_related("client", "team_lead")
     return {
         "open_tasks": tasks.filter(status__in=ACTIVE_TASK_STATUSES),
         "done_tasks": tasks.filter(status__in=[TaskStatus.DELIVERED, TaskStatus.CANCELLED])[:DESK_DONE],
@@ -5836,7 +6306,7 @@ def sweep_deadlines():
         # translator gets their own warning from the pass below, on their
         # own date, and this one would hand them the client's.
         if not task.translator_deadline:
-            people.insert(0, (task.translator, True))
+            people = [(person, True) for person in task.translator_users(still_working=True)] + people
         _warn_deadline(task, now, minutes, people)
         warned += 1
 
@@ -5851,7 +6321,7 @@ def sweep_deadlines():
         task.save(update_fields=["deadline_missed_notified"])
         people = [task.team_lead, task.created_by]
         if not task.translator_deadline:
-            people.insert(0, task.translator)
+            people = task.translator_users(still_working=True) + people
         _missed_deadline(task, people)
 
     # -- the translator's own date, which only they hear about -------------
@@ -5867,7 +6337,7 @@ def sweep_deadlines():
         task.translator_warned_at = now
         task.save(update_fields=["translator_warned_at"])
         minutes = max(1, int((task.translator_deadline - now).total_seconds() // 60))
-        _warn_deadline(task, now, minutes, [(task.translator, True)])
+        _warn_deadline(task, now, minutes, [(person, True) for person in task.translator_users(still_working=True)])
         warned += 1
 
     theirs_late = Task.objects.filter(
@@ -5880,7 +6350,7 @@ def sweep_deadlines():
     for task in theirs_late:
         task.translator_missed_notified = True
         task.save(update_fields=["translator_missed_notified"])
-        _missed_deadline(task, [task.translator])
+        _missed_deadline(task, task.translator_users(still_working=True))
 
     return warned
 
@@ -5918,16 +6388,9 @@ def translator_board(lead=None):
         people = people.filter(team_lead=lead)
     people = people.select_related("team_lead").prefetch_related("shifts")
 
-    open_tasks = (
-        Task.objects.filter(
-            status__in=TRANSLATOR_HOLDING_STATUSES, translator__in=people
-        )
-        .select_related("client")
-        .order_by("deadline", "code")
-    )
-    by_person = {}
-    for task in open_tasks:
-        by_person.setdefault(task.translator_id, []).append(task)
+    # What each of them holds: a task they were given, whole or a share of. One whose share they have handed in is not theirs to
+    # hold any more, even while the others on it are still translating.
+    by_person = translator_holdings([person.pk for person in people])
 
     # A translator who has been offered a task and has not answered yet is not
     # free — the offer is already holding them.
@@ -5974,13 +6437,16 @@ def team_overview():
     leads = User.objects.filter(role=Role.TEAM_LEAD, is_active=True).prefetch_related(
         "team_members", "shifts"
     )
+    leads = list(leads)
+    # Who holds a task, for everybody on every team in two questions (``is_busy`` asks them one by one).
+    held = translator_holdings([m.pk for lead in leads for m in lead.team_members.all() if m.is_active])
     for lead in leads:
         members = [m for m in lead.team_members.all() if m.is_active]
         busy, free, offline = [], [], []
         for member in members:
             if not member.is_online:
                 offline.append(member)
-            elif member.is_busy:
+            elif member.pk in held:
                 busy.append(member)
             else:
                 free.append(member)

@@ -23,7 +23,7 @@ from django.shortcuts import get_object_or_404
 
 from . import ai, api, identity, services
 from .api_v1 import BadBody, _error, _object, _stamp, endpoint
-from .models import AppSettings, Role, Task, User
+from .models import AICheckResult, AppSettings, Role, Task, User
 from .permissions import api_role_required
 
 #: Most serious first, as the classic box lists them; a note with no severity is a medium one.
@@ -82,32 +82,24 @@ def _may_review(task, user):
     return user.is_admin_role or task.team_lead_id == user.id
 
 
-@endpoint("GET")
-@api_role_required(Role.TEAM_LEAD)
-def task_notes(request, code):
-    """The latest check on a task, for the box at the top of its page: ``check`` is ``None`` when none has run yet."""
-    user = request.user
-    task = get_object_or_404(Task.objects.select_related("client"), code=code)
-    if not task.can_view(user) or not _may_review(task, user):
-        identity.hidden(request, "task")
-    conf = AppSettings.load()
-    check = task.ai_checks.order_by("-created_at", "-id").first()
-    running = check is not None and check.status == check.Status.RUNNING
-    return JsonResponse({
-        "ok": True,
-        "task": {"code": task.code, "title": task.title_for(user)},
-        # Can a check be asked for again: the switch is on and the key is there (the classic endpoint says so itself
-        # when it is not), and one is not already running.
-        "can_recheck": bool(conf.ai_check_enabled and conf.claude_api_key) and not running,
-        # Can the leader accept notes: there are some left that were not accepted, and somebody holds the task to lose the stars.
+def _checked(task, check):
+    """The translator a check judged: the one it names (nobody, when it names none)."""
+    return check.translator if check is not None and check.translator_id else None
+
+
+def _entry(task, check, user, conf):
+    """One check as the box draws it, with what accepting its notes would cost and whom: the same for every translator of a shared task."""
+    translator = _checked(task, check)
+    return {
+        # Can the leader accept notes: there are some left that were not accepted, and somebody is there to lose the stars for them.
         "can_accept": bool(
-            check is not None and check.status == check.Status.ISSUES and task.translator_id
+            check is not None and check.status == check.Status.ISSUES and translator is not None
             and any(isinstance(one, dict) and place not in (check.accepted or []) for place, one in enumerate(check.issues or []))
         ),
         # What accepting costs, so the button can say it before it is pressed: stars for each note, and whose.
         "accept_cost": {
             "each": f"{conf.penalty_value.normalize():f}",
-            "translator": task.translator.short_name if task.translator_id else None,
+            "translator": translator.short_name if translator is not None else None,
         },
         "check": None if check is None else {
             "id": check.pk,
@@ -122,7 +114,45 @@ def task_notes(request, code):
             "error": identity.for_viewer(check.error_message or "", user) if check.status == check.Status.ERROR else "",
         },
         "issues": _issues_json(check, task, user),
-    })
+    }
+
+
+@endpoint("GET")
+@api_role_required(Role.TEAM_LEAD)
+def task_notes(request, code):
+    """The latest check on a task, for the box at the top of its page: ``check`` is ``None`` when none has run yet.
+
+    A task shared between translators is checked once for each of them (07/10/2026), on their own files and their own share of the
+    source. The top-level fields are the newest check, as they always were; ``checks`` lists the newest of each translator (only when
+    more than one translator has been checked), and the box draws one section for each.
+    """
+    user = request.user
+    task = get_object_or_404(Task.objects.select_related("client"), code=code)
+    if not task.can_view(user) or not _may_review(task, user):
+        identity.hidden(request, "task")
+    conf = AppSettings.load()
+    # A translator's own check of their own work is theirs: it does not stand in front of the automatic one in this box.
+    reviewed = [one for one in task.ai_checks.select_related("translator").order_by("-created_at", "-id") if not ai.is_self_check(one)]
+    check = reviewed[0] if reviewed else None
+    running = task.ai_checks.filter(status=AICheckResult.Status.RUNNING).exists()
+    newest = {}
+    for one in reviewed:
+        who = _checked(task, one)
+        newest.setdefault(who.pk if who is not None else None, one)
+    body = {
+        "ok": True,
+        "task": {"code": task.code, "title": task.title_for(user)},
+        # Can a check be asked for again: the switch is on and the key is there (the classic endpoint says so itself
+        # when it is not), and one is not already running.
+        "can_recheck": bool(conf.ai_check_enabled and conf.claude_api_key) and not running,
+        **_entry(task, check, user, conf),
+    }
+    if len(newest) > 1:
+        body["checks"] = [
+            {"translator": {"id": who.pk, "name": who.short_name} if who is not None else None, **_entry(task, one, user, conf)}
+            for one in newest.values() for who in [_checked(task, one)]
+        ]
+    return JsonResponse(body)
 
 
 def _panel_json(notes, user):
@@ -187,19 +217,26 @@ def accept(request, code):
     task = get_object_or_404(Task.objects.select_related("client", "translator"), code=code)
     if not task.can_view(user) or not _may_review(task, user):
         identity.hidden(request, "task")
-    check = task.ai_checks.order_by("-created_at", "-id").first()
-    if check is None:
+    if not task.ai_checks.exists():
         return _error(400, "no_notes")
     try:
         body = _object(request)
     except BadBody:
         return _error(400, "bad_body")
     # The ids are places in one check: the one the leader was reading. A newer check (the translator handed in again, somebody asked
-    # for it anew) has other notes under the same places, so what was ticked is not accepted on it.
+    # for it anew) has other notes under the same places, so what was ticked is not accepted on it. On a task shared between translators
+    # each has a check of their own, and "newer" means newer for the same translator.
     asked = body.get("check")
     if isinstance(asked, bool) or not isinstance(asked, int):
         return _error(400, "bad_body")
-    if asked != check.pk:
+    check = task.ai_checks.filter(pk=asked).first()
+    if check is None or ai.is_self_check(check):
+        return _error(409, "stale_check")
+    newest = next(
+        (one for one in task.ai_checks.filter(translator_id=check.translator_id).order_by("-created_at", "-id") if not ai.is_self_check(one)),
+        None,
+    )
+    if newest is None or newest.pk != check.pk:
         return _error(409, "stale_check")
     if body.get("all") is True:
         indexes = [place for place, one in enumerate(check.issues or []) if isinstance(one, dict)][:ai.MAX_ACCEPTED]

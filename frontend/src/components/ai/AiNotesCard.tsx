@@ -89,7 +89,11 @@ function acceptWords(failure: unknown, t: (ar: string, en: string) => string): s
   return t("ماتحفظش. جرّب تاني.", "Not saved. Try again.");
 }
 
-function Box({ code, notes }: { code: string; notes: TaskAiNotes }) {
+/**
+ * One check. On a task shared between translators there is one for each of them: `translator` says whose work it is about, and only the
+ * first box carries the button that asks for the checks again (it asks for all of them).
+ */
+function Box({ code, notes, translator = null, first = true }: { code: string; notes: TaskAiNotes; translator?: string | null; first?: boolean }) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
   const recheck = useAiRecheck(code);
@@ -129,17 +133,17 @@ function Box({ code, notes }: { code: string; notes: TaskAiNotes }) {
   };
 
   return (
-    <div className={`card ai-notes ai-notes--${check.status}`} id="aiNotes">
+    <div className={`card ai-notes ai-notes--${check.status}`} id={first ? "aiNotes" : undefined} data-ai-translator={translator ?? undefined}>
       <div className="card__head">
         <Icon name="sparkles" />
-        <h2>{t("ملاحظات الـ AI على الترجمة", "AI notes on the translation")}</h2>
+        <h2>{translator ? t(`ملاحظات الـ AI على ترجمة ${translator}`, `AI notes on ${translator}'s translation`) : t("ملاحظات الـ AI على الترجمة", "AI notes on the translation")}</h2>
         <div className="grow" />
         <Status check={check} />
         <span className="muted mono ai-notes__when">
           {check.at ? (lang === "en" ? check.at.en : check.at.ar) : ""}
           {check.automatic ? ` · ${t("تلقائي", "automatic")}` : ""}
         </span>
-        {notes.can_recheck && (
+        {notes.can_recheck && first && (
           <button className="btn btn--sm" type="button" disabled={recheck.isPending} onClick={again}>
             <Icon name="refresh" size="sm" />
             <span>{t("أعد الفحص", "Check again")}</span>
@@ -273,5 +277,13 @@ function failureWords(failure: unknown, t: (ar: string, en: string) => string): 
 export function AiNotesCard({ code, enabled = true }: { code: string; enabled?: boolean }) {
   const query = useTaskAiNotes(code, enabled);
   if (!query.data) return null;
-  return <Box code={code} notes={query.data} />;
+  const { checks, ...top } = query.data;
+  if (!checks || checks.length < 2) return <Box code={code} notes={query.data} />;
+  return (
+    <>
+      {checks.map((view, index) => (
+        <Box key={view.translator?.id ?? `none-${index}`} code={code} notes={{ ...top, ...view }} translator={view.translator?.name ?? null} first={index === 0} />
+      ))}
+    </>
+  );
 }

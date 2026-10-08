@@ -10,6 +10,7 @@ import { chime } from "../lib/chime";
 import { safeInternalPath } from "../lib/safeUrl";
 import { deadlineLeft } from "../lib/timeLeft";
 import { Icon } from "./Icon";
+import { PartBox } from "./PartBox";
 import { useToasts } from "./Toasts";
 
 /** The seconds, left, at which the popup rings once more - as the classic one does. */
@@ -93,6 +94,9 @@ function Popup({ pending, onGone }: { pending: PendingAssignment; onGone: () => 
             </div>
           )}
         </div>
+
+        {/* The share the leader gave this translator: the pair, the words and - on a task several are on - the pages. */}
+        <PartBox part={pending.part} />
 
         {/* Reading before deciding: the job's own page. It does not answer the hand-off, and the window keeps running. */}
         <Link className="btn btn--ghost" style={{ marginTop: 10 }} to={`/assignments/${pending.id}`}>

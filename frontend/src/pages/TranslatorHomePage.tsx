@@ -4,6 +4,7 @@ import { useMe, useTranslatorHome } from "../api/queries";
 import type { DeskTask, TranslatorHomeResponse } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, Rating, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
+import { pagesOf } from "../components/PartBox";
 import { usePreferences } from "../i18n/Preferences";
 
 function TaskRow({ task }: { task: DeskTask }) {
@@ -37,6 +38,8 @@ function TaskRow({ task }: { task: DeskTask }) {
         </div>
         <small className="muted mono">
           {task.client} · {task.source_lang} → {task.target_lang}
+          {task.part && task.part.words > 0 && <> · {task.part.words.toLocaleString("en")} {t("كلمة", "words")}</>}
+          {task.part && pagesOf(task.part) && <> · {t("صفحات", "pages")} {pagesOf(task.part)}</>}
         </small>
         <div className="row desk-actions">
           <Link className="btn btn--sm btn--primary" to={to}>

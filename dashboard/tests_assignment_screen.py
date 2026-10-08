@@ -169,7 +169,7 @@ class PendingAsTheHeartbeatSendsIt(_Handoff):
     """The popup draws from ``/api/heartbeat/``: the keys it reads are the keys that are there."""
 
     KEYS = {"id", "task_code", "task_title", "task_url", "client", "role", "seconds_left", "window", "assigned_by",
-            "files_url", "open_url", "priority", "deadline", "deadline_iso", "note"}
+            "files_url", "open_url", "priority", "deadline", "deadline_iso", "note", "part"}
 
     def beat(self, user):
         browser = DjangoClient()

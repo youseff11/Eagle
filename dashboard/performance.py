@@ -17,15 +17,19 @@ weights on ``PayrollSettings`` - and only over the indicators that actually
 have a value, so a missing one dilutes nothing.
 """
 
-from django.db.models import Avg, Count, Q, Sum
+from django.db.models import Count, Exists, OuterRef, Sum
+from django.db.models.functions import TruncMonth
 
 from . import attendance, payroll
 from .models import (
     ApprovalStatus,
+    Assignment,
+    AssignmentStatus,
     ClientComplaint,
     DayStatus,
     PayrollSettings,
     RatingEvent,
+    Role,
     Task,
     Violation,
     ViolationKind,
@@ -52,6 +56,26 @@ def effective_targets(person, conf=None):
     if plan is not None and plan.monthly_target_words is not None:
         monthly = plan.monthly_target_words
     return {"monthly_words": monthly or 0}
+
+
+def handed_in(person, first_day, last_day):
+    """The jobs ``person`` handed in inside the window, as ``[(task, moment)]`` - the moment being *theirs*.
+
+    A job that was theirs alone is counted on the day the translation landed, as it always was. A job split between translators
+    (07/10/2026) is counted for each of them on the day they handed their own share in: the one who finished first is not late
+    because a colleague finished last, and the month it falls in is the month they did it.
+    """
+    in_window = (first_day, last_day)
+    shares = list(
+        Assignment.objects.filter(
+            assignee=person, target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED, done_at__date__range=in_window,
+        ).select_related("task")
+    )
+    mine = Assignment.objects.filter(
+        assignee=person, target_role=Role.TRANSLATOR, done_at__isnull=False,
+    ).values("task_id")
+    whole = Task.objects.filter(translator=person, translated_at__date__range=in_window).exclude(pk__in=mine)
+    return [(task, task.translated_at) for task in whole] + [(share.task, share.done_at) for share in shares]
 
 
 # ---------------------------------------------------------------------------
@@ -96,15 +120,15 @@ def deadlines(person, first_day, last_day):
     review, and marking somebody late against a date nobody ever told them
     about is scoring them on a secret.
     """
-    from django.db.models.functions import Coalesce
-
-    rows = Task.objects.filter(
-        translator=person, translated_at__date__range=(first_day, last_day)
-    ).annotate(due=Coalesce("translator_deadline", "deadline")).exclude(due=None)
-    total = rows.count()
+    rows = [
+        (moment, task.translator_deadline or task.deadline)
+        for task, moment in handed_in(person, first_day, last_day)
+        if (task.translator_deadline or task.deadline) is not None
+    ]
+    total = len(rows)
     if not total:
         return {"score": None, "total": 0, "late": 0, "reason": "no dated jobs"}
-    late = sum(1 for task in rows if task.translated_at > task.due)
+    late = sum(1 for moment, due in rows if moment > due)
     return {
         "score": _pct((total - late) / total * 100),
         "total": total,
@@ -120,11 +144,9 @@ def quality(person, first_day, last_day):
     back to what is left after those bites - and with nothing at all, to
     ``None``.
     """
-    marked = Task.objects.filter(
-        translator=person, translated_at__date__range=(first_day, last_day)
-    ).exclude(review_score=None)
-    stats = marked.aggregate(avg=Avg("review_score"), n=Count("id"))
-    reviewer_avg = stats["avg"]
+    marks = [task.review_score for task, _moment in handed_in(person, first_day, last_day) if task.review_score is not None]
+    stats = {"n": len(marks)}
+    reviewer_avg = sum(marks) / len(marks) if marks else None
 
     complaints = list(ClientComplaint.objects.filter(
         translator=person, happened_on__range=(first_day, last_day)
@@ -222,13 +244,12 @@ def for_month(person, year, month, conf=None):
     conf = conf or PayrollSettings.load()
     first_day, last_day = payroll.month_bounds(year, month)
 
-    delivered = Task.objects.filter(
-        translator=person, translated_at__date__range=(first_day, last_day)
-    )
-    revisions = delivered.aggregate(
-        n=Count("id"), returned=Count("id", filter=Q(revision_count__gt=0)),
-        total_revisions=Sum("revision_count"),
-    )
+    delivered = [task for task, _moment in handed_in(person, first_day, last_day)]
+    revisions = {
+        "n": len(delivered),
+        "returned": sum(1 for task in delivered if task.revision_count > 0),
+        "total_revisions": sum(task.revision_count for task in delivered),
+    }
     projects = revisions["n"] or 0
 
     parts = {
@@ -300,11 +321,7 @@ def board(people, year, month, conf=None):
         for row in WorkDay.objects.filter(user__in=ids, date__range=(first_day, last_day), status=DayStatus.PRESENT)
         .values("user").annotate(total=Sum("words"))
     }
-    projects = {
-        row["translator"]: row["n"]
-        for row in Task.objects.filter(translator__in=ids, translated_at__date__range=(first_day, last_day))
-        .values("translator").annotate(n=Count("id"))
-    }
+    projects = _projects_by_person(ids, first_day, last_day)
     rows = []
     for person in people:
         part = productivity(person, first_day, last_day, conf, words=words.get(person.pk, 0))
@@ -320,13 +337,36 @@ def board(people, year, month, conf=None):
     return {"podium": ranked[:PODIUM], "rest": ranked[PODIUM:] + unranked}
 
 
+def _own_share_in(task_ref="pk", person_ref="translator_id"):
+    """True of a job whose translator has handed their own share of it in: it is counted from the share, not from the job."""
+    return Exists(Assignment.objects.filter(
+        task_id=OuterRef(task_ref), assignee_id=OuterRef(person_ref), target_role=Role.TRANSLATOR, done_at__isnull=False,
+    ))
+
+
+def _projects_by_person(ids, first_day, last_day):
+    """``{person id: jobs handed in}`` for many people at once: two questions, whole jobs and shares."""
+    counts = {}
+    for row in (
+        Task.objects.filter(translator__in=ids, translated_at__date__range=(first_day, last_day))
+        .filter(~_own_share_in()).values("translator").annotate(n=Count("id"))
+    ):
+        counts[row["translator"]] = row["n"]
+    for row in (
+        Assignment.objects.filter(
+            assignee_id__in=ids, target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED,
+            done_at__date__range=(first_day, last_day),
+        ).values("assignee").annotate(n=Count("id"))
+    ):
+        counts[row["assignee"]] = counts.get(row["assignee"], 0) + row["n"]
+    return counts
+
+
 def history(person, year, month, count=6, conf=None):
     """One person's productivity for the ``count`` months ending at ``year``-``month``, newest first: two queries.
 
     Each month's score is ``productivity`` over that month's words, against the target the person has now.
     """
-    from django.db.models.functions import TruncMonth
-
     conf = conf or PayrollSettings.load()
     months = []
     here = (year, month)
@@ -340,11 +380,21 @@ def history(person, year, month, count=6, conf=None):
         for row in WorkDay.objects.filter(user=person, date__range=(oldest, newest), status=DayStatus.PRESENT)
         .annotate(month=TruncMonth("date")).values("month").annotate(total=Sum("words"))
     }
-    projects = {
-        (row["month"].year, row["month"].month): row["n"]
-        for row in Task.objects.filter(translator=person, translated_at__date__range=(oldest, newest))
-        .annotate(month=TruncMonth("translated_at")).values("month").annotate(n=Count("id"))
-    }
+    projects = {}
+    for row in (
+        Task.objects.filter(translator=person, translated_at__date__range=(oldest, newest))
+        .filter(~_own_share_in()).annotate(month=TruncMonth("translated_at")).values("month").annotate(n=Count("id"))
+    ):
+        key = (row["month"].year, row["month"].month)
+        projects[key] = projects.get(key, 0) + row["n"]
+    for row in (
+        Assignment.objects.filter(
+            assignee=person, target_role=Role.TRANSLATOR, status=AssignmentStatus.ACCEPTED,
+            done_at__date__range=(oldest, newest),
+        ).annotate(month=TruncMonth("done_at")).values("month").annotate(n=Count("id"))
+    ):
+        key = (row["month"].year, row["month"].month)
+        projects[key] = projects.get(key, 0) + row["n"]
     out = []
     for when in months:
         first_day, last_day = payroll.month_bounds(*when)

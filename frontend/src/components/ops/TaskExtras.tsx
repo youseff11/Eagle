@@ -6,6 +6,7 @@ import { ROLE_LABELS } from "../../lib/roles";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { taskProblem } from "../../lib/taskProblem";
 import { Icon } from "../Icon";
+import { pagesOf } from "../PartBox";
 import { Requirements } from "./Requirements";
 import { useToasts } from "../Toasts";
 
@@ -169,6 +170,62 @@ const HISTORY_BADGE: Record<string, [string, string, string]> = {
 };
 
 /** Who the task was handed to, when, and what they said. */
+/**
+ * Who translates what (07/10/2026): each translator on the task with the pair, the pages and the words the leader gave them, and
+ * where they stand - an offer waiting for their yes, working, or handed in. Drawn for a task with a translator on it; the one with
+ * several is the page that needs it most.
+ */
+export function PartsCard({ task }: { task: OpsTask }) {
+  const { t, lang } = usePreferences();
+  if (task.parts.length === 0) return null;
+  const total = task.parts.reduce((sum, part) => sum + part.words, 0);
+  const done = task.parts.filter((part) => part.done).length;
+  return (
+    <div className="card" data-card="parts">
+      <div className="card__head">
+        <Icon name="users" />
+        <h3>{t("المترجمين على التاسك", "Translators on the task")}</h3>
+        <span className="chip chip--sm">
+          {done}/{task.parts.length}
+        </span>
+        {total > 0 && <span className="chip chip--sm mono">{total.toLocaleString("en")}</span>}
+      </div>
+      <ul className="timeline">
+        {task.parts.map((part) => {
+          const pages = pagesOf(part);
+          const [tone, ar, en] = part.done
+            ? ["badge--ok", "سلّم", "Handed in"]
+            : part.status === "pending"
+              ? ["badge--wait", "مستني الرد", "Waiting"]
+              : ["badge--info", "شغال", "Working"];
+          return (
+            <li key={part.id} data-part-row={part.id}>
+              <span className="avatar avatar--sm">{part.initials}</span>
+              <div className="grow">
+                <div>{part.name}</div>
+                <small className="muted mono">
+                  {[
+                    part.source_lang || part.target_lang ? `${part.source_lang || "—"} → ${part.target_lang || "—"}` : "",
+                    part.words ? `${part.words.toLocaleString("en")} ${t("كلمة", "words")}` : "",
+                    pages ? `${t("صفحات", "pages")} ${pages}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </small>
+                {part.done && part.done_at && <small className="muted mono"> · {lang === "ar" ? part.done_at.ar : part.done_at.en}</small>}
+              </div>
+              <span className={`badge ${tone}`}>
+                {t(ar, en)}
+                {part.status === "pending" && part.seconds_left !== null && <span className="mono"> {part.seconds_left}s</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function HistoryCard({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
   return (

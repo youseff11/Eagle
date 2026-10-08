@@ -29,6 +29,7 @@ function task(over: Partial<OpsTask> = {}): OpsTask {
     translator_due: stamp("10-28 3:00"),
     description: "Translate pages 2-4\nKeep the table",
     people: { operation: "Nour", team_lead: "Mona", translator: "Sam" },
+    parts: [],
     waiting_for: null,
     files: {
       original: [
@@ -916,6 +917,15 @@ describe("OperationTaskPage: the team leader's page", () => {
     const same = () => screen.getByRole("radio", { name: "نفس ديدلاين الأوبريشن" });
     const shorter = () => screen.getByRole("radio", { name: "ديدلاين أقل" });
     const send = () => screen.getByRole("button", { name: "ابعتها للمترجم" });
+    // The leader has to say how many words the translator translates (the pair is the task's own to start with).
+    const words = async (user: ReturnType<typeof userEvent.setup>, value = "500") => user.type(screen.getByLabelText("عدد كلمات المترجم"), value);
+    const share = (translator: number, extra: Record<string, string | number> = {}) => ({
+      translator, source_lang: "English", target_lang: "Arabic", words: "500", page_from: "", page_to: "", ...extra,
+    });
+    const sent = (mocked: ReturnType<typeof serve>) => {
+      const body = form(calls(mocked, A("assign-translator"))[0]!);
+      return { ...body, parts: JSON.parse(body.parts ?? "[]") };
+    };
 
     it("is handed the operation's deadline with the time left, and has to choose: nothing is chosen for the leader", async () => {
       serve(withDate(), {}, "team_lead");
@@ -935,11 +945,12 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true, assignment: 5, status: "awaiting_translator" }) }, "team_lead");
       open();
       await user.selectOptions(await screen.findByLabelText("اعمل assign لمترجم من فريقك"), "22");
+      await words(user);
       await user.click(same());
       expect(send()).toBeEnabled();
       await user.click(send());
       expect(await screen.findByText("اتبعتت للمترجم")).toBeInTheDocument();
-      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "22", tdeadline_mode: "same" });
+      expect(sent(mocked)).toEqual({ parts: [share(22)], tdeadline_mode: "same" });
     });
 
     it("asks for the shorter one in days, hours and minutes, and sends it with the choice", async () => {
@@ -948,13 +959,14 @@ describe("OperationTaskPage: the team leader's page", () => {
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
       expect(screen.queryByLabelText("الديدلاين الأقل - من دلوقتي - يوم")).toBeNull();
+      await words(user);
       await user.click(shorter());
       await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"), "1");
       await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "6");
       await user.click(send());
       await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
-      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({
-        user: "21", tdeadline_mode: "shorter", tdeadline_days: "1", tdeadline_hours: "6", tdeadline_minutes: "",
+      expect(sent(mocked)).toEqual({
+        parts: [share(21)], tdeadline_mode: "shorter", tdeadline_days: "1", tdeadline_hours: "6", tdeadline_minutes: "",
       });
     });
 
@@ -963,6 +975,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
       await user.click(shorter());
       expect(send()).toBeDisabled();
       await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "0");
@@ -978,6 +991,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
       await user.click(shorter());
       await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم"), "3");
       expect(screen.getByRole("alert")).toHaveTextContent("لازم يكون أقل من الوقت الباقي على ديدلاين الأوبريشن.");
@@ -994,12 +1008,13 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
       await user.click(shorter());
       await user.type(screen.getByLabelText("الديدلاين الأقل - من دلوقتي - ساعة"), "5");
       await user.click(same());
       await user.click(send());
       await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
-      expect(form(calls(mocked, A("assign-translator"))[0]!)).toEqual({ user: "21", tdeadline_mode: "same" });
+      expect(sent(mocked)).toEqual({ parts: [share(21)], tdeadline_mode: "same" });
     });
 
     it("shows the operation's date, and that the task has none when it has none", async () => {
@@ -1017,6 +1032,7 @@ describe("OperationTaskPage: the team leader's page", () => {
       serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: false, error: "الديدلاين اللي للمترجم لازم يكون أقل من ديدلاين الأوبريشن." }, 400) }, "team_lead");
       open();
       await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
       await user.click(shorter());
       const days = screen.getByLabelText("الديدلاين الأقل - من دلوقتي - يوم");
       await user.type(days, "1");
@@ -1046,13 +1062,265 @@ describe("OperationTaskPage: the team leader's page", () => {
       const mocked = serve(waiting(), { [A("assign-translator")]: () => new Promise<Response>((resolve) => (release = () => resolve(jsonResponse({ ok: true })))) }, "team_lead");
       open();
       const button = await screen.findByRole("button", { name: "ابعتها للمترجم" });
+      await words(user);
       await user.click(screen.getByRole("radio", { name: "نفس ديدلاين الأوبريشن" }));
       await user.click(button);
       await user.click(button);
       expect(calls(mocked, A("assign-translator"))).toHaveLength(1);
       release?.();
     });
+
+    // -- what the leader gives each translator (07/10/2026) ------------------------------------------------
+    it("starts from the task's own pair, and will not send until the words are written", async () => {
+      const user = userEvent.setup();
+      serve(withDate(), {}, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(screen.getByLabelText("من لغة")).toHaveValue("English");
+      expect(screen.getByLabelText("إلى لغة")).toHaveValue("Arabic");
+      await user.click(same());
+      expect(send()).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent("اكتب عدد الكلمات (رقم أكبر من صفر).");
+      await user.type(screen.getByLabelText("عدد كلمات المترجم"), "0");
+      expect(send()).toBeDisabled();
+      await user.clear(screen.getByLabelText("عدد كلمات المترجم"));
+      await user.type(screen.getByLabelText("عدد كلمات المترجم"), "12x");
+      expect(send()).toBeDisabled();
+      await user.clear(screen.getByLabelText("عدد كلمات المترجم"));
+      await user.type(screen.getByLabelText("عدد كلمات المترجم"), "1200");
+      expect(send()).toBeEnabled();
+    });
+
+    it("starts the words from the count the operation settled", async () => {
+      serve(withDate({ words: { state: "confirmed", value: 3000 } }), {}, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      expect(screen.getByLabelText("عدد كلمات المترجم")).toHaveValue("3000");
+    });
+
+    it("needs both languages, and the pair can be changed", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
+      await user.click(same());
+      await user.clear(screen.getByLabelText("إلى لغة"));
+      expect(send()).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent("حدد الترجمة من لغة إيه لغة إيه.");
+      await user.type(screen.getByLabelText("إلى لغة"), "FR");
+      await user.click(send());
+      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+      expect(sent(mocked).parts).toEqual([share(21, { target_lang: "FR" })]);
+    });
+
+    it("pages are optional for one translator, and are sent whole when they are given", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+      await words(user);
+      await user.click(same());
+      expect(send()).toBeEnabled();
+      await user.type(screen.getByLabelText(/من صفحة/), "3");
+      expect(send()).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent("اكتب الصفحتين: من وإلى.");
+      await user.type(screen.getByLabelText("لحد صفحة"), "9");
+      await user.click(send());
+      await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+      expect(sent(mocked).parts).toEqual([share(21, { page_from: "3", page_to: "9" })]);
+    });
+
+    describe("several translators on one task", () => {
+      const more = () => screen.getByRole("button", { name: "إضافة مترجم تاني على نفس التاسك" });
+      const rows = () => Array.from(document.querySelectorAll<HTMLElement>("[data-part]"));
+      const field = (row: HTMLElement, label: RegExp | string) => within(row).getByLabelText(label);
+
+      it("adds a second translator, who must have pages (and so must the first)", async () => {
+        const user = userEvent.setup();
+        serve(withDate(), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        expect(rows()).toHaveLength(2);
+        // The second row starts from the first one's pair, on the next translator in the team.
+        expect(field(rows()[1]!, "من لغة")).toHaveValue("English");
+        expect(field(rows()[1]!, "اعمل assign لمترجم من فريقك")).toHaveValue("22");
+        await user.type(field(rows()[0]!, "عدد كلمات المترجم"), "500");
+        await user.type(field(rows()[1]!, "عدد كلمات المترجم"), "500");
+        await user.click(same());
+        expect(screen.getAllByRole("alert")[0]).toHaveTextContent("اكتب من صفحة كام لحد صفحة كام.");
+        expect(screen.getByRole("button", { name: "ابعتها للمترجمين" })).toBeDisabled();
+      });
+
+      it("sends every translator's share together, each with their own pair, words and pages", async () => {
+        const user = userEvent.setup();
+        const mocked = serve(withDate(), { [A("assign-translator")]: () => jsonResponse({ ok: true }) }, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        const [one, two] = rows();
+        await user.type(field(one!, "عدد كلمات المترجم"), "800");
+        await user.type(field(one!, /من صفحة/), "1");
+        await user.type(field(one!, "لحد صفحة"), "10");
+        await user.type(field(two!, "عدد كلمات المترجم"), "400");
+        await user.clear(field(two!, "إلى لغة"));
+        await user.type(field(two!, "إلى لغة"), "FR");
+        await user.type(field(two!, /من صفحة/), "11");
+        await user.type(field(two!, "لحد صفحة"), "15");
+        await user.click(same());
+        await user.click(screen.getByRole("button", { name: "ابعتها للمترجمين" }));
+        await waitFor(() => expect(calls(mocked, A("assign-translator"))).toHaveLength(1));
+        expect(sent(mocked)).toEqual({
+          parts: [
+            share(21, { words: "800", page_from: "1", page_to: "10" }),
+            share(22, { words: "400", target_lang: "FR", page_from: "11", page_to: "15" }),
+          ],
+          tdeadline_mode: "same",
+        });
+        expect(await screen.findByText("اتبعتت للمترجمين")).toBeInTheDocument();
+        // And the form is a single fresh row again.
+        expect(rows()).toHaveLength(1);
+      });
+
+      it("will not send pages that overlap, and says whose they overlap", async () => {
+        const user = userEvent.setup();
+        serve(withDate(), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        const [one, two] = rows();
+        await user.type(field(one!, "عدد كلمات المترجم"), "800");
+        await user.type(field(one!, /من صفحة/), "1");
+        await user.type(field(one!, "لحد صفحة"), "10");
+        await user.type(field(two!, "عدد كلمات المترجم"), "400");
+        await user.type(field(two!, /من صفحة/), "10");
+        await user.type(field(two!, "لحد صفحة"), "15");
+        await user.click(same());
+        expect(within(two!).getByRole("alert")).toHaveTextContent("الصفحات متداخلة مع Nada (1-10).");
+        expect(screen.getByRole("button", { name: "ابعتها للمترجمين" })).toBeDisabled();
+        await user.clear(field(two!, /من صفحة/));
+        await user.type(field(two!, /من صفحة/), "11");
+        expect(screen.getByRole("button", { name: "ابعتها للمترجمين" })).toBeEnabled();
+      });
+
+      it("will not give one translator two shares", async () => {
+        const user = userEvent.setup();
+        serve(withDate(), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        const [, two] = rows();
+        await user.selectOptions(field(two!, "اعمل assign لمترجم من فريقك"), "21");
+        expect(within(two!).getByRole("alert")).toHaveTextContent("المترجم ده اتكرر");
+      });
+
+      it("takes a translator out again", async () => {
+        const user = userEvent.setup();
+        serve(withDate(), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        await user.click(within(rows()[1]!).getByRole("button", { name: "شيل المترجم ده" }));
+        expect(rows()).toHaveLength(1);
+        expect(screen.queryByRole("button", { name: "شيل المترجم ده" })).toBeNull();
+      });
+
+      it("stops adding when the whole team is on the form", async () => {
+        const user = userEvent.setup();
+        serve(withDate(), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        await user.click(more());
+        await user.click(more());
+        expect(rows()).toHaveLength(3);
+        expect(more()).toBeDisabled();
+      });
+
+      it("adds to a task already being translated: the taken shares stay, and their translators are not offered again", async () => {
+        const taken = {
+          id: 7, translator: 21, name: "Nada", initials: "N", status: "accepted" as const, source_lang: "English", target_lang: "Arabic",
+          words: 800, page_from: 1, page_to: 10, done: false, done_at: null, seconds_left: null,
+        };
+        serve(withDate({ parts: [taken] }), {}, "team_lead");
+        open();
+        const select = await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        expect(Array.from(select.querySelectorAll("option")).map((option) => option.value)).toEqual(["22", "23"]);
+        expect(screen.getByText(/فيه مترجمين شغالين على التاسك دي/)).toBeInTheDocument();
+        // One more translator makes it a shared task: pages are asked at once, and they may not touch the taken ones.
+        const user = userEvent.setup();
+        await words(user);
+        await user.type(screen.getByLabelText(/من صفحة/), "5");
+        await user.type(screen.getByLabelText("لحد صفحة"), "12");
+        await user.click(same());
+        expect(screen.getByRole("alert")).toHaveTextContent("الصفحات متداخلة مع Nada (1-10).");
+      });
+
+      it("says that a new send replaces the offers nobody has answered", async () => {
+        const waitingFor = {
+          id: 8, translator: 22, name: "Sam", initials: "S", status: "pending" as const, source_lang: "English", target_lang: "Arabic",
+          words: 300, page_from: null, page_to: null, done: false, done_at: null, seconds_left: 40,
+        };
+        serve(withDate({ parts: [waitingFor] }), {}, "team_lead");
+        open();
+        await screen.findByLabelText("اعمل assign لمترجم من فريقك");
+        expect(screen.getByText(/فيه عروض لسه ماتردش عليها/)).toBeInTheDocument();
+      });
+    });
   });
+
+  describe("who translates what", () => {
+    const part = (over: Partial<OpsTask["parts"][number]> = {}) => ({
+      id: 7, translator: 21, name: "Nada", initials: "N", status: "accepted" as const, source_lang: "English", target_lang: "Arabic",
+      words: 800, page_from: 1, page_to: 10, done: false, done_at: null, seconds_left: null, ...over,
+    });
+
+    it("lists each translator with the pair, the words and the pages they were given", async () => {
+      serve(task({ parts: [part(), part({ id: 8, translator: 22, name: "Sam", initials: "S", target_lang: "French", words: 400, page_from: 11, page_to: 15 })] }));
+      open();
+      const card = (await screen.findByText("المترجمين على التاسك")).closest("[data-card='parts']") as HTMLElement;
+      expect(within(card).getByText("Nada")).toBeInTheDocument();
+      expect(within(card).getByText("English → Arabic · 800 كلمة · صفحات 1-10")).toBeInTheDocument();
+      expect(within(card).getByText("English → French · 400 كلمة · صفحات 11-15")).toBeInTheDocument();
+    });
+
+    it("says who is still deciding (with the seconds they have), who is working and who handed in", async () => {
+      serve(task({
+        parts: [
+          part({ status: "pending", seconds_left: 33 }),
+          part({ id: 8, translator: 22, name: "Sam", initials: "S" }),
+          part({ id: 9, translator: 23, name: "Ola", initials: "O", done: true, done_at: stamp("10-05 4:00") }),
+        ],
+      }));
+      open();
+      await screen.findByText("المترجمين على التاسك");
+      expect(document.querySelector("[data-part-row='7']")).toHaveTextContent("مستني الرد 33s");
+      expect(document.querySelector("[data-part-row='8']")).toHaveTextContent("شغال");
+      expect(document.querySelector("[data-part-row='9']")).toHaveTextContent("سلّم");
+      // One of three has handed in.
+      expect(screen.getByText("1/3")).toBeInTheDocument();
+    });
+
+    it("is not drawn for a task nobody was given", async () => {
+      serve(task());
+      open();
+      await loaded();
+      expect(screen.queryByText("المترجمين على التاسك")).toBeNull();
+    });
+
+    it("names the translator of each file when several translate", async () => {
+      serve(task({
+        parts: [part(), part({ id: 8, translator: 22, name: "Sam", initials: "S" })],
+        files: {
+          original: [],
+          translation: [{ id: 5, url: "/files/out/a.docx", name: "a.docx", size: "9 KB", image: false, at: stamp("10-05 4:00"), by: "Nada" }],
+        },
+      }));
+      open();
+      expect(await screen.findByText(/Nada · 10-05 4:00 PM/)).toBeInTheDocument();
+    });
+  });
+
 
   describe("the translator's own date", () => {
     it("is changed with the same three boxes, only once something is typed", async () => {
@@ -1099,6 +1367,13 @@ describe("OperationTaskPage: the team leader's page", () => {
       const dates = screen.getByText("ديدلاينه هيبقى").closest("div") as HTMLElement;
       expect(dates).toHaveTextContent("11-01 3:00 PM");
       expect(dates).toHaveTextContent("العميل 10-30 5:30 PM");
+    });
+
+    it("says which translator asked when several are on the task", async () => {
+      serve(leaderTask({ extension: { id: 7, by: "Sam", length: "يوم", reason: "", new_due: stamp("11-01 3:00") } }), {}, "team_lead");
+      open();
+      expect(await screen.findByText("Sam طالب وقت إضافي")).toBeInTheDocument();
+      expect(screen.queryByText("المترجم طالب وقت إضافي")).toBeNull();
     });
 
     it("is approved with one press", async () => {
@@ -1224,6 +1499,54 @@ describe("OperationTaskPage: the team leader's page", () => {
       await loaded();
       expect(document.querySelector(".task-files__set--reviewed")).not.toBeNull();
       expect(screen.queryByLabelText("الملف اللي ظبطته")).toBeNull();
+    });
+  });
+
+  describe("closing the translation when a share fell through", () => {
+    const stuck = () => leaderTask({ can_close_translation: true });
+
+    it("is offered with the reason when every share still on the task is in", async () => {
+      serve(stuck(), {}, "team_lead");
+      open();
+      expect(await screen.findByText(/الكل سلّم وفيه جزء اترفض أو الوقت خلص عليه/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "اقفل الترجمة وراجع اللي اتسلّم" })).toBeInTheDocument();
+    });
+
+    it("is not offered otherwise", async () => {
+      serve(leaderTask({ can_close_translation: false, can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.queryByRole("button", { name: "اقفل الترجمة وراجع اللي اتسلّم" })).toBeNull();
+    });
+
+    it("closes it only after asking, through the same door the translator's Finished uses", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(stuck(), { [A("translated")]: () => jsonResponse({ ok: true, status: "under_review" }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "اقفل الترجمة وراجع اللي اتسلّم" }));
+      expect(screen.getByText("تقفل الترجمة من غير الجزء الناقص؟")).toBeInTheDocument();
+      expect(calls(mocked, A("translated"))).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "أيوه، اقفلها" }));
+      expect(await screen.findByText("الترجمة اتقفلت وبقت عندك للمراجعة")).toBeInTheDocument();
+      expect(calls(mocked, A("translated"))).toHaveLength(1);
+    });
+
+    it("can be put off with no after-effect", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(stuck(), { [A("translated")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "اقفل الترجمة وراجع اللي اتسلّم" }));
+      await user.click(screen.getByRole("button", { name: "إلغاء" }));
+      expect(calls(mocked, A("translated"))).toHaveLength(0);
+    });
+
+    it("says why it was refused", async () => {
+      const user = userEvent.setup();
+      serve(stuck(), { [A("translated")]: () => jsonResponse({ ok: false, error: "ارفع ملف الترجمة الأول." }, 400) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "اقفل الترجمة وراجع اللي اتسلّم" }));
+      await user.click(screen.getByRole("button", { name: "أيوه، اقفلها" }));
+      expect(await screen.findAllByText("ارفع ملف الترجمة الأول.")).not.toHaveLength(0);
     });
   });
 

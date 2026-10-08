@@ -17,7 +17,7 @@ import urllib.request
 import zipfile
 
 from . import net
-from .models import AICheckResult, AppSettings
+from .models import AICheckResult, AppSettings, AssignmentStatus, Role
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +258,55 @@ def _parse(text):
     return json.loads(cleaned[start:end + 1])
 
 
+def is_self_check(check):
+    """A check a translator asked for about their own work (the card on their page).
+
+    It is theirs to read. It is not the leader's to act on: it can be run on any text they paste, so it neither hides the automatic check
+    behind it nor takes anyone's stars.
+    """
+    return check.requested_by_id is not None and check.requested_by_id == check.translator_id
+
+
+def share_scope(task, translator):
+    """What the model is told about the part of the source this translator was given: ``(languages, scope)``, both ``""`` for a task given whole.
+
+    On a task shared between translators (07/10/2026) each one's file is only their share of the source: judged against all of it, every
+    page that is somebody else's would be reported as left out. The leader typed the pages and the words, and they are what the model is
+    told to compare - nothing else is a fault of this translator.
+    """
+    share = task.part_of(translator, accepted_only=True) if translator is not None else None
+    if share is None or not share.has_part:
+        return "", ""
+    languages = ""
+    if share.source_lang or share.target_lang:
+        languages = (
+            f"Source language: {share.source_lang or task.source_lang or 'unknown'}\n"
+            f"Target language: {share.target_lang or task.target_lang or 'unknown'}\n"
+        )
+    pages = ""
+    if share.page_from is not None:
+        last = share.page_to if share.page_to is not None else share.page_from
+        pages = f"pages {share.page_from}-{last} of the SOURCE" if last != share.page_from else f"page {share.page_from} of the SOURCE"
+    words = f"about {share.words} words" if share.words else ""
+    what = pages + (f" ({words})" if pages and words else words)
+    # Words alone only mean a part of the source when somebody else has the rest: one translator given the whole task is judged on all of it.
+    if not what or not (pages or task.is_split):
+        return languages, ""
+    others = task.assignments.filter(target_role=Role.TRANSLATOR).exclude(status=AssignmentStatus.CANCELLED).exclude(
+        assignee=translator
+    ).exists()
+    scope = (
+        f"SCOPE: this translator was given only {what}"
+        + (", and the rest of the source went to other translators" if others else "")
+        + ". Compare ONLY that part of the SOURCE with the TRANSLATION. Anything outside it is not this translator's work: "
+        "do not report it as omitted, and do not report the translation for being shorter than the whole source. "
+        "Pages are the source document's own pages; where the source text has no page marks, match the part by its content.\n"
+    )
+    return languages, scope
+
+
 def _review(conf, task, source_text, translated_text, requirements,
-            source_docs=(), translated_docs=()):
+            source_docs=(), translated_docs=(), translator=None):
     """Call the model and return the fields to store. Never raises.
 
     Split out of :func:`run_check` so the same call can either create a row
@@ -285,10 +332,11 @@ def _review(conf, task, source_text, translated_text, requirements,
         )
     if dropped:
         attached += "Not attached (too large): " + ", ".join(dropped) + "\n"
+    languages, scope = share_scope(task, translator)
     prompt = (
         f"Task: {task.code} — {task.title}\n"
-        f"Source language: {task.source_lang or 'unknown'}\n"
-        f"Target language: {task.target_lang or 'unknown'}\n"
+        + (languages or f"Source language: {task.source_lang or 'unknown'}\nTarget language: {task.target_lang or 'unknown'}\n")
+        + f"{scope}"
         f"Client requirements:\n{requirements or 'none'}\n\n"
         f"{attached}"
         f"=== SOURCE ===\n{source_text[:MAX_CHARS] or ('(see the SOURCE files above)' if source_docs else '(not provided)')}\n\n"
@@ -344,24 +392,25 @@ def _review(conf, task, source_text, translated_text, requirements,
 
 
 def run_check(task, user, source_text, translated_text, requirements="",
-              source_docs=(), translated_docs=()):
-    """Run the review and persist an :class:`AICheckResult`."""
+              source_docs=(), translated_docs=(), translator=None):
+    """Run the review and persist an :class:`AICheckResult`. ``translator`` is whose translation it judges (a task shared between several
+    translators is checked for each one on their own share)."""
     conf = AppSettings.load()
 
     if not conf.ai_check_enabled:
         return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
+            task=task, requested_by=user, translator=translator, status=AICheckResult.Status.ERROR,
             error_message="AI check is disabled by the admin.",
         )
     if not conf.claude_api_key:
         return AICheckResult.objects.create(
-            task=task, requested_by=user, status=AICheckResult.Status.ERROR,
+            task=task, requested_by=user, translator=translator, status=AICheckResult.Status.ERROR,
             error_message="No Claude API key configured in the admin panel.",
         )
 
     fields = _review(conf, task, source_text, translated_text, requirements,
-                     source_docs, translated_docs)
-    return AICheckResult.objects.create(task=task, requested_by=user, **fields)
+                     source_docs, translated_docs, translator=translator)
+    return AICheckResult.objects.create(task=task, requested_by=user, translator=translator, **fields)
 
 
 # ---------------------------------------------------------------------------
@@ -371,12 +420,13 @@ def run_check(task, user, source_text, translated_text, requirements="",
 # to press a button - a quality gate nobody has to trigger is a quality gate.
 # ---------------------------------------------------------------------------
 
-def collect_texts(task):
+def collect_texts(task, translator=None):
     """Source and translation text for a task, read out of its own files.
 
     The translation is what the translator last put in the group; the source is
     what the client sent. Both are best-effort - a PDF or a scan reads as
-    nothing, and the check then reports that instead of guessing.
+    nothing, and the check then reports that instead of guessing. ``translator``
+    is whose files are read (the task's first translator when nobody is named).
     """
     from django.db.models import Q
 
@@ -384,13 +434,14 @@ def collect_texts(task):
     from .models import ChatAttachment
 
     translated = ""
-    if task.translator_id:
+    who = translator.pk if translator is not None else task.translator_id
+    if who:
         # Wherever the translator put them: tagged onto the message for a task
         # running under the new shape, or in the task's own old room for one
         # that predates it.
         latest = ChatAttachment.objects.filter(
             (Q(message__task=task) | Q(message__room__task=task))
-            & Q(message__sender=task.translator)
+            & Q(message__sender_id=who)
         ).order_by("-id")[:3]
         translated = "\n\n".join(
             extract_text(a.file, a.original_name) for a in latest
@@ -403,20 +454,21 @@ def collect_texts(task):
     return source, translated
 
 
-def _translated_rows(task):
+def _translated_rows(task, translator=None):
     from django.db.models import Q
 
     from .models import ChatAttachment
 
-    if not task.translator_id:
+    who = translator.pk if translator is not None else task.translator_id
+    if not who:
         return []
     return list(ChatAttachment.objects.filter(
         (Q(message__task=task) | Q(message__room__task=task))
-        & Q(message__sender=task.translator)
+        & Q(message__sender_id=who)
     ).order_by("-id")[:3])
 
 
-def collect_documents(task):
+def collect_documents(task, translator=None):
     """The PDFs and page images among the task's files, for the model to read.
 
     ``(source_docs, translated_docs)``. The same files ``collect_texts`` looks
@@ -426,7 +478,7 @@ def collect_documents(task):
     from . import wordcount
 
     translated = [
-        doc for doc in (read_document(a.file, a.original_name) for a in _translated_rows(task))
+        doc for doc in (read_document(a.file, a.original_name) for a in _translated_rows(task, translator))
         if doc
     ]
     source = [
@@ -464,30 +516,71 @@ def is_old_format(result):
     return not any(summary.startswith(m) for m in markers)
 
 
-def recheck_now(task, notify_lead=False):
-    """Run the check again, here and now, and return the new row.
+def _whose(task, translator=None, force=False):
+    """The translators a check is made for, as a list (``[None]``: nobody is named and nobody holds the task).
+
+    A named translator is that one. Otherwise: each translator of a shared task who has handed their share in - every one of them with
+    ``force`` (somebody asked for it again), only those not checked since they handed in without it - and a task given whole is its one
+    translator's.
+    """
+    if translator is not None:
+        return [translator]
+    done = [p for p in task.translator_parts(accepted_only=True) if p.done_at is not None]
+    if not done:
+        return [task.translator] if task.translator_id else [None]
+    if force:
+        return [p.assignee for p in done]
+    return [
+        p.assignee for p in done
+        if not task.ai_checks.filter(translator=p.assignee, created_at__gte=p.done_at).exclude(status=AICheckResult.Status.ERROR).exists()
+    ]
+
+
+def _queue(task, who, conf):
+    """The row of a check about to run for ``who``, or ``None`` when one is already running for them."""
+    if task.ai_checks.filter(status=AICheckResult.Status.RUNNING, translator=who).exists():
+        return None
+    return AICheckResult.objects.create(
+        task=task, requested_by=None, translator=who, status=AICheckResult.Status.RUNNING, model_used=conf.claude_model,
+    )
+
+
+def recheck_now(task, notify_lead=False, translator=None):
+    """Run the check again, here and now, and return the new row (the first, when a shared task is checked for several translators).
 
     For the management command: no thread, so the command waits for it and
     can say how it went. ``None`` when the check is switched off, has no
     key, or one is already running on this task.
     """
+    results = recheck_all(task, notify_lead=notify_lead, translator=translator)
+    return results[0] if results else None
+
+
+def recheck_all(task, notify_lead=False, translator=None):
+    """:func:`recheck_now` for every translator the check is made for; the finished rows, one each."""
     conf = AppSettings.load()
     if not conf.ai_check_enabled or not conf.claude_api_key:
-        return None
-    if task.ai_checks.filter(status=AICheckResult.Status.RUNNING).exists():
-        return None
-    row = AICheckResult.objects.create(
-        task=task, requested_by=None, status=AICheckResult.Status.RUNNING,
-        model_used=conf.claude_model,
-    )
-    return finish_check(row.pk, notify_lead=notify_lead)
+        return []
+    results = []
+    for who in _whose(task, translator, force=True):
+        row = _queue(task, who, conf)
+        if row is None:
+            continue
+        done = finish_check(row.pk, notify_lead=notify_lead)
+        if done is not None:
+            results.append(done)
+    return results
 
 
-def start_background_check(task):
+def start_background_check(task, translator=None, force=False):
     """Queue the automatic review and run it off the request thread.
 
-    Returns the queued row, or ``None`` when there is nothing to run: the admin
+    Returns the first queued row, or ``None`` when there is nothing to run: the admin
     switched the check off, no key is stored, or one is already in flight.
+
+    A task shared between translators is checked for each of them on their own files and their own share of the source: when one hands
+    their share in (``translator``), or - asked without a name - for each who has handed in and was not checked since (``force``: all of
+    them, which is what «أعد الفحص» asks).
 
     The row is written *before* the thread starts. The call can take a minute
     against an outside API, and the translator pressing "finished" must not sit
@@ -498,18 +591,17 @@ def start_background_check(task):
     conf = AppSettings.load()
     if not conf.ai_check_enabled or not conf.claude_api_key:
         return None
-    if task.ai_checks.filter(status=AICheckResult.Status.RUNNING).exists():
-        return None
-
-    result = AICheckResult.objects.create(
-        task=task, requested_by=None, status=AICheckResult.Status.RUNNING,
-        model_used=conf.claude_model,
-    )
-    threading.Thread(
-        target=finish_check, args=(result.pk,), daemon=True,
-        name=f"ai-check-{task.code}",
-    ).start()
-    return result
+    started = None
+    for who in _whose(task, translator, force):
+        result = _queue(task, who, conf)
+        if result is None:
+            continue
+        threading.Thread(
+            target=finish_check, args=(result.pk,), daemon=True,
+            name=f"ai-check-{task.code}-{result.pk}",
+        ).start()
+        started = started or result
+    return started
 
 
 def finish_check(result_pk, notify_lead=True):
@@ -522,11 +614,12 @@ def finish_check(result_pk, notify_lead=True):
             "task", "task__client", "task__team_lead"
         ).get(pk=result_pk)
         task = result.task
-        source, translated = collect_texts(task)
-        source_docs, translated_docs = collect_documents(task)
+        who = result.translator
+        source, translated = collect_texts(task, who)
+        source_docs, translated_docs = collect_documents(task, who)
         fields = _review(
             AppSettings.load(), task, source, translated, requirements_text(task),
-            source_docs, translated_docs,
+            source_docs, translated_docs, translator=who,
         )
         for name, value in fields.items():
             setattr(result, name, value)
@@ -552,13 +645,15 @@ def _tell_the_team_leader(result):
     task = result.task
     if task.team_lead_id is None:
         return
+    # On a task shared between translators the leader is told whose work the notes are about.
+    whose = f" ({result.translator.short_name})" if result.translator_id and task.is_split else ""
     if result.status == AICheckResult.Status.ERROR:
         services.notify(
             task.team_lead,
             title_ar="فحص الـAI مخلصش",
             title_en="The AI check did not finish",
-            body_ar=f"التاسك {task.code} - راجعها بنفسك.",
-            body_en=f"Task {task.code} - review it yourself.",
+            body_ar=f"التاسك {task.code}{whose} - راجعها بنفسك.",
+            body_en=f"Task {task.code}{whose} - review it yourself.",
             level="warning", url=f"/tasks/{task.code}/#aiNotes", task=task,
         )
         return
@@ -568,8 +663,8 @@ def _tell_the_team_leader(result):
             task.team_lead,
             title_ar="ملاحظات الـAI جاهزة",
             title_en="AI notes are ready",
-            body_ar=f"{count} ملاحظة على {task.code}.",
-            body_en=f"{count} note(s) on {task.code}.",
+            body_ar=f"{count} ملاحظة على {task.code}{whose}.",
+            body_en=f"{count} note(s) on {task.code}{whose}.",
             level="warning", url=f"/tasks/{task.code}/#aiNotes", sound=True, task=task,
         )
     else:
@@ -577,8 +672,8 @@ def _tell_the_team_leader(result):
             task.team_lead,
             title_ar="الـAI مالقاش مشاكل",
             title_en="The AI found nothing",
-            body_ar=f"فحص {task.code} عدّى نضيف - المراجعة البشرية لسه مطلوبة.",
-            body_en=f"{task.code} came back clean - your own review still stands.",
+            body_ar=f"فحص {task.code}{whose} عدّى نضيف - المراجعة البشرية لسه مطلوبة.",
+            body_en=f"{task.code}{whose} came back clean - your own review still stands.",
             level="info", url=f"/tasks/{task.code}/#aiNotes", task=task,
         )
 
@@ -616,8 +711,10 @@ def accept_notes(check, user, indexes):
     """Accept notes of ``check``: the translator loses ``penalty_value`` stars for each one that was not accepted before.
 
     ``(taken, "")`` with the stars really taken (a person near nought loses less than the penalty), or ``(None, error)``:
-    ``no_notes`` (this check found none), ``nothing_accepted``, ``no_translator`` (nobody holds the task), ``already`` (every note
-    named was accepted before - a note costs once).
+    ``no_notes`` (this check found none), ``nothing_accepted``, ``no_translator`` (nobody to take them from: the check names no one,
+    or it is a translator's own check of their own work), ``already`` (every note named was accepted before - a note costs once). The
+    stars come off the translator whose work the check judged (``check.translator``, always named; the checks made before there were
+    several were given the task's translator when this was added): on a shared task never someone else for another's pages.
     """
     from decimal import Decimal
 
@@ -634,12 +731,13 @@ def accept_notes(check, user, indexes):
         if not indexes:
             return None, "nothing_accepted"
         task = locked.task
-        if task.translator_id is None:
+        target = locked.translator_id
+        if target is None or is_self_check(locked):
             return None, "no_translator"
         fresh = [place for place in indexes if place not in (locked.accepted or [])]
         if not fresh:
             return None, "already"
-        translator = User.objects.select_for_update().get(pk=task.translator_id)
+        translator = User.objects.select_for_update().get(pk=target)
         amount = AppSettings.load().penalty_value * len(fresh)
         locked.accepted = sorted(set(locked.accepted or []) | set(fresh))
         locked.save(update_fields=["accepted"])

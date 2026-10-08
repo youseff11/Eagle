@@ -17,6 +17,7 @@ function task(code: string, overrides: Partial<DeskTask> = {}): DeskTask {
     client: "CL-0001",
     source_lang: "English",
     target_lang: "Arabic",
+    part: null,
     due: { ar: "2026-10-02 5:30 PM", en: "2026-10-02 5:30 PM" },
     due_state: "ok",
     can_ask_more_time: true,
@@ -24,6 +25,11 @@ function task(code: string, overrides: Partial<DeskTask> = {}): DeskTask {
     ...overrides,
   };
 }
+
+const SHARE = {
+  source_lang: "EN", target_lang: "FR", words: 1200, page_from: 3, page_to: 9,
+  text_ar: "EN → FR · 1,200 كلمة · صفحات 3-9", text_en: "EN → FR · 1,200 words · pages 3-9",
+};
 
 function desk(overrides: Partial<TranslatorHomeResponse> = {}): TranslatorHomeResponse {
   return {
@@ -61,6 +67,23 @@ describe("TranslatorHomePage", () => {
     // The task page is a route of this app now, made from the code.
     expect(within(row).getByRole("link", { name: /افتح التاسك/ })).toHaveAttribute("href", "/tasks/TSK-00001");
     expect(within(row).getByRole("link", { name: /اطلب وقت أطول/ })).toHaveAttribute("href", "/tasks/TSK-00001#more-time");
+  });
+
+  it("shows the words and the pages of the share the leader gave, beside the pair", async () => {
+    serve(desk({ open: [task("TSK-00001", { source_lang: "EN", target_lang: "FR", part: SHARE })] }));
+    const { container } = renderWithProviders(<TranslatorHomePage />, { lang: "ar" });
+    await screen.findByText("TSK-00001");
+    const row = container.querySelector('[data-task="TSK-00001"]') as HTMLElement;
+    expect(row).toHaveTextContent("CL-0001 · EN → FR · 1,200 كلمة · صفحات 3-9");
+  });
+
+  it("says nothing of words or pages for a task given whole", async () => {
+    serve(desk());
+    const { container } = renderWithProviders(<TranslatorHomePage />, { lang: "ar" });
+    await screen.findByText("TSK-00001");
+    const row = container.querySelector('[data-task="TSK-00001"]') as HTMLElement;
+    expect(row).not.toHaveTextContent("كلمة");
+    expect(row).not.toHaveTextContent("صفحات");
   });
 
   it("speaks English when asked, with the server's own English time", async () => {

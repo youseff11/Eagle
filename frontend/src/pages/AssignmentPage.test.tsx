@@ -29,6 +29,7 @@ function handoff(over: { assignment?: Partial<AssignmentResponse["assignment"]>;
       note: "Please take this one",
       from: "Mona",
       mine: true,
+      part: null,
       ...over.assignment,
     },
     task: {
@@ -89,6 +90,32 @@ describe("AssignmentPage: reading the job before taking it", () => {
     expect(within(side).getByText("2026-10-30 5:30 PM")).toBeInTheDocument();
     // How long is left until the deadline, counted from now.
     expect(within(side).getByText(/باقي 2 يوم و\d+ ساعة على الديدلاين/)).toBeInTheDocument();
+  });
+
+  it("shows what the leader gave this translator of the job, to read before deciding", async () => {
+    serve(
+      handoff({
+        assignment: {
+          part: {
+            source_lang: "EN", target_lang: "FR", words: 400, page_from: 11, page_to: 15,
+            text_ar: "EN → FR · 400 كلمة · صفحات 11-15", text_en: "EN → FR · 400 words · pages 11-15",
+          },
+        },
+      }),
+    );
+    open();
+    await loaded();
+    const box = screen.getByText("المطلوب منك").closest("[data-box='my-part']") as HTMLElement;
+    expect(within(box).getByText("EN → FR")).toBeInTheDocument();
+    expect(within(box).getByText("400")).toBeInTheDocument();
+    expect(within(box).getByText("11-15")).toBeInTheDocument();
+  });
+
+  it("draws no share for a hand-off that carries none", async () => {
+    serve(handoff());
+    open();
+    await loaded();
+    expect(screen.queryByText("المطلوب منك")).toBeNull();
   });
 
   it("speaks English when asked", async () => {

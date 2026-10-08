@@ -217,16 +217,26 @@ const dateForm = (date: TranslatorDate) => ({
 /** What the leader chose for the translator's deadline: the operation's own (`same`), or a shorter one he types (`shorter`). */
 export type DeadlineChoice = "same" | "shorter";
 
+/** One translator's share as the leader typed it: every box is text, the server reads them and says which is wrong. */
+export interface PartInput {
+  translator: number;
+  source_lang: string;
+  target_lang: string;
+  words: string;
+  page_from: string;
+  page_to: string;
+}
+
 /**
- * «ابعتها للمترجم»: the task goes to one translator, who has a minute to say yes, with the deadline the leader chose: the
- * operation's own, or a shorter one he typed (the difference is the time he keeps to review). The choice is always sent - the server
- * refuses a request that does not say - and the boxes only when it is a shorter one. The classic endpoint keeps its checks (the team,
- * the status, that a shorter one is shorter).
+ * «ابعتها للمترجم»: the task goes to one translator or to several, each with their own share (the pair, the words and - when there
+ * is more than one - the pages), and each has a minute to say yes. The deadline is the leader's choice, as before: the operation's
+ * own, or a shorter one he typed. The choice is always sent - the server refuses a request that does not say - and the boxes only when
+ * it is a shorter one. The classic endpoint keeps its checks (the team, the status, the shares, that a shorter date is shorter).
  */
 export function useAssignTranslator(code: string) {
-  return useOpsAction<{ translator: number; choice: DeadlineChoice; date: TranslatorDate }, { ok: boolean }>(code, ({ translator, choice, date }) =>
+  return useOpsAction<{ parts: PartInput[]; choice: DeadlineChoice; date: TranslatorDate }, { ok: boolean }>(code, ({ parts, choice, date }) =>
     api<{ ok: boolean }>(`${base(code)}/assign-translator/`, {
-      form: { user: String(translator), tdeadline_mode: choice, ...(choice === "shorter" ? dateForm(date) : {}) },
+      form: { parts: JSON.stringify(parts), tdeadline_mode: choice, ...(choice === "shorter" ? dateForm(date) : {}) },
     }),
   );
 }
@@ -243,6 +253,11 @@ export function useDecideExtension(code: string) {
   return useOpsAction<{ id: number; decision: "approve" | "decline" }, { ok: boolean }>(code, ({ id, decision }) =>
     api<{ ok: boolean }>(`/api/extensions/${id}/${decision}/`, { form: {} }),
   );
+}
+
+/** «اقفل الترجمة»: the leader closes the translation himself when every share still on the task is in and a share fell through. */
+export function useCloseTranslation(code: string) {
+  return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/translated/`, { form: {} }));
 }
 
 /** «تمت المراجعة»: the review is done and the task goes on to the operation. */

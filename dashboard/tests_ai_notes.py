@@ -37,6 +37,8 @@ class _Notes(_Site):
         self.other_lead = User.objects.create_user("person_leader_two", password="pw", role=Role.TEAM_LEAD)
 
     def check(self, issues=None, status=AICheckResult.Status.ISSUES, **fields):
+        # Every check names whose work it judged (the ones made before that was added were given the task's translator).
+        fields.setdefault("translator", self.task.translator)
         return AICheckResult.objects.create(
             task=self.task, status=status, issues=[issue("one")] if issues is None else issues, **fields,
         )

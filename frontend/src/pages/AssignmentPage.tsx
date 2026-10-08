@@ -6,6 +6,7 @@ import { useAssignment } from "../api/queries";
 import type { AssignmentResponse } from "../api/types";
 import { OriginBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
+import { PartBox } from "../components/PartBox";
 import { useToasts } from "../components/Toasts";
 import { useAssignmentDecision } from "../hooks/useAssignmentDecision";
 import { useCountdown } from "../hooks/useCountdown";
@@ -172,6 +173,7 @@ function Handoff({ data }: { data: AssignmentResponse }) {
         </div>
 
         <div className="sticky-side">
+          <PartBox part={assignment.part} />
           <div className="card">
             <div className="kv">
               <span>{t("من", "From")}</span>

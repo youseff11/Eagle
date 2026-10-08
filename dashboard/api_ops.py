@@ -18,7 +18,8 @@ from .api_v1 import (
 )
 from .forms import QUICK_LANGUAGES, RequirementForm, TaskForm, language_choices
 from .models import (
-    ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, AppSettings, ChatAttachment, Client, Priority, Role, RoomKind, Task, TaskStatus, User,
+    ACTIVE_TASK_STATUSES, AppSettings, AssignmentStatus, ChatAttachment, Client, Priority, Role, RoomKind, Task,
+    TaskStatus, User, translator_holdings,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import PRIORITY_MAP
@@ -123,11 +124,10 @@ def team(request):
     rows = services.team_overview()
     members = [m for row in rows for m in row["members"]]
     # One question for everybody's open tasks, instead of one per person.
-    tasks_of = {}
-    for task in (
-        Task.objects.filter(status__in=TRANSLATOR_HOLDING_STATUSES, translator__in=members).order_by("deadline", "code")
-    ):
-        tasks_of.setdefault(task.translator_id, []).append(task.code)
+    tasks_of = {
+        person: [task.code for task in tasks]
+        for person, tasks in translator_holdings([member.pk for member in members]).items()
+    }
 
     def member_json(member):
         busy = member.pk in tasks_of
@@ -183,16 +183,19 @@ def _direct_json():
     """
     if services.leads_online():
         return None
+    people = services.direct_translators()
+    # Who holds a task, for all of them in two questions: asking each person (``is_busy``) is two or three each.
+    held = translator_holdings([person.pk for person in people])
     return {
         "translators": [
             {
                 "id": person.pk,
                 "name": person.short_name,
                 "lead": person.team_lead.short_name,
-                "state": "off" if not person.is_online else "busy" if person.is_busy else "free",
+                "state": "off" if not person.is_online else "busy" if person.pk in held else "free",
                 "rating": float(person.rating),
             }
-            for person in services.direct_translators()
+            for person in people
         ]
     }
 
@@ -235,6 +238,32 @@ def _requirement_json(requirement, client, viewer):
     }
 
 
+def _parts_json(task, details=True):
+    """The translators on the task and what each was given: the pair, the words, the pages, whether they have said yes and handed in.
+
+    Only the shares still alive (offered or taken); the ones turned down or timed out are in ``history``.
+    """
+    rows = []
+    for part in task.translator_parts():
+        waiting = part.status == AssignmentStatus.PENDING and not part.is_expired
+        rows.append({
+            "id": part.pk,
+            "translator": part.assignee_id,
+            "name": part.assignee.short_name,
+            "initials": part.assignee.initials,
+            "status": part.status,
+            "source_lang": part.source_lang if details else "",
+            "target_lang": part.target_lang if details else "",
+            "words": part.words if details else 0,
+            "page_from": part.page_from if details else None,
+            "page_to": (part.page_to if part.page_to is not None else part.page_from) if details else None,
+            "done": part.done_at is not None,
+            "done_at": _stamp(part.done_at, "%m-%d"),
+            "seconds_left": part.seconds_left if waiting else None,
+        })
+    return rows
+
+
 def _lead_json(task, user):
     """What the task's team leader (and the admin) may do on it, or ``None`` for everybody else.
 
@@ -247,15 +276,18 @@ def _lead_json(task, user):
         return None
     if user.is_team_lead and not user.is_admin_role and task.team_lead_id != user.id:
         return None
-    can_assign = task.status in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR)
+    # While it is being translated too: a share can be added (one fell through, or the job grew) without touching the others.
+    can_assign = task.status in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS)
     translators = []
     lead_id = user.pk if user.is_team_lead and not user.is_admin_role else task.team_lead_id
     if can_assign and lead_id:
-        for person in User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead_id=lead_id).prefetch_related("shifts"):
+        team = list(User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead_id=lead_id).prefetch_related("shifts"))
+        held = translator_holdings([person.pk for person in team])
+        for person in team:
             translators.append({
                 "id": person.pk,
                 "name": person.short_name,
-                "state": "off" if not person.is_online else "busy" if person.is_busy else "free",
+                "state": "off" if not person.is_online else "busy" if person.pk in held else "free",
                 "rating": float(person.rating),
             })
     state = services.extension_state(task, user)
@@ -265,11 +297,14 @@ def _lead_json(task, user):
         "translators": translators,
         "can_set_translator_deadline": bool(task.translator_id),
         "can_review": task.status == TaskStatus.UNDER_REVIEW,
+        # Every share still on the task is in and a share fell through: he may close the translation and review what there is.
+        "can_close_translation": services.lead_may_close(task, user),
         # His own corrected file: asked while the task is under review and (if he notices late) after it, until it reaches the client.
         "can_upload_reviewed": services.can_upload_reviewed(task, user),
         "client_due": _stamp(task.deadline, "%Y-%m-%d"),
         "extension": {
             "id": pending.pk,
+            "by": pending.requested_by.short_name if pending.requested_by_id else None,
             "length": pending.pretty_length,
             "reason": identity.mask_client(pending.reason or "", task.client, user),
             "new_due": _stamp(state.get("extension_new_due"), "%Y-%m-%d"),
@@ -343,13 +378,17 @@ def task(request, code):
                 "team_lead": task.team_lead.short_name if task.team_lead_id else None,
                 "translator": task.translator.short_name if task.translator_id else None,
             },
+            # Each translator and their share: who translates what, how many words, which pages, who has handed in. Technical support
+            # reads only who is on it and where each stands: the words and the pages are a person's production.
+            "parts": _parts_json(task, details=not watching),
             "waiting_for": (
                 {"name": pending.assignee.short_name, "seconds_left": pending.seconds_left} if pending else None
             ),
             "files": {
                 "original": [] if watching else [_task_file_json(a) for a in services.task_source_files(task)],
                 "translation": [] if watching else [
-                    dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"))
+                    dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"),
+                         by=a.message.sender.short_name if a.message.sender_id else None)
                     for a in services.translator_files(task)
                 ],
                 # The leader's own corrected version, which the review sends on in its place.

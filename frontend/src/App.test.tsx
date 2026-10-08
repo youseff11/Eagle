@@ -28,6 +28,7 @@ const PENDING: PendingAssignment = {
   assigned_by: "Mona",
   files_url: "/assignments/5/",
   open_url: "/api/assignments/5/files/",
+  part: null,
   priority: "normal",
   deadline: "2026-10-30 5:30 PM",
   deadline_iso: "2026-10-30T14:30:00+00:00",

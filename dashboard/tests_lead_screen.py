@@ -332,10 +332,19 @@ class LeadersTaskDoorTests(_Lead):
         self.assertEqual(set(lead["translators"][0]), {"id", "name", "state", "rating"})
         self.assertFalse(lead["can_set_translator_deadline"])
 
-    def test_it_is_not_offered_once_a_translator_has_it_and_the_list_is_not_built(self):
+    def test_it_is_not_offered_once_the_translation_is_in_and_the_list_is_not_built(self):
+        self.task.status = TaskStatus.UNDER_REVIEW
+        self.task.save()
         lead = _json(self.read(self.lead))["task"]["lead"]
         self.assertFalse(lead["can_assign"])
         self.assertEqual(lead["translators"], [])
+        self.assertTrue(lead["can_set_translator_deadline"])
+
+    def test_it_is_offered_while_it_is_being_translated_so_another_translator_can_be_added(self):
+        # IN_PROGRESS with a translator: a share can be given to one more (07/10/2026).
+        lead = _json(self.read(self.lead))["task"]["lead"]
+        self.assertTrue(lead["can_assign"])
+        self.assertTrue(lead["translators"])
         self.assertTrue(lead["can_set_translator_deadline"])
 
     def test_it_is_offered_again_while_the_task_awaits_a_translator(self):
@@ -487,7 +496,7 @@ class TheLeadersClassicToolsStillWorkTests(_Lead):
         self.task.translator = None
         self.task.deadline = timezone.now() + timedelta(days=3)
         self.task.save()
-        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": "1"})
+        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "source_lang": "EN", "target_lang": "AR", "words": "500", "tdeadline_mode": "shorter", "tdeadline_days": "1"})
         self.assertEqual((answer.status_code, answer.json()["ok"]), (200, True))
         self.task.refresh_from_db()
         self.assertEqual(self.task.translator_id, self.tr.pk)

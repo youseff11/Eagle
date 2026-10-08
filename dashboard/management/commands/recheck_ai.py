@@ -55,15 +55,18 @@ class Command(BaseCommand):
 
         done = failed = 0
         for task in tasks:
-            result = ai.recheck_now(task, notify_lead=options["notify"])
-            if result is None:
+            # A task shared between translators is checked once for each of them.
+            results = ai.recheck_all(task, notify_lead=options["notify"])
+            if not results:
                 failed += 1
                 self.stdout.write(self.style.WARNING(
                     f"{task.code}: not run (check switched off, no key, or one already running)"))
-            elif result.status == result.Status.ERROR:
-                failed += 1
-                self.stdout.write(self.style.WARNING(f"{task.code}: {result.error_message[:200]}"))
-            else:
-                done += 1
-                self.stdout.write(f"{task.code}: {result.get_status_display()} - {result.issue_count} note(s)")
+            for result in results:
+                whose = f" ({result.translator.short_name})" if result.translator_id else ""
+                if result.status == result.Status.ERROR:
+                    failed += 1
+                    self.stdout.write(self.style.WARNING(f"{task.code}{whose}: {result.error_message[:200]}"))
+                else:
+                    done += 1
+                    self.stdout.write(f"{task.code}{whose}: {result.get_status_display()} - {result.issue_count} note(s)")
         self.stdout.write(self.style.SUCCESS(f"checked={done} failed={failed}"))

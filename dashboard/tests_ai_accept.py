@@ -195,10 +195,9 @@ class RefusalTests(_Accept):
         self.assertEqual((clean.status_code, _json(clean)["error"]), (400, "no_notes"))
         self.assertEqual(RatingEvent.objects.count(), 0)
 
-    def test_a_task_nobody_holds_has_no_translator_to_charge(self):
-        self.check(self.three)
-        self.task.translator = None
-        self.task.save(update_fields=["translator"])
+    def test_a_check_that_names_nobody_has_no_translator_to_charge(self):
+        # Made when nobody held the task (or the translator it judged has since been deleted): there is no one to take stars from.
+        self.check(self.three, translator=None)
         answer = self.post(self.lead, {"all": True})
         self.assertEqual((answer.status_code, _json(answer)["error"]), (409, "no_translator"))
         self.assertEqual(RatingEvent.objects.count(), 0)
@@ -242,9 +241,7 @@ class BoxTests(_Accept):
     def test_the_box_cannot_accept_for_a_clean_check_or_a_task_nobody_holds(self):
         self.check([], status=AICheckResult.Status.CLEAN)
         self.assertFalse(self.notes()["can_accept"])
-        self.check(self.three)
-        self.task.translator = None
-        self.task.save(update_fields=["translator"])
+        self.check(self.three, translator=None)
         body = self.notes()
         self.assertFalse(body["can_accept"])
         self.assertIsNone(body["accept_cost"]["translator"])

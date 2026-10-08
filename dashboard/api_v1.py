@@ -987,7 +987,7 @@ def _origin_json(value):
     return {"value": value, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None
 
 
-def _desk_task_json(task, user, warning_minutes):
+def _desk_task_json(task, user, warning_minutes, shares=None):
     """One open task as the translator's own page shows it.
 
     The date is ``deadline_for(user)``: a translator's own, which their leader
@@ -998,6 +998,10 @@ def _desk_task_json(task, user, warning_minutes):
     """
     due = task.deadline_for(user)
     origin = ORIGIN_MAP.get(task.origin)
+    # The pair this translator was given (the leader may give them a different one from the task's), and their share of it.
+    # ``shares`` is the list's own: one question for all the rows, so a long list costs what a short one does.
+    share = shares.get(task.pk) if shares is not None else task.part_of(user, accepted_only=False)
+    working = (share.status == AssignmentStatus.ACCEPTED) if share is not None else task.translator_id == user.id
     return {
         "code": task.code,
         "title": task.title_for(user),
@@ -1005,14 +1009,15 @@ def _desk_task_json(task, user, warning_minutes):
         "priority": _two(PRIORITY_MAP, task.priority),
         "origin": {"value": task.origin, "icon": origin[1], "ar": origin[2], "en": origin[3]} if origin else None,
         "client": task.client.label_for(user) if task.client_id else "—",
-        "source_lang": task.source_lang,
-        "target_lang": task.target_lang,
+        "source_lang": (share.source_lang if share is not None else "") or task.source_lang,
+        "target_lang": (share.target_lang if share is not None else "") or task.target_lang,
+        "part": services.part_json(share),
         "due": {
             "ar": clock.fmt12(due, "ar", "%Y-%m-%d"),
             "en": clock.fmt12(due, "en", "%Y-%m-%d"),
         } if due else None,
         "due_state": task.deadline_state(user, warning_minutes),
-        "can_ask_more_time": task.status == TaskStatus.IN_PROGRESS,
+        "can_ask_more_time": task.status == TaskStatus.IN_PROGRESS and working and not (share is not None and share.done_at),
         "url": f"/tasks/{task.code}/",
     }
 
@@ -1029,10 +1034,17 @@ def translator_home(request):
     user = request.user
     desk = services.translator_desk(user)
     warning = AppSettings.load().deadline_warning_minutes
+    open_tasks = list(desk["open_tasks"])
+    shares = {
+        share.task_id: share for share in Assignment.objects.filter(
+            assignee=user, target_role=Role.TRANSLATOR, task__in=open_tasks,
+            status__in=(AssignmentStatus.PENDING, AssignmentStatus.ACCEPTED),
+        ).order_by("id")
+    }
     return JsonResponse({
         "ok": True,
         "rating": float(user.rating),
-        "open": [_desk_task_json(task, user, warning) for task in desk["open_tasks"]],
+        "open": [_desk_task_json(task, user, warning, shares) for task in open_tasks],
         "done": [
             {"code": task.code, "status": _status_json(task.status), "url": f"/tasks/{task.code}/"}
             for task in desk["done_tasks"]
@@ -1171,6 +1183,8 @@ def assignment(request, pk):
             "note": brief(assignment.note),
             "from": assignment.assigned_by.short_name if assignment.assigned_by_id else None,
             "mine": assignment.assignee_id == user.pk,
+            # The share the leader gave this translator (the pair, the words, the pages); ``None`` for a leader's hand-off.
+            "part": services.part_json(assignment),
         },
         "task": {
             "code": task.code,
@@ -1207,7 +1221,10 @@ def translator_task(request, code):
         identity.hidden(request, "task")
 
     conf = AppSettings.load()
-    mine = task.translator_id == user.id
+    # It is theirs while it is offered to them (they read it before they answer); they work on it once they have taken it.
+    mine = task.has_translator(user)
+    working = task.is_working(user)
+    share = task.part_of(user, accepted_only=False)
     due = task.deadline_for(user)
     extension = services.extension_state(task, user) if mine else {}
     pending, last = extension.get("extension_pending"), extension.get("extension_last")
@@ -1218,7 +1235,15 @@ def translator_task(request, code):
     def brief(text):
         return identity.mask_client(text, task.client, user)
 
-    translation = services.translator_files(task)
+    translation = services.translator_files(task, user=user if share is not None else None)
+    # Who it went to: the leader's own hand-off and this translator's. The colleagues on a shared task, and whether each said yes or
+    # let the time run out, are theirs and the leader's.
+    history = task.assignments.select_related("assignee")
+    if not user.is_admin_role:
+        history = history.filter(Q(assignee=user) | Q(target_role=Role.TEAM_LEAD))
+    history = history[:20]
+    # The checks of their own work: a colleague's notes (and the mistakes in them) are the leader's to read and no one else's.
+    own_checks = task.ai_checks.all() if user.is_admin_role else task.ai_checks.filter(translator=user)
     return JsonResponse({
         "ok": True,
         "task": {
@@ -1238,17 +1263,22 @@ def translator_task(request, code):
             "people": {
                 "operation": task.created_by.short_name if task.created_by_id else None,
                 "team_lead": task.team_lead.short_name if task.team_lead_id else None,
-                "translator": task.translator.short_name if task.translator_id else None,
+                # A translator reads their own name here, never a colleague's: the others on a split task are not theirs to know.
+                "translator": user.short_name if share is not None else (task.translator.short_name if task.translator_id else None),
             },
             "mine": mine,
+            # Their share of the task (the pair, the words, the pages the leader gave them). ``None`` when the task is whole.
+            "part": services.part_json(share),
+            "handed_in": bool(share is not None and share.done_at),
             "files": {
                 "original": [_task_file_json(a) for a in services.task_source_files(task)],
+                # Their own file; a colleague's translation of another part is not theirs to read.
                 "translation": [dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d")) for a in translation],
             },
-            # The upload box and the Finished button are the translator's own, while the job is in progress.
-            "can_upload": mine and task.status == TaskStatus.IN_PROGRESS,
-            "translation_missing": services.translation_missing(task),
-            "under_review": mine and task.status == TaskStatus.UNDER_REVIEW,
+            # The upload box and the Finished button are the translator's own, while the job is in progress and their share is not in yet.
+            "can_upload": working and task.status == TaskStatus.IN_PROGRESS and not (share is not None and share.done_at),
+            "translation_missing": services.translation_missing(task, user if share is not None else None),
+            "under_review": mine and (task.status == TaskStatus.UNDER_REVIEW or bool(share is not None and share.done_at)),
             "extension": {
                 "can_ask": bool(extension.get("extension_can_ask")),
                 "pending": {"minutes": pending.minutes, "reason": words(pending.reason)} if pending else None,
@@ -1270,18 +1300,19 @@ def translator_task(request, code):
                     "id": a.pk, "name": a.assignee.short_name, "initials": a.assignee.initials, "role": a.target_role,
                     "at": _stamp(a.assigned_at, "%m-%d"), "status": a.status,
                 }
-                for a in task.assignments.select_related("assignee")[:20]
+                for a in history
             ],
             "ai": {
-                "visible": mine,
+                # The card is for a translator who took it: one still being offered a share reads the task and checks nothing yet.
+                "visible": working,
                 "enabled": conf.ai_check_enabled,
                 "checks": [
                     {
                         "id": c.pk, "status": c.status, "count": c.issue_count, "automatic": c.requested_by_id is None,
                         "summary": brief(c.summary or c.error_message), "at": _stamp(c.created_at, "%m-%d"),
                     }
-                    for c in task.ai_checks.all()[:5]
-                ] if mine else [],
+                    for c in own_checks[:5]
+                ] if working else [],
             },
         },
     })
