@@ -308,6 +308,18 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
             audience = User.objects.filter(role__in=[Role.OPERATION, Role.ADMIN], is_active=True)
         # Whoever muted this client's chat is not rung for it.
         silenced = muted_user_ids(client=client) if client else set()
+        # A chat message says what the client sent ("a photo", "a voice note"); a letter's attachments are left out,
+        # they are mostly a signature logo.
+        sent_ar, sent_en = ("", "") if is_mail else files_phrase(message.attachments.all())
+        if is_mail:
+            body_ar, body_en = f"وصل ميل جديد من العميل {code}.", f"A new e-mail arrived from client {code}."
+        elif sent_ar and not clean_client_text(body):
+            body_ar, body_en = f"العميل {code} بعت {sent_ar}.", f"Client {code} sent {sent_en}."
+        elif sent_ar:
+            body_ar = f"وصلت رسالة جديدة من العميل {code} ومعاها {sent_ar}."
+            body_en = f"A new message arrived from client {code} with {sent_en}."
+        else:
+            body_ar, body_en = f"وصلت رسالة جديدة من العميل {code}.", f"A new message arrived from client {code}."
         for user in audience:
             if user.pk in silenced:
                 continue
@@ -315,14 +327,8 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
                 user,
                 title_ar="ميل جديد من عميل" if is_mail else "رسالة جديدة من عميل",
                 title_en="New client e-mail" if is_mail else "New client message",
-                body_ar=(
-                    f"وصل ميل جديد من العميل {code}." if is_mail
-                    else f"وصلت رسالة جديدة من العميل {code}."
-                ),
-                body_en=(
-                    f"A new e-mail arrived from client {code}." if is_mail
-                    else f"A new message arrived from client {code}."
-                ),
+                body_ar=body_ar,
+                body_en=body_en,
                 level="info",
                 url=where,
                 sound=user.is_operation or (owner is not None and user.pk == owner.pk),
@@ -1631,7 +1637,12 @@ def _mirror_into(room, inbound):
     code = room.relay_client.code if room.relay_client else "—"
     where = task.code if task else (room.title or code)
     url = f"/tasks/{task.code}/?room={room.id}" if task else f"/ops/chats/g/{room.id}/"
-    preview = (inbound.body or "ملفات")[:60]
+    # The words without the "[image]" the webhook writes for a file with no caption; a letter's attachments are left out
+    # here as in the first ring (``ingest_message``).
+    sent = ("", "") if inbound.channel == Channel.EMAIL else files_phrase(inbound.attachments.all())
+    line_ar, line_en = chat_line(
+        f"العميل {code}", clean_client_text(inbound.body), sent, where=where, who_en=f"Client {code}",
+    )
 
     # Operation and admin already got the generic "new client message" ping
     # from the inbox; only the people who would otherwise miss it are told.
@@ -1649,8 +1660,7 @@ def _mirror_into(room, inbound):
             member,
             title_ar="رسالة جديدة من العميل",
             title_en="New message from the client",
-            body_ar=f"العميل {code} في {where}: {preview}",
-            body_en=f"Client {code} in {where}: {preview}",
+            body_ar=line_ar, body_en=line_en,
             level="info", url=url, sound=True, task=task,
         )
     return message
@@ -3847,6 +3857,127 @@ def _attachment_snippet(attachments):
     if all(is_image(a) for a in rows):
         return "صورة" if len(rows) == 1 else f"{len(rows)} صور"
     return f"{len(rows)} ملف"
+
+
+#: What a notification calls a file, by kind: the Arabic for one, for two and for three to ten (eleven or more go back to
+#: the singular, as the language does it), then the English for one and for several.
+_KIND_WORDS = {
+    "voice": (("رسالة صوتية", "رسالتين صوتيتين", "رسائل صوتية"), ("a voice note", "voice notes")),
+    "audio": (("ملف صوتي", "ملفين صوتيين", "ملفات صوتية"), ("an audio file", "audio files")),
+    "image": (("صورة", "صورتين", "صور"), ("a photo", "photos")),
+    "video": (("فيديو", "فيديوهين", "فيديوهات"), ("a video", "videos")),
+    "pdf": (("ملف PDF", "ملفين PDF", "ملفات PDF"), ("a PDF", "PDFs")),
+    "word": (("مستند Word", "مستندين Word", "مستندات Word"), ("a Word document", "Word documents")),
+    "text": (("مستند", "مستندين", "مستندات"), ("a document", "documents")),
+    "sheet": (("جدول Excel", "جدولين Excel", "جداول Excel"), ("an Excel sheet", "Excel sheets")),
+    "slides": (("عرض PowerPoint", "عرضين PowerPoint", "عروض PowerPoint"), ("a PowerPoint", "PowerPoints")),
+    "archive": (("ملف مضغوط", "ملفين مضغوطين", "ملفات مضغوطة"), ("a ZIP file", "ZIP files")),
+    "file": (("ملف", "ملفين", "ملفات"), ("a file", "files")),
+}
+
+#: Which extension is which kind. Images and sound are told apart before this (``is_image``, ``is_audio``).
+_KIND_EXTENSIONS = {
+    "pdf": (".pdf",),
+    "word": (".doc", ".docx", ".docm", ".dot", ".dotx"),
+    "text": (".txt", ".rtf", ".odt", ".md"),
+    "sheet": (".xls", ".xlsx", ".xlsm", ".csv", ".ods"),
+    "slides": (".ppt", ".pptx", ".pps", ".ppsx", ".odp"),
+    "video": (".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp", ".m4v", ".wmv"),
+    "archive": (".zip", ".rar", ".7z", ".tar", ".gz"),
+}
+
+#: A file with no usable extension still says what it is in its mime type.
+_KIND_MIME = (
+    ("application/pdf", "pdf"), ("msword", "word"), ("wordprocessingml", "word"), ("ms-excel", "sheet"),
+    ("spreadsheetml", "sheet"), ("ms-powerpoint", "slides"), ("presentationml", "slides"), ("zip", "archive"),
+)
+
+#: More kinds than this in one message are told as a count of files: a list of five kinds is no easier to read.
+_KINDS_NAMED = 3
+
+
+def file_kind(attachment, voice_ids=()):
+    """What a stored file is, for the words of a notification: a key of ``_KIND_WORDS``.
+
+    ``voice_ids`` are the attachments known to be a recording made in the page: a chat attachment has no ``is_voice``
+    column, and a recording is a "voice note" where an audio file someone attached is not.
+    """
+    if getattr(attachment, "is_voice", False) or (attachment.pk is not None and attachment.pk in voice_ids):
+        return "voice"
+    if attachment.is_audio:
+        return "audio"
+    if is_image(attachment):
+        return "image"
+    name = (attachment.original_name or attachment.file.name or "").lower()
+    extension = os.path.splitext(name)[1]
+    for kind, extensions in _KIND_EXTENSIONS.items():
+        if extension in extensions:
+            return kind
+    mime = (getattr(attachment, "mime", "") or "").lower()
+    if mime.startswith("video/"):
+        return "video"
+    for hint, kind in _KIND_MIME:
+        if hint in mime:
+            return kind
+    return "file"
+
+
+def _count_ar(count, forms):
+    one, two, few = forms
+    if count == 1:
+        return one
+    if count == 2:
+        return two
+    return f"{count} {few}" if count <= 10 else f"{count} {one}"
+
+
+def _join_en(parts):
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def files_phrase(attachments, voice_ids=()):
+    """What a message carries, in words: ``("صورتين وملف PDF", "2 photos and a PDF")``; ``("", "")`` for no files.
+
+    Kinds only, never a file name: a name is the client's and a notification may be read by somebody who may not see it.
+    """
+    counts = {}
+    for attachment in attachments:
+        kind = file_kind(attachment, voice_ids)
+        counts[kind] = counts.get(kind, 0) + 1
+    if not counts:
+        return "", ""
+    if len(counts) > _KINDS_NAMED:
+        counts = {"file": sum(counts.values())}
+    ar, en = [], []
+    for kind, count in counts.items():
+        forms_ar, forms_en = _KIND_WORDS[kind]
+        ar.append(_count_ar(count, forms_ar))
+        en.append(forms_en[0] if count == 1 else f"{count} {forms_en[1]}")
+    return "".join(f" و{part}" if number else part for number, part in enumerate(ar)), _join_en(en)
+
+
+def chat_line(who, body, files, where="", who_en=None):
+    """The one line a chat notification says about one message: who, where, and the words or what was sent.
+
+    ``files`` is ``files_phrase(...)``. Words win the line and the kind of file follows them ("... (+ a photo)"); with
+    no words the line is the kind itself ("X sent a photo"), which is what tells a person whether to look now.
+    Returns ``(arabic, english)``.
+    """
+    who_en = who_en or who
+    body = (body or "").strip()[:60]
+    files_ar, files_en = files
+    if not body:
+        files_ar, files_en = files_ar or "ملفات", files_en or "files"
+        return (
+            f"{who} بعت {files_ar}" + (f" في {where}" if where else ""),
+            f"{who_en} sent {files_en}" + (f" in {where}" if where else ""),
+        )
+    tail_ar = f" (+ {files_ar})" if files_ar else ""
+    tail_en = f" (+ {files_en})" if files_en else ""
+    return (
+        (f"{who} في {where}: " if where else f"{who}: ") + body + tail_ar,
+        (f"{who_en} in {where}: " if where else f"{who_en}: ") + body + tail_en,
+    )
 
 
 #: What a browser draws in an <img> everywhere. SVG is left out on purpose:

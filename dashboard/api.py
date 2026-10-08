@@ -843,7 +843,7 @@ def _store_voice(message, prepared):
     from django.core.files.base import ContentFile
 
     content, name, _error = prepared
-    ChatAttachment.objects.create(
+    return ChatAttachment.objects.create(
         message=message,
         file=ContentFile(content, name=name),
         original_name=services.short_name(name),
@@ -908,8 +908,7 @@ def chat_send(request, room_id):
             ChatAttachment.objects.create(
                 message=message, file=item, original_name=services.short_name(item.name), size=item.size
             )
-        if prepared is not None:
-            _store_voice(message, prepared)
+        recording = _store_voice(message, prepared) if prepared is not None else None
 
     # Files handed over in a one-to-one chat are work on a task when the two
     # of them have exactly one running between them. See tag_task_message -
@@ -954,6 +953,11 @@ def chat_send(request, room_id):
     if mentioned:
         message.mentions.set(mentioned)
     mentioned_ids = {person.pk for person in mentioned}
+    # What the message carries, told by kind ("a photo", "a voice note", "a PDF") rather than as "files".
+    carried_ar, carried_en = files = services.files_phrase(
+        message.attachments.all(), voice_ids={recording.pk} if recording is not None else (),
+    )
+    line_ar, line_en = services.chat_line(request.user.short_name, body, files, where="" if staff else where)
     # Muted by a member: the ordinary line is not sent to them. A mention still is - it names them.
     silenced = services.muted_user_ids(room=room)
     for member in room.members.exclude(pk=request.user.pk):
@@ -967,8 +971,8 @@ def chat_send(request, room_id):
                 member,
                 title_ar=f"{request.user.short_name} عمل لك منشن",
                 title_en=f"{request.user.short_name} mentioned you",
-                body_ar=f"في {where}: {preview}",
-                body_en=f"In {where}: {preview}",
+                body_ar=f"في {where}: {preview}" + (f" (+ {carried_ar})" if carried_ar else ""),
+                body_en=f"In {where}: {preview}" + (f" (+ {carried_en})" if carried_en else ""),
                 level="info", url=url, sound=True, task=task,
             )
             continue
@@ -976,14 +980,7 @@ def chat_send(request, room_id):
             member,
             title_ar="رسالة جديدة في الشات",
             title_en="New chat message",
-            body_ar=(
-                f"{request.user.short_name}: {(body or 'ملفات')[:60]}" if staff
-                else f"{request.user.short_name} في {where}: {(body or 'ملفات')[:60]}"
-            ),
-            body_en=(
-                f"{request.user.short_name}: {(body or 'files')[:60]}" if staff
-                else f"{request.user.short_name} in {where}: {(body or 'files')[:60]}"
-            ),
+            body_ar=line_ar, body_en=line_en,
             level="info", url=url, task=task,
         )
     return JsonResponse({
