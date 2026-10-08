@@ -11,7 +11,9 @@ import json
 from datetime import timedelta
 from decimal import Decimal
 
+from django.db import connection
 from django.test import Client as DjangoClient
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -470,3 +472,30 @@ class AdminChangesADecisionTests(_Penalties):
             body = _json(browser.get(reverse(EMPLOYEE, args=[self.tr.pk])))
             self.assertEqual(body["can"]["change_penalties"], expected, who.username)
             self.assertTrue(body["can"]["decide_penalties"], who.username)
+
+
+class LockedRowTests(_Penalties):
+    """The row a decision locks is read alone (07/10/2026).
+
+    Postgres refuses ``SELECT ... FOR UPDATE`` over a ``LEFT OUTER JOIN`` («cannot be applied to the nullable side of an outer
+    join»), and a penalty's ``task`` is nullable. SQLite drops the lock, so the quick settings never saw it: both buttons answered
+    500 on the live database. The lock is not visible from here, so what is held is the shape of the query: it joins nothing.
+    """
+
+    def selects_of_the_event(self, run):
+        with CaptureQueriesContext(connection) as seen:
+            run()
+        return [one["sql"] for one in seen.captured_queries if one["sql"].startswith("SELECT") and 'FROM "dashboard_ratingevent"' in one["sql"]]
+
+    def test_deciding_reads_the_penalty_without_joining_anything(self):
+        for action in ("forgive", "confirm"):
+            selects = self.selects_of_the_event(lambda: penalties.decide(self.event.pk, self.admin, action))
+            self.assertTrue(selects, action)
+            for sql in selects:
+                self.assertNotIn("JOIN", sql, action)
+
+    def test_a_penalty_with_no_task_is_decided_too(self):
+        RatingEvent.objects.filter(pk=self.event.pk).update(task=None)
+        event, problem = penalties.decide(self.event.pk, self.hr, "forgive")
+        self.assertEqual((problem, event.decision), ("", RatingEvent.Decision.FORGIVEN))
+        self.assertEqual(self.decide(self.admin, "confirm").status_code, 200)

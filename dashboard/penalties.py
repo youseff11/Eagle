@@ -62,7 +62,8 @@ def decide(event_pk, actor, action, note=""):
     if action not in ACTIONS:
         return None, "bad_action"
     with transaction.atomic():
-        event = RatingEvent.objects.select_for_update().filter(pk=event_pk).select_related("user", "task").first()
+        # No select_related: ``task`` is nullable and Postgres refuses FOR UPDATE over an outer join. The person is locked below.
+        event = RatingEvent.objects.select_for_update().filter(pk=event_pk).first()
         if event is None:
             return None, "not_found"
         person = User.objects.select_for_update().get(pk=event.user_id)
