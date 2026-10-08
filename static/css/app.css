@@ -1076,23 +1076,59 @@ table.table { width: 100%; border-collapse: collapse; font-size: .855rem; }
   flex: 1;
   height: 4px;
   min-width: 40px;
+  /* The knob hangs 6px past each end of the line; this keeps it inside the pill. */
+  margin-inline: 6px;
   border-radius: 999px;
   background: var(--border);
   cursor: pointer;
   position: relative;
+  /* A finger dragging along the bar moves the note; it must not scroll the chat. */
+  touch-action: none;
+  user-select: none;
 }
 /* A 4px line is a poor tap target, so the hit area is padded out invisibly. */
 .voice__bar::before {
-  content: ""; position: absolute; inset: -12px 0;
+  content: ""; position: absolute; inset: -12px -6px;
 }
+.voice__bar[aria-disabled="true"] { cursor: default; }
+.voice__bar:focus-visible { outline: 2px solid var(--brand); outline-offset: 6px; }
 .voice__fill {
+  position: relative;
   display: block; height: 100%; width: 0;
   border-radius: 999px;
   background: var(--brand);
   transition: width .1s linear;
 }
+/* The knob sits on the end of the fill, so it is on the right side in either direction. */
+.voice__fill::after {
+  content: "";
+  position: absolute; top: 50%; inset-inline-end: -6px;
+  width: 12px; height: 12px; margin-top: -6px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 2px var(--surface);
+  transition: transform .12s ease;
+}
+.voice__bar[aria-disabled="true"] .voice__fill::after { display: none; }
+.voice.is-dragging .voice__fill { transition: none; }
+.voice.is-dragging .voice__fill::after { transform: scale(1.25); }
 
 .voice__time { flex: none; font-size: .72rem; color: var(--muted); min-width: 32px; text-align: center; }
+
+/* The speed: one tap goes 1x, 1.5x, 2x and back. Lit while it is not the normal one. */
+.voice__rate {
+  flex: none;
+  min-width: 34px; height: 22px; padding: 0 6px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: .7rem; font-variant-numeric: tabular-nums; line-height: 1;
+  cursor: pointer;
+  /* "2x" reads the same in Arabic: without this the right-to-left page turns it into "x2". */
+  direction: ltr; unicode-bidi: isolate;
+}
+.voice__rate:hover { color: var(--text); border-color: var(--muted); }
+.voice__rate.is-fast { background: var(--brand); border-color: var(--brand); color: #fff; }
+.voice__rate:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .voice.is-broken .voice__play { background: var(--faint); cursor: not-allowed; }
 .voice.is-broken .voice__time { color: var(--danger, #e5484d); }
 

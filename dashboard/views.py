@@ -100,7 +100,7 @@ def serve_file(request, name):
     if not allowed:
         identity.hidden(request, "file")
     # A face drawn on every page is not a file somebody is carrying out: it does not count toward the hour's limit.
-    if not (owner and owner[0] == "avatar") and not identity.count_file_open(request):
+    if not (owner and owner[0] == "avatar") and not identity.count_file_open(request, name):
         return HttpResponse("Too many files opened this hour.", status=429)
     if request.GET.get("preview") == "1":
         from django.core.cache import cache
@@ -132,7 +132,22 @@ def serve_file(request, name):
         return response
 
     kind = files.content_type(name)
-    response = HttpResponse(data, content_type=kind)
+    # A player reads the end of a voice note to learn how long it is, and asks for the middle of it when it is
+    # moved: both are a ``Range``. Answered in full, the length it shows is a guess and the bar does not move it.
+    wanted_range = files.byte_range(request.META.get("HTTP_RANGE"), len(data))
+    if wanted_range == files.UNSATISFIABLE:
+        response = HttpResponse(status=416)
+        response["Content-Range"] = f"bytes */{len(data)}"
+        response["Accept-Ranges"] = "bytes"
+        response["Cache-Control"] = "private, no-store"
+        return response
+    if wanted_range:
+        first, last = wanted_range
+        response = HttpResponse(data[first:last + 1], content_type=kind, status=206)
+        response["Content-Range"] = f"bytes {first}-{last}/{len(data)}"
+    else:
+        response = HttpResponse(data, content_type=kind)
+    response["Accept-Ranges"] = "bytes"
     shown = files.download_name(request.user, name, owner)
     # A file opened inline runs as our own site, with the viewer's session, if the browser takes it for a
     # document (an SVG, HTML, any XML type, script). Only the types known to be inert open in the page;

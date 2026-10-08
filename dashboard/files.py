@@ -323,6 +323,50 @@ def content_type(name):
     return guessed or "application/octet-stream"
 
 
+UNSATISFIABLE = "unsatisfiable"
+
+#: Bigger than any file there is. A number of more digits than this is read as this: Python refuses to turn more
+#: than 4300 digits into an integer (``ValueError``), and a header can carry that many.
+_BEYOND_ANY_FILE = 10 ** 18
+
+
+def _number(digits):
+    return int(digits) if len(digits) <= 18 else _BEYOND_ANY_FILE
+
+
+def byte_range(header, total):
+    """What a ``Range`` header asks of a file ``total`` bytes long.
+
+    ``None`` when the whole file is to be sent: no header, a kind of range that is not bytes, several ranges at once, or
+    one that does not read (all of which a server may answer in full, RFC 9110 14.2). ``UNSATISFIABLE`` when it asks for
+    a place past the end. Otherwise ``(first, last)``, both inclusive and both inside the file.
+
+    A player needs this to seek: without it the browser cannot reach the end of a voice note to learn how long it is,
+    and cannot jump to the middle of one.
+    """
+    header = (header or "").strip()
+    if not header.lower().startswith("bytes=") or "," in header:
+        return None
+    first, dash, last = header[6:].strip().partition("-")
+    first, last = first.strip(), last.strip()
+    numbers = all(part == "" or (part.isascii() and part.isdigit()) for part in (first, last))
+    if not dash or not numbers or (first == "" and last == ""):
+        return None
+    if first == "":
+        # ``bytes=-500``: the last 500 bytes.
+        wanted = _number(last)
+        if wanted == 0 or total == 0:
+            return UNSATISFIABLE
+        return max(0, total - wanted), total - 1
+    start = _number(first)
+    end = _number(last) if last else total - 1
+    if last and end < start:
+        return None
+    if start >= total:
+        return UNSATISFIABLE
+    return start, min(end, total - 1)
+
+
 #: What may open inside the page, by the type the extension says. Everything else is a download.
 #:
 #: The extension is the uploader's choice, and a browser decides what a type means: an XML type of any kind

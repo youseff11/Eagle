@@ -262,6 +262,8 @@ def record_access_change(request, actor, user, before):
 #: keeps them - and far below what a script walking the store would need.
 FILES_PER_HOUR_WARN = 200
 FILES_PER_HOUR_LIMIT = 600
+#: The pieces of one file a player may ask for in ten minutes without each counting as a file opened.
+RANGE_PIECES_PER_FILE = 120
 
 
 def record_export(request, what, count):
@@ -269,17 +271,40 @@ def record_export(request, what, count):
     return audit(request, request.user, DATA_EXPORT, what, f"{count} records")
 
 
-def count_file_open(request):
+def count_file_open(request, name=""):
     """Count one file opened; False when this person is over the hour's limit.
 
     The warning is written to the log once, when the count first crosses it;
     every refusal over the limit is written too. The admin is counted and
     warned about like anyone else, but never refused.
+
+    A player asks for the same voice note again for every place it jumps to (``Range``). Those are one file opened,
+    not many: of the requests with a ``Range`` for one file, the first in ten minutes counts and the rest do not.
+    Counting is still by file - ten files fetched in pieces are ten - and a file is only marked as counted once it was
+    let through, so a range is no way around the limit. Each piece still reads the whole file from storage to cut it,
+    so the free ones are few (``RANGE_PIECES_PER_FILE``); past that the person is not moving in a note but asking for
+    the same file over and over, and every further request counts as a file opened.
     """
+    import hashlib
+
     from django.core.cache import cache
     from django.utils import timezone
 
     user = request.user
+    piece = pieces = ""
+    first_piece = False
+    if name and request.META.get("HTTP_RANGE"):
+        piece = f"eagle:files:range:{user.pk}:{hashlib.sha1(name.encode('utf-8', 'replace')).hexdigest()}"
+        pieces = piece + ":n"
+        first_piece = cache.get(piece) is None
+        if not first_piece:
+            try:
+                taken = cache.incr(pieces)
+            except ValueError:
+                cache.set(pieces, 1, 600)
+                taken = 1
+            if taken <= RANGE_PIECES_PER_FILE:
+                return True
     bucket = timezone.now().strftime("%Y%m%d%H")
     key = f"eagle:files:{user.pk}:{bucket}"
     try:
@@ -293,6 +318,11 @@ def count_file_open(request):
         if count == FILES_PER_HOUR_LIMIT + 1 or count % 50 == 0:
             audit(request, user, BULK_FILES, user.username, f"refused at {count} files this hour")
         return False
+    # Marked once, by the first piece: marking again after the free ones are used up would give a fresh set of them
+    # for every one counted.
+    if first_piece:
+        cache.set(piece, 1, 600)
+        cache.set(pieces, 0, 600)
     return True
 
 
