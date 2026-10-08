@@ -297,6 +297,8 @@ def _lead_json(task, user):
         "translators": translators,
         "can_set_translator_deadline": bool(task.translator_id),
         "can_review": task.status == TaskStatus.UNDER_REVIEW,
+        # The words of each translator are the leader's to write while the translation is with him; the review cannot be finished without them.
+        "can_set_part_words": task.status == TaskStatus.UNDER_REVIEW and task.translator_parts(accepted_only=True).exists(),
         # Every share still on the task is in and a share fell through: he may close the translation and review what there is.
         "can_close_translation": services.lead_may_close(task, user),
         # His own corrected file: asked while the task is under review and (if he notices late) after it, until it reaches the client.
@@ -411,6 +413,8 @@ def task(request, code):
                 "set_deadline": ops,
                 # The people who see both the client's file and the translator's, never the translator.
                 "set_words": ops or task.team_lead_id == user.id,
+                # The language pair is the operation's to say (08/10/2026); the leader and the translators read it.
+                "set_languages": ops and not task.is_done,
             },
             "lead": _lead_json(task, user),
             "leads": _leads_json() if new else [],
@@ -484,6 +488,55 @@ def task_words(request, code):
         return _error(400, "bad_words")
     wordcount.confirm_task(task, request.user, words=words)
     return JsonResponse({"ok": True, "words": task.word_count, "state": task.word_count_state})
+
+
+@endpoint("POST")
+@api_role_required(Role.OPERATION)
+def task_languages(request, code):
+    """Say which language pair the task is, or correct it. ``{"source_lang": "EN", "target_lang": "AR"}``.
+
+    The pair is the operation's (08/10/2026): it is typed once, here or on the new-task form, and the team leader and the translators read
+    it off the task. A pair that is empty is a 400 with the sentence, a task already delivered or cancelled is a 400 ``bad_status``, and
+    the shares already handed out follow the new pair (``services.set_task_languages``).
+    """
+    task = get_object_or_404(Task, code=code)
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
+    try:
+        body = _object(request)
+        source, target = _text(body, "source_lang", 80), _text(body, "target_lang", 80)
+    except BadBody:
+        return _error(400, "bad_request")
+    done, why = services.set_task_languages(task, source, target, request.user)
+    if not done:
+        if why in ("forbidden", "bad_status"):
+            return _error(403 if why == "forbidden" else 400, why)
+        return JsonResponse({"ok": False, "error": why, "code": "bad_languages"}, status=400)
+    return JsonResponse({"ok": True, "source_lang": task.source_lang, "target_lang": task.target_lang})
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def task_part_words(request, code):
+    """The leader writes how many words each translator translated, while the task is with him for review.
+
+    ``{"parts": [{"id": 12, "words": 800}, {"id": 13, "words": 450}]}`` - ``id`` is the share's (``parts[].id`` of the task). Only the
+    task's own team leader and the admin; everything is written or nothing is (``services.set_part_words``). A task that is not
+    under review is a 400 ``bad_status``.
+    """
+    task = get_object_or_404(Task, code=code)
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
+    try:
+        body = _object(request)
+    except BadBody:
+        return _error(400, "bad_request")
+    shares, why = services.set_part_words(task, body.get("parts"), request.user)
+    if shares is None:
+        if why in ("forbidden", "bad_status", "bad_parts"):
+            return _error(403 if why == "forbidden" else 400, why)
+        return JsonResponse({"ok": False, "error": why, "code": "bad_words"}, status=400)
+    return JsonResponse({"ok": True, "parts": [{"id": share.pk, "words": share.words} for share in shares]})
 
 
 @endpoint("POST")

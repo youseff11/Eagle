@@ -142,6 +142,20 @@ export function useSaveWords(code: string) {
   );
 }
 
+/** The language pair of a task: the operation's to say (and to correct), never the team leader's or the translator's. */
+export function useSaveLanguages(code: string) {
+  return useOpsAction<{ source_lang: string; target_lang: string }, { ok: boolean }>(code, (values) =>
+    api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/languages/`, { json: values }),
+  );
+}
+
+/** The team leader's number for each translator, written while the translation is with him for review: `id` is the share's. */
+export function useSavePartWords(code: string) {
+  return useOpsAction<{ id: number; words: number }[], { ok: boolean }>(code, (parts) =>
+    api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/part-words/`, { json: { parts } }),
+  );
+}
+
 export function useAddRequirement(code: string) {
   return useOpsAction<{ kind: string; text: string }, { ok: boolean }>(code, (values) =>
     api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/requirements/`, { json: values }),
@@ -217,19 +231,20 @@ const dateForm = (date: TranslatorDate) => ({
 /** What the leader chose for the translator's deadline: the operation's own (`same`), or a shorter one he types (`shorter`). */
 export type DeadlineChoice = "same" | "shorter";
 
-/** One translator's share as the leader typed it: every box is text, the server reads them and says which is wrong. */
+/**
+ * One translator's share as the leader typed it: who, and - once more than one translator is on the task - which pages. Every box is
+ * text; the server reads them and says which is wrong. The pair is the task's own (the operation's) and the words are written at the
+ * review, so neither is sent from here.
+ */
 export interface PartInput {
   translator: number;
-  source_lang: string;
-  target_lang: string;
-  words: string;
   page_from: string;
   page_to: string;
 }
 
 /**
- * «ابعتها للمترجم»: the task goes to one translator or to several, each with their own share (the pair, the words and - when there
- * is more than one - the pages), and each has a minute to say yes. The deadline is the leader's choice, as before: the operation's
+ * «ابعتها للمترجم»: the task goes to one translator or to several, each with their own share (the pages, when there is more than one),
+ * and each has a minute to say yes. The deadline is the leader's choice, as before: the operation's
  * own, or a shorter one he typed. The choice is always sent - the server refuses a request that does not say - and the boxes only when
  * it is a shorter one. The classic endpoint keeps its checks (the team, the status, the shares, that a shorter date is shorter).
  */

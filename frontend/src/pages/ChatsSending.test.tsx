@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { qk } from "../api/keys";
@@ -183,6 +183,35 @@ describe("when it arrives", () => {
     release(answer([entry(1), ours(9, [fileJson({ size: 9999 })])]));
     await waitFor(() => expect(document.querySelector('[data-uid="out-9"]')).not.toBeNull());
     expect(document.querySelector('[data-uid="out-9"] img')).toHaveAttribute("src", "/files/out/holiday.png");
+  });
+
+  it("draws the server's photo when the copy that was kept will not draw, and does not stay broken until a reload", async () => {
+    let release: (value: Response) => void = () => undefined;
+    await open({ [SEND]: () => new Promise<Response>((resolve) => (release = resolve)) });
+    await sendFiles(photo());
+    release(answer([entry(1), ours(9, [fileJson({})])]));
+    await waitFor(() => expect(pendingBubble()).toBeNull());
+    const picture = document.querySelector('[data-uid="out-9"] img') as HTMLImageElement;
+    expect(picture).toHaveAttribute("src", "blob:preview-1");
+    fireEvent.error(picture);
+    expect(document.querySelector('[data-uid="out-9"] img')).toHaveAttribute("src", "/files/out/holiday.png");
+  });
+
+  it("does the same for one photo of a grid, and only for that one", async () => {
+    let release: (value: Response) => void = () => undefined;
+    await open({ [SEND]: () => new Promise<Response>((resolve) => (release = resolve)) });
+    await sendFiles(photo("a.png", 2048), photo("b.png", 4096));
+    release(
+      answer([
+        entry(1),
+        ours(9, [fileJson({ id: 1, url: "/files/out/x1.png", name: "x1.png", size: 2048 }), fileJson({ id: 2, url: "/files/out/x2.png", name: "x2.png", size: 4096 })]),
+      ]),
+    );
+    await waitFor(() => expect(pendingBubble()).toBeNull());
+    const first = document.querySelector('[data-uid="out-9"] .imggrid img') as HTMLImageElement;
+    fireEvent.error(first);
+    const sources = [...document.querySelectorAll('[data-uid="out-9"] .imggrid img')].map((one) => one.getAttribute("src"));
+    expect(sources).toEqual(["/files/out/x1.png", "blob:preview-2"]);
   });
 
   it("lets go of the copy of a document or a sound: nothing is drawn from it any more", async () => {

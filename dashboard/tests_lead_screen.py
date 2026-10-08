@@ -280,7 +280,7 @@ class LeadersTaskDoorTests(_Lead):
         task = _json(self.read(self.lead))["task"]
         self.assertEqual(task["can"], {
             "assign_lead": False, "take_over": False, "deliver": False, "cancel": False, "add_member": False,
-            "new_request": False, "set_deadline": False, "set_words": True,
+            "new_request": False, "set_deadline": False, "set_words": True, "set_languages": False,
         })
         self.assertIsNone(task["client_chat_url"])
         self.assertEqual((task["leads"], task["messages"], task["group_candidates"]), ([], [], []))
@@ -495,8 +495,10 @@ class TheLeadersClassicToolsStillWorkTests(_Lead):
         self.task.status = TaskStatus.LEAD_ACCEPTED
         self.task.translator = None
         self.task.deadline = timezone.now() + timedelta(days=3)
+        # The pair is the operation's, said on the task: the leader sends only who and until when.
+        self.task.source_lang, self.task.target_lang = "EN", "AR"
         self.task.save()
-        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "source_lang": "EN", "target_lang": "AR", "words": "500", "tdeadline_mode": "shorter", "tdeadline_days": "1"})
+        answer = self.post_form(self.lead, "dashboard:api_assign_translator", [self.task.code], {"user": self.tr.pk, "tdeadline_mode": "shorter", "tdeadline_days": "1"})
         self.assertEqual((answer.status_code, answer.json()["ok"]), (200, True))
         self.task.refresh_from_db()
         self.assertEqual(self.task.translator_id, self.tr.pk)

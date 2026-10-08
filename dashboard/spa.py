@@ -103,10 +103,13 @@ def content_security_policy(request):
         # templates/partials/icons.html: <svg style="display:none">.
         "style-src-attr 'unsafe-inline'",
         "font-src https://fonts.gstatic.com",
-        "img-src 'self' data:",
+        # Photos from /files/, and the photo the page has just sent, drawn from the file in the person's own hands
+        # (a blob: address, `lib/localPhotos`) until the server's copy is there. Without blob: the browser refuses
+        # that picture and the bubble stays broken until the page is reloaded.
+        "img-src 'self' data: blob:",
         # Voice notes: <audio> from /files/ (default-src would cover it; said here so that a later change
         # to default-src does not silence them without anybody noticing), and the recording the page has just
-        # made, played back from a blob: address before it is sent. blob: is allowed for media and for nothing else.
+        # made, played back from a blob: address before it is sent.
         "media-src 'self' blob:",
         f"connect-src 'self' {socket}",
         "frame-ancestors 'none'",

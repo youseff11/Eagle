@@ -2469,7 +2469,9 @@ KEEP_DEADLINE = object()
 
 
 #: What a translator's share of a task is made of (07/10/2026): who, which language pair, how many words, and - when the task is split
-#: between several people - which pages. The team leader types all of it; the translator types none.
+#: between several people - which pages. Since 08/10/2026 the pair is the task's own, said by the operation (``set_task_languages``), and the
+#: words are typed by the team leader when the translation comes back for review (``set_part_words``); what the leader types when he hands
+#: the task out is the translator and, once there is more than one, the pages. The translator types none of it.
 Part = namedtuple("Part", "translator source_lang target_lang words page_from page_to")
 
 #: The most translators one task is split between, and the biggest page number or word count one share may carry.
@@ -2482,6 +2484,9 @@ MAX_LANGUAGE = 40
 PICK_TRANSLATOR_AR = "اختار مترجم واحد على الأقل."
 TOO_MANY_PARTS_AR = f"أقصى عدد مترجمين على التاسك الواحدة {MAX_PARTS}."
 NOT_IN_YOUR_TEAM = "not_in_your_team"
+#: The pair is the operation's: a task that has none cannot go to a translator, and the leader is told whose it is to say.
+TASK_NEEDS_LANGUAGES_AR = "الأوبريشن لسه ماحددش لغة الترجمة (من لغة وإلى لغة) على التاسك دي. قوله يحددها وبعدين وزّعها."
+WORDS_MISSING_AR = "اكتب عدد كلمات كل مترجم قبل ما تخلّص المراجعة."
 
 
 class PartError(Exception):
@@ -2533,13 +2538,12 @@ def check_translators(raw_parts, by_user):
 def parse_parts(task, raw_parts, by_user):
     """The shares the leader typed -> ``[Part]``, or a :class:`PartError` that says what to fix. Nothing is written.
 
-    Each needs a translator of the leader's team, a language pair and a word count. Pages are asked as soon as the task
-    would have more than one translator, because that is how they know where to start and stop; they must not overlap
-    (a share that overlaps another is two people paid for the same page). A translator who already holds a share of
-    this task is not given another: one person, one share.
+    Each needs a translator of the leader's team. The language pair is the task's own - the operation said it, the leader does not
+    type it (08/10/2026) - and a task without one is refused. The words are not asked here: the leader writes them per translator
+    when the translation comes back (``set_part_words``). Pages are asked as soon as the task would have more than one translator,
+    because that is how they know where to start and stop; they must not overlap (a share that overlaps another is two people paid
+    for the same page). A translator who already holds a share of this task is not given another: one person, one share.
     """
-    from .forms import _language_code
-
     if not isinstance(raw_parts, list) or not raw_parts or not all(isinstance(item, dict) for item in raw_parts):
         raise PartError(PICK_TRANSLATOR_AR, "no_parts")
     if len(raw_parts) > MAX_PARTS:
@@ -2550,6 +2554,9 @@ def parse_parts(task, raw_parts, by_user):
     many = len(kept) + len(raw_parts) > 1
     out, seen = [], set()
     translators = check_translators(raw_parts, by_user)
+    source, target = (task.source_lang or "").strip(), (task.target_lang or "").strip()
+    if not source or not target:
+        raise PartError(TASK_NEEDS_LANGUAGES_AR, "task_needs_languages")
     for number, (raw, translator) in enumerate(zip(raw_parts, translators), start=1):
         who = f"المترجم رقم {number}: " if len(raw_parts) > 1 else ""
         if translator.pk in held:
@@ -2557,18 +2564,6 @@ def parse_parts(task, raw_parts, by_user):
         if translator.pk in seen:
             raise PartError(f"{who}{translator.short_name} اتكرر. كل مترجم ليه جزء واحد.", "duplicate")
         seen.add(translator.pk)
-
-        typed_pair = (raw.get("source_lang"), raw.get("target_lang"))
-        if not all(isinstance(one, str) for one in typed_pair):
-            raise PartError(f"{who}حدد الترجمة من لغة إيه لغة إيه.", "need_languages")
-        source, target = _language_code(typed_pair[0]), _language_code(typed_pair[1])
-        if not source or not target:
-            raise PartError(f"{who}حدد الترجمة من لغة إيه لغة إيه.", "need_languages")
-        if len(source) > MAX_LANGUAGE or len(target) > MAX_LANGUAGE:
-            raise PartError(f"{who}اسم اللغة طويل: اكتب الكود (EN أو AR) أو الاسم بحد أقصى {MAX_LANGUAGE} حرف.", "bad_language")
-        words = _whole(raw.get("words"))
-        if words is None or not 1 <= words <= MAX_PART_WORDS:
-            raise PartError(f"{who}اكتب عدد الكلمات اللي المترجم هيترجمها (رقم أكبر من صفر).", "need_words")
 
         first, last = _whole(raw.get("page_from")), _whole(raw.get("page_to"))
         typed_pages = str(raw.get("page_from") or "").strip() != "" or str(raw.get("page_to") or "").strip() != ""
@@ -2583,7 +2578,7 @@ def parse_parts(task, raw_parts, by_user):
                 raise PartError(f"{who}الصفحة الأخيرة لازم تكون بعد الأولى أو نفسها.", "bad_pages")
         else:
             first = last = None
-        out.append(Part(translator, source, target, words, first, last))
+        out.append(Part(translator, source, target, 0, first, last))
 
     # Pages that touch: against each other, and against the shares that are already taken and stay.
     ranges = [(p.page_from, p.page_to, p.translator.short_name) for p in out if p.page_from is not None]
@@ -2688,14 +2683,6 @@ def assign_to_translators(task, parts, by_user, note="", deadline=KEEP_DEADLINE)
     if moved:
         tell_translators_deadline(task, skip=[a.assignee for a in made])
 
-    # The leader has just said how big the work is. When nobody had settled the task's own count yet, that is the count - and it follows
-    # the shares while it is still the sum of them (a share added later grows it), but never a number a person settled.
-    given = sum(a.words for a in task.translator_parts())
-    before = given - sum(a.words for a in made)
-    if given and (task.word_count_state != WordCountState.CONFIRMED or (before and task.word_count == before)):
-        from . import wordcount
-
-        wordcount.confirm_task(task, by_user, words=given)
     # An offer that this batch took back is told so, unless the same translator is offered again.
     again = {a.assignee_id for a in made}
     for offer in withdrawn:
@@ -2727,6 +2714,91 @@ def assign_to_translators(task, parts, by_user, note="", deadline=KEEP_DEADLINE)
         )
         log(by_user, "task.assign_translator", task.code, f"→ {assignment.assignee} {part_text(assignment, 'en')}".strip())
     return made
+
+
+LANGUAGE_PAIR_AR = "اكتب اللغتين: من لغة وإلى لغة."
+LANGUAGE_TOO_LONG_AR = f"اسم اللغة طويل: اكتب الكود (EN أو AR) أو الاسم بحد أقصى {MAX_LANGUAGE} حرف."
+
+
+@transaction.atomic
+def set_task_languages(task, source, target, by_user):
+    """The operation (or the admin) says which language pair a task is. ``(True, "")`` or ``(False, the sentence or a code)``.
+
+    The pair is the operation's to say (08/10/2026): the team leader hands the task out and the translators read it off, neither types
+    it. It can be corrected until the task is delivered, and the hand-offs already made follow it, so a translator reads the same pair
+    as everybody else (and the AI check is told the same pair).
+    """
+    from .forms import _language_code
+
+    if not (by_user.is_operation or by_user.is_admin_role):
+        return False, "forbidden"
+    if task.is_done:
+        return False, "bad_status"
+    if not isinstance(source, str) or not isinstance(target, str):
+        return False, LANGUAGE_PAIR_AR
+    source, target = _language_code(source), _language_code(target)
+    if not source or not target:
+        return False, LANGUAGE_PAIR_AR
+    if len(source) > MAX_LANGUAGE or len(target) > MAX_LANGUAGE:
+        return False, LANGUAGE_TOO_LONG_AR
+    before = f"{task.source_lang}>{task.target_lang}"
+    task.source_lang, task.target_lang = source, target
+    task.save(update_fields=["source_lang", "target_lang", "updated_at"])
+    task.assignments.filter(target_role=Role.TRANSLATOR).update(source_lang=source, target_lang=target)
+    log(by_user, "task.languages", task.code, f"{before} -> {source}>{target}")
+    return True, ""
+
+
+def parts_without_words(task):
+    """The translators' shares on the task that were handed in and have no word count yet: what stops the review from being finished."""
+    return [
+        share for share in task.translator_parts(accepted_only=True).select_related("assignee")
+        if share.done_at is not None and not share.words
+    ]
+
+
+@transaction.atomic
+def set_part_words(task, entries, by_user):
+    """The team leader writes how many words each translator translated, when their work is back for review (08/10/2026).
+
+    ``entries`` is ``[{"id": <the share's id>, "words": 800}, ...]``. Nothing is written unless every entry is good: a share of this task that
+    the translator has taken, and a whole number from 1 up. ``(shares, "")`` or ``(None, the sentence or a code)``. Only the task's own team
+    leader (and the admin), and only while the task is under review - the number is what the month's production is counted from, and a
+    task that has moved on is not the leader's to change.
+
+    The task's own count follows the shares as it always did: when nobody had settled it yet that is the sum of them, and it keeps
+    following while it is still that sum - but never a number a person settled.
+    """
+    if not (by_user.is_admin_role or (by_user.is_team_lead and task.team_lead_id == by_user.pk)):
+        return None, "forbidden"
+    _lock_task(task)
+    if task.status != TaskStatus.UNDER_REVIEW:
+        return None, "bad_status"
+    shares = {s.pk: s for s in task.translator_parts(accepted_only=True).select_related("assignee")}
+    if not isinstance(entries, list) or not entries or not all(isinstance(item, dict) for item in entries):
+        return None, "bad_parts"
+    typed = {}
+    for item in entries:
+        pk = _whole(item.get("id"))
+        words = _whole(item.get("words"))
+        if pk not in shares or pk in typed:
+            return None, "bad_parts"
+        who = shares[pk].assignee.short_name
+        if words is None or not 1 <= words <= MAX_PART_WORDS:
+            return None, f"{who}: اكتب عدد الكلمات اللي ترجمها (رقم أكبر من صفر)."
+        typed[pk] = words
+    before = sum(s.words for s in shares.values())
+    for pk, words in typed.items():
+        if shares[pk].words != words:
+            shares[pk].words = words
+            shares[pk].save(update_fields=["words"])
+    given = sum(s.words for s in shares.values())
+    if given and (task.word_count_state != WordCountState.CONFIRMED or (before and task.word_count == before)):
+        from . import wordcount
+
+        wordcount.confirm_task(task, by_user, words=given)
+    log(by_user, "task.part_words", task.code, ", ".join(f"{shares[pk].assignee.username}={words}" for pk, words in typed.items())[:200])
+    return list(shares.values()), ""
 
 
 def assign_to_translator(task, translator, by_user, note="", deadline=KEEP_DEADLINE, part=None):
@@ -3292,6 +3364,10 @@ def mark_reviewed(task, user):
     # A review closes a translation that is waiting for one. A press on a job still being worked, delivered or cancelled is
     # refused (a second press on a reviewed one is the idempotent case below).
     if task.status not in (TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED):
+        return False
+    # The leader writes each translator's words while he reviews (08/10/2026): the month's production is counted from them, so a review
+    # cannot be finished with one missing.
+    if task.status == TaskStatus.UNDER_REVIEW and parts_without_words(task):
         return False
     # A second press on a reviewed task must not post the files again.
     already = task.status == TaskStatus.REVIEWED

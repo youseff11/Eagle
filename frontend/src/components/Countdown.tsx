@@ -26,7 +26,9 @@ export function Countdown({ iso, state, label }: { iso: string | undefined; stat
   const tone = late ? "late" : state === "soon" || state === "late" ? state : "ok";
 
   return (
-    <span className={`row row--tight mono countdown deadline--${tone}`} role="timer" aria-label={t("العد التنازلي للديدلاين", "Deadline countdown")}>
+    // Not ``countdown``: that class is the round ring of the hand-off popup (118px, a conic gradient), and a line of text wearing it
+    // is drawn as a big empty circle with the numbers hanging out of its edge.
+    <span className={`row row--tight mono deadline-clock deadline--${tone}`} role="timer" aria-label={t("العد التنازلي للديدلاين", "Deadline countdown")}>
       <Icon name="timer" size="sm" />
       <span>
         {label ? `${label}: ` : ""}

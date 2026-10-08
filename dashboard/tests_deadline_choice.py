@@ -32,7 +32,7 @@ class DeadlineChoiceTests(TestCase):
         self.tr = make("tr_dc", Role.TRANSLATOR, team_lead=self.lead)
         self.acme = Client.objects.create(name="ACME", phone="+201000000071")
         self.due = timezone.now() + timedelta(days=3)
-        self.task = services.create_task(client=self.acme, title="Doc", created_by=self.ops, deadline=self.due)
+        self.task = services.create_task(client=self.acme, title="Doc", created_by=self.ops, deadline=self.due, source_lang="EN", target_lang="AR")
         services.accept_assignment(services.assign_to_lead(self.task, self.lead, self.ops), self.lead)
         self.task.refresh_from_db()
 
@@ -108,7 +108,7 @@ class DeadlineChoiceTests(TestCase):
         self.assertFalse(self.assigned())
 
     def test_a_task_the_operation_gave_no_date_can_still_be_given_a_shorter_one(self):
-        task = services.create_task(client=self.acme, title="Open ended", created_by=self.ops, deadline=None)
+        task = services.create_task(client=self.acme, title="Open ended", created_by=self.ops, deadline=None, source_lang="EN", target_lang="AR")
         services.accept_assignment(services.assign_to_lead(task, self.lead, self.ops), self.lead)
         browser = DjangoClient()
         browser.force_login(self.lead)

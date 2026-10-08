@@ -22,11 +22,15 @@ from .models import (
 from .permissions import user_may_open
 
 
-def hand_in_translation(task, translator):
+def hand_in_translation(task, translator, words=0):
     """Upload a translated file the way the task page does, then press Finished.
 
     "Finished" refuses with no file on the task, so every test that walks a
     task past translation hands one in first - the same as a translator must.
+
+    ``words`` is what the team leader writes for this translator while the task
+    is with him (08/10/2026): the review cannot be finished without it, so a test
+    that goes on to the review passes one. 0 leaves it unsaid, as it is at hand-in.
     """
     from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -35,7 +39,12 @@ def hand_in_translation(task, translator):
         task, translator,
         [SimpleUploadedFile("translated.txt", b"translated text", content_type="text/plain")],
     )
-    return services.mark_translated(task, translator)
+    done = services.mark_translated(task, translator)
+    if words:
+        task.assignments.filter(target_role=Role.TRANSLATOR, assignee=translator).exclude(
+            status=AssignmentStatus.CANCELLED
+        ).update(words=words)
+    return done
 
 
 class WorkflowTests(TestCase):
@@ -94,7 +103,7 @@ class WorkflowTests(TestCase):
         # no room a translator could be in with a client at all.
         self.assertNotIn(self.tr, with_lead.members.all())
 
-        hand_in_translation(task, self.tr)
+        hand_in_translation(task, self.tr, words=500)
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.UNDER_REVIEW)
         services.mark_reviewed(task, self.lead)
@@ -2895,7 +2904,7 @@ class HandoverTests(TestCase):
 
     def _reviewed_task(self):
         task = self._task_in_progress()
-        hand_in_translation(task, self.tr)
+        hand_in_translation(task, self.tr, words=500)
         task.refresh_from_db()
         services.mark_reviewed(task, self.lead)
         task.refresh_from_db()
@@ -3926,7 +3935,7 @@ class HandoffInChatTests(TestCase):
         services.accept_assignment(self._hand_to_lead(), self.lead)
         assignment = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(assignment, self.tr)
-        hand_in_translation(self.task, self.tr)
+        hand_in_translation(self.task, self.tr, words=500)
         services.mark_reviewed(self.task, self.lead)
         room = services.staff_room(self.lead, self.ops)
         blob = " ".join(m.body for m in room.messages.all())
@@ -4882,6 +4891,7 @@ class DeadlineBoxesTests(TestCase):
 
         form = TaskForm({
             "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "source_lang": "EN", "target_lang": "AR",
             "deadline_days": "2", "deadline_hours": "3", "deadline_minutes": "30",
             "word_count": "0",
         })
@@ -4896,6 +4906,7 @@ class DeadlineBoxesTests(TestCase):
 
         form = TaskForm({
             "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "source_lang": "EN", "target_lang": "AR",
             "deadline_days": "0", "deadline_hours": "0", "deadline_minutes": "0",
             "word_count": "0",
         })
@@ -4907,6 +4918,7 @@ class DeadlineBoxesTests(TestCase):
 
         form = TaskForm({
             "client": self.client_obj.pk, "title": "Doc", "priority": "normal",
+            "source_lang": "EN", "target_lang": "AR",
             "deadline_days": "", "deadline_hours": "", "deadline_minutes": "",
             "word_count": "0",
         })
@@ -5068,7 +5080,7 @@ class TranslatorDeadlineTests(TestCase):
     def _task(self):
         task = services.create_task(
             client=self.client_obj, title="Doc", created_by=self.ops,
-            deadline=self.client_due,
+            deadline=self.client_due, source_lang="EN", target_lang="AR",
         )
         services.accept_assignment(
             services.assign_to_lead(task, self.lead, self.ops), self.lead
@@ -8446,7 +8458,7 @@ class ReviewedFilesToOperationTests(TestCase):
         services.accept_assignment(first, self.lead)
         second = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(second, self.tr)
-        hand_in_translation(self.task, self.tr)
+        hand_in_translation(self.task, self.tr, words=500)
         self.task.refresh_from_db()
         self.room = services.staff_room(self.lead, self.ops)
 

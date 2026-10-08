@@ -335,6 +335,10 @@ class TaskForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["client"].queryset = Client.objects.filter(is_active=True)
+        # The language pair is the operation's to say (08/10/2026): the team leader and the translators read it off the task and never
+        # type it, so a task cannot be made without it.
+        for name in ("source_lang", "target_lang"):
+            self.fields[name].required = True
 
     # Whatever was typed - "en", "English", "انجليزي" - is kept as the code.
     def clean_source_lang(self):

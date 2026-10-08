@@ -9,9 +9,10 @@ export function pagesOf(part: Pick<PartJson, "page_from" | "page_to">) {
 }
 
 /**
- * What the team leader gave this translator of the task (07/10/2026): the language pair, how many words and - when the task is shared
- * between several translators - which pages. It is theirs to read and nothing for them to type: the words are what the month's
- * production is counted from, and they are the leader's number. Nothing is drawn for a task that was given whole with nothing said.
+ * What this translator was given of the task (07/10/2026): the language pair (the operation's, 08/10/2026), which pages when the task is
+ * shared between several translators (the leader's), and how many words once the leader has written them at the review. It is theirs to
+ * read and nothing for them to type: the words are what the month's production is counted from, and they are the leader's number.
+ * Nothing is drawn for a task that was given whole with nothing said.
  */
 export function PartBox({ part, handedIn = false }: { part: PartJson | null; handedIn?: boolean }) {
   const { t } = usePreferences();

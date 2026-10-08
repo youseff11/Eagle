@@ -1,18 +1,16 @@
 /**
  * The shares the team leader gives when he hands a task to one translator or to several (07/10/2026).
  *
- * A share is a translator, the language pair they translate, how many words, and - once more than one translator is on the
- * task - which pages. These are the rules the server enforces (`services.parse_parts`), asked here first so the button says what
- * is missing before anything is sent. The server stays the judge: a request that gets past this still meets it.
+ * What he types here is the translator and - once more than one translator is on the task - which pages. The language pair is the task's
+ * own (the operation says it) and the words are written afterwards, when the translation is with him for review (08/10/2026). These are
+ * the rules the server enforces (`services.parse_parts`), asked here first so the button says what is missing before anything is sent.
+ * The server stays the judge: a request that gets past this still meets it.
  */
 
 export interface PartRow {
   /** Only for the list's keys: a row has no identity but its place. */
   key: number;
   translator: number | null;
-  source: string;
-  target: string;
-  words: string;
   from: string;
   to: string;
 }
@@ -47,9 +45,6 @@ export function rowProblems(rows: PartRow[], taken: TakenShare[], names: Map<num
     if (row.translator === null) return void out.push(t("اختار مترجم.", "Pick a translator."));
     if (seen.has(row.translator)) return void out.push(t("المترجم ده اتكرر: كل مترجم ليه جزء واحد.", "This translator is listed twice: one share each."));
     seen.add(row.translator);
-    if (row.source.trim() === "" || row.target.trim() === "") return void out.push(t("حدد الترجمة من لغة إيه لغة إيه.", "Say which language to which."));
-    const words = whole(row.words);
-    if (words === null || words < 1) return void out.push(t("اكتب عدد الكلمات (رقم أكبر من صفر).", "Type the number of words (more than zero)."));
 
     const typed = row.from.trim() !== "" || row.to.trim() !== "";
     if (typed || many) {
@@ -75,5 +70,8 @@ export function rowProblems(rows: PartRow[], taken: TakenShare[], names: Map<num
   return out;
 }
 
-/** How many words the rows hand out in all (what is not a number counts as nothing). */
-export const wordsGiven = (rows: PartRow[]) => rows.reduce((sum, row) => sum + (whole(row.words) ?? 0), 0);
+/** A words box as the server reads it: a whole number from 1 up, or `null`. */
+export const wordsTyped = (text: string) => {
+  const value = whole(text);
+  return value !== null && value >= 1 ? value : null;
+};

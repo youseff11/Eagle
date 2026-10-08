@@ -37,7 +37,7 @@ class ReviewedUploadTests(TestCase):
         services.accept_assignment(first, self.lead)
         second = services.assign_to_translator(self.task, self.tr, self.lead)
         services.accept_assignment(second, self.tr)
-        hand_in_translation(self.task, self.tr)
+        hand_in_translation(self.task, self.tr, words=500)
         self.task.refresh_from_db()
         self.room = services.staff_room(self.lead, self.ops)
 

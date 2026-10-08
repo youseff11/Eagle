@@ -7,9 +7,9 @@ import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../compo
 import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
-import { AssignTranslatorBox, CloseTranslationButton, ExtensionBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
+import { AssignTranslatorBox, CloseTranslationButton, ExtensionBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
-import { DeliveriesCard, HistoryCard, MessagesCard, PartsCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
+import { DeliveriesCard, HistoryCard, LanguagesCard, MessagesCard, PartsCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
 import { safeInternalPath } from "../lib/safeUrl";
 
@@ -111,7 +111,7 @@ function Task({ task }: { task: OpsTask }) {
   // The leader's own tools, drawn only when there is one to use; and the card only when anything is in it.
   const leadTools =
     lead !== null &&
-    (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null);
+    (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null);
   const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
@@ -226,11 +226,13 @@ function Task({ task }: { task: OpsTask }) {
               <AssignTranslatorBox task={task} />
               <TranslatorDeadlineBox task={task} />
               <ExtensionBox task={task} />
+              <PartWordsBox task={task} />
               <ReviewedFilesBox task={task} />
               <CloseTranslationButton task={task} />
               <ReviewButton task={task} />
             </div>
           )}
+          {can.set_languages === true && <LanguagesCard task={task} />}
           {can.set_words && <WordCountCard task={task} />}
           {!task.watching && <RequirementsCard task={task} />}
           {!task.watching && <DeliveriesCard task={task} />}

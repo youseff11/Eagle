@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAddRequirement, useSaveWords } from "../../api/opsActions";
+import { useAddRequirement, useSaveLanguages, useSaveWords } from "../../api/opsActions";
 import type { OpsTask } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { ROLE_LABELS } from "../../lib/roles";
@@ -67,6 +67,99 @@ export function WordCountCard({ task }: { task: OpsTask }) {
             {t("حفظ", "Save")}
           </button>
         </div>
+        {problem && (
+          <div className="note note--high mt" role="alert">
+            <Icon name="alert" />
+            <div>{problem}</div>
+          </div>
+        )}
+      </form>
+    </div>
+  );
+}
+
+/** The languages offered as suggestions in the two boxes; anything else can still be typed and the server reads it. */
+const LANGUAGES = ["AR", "EN", "FR", "DE", "IT", "ES", "TR", "RU", "ZH", "JA", "PT", "NL"];
+
+/**
+ * The language pair of the task (08/10/2026): the operation says it - on the new-task form, and here to correct it or to fill it in on a
+ * task that has none. The team leader and the translators only read it, and a task without one cannot be handed to a translator.
+ */
+export function LanguagesCard({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const save = useSaveLanguages(task.code);
+  const [typed, setTyped] = useState<{ source: string; target: string } | null>(null);
+  const [problem, setProblem] = useState("");
+  const source = typed?.source ?? task.source_lang;
+  const target = typed?.target ?? task.target_lang;
+  const set = task.source_lang.trim() !== "" && task.target_lang.trim() !== "";
+  const ready = source.trim() !== "" && target.trim() !== "";
+
+  return (
+    <div className="card" id="languages" data-card="languages">
+      <div className="card__head">
+        <Icon name="globe" />
+        <h3>{t("لغة الترجمة", "Language pair")}</h3>
+        <div className="grow" />
+        {set ? <span className="badge badge--ok">{t("متسجّلة", "Set")}</span> : <span className="badge badge--dead">{t("لسه متحددتش", "Not set yet")}</span>}
+      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!ready || save.isPending) return;
+          setProblem("");
+          save.mutate(
+            { source_lang: source.trim(), target_lang: target.trim() },
+            {
+              onSuccess: () => {
+                setTyped(null);
+                push({ level: "success", title: t("لغة الترجمة اتسجّلت", "The language pair was saved") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            },
+          );
+        }}
+      >
+        <div className="row row--tight" style={{ flexWrap: "wrap" }}>
+          <div className="field grow">
+            <label htmlFor="languagesSource">{t("من لغة", "From language")}</label>
+            <input
+              id="languagesSource"
+              className="input"
+              dir="ltr"
+              list="languagesList"
+              autoComplete="off"
+              placeholder="EN"
+              value={source}
+              onChange={(event) => setTyped({ source: event.target.value, target })}
+            />
+          </div>
+          <div className="field grow">
+            <label htmlFor="languagesTarget">{t("إلى لغة", "To language")}</label>
+            <input
+              id="languagesTarget"
+              className="input"
+              dir="ltr"
+              list="languagesList"
+              autoComplete="off"
+              placeholder="AR"
+              value={target}
+              onChange={(event) => setTyped({ source, target: event.target.value })}
+            />
+          </div>
+        </div>
+        <datalist id="languagesList">
+          {LANGUAGES.map((code) => (
+            <option key={code} value={code} />
+          ))}
+        </datalist>
+        <small className="muted">
+          {t("التيم ليدر والمترجمين بيقروا اللغتين من هنا ومابيكتبوهمش.", "The team leader and the translators read the pair from here and do not type it.")}
+        </small>
+        <button className="btn btn--block btn--sm mt" type="submit" disabled={!ready || save.isPending || typed === null}>
+          {t("حفظ اللغة", "Save the languages")}
+        </button>
         {problem && (
           <div className="note note--high mt" role="alert">
             <Icon name="alert" />

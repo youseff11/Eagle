@@ -458,6 +458,10 @@ def task_action(request, code, action):
             "error_en": services.TRANSLATION_MISSING_EN,
         }, status=400)
 
+    # A review is not finished while a translator who handed in has no word count (the leader writes it on this page): said in words.
+    if action == "reviewed" and task.status == TaskStatus.UNDER_REVIEW and services.parts_without_words(task):
+        return JsonResponse({"ok": False, "code": "words_missing", "error": services.WORDS_MISSING_AR}, status=400)
+
     ok = handler()
     task.refresh_from_db()
     return JsonResponse({

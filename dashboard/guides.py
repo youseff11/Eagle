@@ -513,14 +513,14 @@ GUIDES = (
         ),
         [
             "لما تتبعتلك تاسك بتظهر شاشة «تاسك جديدة ليك» وفيها عداد (حوالي دقيقة).",
-            "في «المطلوب منك» شايف اللغتين وعدد الكلمات، ولو التاسك متقسمة على أكتر من مترجم هتلاقي الصفحات اللي عليك. دي اللي التيم ليدر حددها ومش بتتغير من عندك.",
+            "في «المطلوب منك» شايف اللغتين، ولو التاسك متقسمة على أكتر من مترجم هتلاقي الصفحات اللي عليك. اللغتين من الأوبريشن والصفحات من التيم ليدر ومش بتتغير من عندك. وعدد كلماتك بيكتبه التيم ليدر بعد ما تسلّم وبيظهر هنا.",
             "لو عايز تشوف الملفات الأول اضغط «شوف الملفات والتفاصيل الأول». فتح الصفحة مش استلام والعداد لسه شغال.",
             "اضغط «استلمت» قبل ما العداد يخلص.",
             "لو مش هتقدر اضغط «رفض» واكتب السبب (لازم).",
         ],
         [
             "When a task is sent to you the screen «A task is waiting for you» appears with a timer (about a minute).",
-            "«Your part» shows the two languages and the number of words, and when the task is split between several translators the pages that are yours. The team leader set them, and they do not change from your side.",
+            "«Your part» shows the two languages, and when the task is split between several translators the pages that are yours. The operation set the languages and the team leader the pages, and they do not change from your side. Your number of words is written by the team leader after you hand in, and it shows here.",
             "To see the files first press «See the files and details first». Opening the page is not accepting and the timer keeps running.",
             "Press «Accept» before the timer runs out.",
             "If you cannot take it press «Decline» and write the reason (required).",
@@ -803,6 +803,32 @@ GUIDES = (
             "Fill the «Client code», «Task title», «Source language», «Target language», «Word count», «Deadline (agreed with the client)» and «Priority».",
             "Press «Create task».",
         ],
+        note=(
+            "اللغتين (من لغة وللغة) لازم يتكتبوا: التيم ليدر والمترجم بيقروهم من التاسك ومابيكتبوهمش.",
+            "Both languages must be written: the team leader and the translator read them off the task and never type them.",
+        ),
+    ),
+    _guide(
+        "ops-task-languages", (Role.OPERATION, Role.ADMIN), "/tasks",
+        ("إزاي أحدد أو أصحح لغة الترجمة على تاسك", "How do I set or correct the language pair of a task"),
+        (
+            "لغة الترجمة، من لغة وإلى لغة، اللغتين، غيّر اللغة، صحح اللغة، التيم ليدر بيقول اللغة مش متحددة، حدد اللغة",
+            "language pair, from language to language, change the language, correct the language, the team leader says the language is not set",
+        ),
+        [
+            "افتح التاسك من «التاسكات».",
+            "في كارت «لغة الترجمة» اكتب «من لغة» و«إلى لغة» (كود زي EN أو AR أو الاسم).",
+            "اضغط «حفظ اللغة». لو التاسك اتوزعت على مترجمين، اللغتين بتتغير عندهم كمان.",
+        ],
+        [
+            "Open the task from «Tasks».",
+            "In the «Language pair» card write «From language» and «To language» (a code like EN or AR, or the name).",
+            "Press «Save the languages». If the task was already handed to translators, they read the new pair too.",
+        ],
+        note=(
+            "التيم ليدر مابيقدرش يوزّع التاسك على مترجم قبل ما اللغتين يتحددوا. بعد التسليم للعميل اللغة مابتتغيرش.",
+            "The team leader cannot hand the task to a translator before the pair is set. Once the task is delivered the pair no longer changes.",
+        ),
     ),
     _guide(
         "ops-assign-lead", (Role.OPERATION, Role.ADMIN), "/tasks",
@@ -1021,7 +1047,7 @@ GUIDES = (
         [
             "افتح «تاسكاتي» واضغط «وزّع على مترجم» على التاسك (أو افتح التاسك).",
             "من «اعمل assign لمترجم من فريقك» اختار المترجم؛ قدّام كل اسم فاضي أو مشغول أو أوفلاين وتقييمه.",
-            "حدد «من لغة» و«إلى لغة» (بتتملى بلغات التاسك وتقدر تغيّرها) واكتب «عدد كلمات المترجم». المترجم نفسه مابيكتبش حاجة من دول، ورقم الكلمات ده هو اللي بيتحسب له.",
+            "لغة الترجمة (من لغة وإلى لغة) بتتقري من التاسك والأوبريشن هو اللي بيحددها، فمابتكتبهاش انت ولا المترجم. لو لسه ماتحددتش هيظهر تنبيه والإرسال يقف لحد ما الأوبريشن يحددها. وعدد الكلمات مابتكتبوش هنا: بتكتبه بعد ما المترجم يسلّم وانت بتراجع.",
             "لو التاسك كبيرة اضغط «إضافة مترجم تاني على نفس التاسك» لكل مترجم زيادة. وقتها لازم تكتب لكل واحد «من صفحة» و«لحد صفحة» والصفحات ماينفعش تتداخل. «شيل المترجم ده» بيمسح الصف.",
             "في «الديدلاين اللي هتديه للمترجمين» شايف ديدلاين الأوبريشن وعدّاده التنازلي. لازم تختار: «نفس ديدلاين الأوبريشن» أو «ديدلاين أقل».",
             "لو اخترت «ديدلاين أقل» اكتب بعد كام يوم أو ساعة أو دقيقة من دلوقتي، ولازم يكون أقل من الوقت الباقي عشان يفضلك وقت تراجع. المترجمين بيشوفوا العد التنازلي بالديدلاين اللي حطيته.",
@@ -1033,7 +1059,7 @@ GUIDES = (
         [
             "Open «My tasks» and press «Assign a translator» on the task (or open the task).",
             "From «Assign a translator from your team» pick the translator; each name shows free, busy or offline and their rating.",
-            "Set «From language» and «To language» (they start as the task's own and you can change them) and write «Translator's words». The translator types none of it, and these words are what they are paid on.",
+            "The language pair (from and to) is read off the task and the operation sets it, so neither you nor the translator types it. If it is not set yet a warning shows and the send waits until the operation sets it. The words are not typed here either: you write them after the translator hands in, while you review.",
             "For a big task press «Add another translator to this task» for each extra one. Every translator then needs «From page» and «To page», and the pages cannot overlap. «Remove this translator» deletes the row.",
             "In «The deadline you are giving the translators» you see the operation's deadline and its countdown. You have to choose: «The same as the operation's deadline» or «A shorter deadline».",
             "If you choose «A shorter deadline» write how many days, hours or minutes from now; it has to be less than the time left, so you keep time to review. The translators count down to the deadline you gave.",
@@ -1075,19 +1101,21 @@ GUIDES = (
         [
             "افتح «تاسكاتي» واضغط «راجع الترجمة» على التاسك.",
             "قارن «ملف الترجمة (من المترجم)» بـ«الملف الأصلي (من العميل)».",
-            "لو الـAI مفعّل هتلاقي «ملاحظات الـ AI على الترجمة» (وفيها «أعد الفحص»)؛ دي اقتراحات بس والقرار ليك. على التاسك اللي عليها أكتر من مترجم بيتعمل فحص لكل مترجم أول ما يسلّم جزءه، على جزءه بس (الصفحات والكلمات اللي حددتها)، وملاحظاته بتظهر في قسم باسمه والنجوم بتتخصم منه هو.",
+            "لو الـAI مفعّل هتلاقي «ملاحظات الـ AI على الترجمة» (وفيها «أعد الفحص»)؛ دي اقتراحات بس والقرار ليك. على التاسك اللي عليها أكتر من مترجم بيتعمل فحص لكل مترجم أول ما يسلّم جزءه، على جزءه بس (الصفحات اللي حددتها)، وملاحظاته بتظهر في قسم باسمه والنجوم بتتخصم منه هو.",
             "علّم «اقبلها» على الملاحظات اللي صح واضغط زرار قبول المحدد، أو «اقبل الكل» لو كلها صح. كل ملاحظة بتتقبل بتخصم نجوم من تقييم المترجم بس، وبيطلع لك سؤال بعدد النجوم قبل ما يتنفذ.",
             "لو فيه ملاحظات كلّم المترجم في جروب الشغل من «الشات» واستنى الملف المعدّل.",
             "لو انت اللي عدّلت الملف: من «الملف اللي ظبطته» اختار ملفك واضغط «احفظ الملف المعدّل». ده اللي هيروح للأوبريشن مع المراجعة بدل ملف المترجم. لو مارفعتش ملف هيروح ملف المترجم زي ما هو.",
+            "اكتب كام كلمة ترجم كل مترجم: من «عدد كلمات كل مترجم» اكتب الرقم قدّام اسم كل واحد واضغط «حفظ عدد الكلمات». الحسابات بتحسب إنتاج المترجم من الرقم ده، و«تمت المراجعة» مابتشتغلش قبل ما كل مترجم يبقى له رقم.",
             "لما تبقى تمام اضغط «تمت المراجعة» وأكّد «أيوه، خلصت». التاسك بتروح للأوبريشن تستلمها وتسلّمها للعميل.",
         ],
         [
             "Open «My tasks» and press «Review» on the task.",
             "Compare the «Translation (from the translator)» with the «Original (from the client)».",
-            "If the AI is on you will find «AI notes on the translation» (with «Check again»); they are suggestions only and the decision is yours. A task with several translators is checked for each one the moment they hand their part in, on their own part only (the pages and words you set); the notes show in a section with their name, and any stars come off them alone.",
+            "If the AI is on you will find «AI notes on the translation» (with «Check again»); they are suggestions only and the decision is yours. A task with several translators is checked for each one the moment they hand their part in, on their own part only (the pages you set); the notes show in a section with their name, and any stars come off them alone.",
             "Tick «Accept» on the notes that are right and press the accept-selected button, or «Accept all» if all are. Each accepted note takes stars off the translator's rating only, and you are asked how many before it is done.",
             "If there are notes, talk to the translator in the work group from «Chats» and wait for the corrected file.",
             "If you corrected the file yourself: under «The file you corrected» choose your file and press «Save the corrected file». That is what the operation gets with the review, in place of the translator's file. With none put there, the translator's file goes as it is.",
+            "Write how many words each translator translated: under «Each translator's words» type the number beside each name and press «Save the words». The translator's production is counted from it, and «Review completed» does not work until every translator has a number.",
             "When it is right press «Review completed» and confirm «Yes, it is done». The task goes to operation to take over and deliver to the client.",
         ],
         starter=True,

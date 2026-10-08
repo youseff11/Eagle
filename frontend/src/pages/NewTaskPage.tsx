@@ -165,6 +165,7 @@ function Form({ start }: { start: TaskStartResponse }) {
                   list="langOptions"
                   dir="ltr"
                   autoComplete="off"
+                  aria-required="true"
                   placeholder={name === "source_lang" ? "EN" : "AR"}
                   value={values[name]}
                   onChange={(event) => set(name, event.target.value)}

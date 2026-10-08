@@ -1728,10 +1728,10 @@ class Assignment(models.Model):
 
     # -- what a translator is given (07/10/2026) --------------------------------------------------------------
     #
-    # The team leader says, for each translator, which language pair they translate, how many words, and - when the task is
-    # split between several of them - which pages. The translator does not type any of it: the words are what the leader
-    # gave them, and they are what the month's production is counted from. Empty on a team leader's hand-off and on the
-    # ones made before this existed (those are read as the whole task).
+    # What each translator was given: the language pair (copied from the task, which the operation says - 08/10/2026), which pages
+    # when the task is split between several of them (the team leader says), and how many words (the leader writes them while he
+    # reviews, 08/10/2026). The translator does not type any of it: the words are what the month's production is counted from.
+    # Empty on a team leader's hand-off and on the ones made before this existed (those are read as the whole task).
     source_lang = models.CharField(max_length=40, blank=True)
     target_lang = models.CharField(max_length=40, blank=True)
     words = models.PositiveIntegerField(default=0, help_text="Words the leader gave this translator. 0 = not said.")

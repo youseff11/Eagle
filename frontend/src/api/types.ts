@@ -412,6 +412,8 @@ export interface OpsTask {
     set_deadline: boolean;
     /** The word count: the operation, the admin and the task's own team leader. */
     set_words: boolean;
+    /** The language pair: the operation's (and the admin's) to say, until the task is delivered. */
+    set_languages?: boolean;
   };
   /** What the task's team leader (and the admin) may do on it; `null` for everybody else. */
   lead: LeadTools | null;
@@ -1036,6 +1038,8 @@ export interface LeadTools {
   can_set_translator_deadline: boolean;
   /** It is under review: the review can be finished. */
   can_review: boolean;
+  /** Under review with a translator who took a share: the leader writes each translator's words, and the review waits for them. */
+  can_set_part_words?: boolean;
   /** Every share still on it is in and none is waiting: the leader may close the translation and review what there is. */
   can_close_translation?: boolean;
   /** The leader may put the file he corrected: under review, and after it until the client has it. */

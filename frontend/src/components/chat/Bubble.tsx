@@ -49,6 +49,8 @@ export interface TextMark {
 /** One photo: a press opens it over the chat (with the button that saves it); a modified press still opens the address in a tab. */
 function SinglePhoto({ url, name, enabled }: { url: string; name: string; enabled: boolean }) {
   const [open, setOpen] = useState(false);
+  // The copy kept from the moment it was sent may no longer draw (the browser refused it, or it was let go): then the server's.
+  const [copyFailed, setCopyFailed] = useState(false);
   const show = (event: MouseEvent<HTMLAnchorElement>) => {
     if (!enabled || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -57,7 +59,7 @@ function SinglePhoto({ url, name, enabled }: { url: string; name: string; enable
   return (
     <>
       <a className="bub__img" href={url} target="_blank" rel="noopener noreferrer" title={name} onClick={show}>
-        <img src={localSrc(url)} alt={name} loading="lazy" />
+        <img src={copyFailed ? url : localSrc(url)} alt={name} loading="lazy" onError={() => setCopyFailed(true)} />
       </a>
       {open && <Lightbox images={[{ url, name }]} start={0} onClose={() => setOpen(false)} />}
     </>

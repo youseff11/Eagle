@@ -14,6 +14,8 @@ export const GRID_TILES = 4;
 export function ImageGrid({ images }: { images: LightboxImage[] }) {
   const { t } = usePreferences();
   const [open, setOpen] = useState<number | null>(null);
+  // The addresses whose kept copy did not draw (see `SinglePhoto`): those are drawn from the server's.
+  const [copyFailed, setCopyFailed] = useState<string[]>([]);
   const shown = images.slice(0, GRID_TILES);
   const more = images.length - shown.length;
   return (
@@ -28,7 +30,12 @@ export function ImageGrid({ images }: { images: LightboxImage[] }) {
             aria-label={`${t("افتح الصورة", "Open the photo")} ${index + 1}: ${image.name}`}
             onClick={() => setOpen(index)}
           >
-            <img src={localSrc(image.url)} alt={image.name} loading="lazy" />
+            <img
+              src={copyFailed.includes(image.url) ? image.url : localSrc(image.url)}
+              alt={image.name}
+              loading="lazy"
+              onError={() => setCopyFailed((failed) => (failed.includes(image.url) ? failed : [...failed, image.url]))}
+            />
             {more > 0 && index === shown.length - 1 && <span className="imggrid__more">+{more}</span>}
           </button>
         ))}

@@ -235,12 +235,14 @@ class ContentSecurityPolicyTests(_Built):
 
     def test_pictures_and_voice_notes_come_from_this_site_only(self):
         policy = self.policy()
-        self.assertEqual(policy["img-src"], "'self' data:")
+        # The photo that has just been sent is drawn from a blob: address while it is on its way and after it arrived
+        # (`lib/localPhotos`): jsdom does not enforce the policy, so only this line says a browser will draw it.
+        self.assertEqual(policy["img-src"], "'self' data: blob:")
         # Said outright, not left to default-src: the chat plays voice notes with <audio>.
         self.assertEqual(policy["media-src"], "'self' blob:")
-        # blob: is for playing a recording back, and for nothing that can run or load a page.
+        # blob: is for showing what the person themselves just picked or recorded, and for nothing that can run or load a page.
         for directive, value in policy.items():
-            if directive != "media-src":
+            if directive not in ("img-src", "media-src"):
                 self.assertNotIn("blob:", value, directive)
 
     def test_the_page_cannot_be_framed_and_forms_post_home(self):

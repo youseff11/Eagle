@@ -2,7 +2,9 @@
 
 What these tests hold, in the order the work goes:
 
-- the leader has to say the language pair and the words for every translator, even one; the translator types none of it;
+- the language pair is the task's own (the operation says it) and the leader never types it; the words are the leader's, written for each
+  translator when the translation is with him for review, and the review cannot be finished without them (08/10/2026); the translator
+  types none of it;
 - a task can go to several translators at once, each with pages that do not overlap; each answers for their own share only
   (a refusal or a time-out sends back that share, not the task), and a share can be added while the others are being translated;
 - each hands their own part in; the task goes to review when the last has;
@@ -64,7 +66,21 @@ class _Fixture:
 
     # -- doors -----------------------------------------------------------------------------------------------
     def part(self, who, **over):
-        return {"translator": who.pk, "source_lang": "EN", "target_lang": "AR", "words": "500", "page_from": "", "page_to": "", **over}
+        return {"translator": who.pk, "page_from": "", "page_to": "", **over}
+
+    def say_words(self, who, words, task=None):
+        """The leader's number for one translator, put where ``set_part_words`` puts it: for the tests that are not about the review."""
+        Assignment.objects.filter(task=task or self.task, assignee=who, target_role=Role.TRANSLATOR).exclude(
+            status=AssignmentStatus.CANCELLED
+        ).update(words=words)
+
+    def pair_task(self, title="Another"):
+        """A task the leader has accepted, with the operation's pair on it."""
+        task = services.create_task(
+            client=self.acme, title=title, created_by=self.ops, deadline=self.due, source_lang="EN", target_lang="AR",
+        )
+        services.accept_assignment(services.assign_to_lead(task, self.lead, self.ops), self.lead)
+        return task
 
     def post(self, parts, user=None, task=None, **extra):
         data = {"parts": json.dumps(parts), "tdeadline_mode": "same", **extra}
@@ -90,7 +106,7 @@ class _Fixture:
 
     def split(self, *who, take=True):
         """Give pages 1-10, 11-20, ... to each, and let them accept."""
-        parts = [self.part(person, words=str(100 * (n + 1)), page_from=str(10 * n + 1), page_to=str(10 * n + 10)) for n, person in enumerate(who)]
+        parts = [self.part(person, page_from=str(10 * n + 1), page_to=str(10 * n + 10)) for n, person in enumerate(who)]
         self.assertEqual(self.post(parts).status_code, 200)
         if take:
             for person in who:
@@ -107,45 +123,40 @@ class _SplitTx(_Fixture, TransactionTestCase):
 
 
 class SingleTranslatorSaysWhatTests(_Split):
-    """Even for one translator the leader says the pair and the words."""
+    """The leader names the translator (and the pages once there are several); the pair is the task's and the words come at the review."""
 
-    def test_the_pair_and_the_words_are_asked_every_time_and_nothing_goes_out_without_them(self):
-        for bad in (
-            {"source_lang": ""}, {"target_lang": ""}, {"source_lang": "  ", "target_lang": ""},
-            {"words": ""}, {"words": "0"}, {"words": "-5"}, {"words": "12x"}, {"words": "1.5"},
-        ):
-            answer = self.post([self.part(self.a, **bad)])
-            self.assertEqual(answer.status_code, 400, bad)
-            self.assertFalse(_json(answer)["ok"])
+    def test_the_pair_is_the_tasks_own_and_what_the_leader_types_for_it_is_ignored(self):
+        answer = self.post([self.part(self.a, source_lang="FR", target_lang="DE", words="900")])
+        self.assertEqual(answer.status_code, 200)
+        share = self.of(self.a)
+        # Nobody but the operation says the pair, and the words are not said until the translation is back.
+        self.assertEqual((share.source_lang, share.target_lang, share.words), ("EN", "AR", 0))
+        self.assertEqual(self.fresh().word_count, 0)
+
+    def test_a_task_the_operation_has_not_given_a_pair_cannot_go_to_a_translator(self):
+        for source, target in (("", "AR"), ("EN", ""), ("", ""), ("  ", "AR")):
+            type(self.task).objects.filter(pk=self.task.pk).update(source_lang=source, target_lang=target)
+            answer = self.post([self.part(self.a)])
+            self.assertEqual((answer.status_code, _json(answer)["code"]), (400, "task_needs_languages"), (source, target))
+            self.assertIn("الأوبريشن", _json(answer)["error"])
         self.assertEqual(self.shares(), [])
         self.assertEqual(self.fresh().status, TaskStatus.LEAD_ACCEPTED)
         self.assertIsNone(self.fresh().translator_id)
 
-    def test_each_refusal_says_what_is_missing(self):
-        self.assertEqual(_json(self.post([self.part(self.a, source_lang="")]))["code"], "need_languages")
-        self.assertEqual(_json(self.post([self.part(self.a, words="")]))["code"], "need_words")
-
-    def test_what_he_said_is_kept_on_the_hand_off_and_the_language_is_read_as_a_code(self):
-        answer = self.post([self.part(self.a, source_lang="english", target_lang="الفرنسية", words="1,5")], )
-        self.assertEqual(answer.status_code, 400)
-        answer = self.post([self.part(self.a, source_lang="english", target_lang="الفرنسية", words="1500")])
-        self.assertEqual(answer.status_code, 200)
-        share = self.of(self.a)
-        self.assertEqual((share.source_lang, share.target_lang, share.words), ("EN", "FR", 1500))
-        self.assertIsNone(share.page_from)
-        self.assertEqual(self.fresh().translator_id, self.a.pk)
+    def test_who_is_asked_before_the_pair_so_a_wrong_name_is_still_a_wrong_name(self):
+        type(self.task).objects.filter(pk=self.task.pk).update(source_lang="", target_lang="")
+        answer = self.post([self.part(self.stranger)])
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "not_in_your_team"))
 
     def test_the_flat_boxes_of_one_translator_do_the_same_as_the_list(self):
         browser = DjangoClient()
         browser.force_login(self.lead)
-        answer = browser.post(reverse(URL, args=[self.task.code]), {
-            "user": self.a.pk, "source_lang": "EN", "target_lang": "AR", "words": "700", "tdeadline_mode": "same",
-        })
-        self.assertEqual(answer.status_code, 200)
-        self.assertEqual(self.of(self.a).words, 700)
-        # And the flat form is held to the same rules.
         answer = browser.post(reverse(URL, args=[self.task.code]), {"user": self.a.pk, "tdeadline_mode": "same"})
-        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual((self.of(self.a).source_lang, self.of(self.a).target_lang, self.of(self.a).words), ("EN", "AR", 0))
+        # And the flat form is held to the same rules: no translator named is not an offer.
+        answer = browser.post(reverse(URL, args=[self.task.code]), {"tdeadline_mode": "same"})
+        self.assertEqual(answer.status_code, 404)
 
     def test_pages_are_optional_for_one_translator_but_whole_when_given(self):
         self.assertEqual(self.post([self.part(self.a, page_from="3", page_to="")]).status_code, 400)
@@ -157,39 +168,32 @@ class SingleTranslatorSaysWhatTests(_Split):
         self.assertEqual((share.page_from, share.page_to, share.pages_text), (3, 9, "3-9"))
 
     def test_the_translator_is_told_what_is_asked_of_them_in_the_card_the_chat_and_the_notice(self):
-        self.post([self.part(self.a, words="1200", page_from="2", page_to="6")])
+        self.post([self.part(self.a, page_from="2", page_to="6")])
         share = self.of(self.a)
         pending = api._pending_json(share, self.a)
         self.assertEqual(
             pending["part"],
             {
-                "source_lang": "EN", "target_lang": "AR", "words": 1200, "page_from": 2, "page_to": 6,
-                "text_ar": "EN → AR · 1,200 كلمة · صفحات 2-6", "text_en": "EN → AR · 1,200 words · pages 2-6",
+                "source_lang": "EN", "target_lang": "AR", "words": 0, "page_from": 2, "page_to": 6,
+                "text_ar": "EN → AR · صفحات 2-6", "text_en": "EN → AR · pages 2-6",
             },
         )
         door = _json(self.get(self.a, "dashboard:v1_assignment", share.pk))["assignment"]
-        self.assertEqual(door["part"]["words"], 1200)
+        self.assertEqual((door["part"]["words"], door["part"]["source_lang"], door["part"]["target_lang"]), (0, "EN", "AR"))
         chat = ChatMessage.objects.filter(is_system=True, system_key="handoff").latest("id").body
-        self.assertIn("EN → AR · 1,200 كلمة · صفحات 2-6", chat)
+        self.assertIn("EN → AR · صفحات 2-6", chat)
         notice = Notification.objects.filter(user=self.a, title_en="New translation task").latest("id")
-        self.assertIn("EN → AR · 1,200 كلمة · صفحات 2-6", notice.body_ar)
+        self.assertIn("EN → AR · صفحات 2-6", notice.body_ar)
 
     def test_a_team_leaders_own_hand_off_carries_no_share(self):
         lead_offer = Assignment.objects.get(task=self.task, target_role=Role.TEAM_LEAD)
         self.assertIsNone(api._pending_json(lead_offer, self.lead)["part"])
 
-    def test_the_first_share_settles_the_tasks_count_when_nobody_had_but_never_overwrites_one_that_was_settled(self):
-        self.post([self.part(self.a, words="800")])
+    def test_handing_a_task_out_settles_no_word_count(self):
+        # The words are written at the review now: giving the task to somebody says nothing about how big it is.
+        self.assertEqual(self.post([self.part(self.a)]).status_code, 200)
         task = self.fresh()
-        self.assertEqual((task.word_count, task.word_count_state), (800, "confirmed"))
-        # A count the operation settled stands, whatever the leader gives a translator.
-        other = services.create_task(client=self.acme, title="Counted", created_by=self.ops, deadline=self.due)
-        services.accept_assignment(services.assign_to_lead(other, self.lead, self.ops), self.lead)
-        other.word_count, other.word_count_state = 3000, "confirmed"
-        other.save(update_fields=["word_count", "word_count_state"])
-        self.assertEqual(self.post([self.part(self.b, words="900")], task=other).status_code, 200)
-        other.refresh_from_db()
-        self.assertEqual(other.word_count, 3000)
+        self.assertEqual((task.word_count, task.word_count_state), (0, "empty"))
 
     def test_the_operation_sending_it_straight_leaves_the_words_unsaid_and_the_tasks_own_count_stands(self):
         services.accept_assignment(services.assign_direct_to_translator(self.task, self.a, self.ops), self.a)
@@ -217,7 +221,7 @@ class SplitBetweenSeveralTests(_Split):
     def test_each_translator_gets_an_offer_of_their_own_and_the_task_waits_for_the_first_yes(self):
         task = self.split(self.a, self.b, take=False)
         shares = self.shares(AssignmentStatus.PENDING)
-        self.assertEqual([(s.assignee_id, s.words, s.pages_text) for s in shares], [(self.a.pk, 100, "1-10"), (self.b.pk, 200, "11-20")])
+        self.assertEqual([(s.assignee_id, s.words, s.pages_text) for s in shares], [(self.a.pk, 0, "1-10"), (self.b.pk, 0, "11-20")])
         self.assertEqual((task.status, task.translator_id), (TaskStatus.AWAITING_TRANSLATOR, self.a.pk))
         for person in (self.a, self.b):
             self.assertTrue(Notification.objects.filter(user=person, title_en="New translation task").exists())
@@ -318,7 +322,7 @@ class SplitBetweenSeveralTests(_Split):
         self.split(self.a, self.b, take=False)
         services.accept_assignment(self.of(self.a), self.a)
         services.decline_assignment(self.of(self.b), self.b, "no")
-        again = self.post([self.part(self.c, words="200", page_from="11", page_to="20")])
+        again = self.post([self.part(self.c, page_from="11", page_to="20")])
         self.assertEqual(again.status_code, 200)
         task = self.fresh()
         self.assertEqual(task.status, TaskStatus.IN_PROGRESS)
@@ -331,7 +335,7 @@ class SplitBetweenSeveralTests(_Split):
         self.split(self.a, self.b, take=False)
         services.accept_assignment(self.of(self.a), self.a)
         pending_b = self.of(self.b)
-        self.assertEqual(self.post([self.part(self.c, words="50", page_from="21", page_to="30")]).status_code, 200)
+        self.assertEqual(self.post([self.part(self.c, page_from="21", page_to="30")]).status_code, 200)
         self.assertEqual(Assignment.objects.get(pk=pending_b.pk).status, AssignmentStatus.CANCELLED)
         self.assertEqual(self.of(self.a).status, AssignmentStatus.ACCEPTED)
         self.assertEqual(self.of(self.c).status, AssignmentStatus.PENDING)
@@ -448,6 +452,9 @@ class WhoSeesWhatTests(_Split):
     def setUp(self):
         super().setUp()
         self.split(self.a, self.b)
+        # The leader writes the words at the review; by then each reads theirs on their page.
+        self.say_words(self.a, 100)
+        self.say_words(self.b, 200)
         services.upload_translation(self.task, self.a, [_file("from-a.txt")])
         services.upload_translation(self.task, self.b, [_file("from-b.txt")])
 
@@ -579,6 +586,8 @@ class ProductionTests(_Split):
 
     def test_each_translator_is_counted_for_their_own_words_on_the_day_they_handed_in(self):
         self.split(self.a, self.b)
+        self.say_words(self.a, 100)
+        self.say_words(self.b, 200)
         now = timezone.now()
         early, late = now - timedelta(days=40), now
         self.finish(self.a, early)
@@ -594,6 +603,8 @@ class ProductionTests(_Split):
 
     def test_the_work_day_cache_gets_their_share_and_the_whole_job_is_not_counted_twice(self):
         self.split(self.a, self.b)
+        self.say_words(self.a, 100)
+        self.say_words(self.b, 200)
         hand_in_translation(self.task, self.a)
         hand_in_translation(self.task, self.b)
         Task_ = type(self.task)
@@ -838,12 +849,12 @@ class FallingThroughTests(_Split):
 
 
 class MalformedSharesTests(_Split):
-    def test_a_language_that_is_not_text_or_is_too_long_is_refused_in_words_and_not_by_the_server_or_the_database(self):
-        for bad in (["EN"], 5, {"x": 1}, True):
-            answer = self.post([self.part(self.a, source_lang=bad)])
-            self.assertEqual((answer.status_code, _json(answer)["code"]), (400, "need_languages"), bad)
-        answer = self.post([self.part(self.a, target_lang="x" * 41)])
-        self.assertEqual((answer.status_code, _json(answer)["code"]), (400, "bad_language"))
+    def test_a_page_that_is_not_a_number_or_is_beyond_reason_is_refused_in_words_and_not_by_the_server_or_the_database(self):
+        for bad in (["1"], {"x": 1}, True, "x" * 50):
+            answer = self.post([self.part(self.a, page_from=bad, page_to="3")])
+            self.assertEqual((answer.status_code, _json(answer)["code"]), (400, "need_pages"), bad)
+        answer = self.post([self.part(self.a, page_from=10**15, page_to=10**15)])
+        self.assertEqual((answer.status_code, _json(answer)["code"]), (400, "bad_pages"))
         self.assertEqual(self.shares(), [])
 
     def test_json_that_is_nested_beyond_reason_is_a_bad_request_not_a_crash(self):
@@ -937,17 +948,6 @@ class AnswersNotLostTests(_Split):
         self.assertEqual(self.post([self.part(self.a, page_from="1", page_to="10"), self.part(self.c, page_from="11", page_to="20")]).status_code, 200)
         self.assertTrue(Notification.objects.filter(user=self.b, title_en="The offer was withdrawn").exists())
         self.assertFalse(Notification.objects.filter(user=self.a, title_en="The offer was withdrawn").exists())
-
-    def test_the_tasks_own_count_grows_with_the_shares_while_it_is_the_sum_of_them_and_never_over_a_number_a_person_settled(self):
-        self.assertEqual(self.post([self.part(self.a, words="1000")]).status_code, 200)
-        services.accept_assignment(self.of(self.a), self.a)
-        self.assertEqual(self.fresh().word_count, 1000)
-        self.assertEqual(self.post([self.part(self.b, words="500", page_from="11", page_to="20")]).status_code, 200)
-        self.assertEqual(self.fresh().word_count, 1500)
-        # A person settled it: the next share leaves it alone.
-        type(self.task).objects.filter(pk=self.task.pk).update(word_count=4000)
-        self.assertEqual(self.post([self.part(self.c, words="300", page_from="21", page_to="30")]).status_code, 200)
-        self.assertEqual(self.fresh().word_count, 4000)
 
     def test_finished_with_no_file_of_their_own_is_said_in_words_even_when_a_colleague_has_uploaded(self):
         self.split(self.a, self.b)
@@ -1071,8 +1071,8 @@ class AiCheckPerTranslatorTests(_Split):
         self.assertNotIn("BETA", prompt_a)
         self.assertIn("BETA translated words", prompt_b)
         self.assertNotIn("ALPHA", prompt_b)
-        self.assertIn("SCOPE: this translator was given only pages 1-10 of the SOURCE (about 100 words)", prompt_a)
-        self.assertIn("SCOPE: this translator was given only pages 11-20 of the SOURCE (about 200 words)", prompt_b)
+        self.assertIn("SCOPE: this translator was given only pages 1-10 of the SOURCE, and the rest", prompt_a)
+        self.assertIn("SCOPE: this translator was given only pages 11-20 of the SOURCE, and the rest", prompt_b)
         for prompt in (prompt_a, prompt_b):
             self.assertIn("the rest of the source went to other translators", prompt)
             self.assertIn("do not report it as omitted", prompt)
@@ -1085,9 +1085,8 @@ class AiCheckPerTranslatorTests(_Split):
         self.assertNotIn("Target language: AR", prompt)
 
     def test_a_task_given_whole_is_judged_on_all_of_it_with_no_scope(self):
-        whole = services.create_task(client=self.acme, title="Whole", created_by=self.ops, deadline=self.due)
-        services.accept_assignment(services.assign_to_lead(whole, self.lead, self.ops), self.lead)
-        self.assertEqual(self.post([self.part(self.c, words="900")], task=whole).status_code, 200)
+        whole = self.pair_task("Whole")
+        self.assertEqual(self.post([self.part(self.c)], task=whole).status_code, 200)
         services.accept_assignment(Assignment.objects.get(task=whole, assignee=self.c), self.c)
         whole.refresh_from_db()
         services.upload_translation(whole, self.c, [self.text("c.txt", "GAMMA translated words")])
@@ -1096,14 +1095,13 @@ class AiCheckPerTranslatorTests(_Split):
         self.assertNotIn("SCOPE", prompt)
 
     def test_one_translator_given_pages_is_told_them_even_when_nobody_else_is_on_it(self):
-        task = services.create_task(client=self.acme, title="Partial", created_by=self.ops, deadline=self.due)
-        services.accept_assignment(services.assign_to_lead(task, self.lead, self.ops), self.lead)
-        self.post([self.part(self.c, words="300", page_from="4", page_to="9")], task=task)
+        task = self.pair_task("Partial")
+        self.post([self.part(self.c, page_from="4", page_to="9")], task=task)
         services.accept_assignment(Assignment.objects.get(task=task, assignee=self.c), self.c)
         task.refresh_from_db()
         services.upload_translation(task, self.c, [self.text("c.txt", "GAMMA")])
         _, prompt = self.run_check(self.c, task=task)
-        self.assertIn("pages 4-9 of the SOURCE (about 300 words)", prompt)
+        self.assertIn("pages 4-9 of the SOURCE", prompt)
         self.assertNotIn("went to other translators", prompt)
 
     def test_the_check_is_stored_against_the_translator_it_judged(self):

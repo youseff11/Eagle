@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PARTS, rowProblems, wordsGiven, type PartRow, type TakenShare } from "./parts";
+import { MAX_PARTS, rowProblems, wordsTyped, type PartRow, type TakenShare } from "./parts";
 
 const t = (ar: string, _en: string) => ar;
 const names = new Map([
@@ -9,28 +9,16 @@ const names = new Map([
 ]);
 
 let key = 0;
-const row = (over: Partial<PartRow> = {}): PartRow => ({ key: key++, translator: 1, source: "EN", target: "AR", words: "500", from: "", to: "", ...over });
+const row = (over: Partial<PartRow> = {}): PartRow => ({ key: key++, translator: 1, from: "", to: "", ...over });
 const problems = (rows: PartRow[], taken: TakenShare[] = []) => rowProblems(rows, taken, names, t);
 
 describe("rowProblems: what the leader is told before anything is sent", () => {
-  it("has nothing to say about one translator with a pair and words", () => {
+  it("has nothing to say about one translator who is named", () => {
     expect(problems([row()])).toEqual([""]);
   });
 
   it("wants a translator", () => {
     expect(problems([row({ translator: null })])[0]).toBe("اختار مترجم.");
-  });
-
-  it("wants both languages", () => {
-    expect(problems([row({ source: "  " })])[0]).toBe("حدد الترجمة من لغة إيه لغة إيه.");
-    expect(problems([row({ target: "" })])[0]).toBe("حدد الترجمة من لغة إيه لغة إيه.");
-  });
-
-  it("wants words that are a whole number above nought", () => {
-    for (const bad of ["", "0", "-3", "1.5", "12x", " ", "١٢"]) {
-      expect(problems([row({ words: bad })])[0], bad).toBe("اكتب عدد الكلمات (رقم أكبر من صفر).");
-    }
-    expect(problems([row({ words: " 40 " })])).toEqual([""]);
   });
 
   it("makes pages optional for one translator, but whole once any are typed", () => {
@@ -75,15 +63,20 @@ describe("rowProblems: what the leader is told before anything is sent", () => {
   });
 
   it("reports each row on its own place", () => {
-    const rows = [row({ translator: 1, from: "1", to: "5" }), row({ translator: 2, words: "", from: "6", to: "9" }), row({ translator: 3, from: "10", to: "12" })];
-    expect(problems(rows)).toEqual(["", "اكتب عدد الكلمات (رقم أكبر من صفر).", ""]);
+    const rows = [row({ translator: 1, from: "1", to: "5" }), row({ translator: 2, from: "6", to: "x" }), row({ translator: 3, from: "10", to: "12" })];
+    expect(problems(rows)).toEqual(["", "اكتب من صفحة كام لحد صفحة كام.", ""]);
+  });
+
+  it("no longer asks for the pair or the words: the first is the operation's, the second is written at the review", () => {
+    expect(problems([row()])).toEqual([""]);
   });
 });
 
-describe("wordsGiven", () => {
-  it("adds what is a number and ignores what is not", () => {
-    expect(wordsGiven([row({ words: "800" }), row({ words: "400" }), row({ words: "x" }), row({ words: "" })])).toBe(1200);
-    expect(wordsGiven([])).toBe(0);
+describe("wordsTyped: the number the leader writes for each translator at the review", () => {
+  it("is a whole number from one up, and nothing else", () => {
+    for (const bad of ["", "0", "-3", "1.5", "12x", " ", "١٢", "1,500"]) expect(wordsTyped(bad), bad).toBeNull();
+    expect(wordsTyped(" 40 ")).toBe(40);
+    expect(wordsTyped("1200")).toBe(1200);
   });
 
   it("agrees with the server about the most translators on a task", () => {
