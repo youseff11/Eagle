@@ -164,6 +164,36 @@ class WorkflowTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.DELIVERED)
 
+    def test_delivered_files_reach_the_client_with_no_caption_of_their_own(self):
+        from unittest import mock
+
+        from django.core.files.base import ContentFile
+
+        from .models import ChatAttachment, ChatMessage, RoomKind
+
+        for note in ("", "اتفضل الملفات"):
+            task = self.make_task()
+            task.team_lead, task.translator = self.lead, self.tr
+            task.status = TaskStatus.REVIEWED
+            task.handover_ack_at = timezone.now()
+            task.save()
+            room = services.ensure_room(task, RoomKind.GROUP)
+            message = ChatMessage.objects.create(room=room, sender=self.tr, body="done")
+            attachment = ChatAttachment.objects.create(
+                message=message, file=ContentFile(b"translated", name="out.txt"),
+                original_name="out.txt", size=10,
+            )
+            with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.0") as text, \
+                    mock.patch("dashboard.whatsapp.send_file", return_value="wamid.1") as sender:
+                ok, _delivery, error = services.deliver_to_client(
+                    task, self.ops, attachment_ids=[attachment.id], note=note
+                )
+            self.assertTrue(ok, error)
+            self.assertEqual(sender.call_count, 1)
+            self.assertEqual(sender.call_args.kwargs["caption"], "")
+            # The words of the note are a message of their own; with no note nothing is said besides the file.
+            self.assertEqual(text.call_count, 1 if note else 0)
+
     def test_failed_delivery_keeps_the_task_open(self):
         from unittest import mock
 

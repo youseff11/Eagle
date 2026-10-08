@@ -47,7 +47,10 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
       <RowAvatar row={row} />
       <span className="cthread__body">
         <span className="cthread__top">
-          <b className={`cthread__title${monospaced ? " mono" : ""}`} title={row.label}>{row.label}</b>
+          <span className="cthread__name">
+            <b className={`cthread__title${monospaced ? " mono" : ""}`} title={row.label}>{row.label}</b>
+            {row.staff && row.role === "support" && <span className="chip chip--sm cthread__tag">{t("دعم فني", "Technical support")}</span>}
+          </span>
           {problem && (
             <span className="cthread__problem" title={t("فيه رسالة ماتبعتتش", "A message did not go")}>
               <Icon name="alert" size="sm" />
@@ -60,10 +63,9 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
           )}
           {row.time && <span className="muted mono cthread__time">{clockText(row.time, lang)}</span>}
         </span>
-        {(row.reaches_client || (row.staff && row.role === "support")) && (
+        {row.reaches_client && (
           <span className="cthread__tags">
-            {row.reaches_client && <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>}
-            {row.staff && row.role === "support" && <span className="chip chip--sm cthread__tag">{t("دعم فني", "Technical support")}</span>}
+            <span className="chip chip--sm cthread__tag">{t("مع العميل", "With the client")}</span>
           </span>
         )}
         <span className="cthread__line">

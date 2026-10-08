@@ -264,6 +264,8 @@ describe("a conversation", () => {
     });
     const support = (await screen.findByText("Sami Support")).closest(".cthread") as HTMLElement;
     expect(within(support).getByText("دعم فني")).toBeInTheDocument();
+    // Beside the name, in the same row, not on a line under it.
+    expect(within(support).getByText("دعم فني").parentElement).toBe(within(support).getByText("Sami Support").parentElement);
     const colleague = screen.getByText("Mona").closest(".cthread") as HTMLElement;
     expect(within(colleague).queryByText("دعم فني")).toBeNull();
   });

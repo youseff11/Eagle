@@ -3679,7 +3679,8 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
             if note:
                 delivery.provider_id = wa.send_text(target, note)
             for index, (name, content, mime) in enumerate(payload):
-                wa.send_file(target, content, name, mime, caption="" if note else caption)
+                # The files go bare: the client reads the note as its own message, or nothing at all.
+                wa.send_file(target, content, name, mime, caption="")
                 delivery.files[index]["status"] = "sent"
             if not payload and not note:
                 delivery.provider_id = wa.send_text(target, caption)

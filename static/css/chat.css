@@ -186,8 +186,16 @@
   gap: 8px;
 }
 
-.cthread__title {
+/* The name and, for a support colleague, the role chip right beside it; the row's icons and time stay at the far end. */
+.cthread__name {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.cthread__title {
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 14px;
   line-height: 1.5;
