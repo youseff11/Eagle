@@ -4621,6 +4621,10 @@ class Lead(models.Model):
     email_at = models.DateTimeField(null=True, blank=True)
     call_at = models.DateTimeField(null=True, blank=True)
     last_contact_at = models.DateTimeField(null=True, blank=True)
+    #: The first time the company answered on the Sales person's line (part 2, 10/10/2026), and the last time the Sales
+    #: person reached out themselves - a message or a call, not the company's answer. A follow-up is done by the second.
+    replied_at = models.DateTimeField(null=True, blank=True)
+    last_outreach_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -4658,8 +4662,10 @@ class LeadActivity(models.Model):
 
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="activities")
     kind = models.CharField(max_length=10, choices=Kind.choices)
-    #: Written by the system (a message that left) or by hand (a call).
+    #: Written by the system (a message that left or arrived) or by hand (a call).
     automatic = models.BooleanField(default=False)
+    #: The company's own message to the Sales person, not ours to them.
+    incoming = models.BooleanField(default=False)
     at = models.DateTimeField(default=timezone.now)
     by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     #: A call only.

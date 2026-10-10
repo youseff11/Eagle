@@ -55,13 +55,35 @@ export interface B2bLead extends B2bRow {
   email_at: string;
   call_at: string;
   last_contact_at: string;
+  /** The first time the company answered on the Sales person's line. */
+  replied_at: string;
+  /** The last time the Sales person reached out (a message or a call): what makes a follow-up done. */
+  last_outreach_at: string;
+  /** Where the next follow-up stands (`b2b.follow_up_state`): none, coming, due today, late, or done. */
+  follow_up: FollowUpState;
   overdue: boolean;
+}
+
+export type FollowUpState = "" | "upcoming" | "today" | "overdue" | "done";
+
+/** A follow-up on the list of the day: the row, and the sheet and the Sales person it is with. */
+export interface B2bFollowUp extends B2bLead {
+  sheet: { id: number; title: string };
+  sales: B2bPerson | null;
+}
+
+export interface B2bFollowUpsResponse {
+  ok: boolean;
+  today: string;
+  items: B2bFollowUp[];
 }
 
 export interface B2bActivity {
   id: number;
   kind: "whatsapp" | "email" | "call";
   automatic: boolean;
+  /** The company's own message to us, not ours to them. */
+  incoming: boolean;
   at: string;
   by: B2bPerson | null;
   outcome: string;
@@ -85,6 +107,8 @@ export interface B2bSheetResponse {
   ok: boolean;
   sheet: B2bSheet;
   sales: B2bPerson[];
+  /** The other sheets a company may be moved to (the manager's only; empty for anybody else). */
+  sheets: { id: number; title: string; assigned_to: B2bPerson | null }[];
   leads: B2bLead[];
   columns: { name: B2bColumn; ar: string; en: string; max: number }[];
   statuses: B2bChoice[];
@@ -132,6 +156,15 @@ export function useB2bLead(id: number) {
   });
 }
 
+/** The follow-ups due today or late: one's own, or the team's for the manager. */
+export function useB2bFollowUps(enabled = true) {
+  return useQuery({
+    queryKey: qk.b2bFollowUps,
+    queryFn: () => api<B2bFollowUpsResponse>("/api/v1/b2b/follow-ups/"),
+    enabled,
+  });
+}
+
 /** Every write: the door, then the sheets asked again (a row's marks, a sheet's counts). */
 function useWrite<V, R>(run: (values: V) => Promise<R>) {
   const client = useQueryClient();
@@ -170,6 +203,12 @@ export type LeadValues = B2bRow & { status: string; next_follow_up: string; note
 export function useSaveLead() {
   return useWrite(({ id, values }: { id: number; values: LeadValues }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
+  );
+}
+
+export function useMoveLead() {
+  return useWrite(({ id, sheet }: { id: number; sheet: number }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/move/`, { json: { sheet } }),
   );
 }
 

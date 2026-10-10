@@ -11,6 +11,7 @@ import {
   useLeadCall,
   useLeadEmail,
   useLeadWhatsapp,
+  useMoveLead,
   useSaveLead,
   useSaveSheet,
   type B2bChoice,
@@ -20,6 +21,7 @@ import {
   type LeadValues,
 } from "../api/b2b";
 import { useMe } from "../api/queries";
+import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { Modal } from "../components/Modal";
@@ -110,7 +112,10 @@ function LeadForm({
   const remove = useDeleteLead();
   const [values, setValues] = useState<LeadValues>(() => {
     if (!lead) return { ...EMPTY_ROW };
-    const { id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o, ...rest } = lead;
+    const {
+      id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o,
+      replied_at: _r, last_outreach_at: _lo, follow_up: _f, ...rest
+    } = lead;
     return rest;
   });
   const [problem, setProblem] = useState("");
@@ -187,6 +192,7 @@ function LeadForm({
           {t("رقم الواتساب بكود الدولة (+44…): ده اللي الزرار بيبعت عليه.", "Write the WhatsApp number with its country code (+44…): the button sends to it.")}
         </small>
         <Problem text={problem} />
+        {lead && data.sheets.length > 0 && <MoveLead lead={lead} sheets={data.sheets} onMoved={onClose} />}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn btn--primary" type="submit" disabled={busy}>
             <Icon name="check" />
@@ -202,6 +208,51 @@ function LeadForm({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** The manager hands one company to another Sales person: to another sheet, and so to whoever holds it. */
+function MoveLead({ lead, sheets, onMoved }: { lead: B2bLead; sheets: B2bSheetResponse["sheets"]; onMoved: () => void }) {
+  const { t, lang } = usePreferences();
+  const toasts = useToasts();
+  const move = useMoveLead();
+  const [target, setTarget] = useState("");
+  const [problem, setProblem] = useState("");
+
+  const go = () => {
+    if (!target || move.isPending) return;
+    setProblem("");
+    move.mutate(
+      { id: lead.id, sheet: Number(target) },
+      {
+        onSuccess: () => {
+          toasts.push({ level: "success", title: t("الشركة اتنقلت", "The company was moved") });
+          onMoved();
+        },
+        onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أنقلها. جرّب تاني.", "Could not move it. Try again."))),
+      },
+    );
+  };
+
+  return (
+    <div className="field" style={{ marginTop: 12 }}>
+      <label htmlFor="moveTo">{t("انقلها لشيت تاني", "Move it to another sheet")}</label>
+      <div className="row row--tight">
+        <select className="input grow" id="moveTo" value={target} onChange={(event) => setTarget(event.target.value)}>
+          <option value="">{t("— اختار الشيت —", "— choose the sheet —")}</option>
+          {sheets.map((sheet) => (
+            <option key={sheet.id} value={sheet.id}>
+              {sheet.title} · {sheet.assigned_to?.name ?? "—"}
+            </option>
+          ))}
+        </select>
+        <button className="btn" type="button" onClick={go} disabled={!target || move.isPending}>
+          <Icon name="forward" />
+          {t("انقل", "Move")}
+        </button>
+      </div>
+      <Problem text={problem} />
+    </div>
   );
 }
 
@@ -554,6 +605,7 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
                     <Icon name={icon} size="sm" />
                     <strong>{t(ar, en)}</strong>
                     {outcome && <span className="chip chip--sm">{label(outcome, OUTCOME_AR)}</span>}
+                    {row.incoming && <span className="chip chip--sm chip--replied">{t("ردّوا", "They answered")}</span>}
                     <span className="muted">{row.automatic ? t("اتسجّل لوحده", "recorded by itself") : row.by?.name}</span>
                     <div className="grow" />
                     <span className="mono muted">{row.at}</span>
@@ -578,6 +630,15 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
     </Modal>
   );
 }
+
+/** Which rows the sheet shows: all of them, or the ones that need something. */
+type Only = "all" | "due" | "replied" | "untouched";
+const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
+  all: () => true,
+  due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
+  replied: (lead) => lead.replied_at !== "",
+  untouched: (lead) => !lead.whatsapp_at && !lead.email_at && !lead.call_at,
+};
 
 type Open =
   | { kind: "new" }
@@ -611,16 +672,19 @@ export function LeadSheetPage() {
   const sheet = useB2bSheet(allowed ? sheetId : 0);
   const [open, setOpen] = useState<Open | null>(null);
   const [search, setSearch] = useState("");
+  const [only, setOnly] = useState<Only>("all");
 
   const data = sheet.data;
   const leads = useMemo(() => {
     const words = search.trim().toLowerCase();
     if (!data) return [];
-    if (!words) return data.leads;
-    return data.leads.filter((lead) =>
-      (["company_name", "country", "contact_person", "email", "whatsapp", "phone"] as B2bColumn[]).some((name) => lead[name].toLowerCase().includes(words)),
+    return data.leads.filter(
+      (lead) =>
+        ONLY[only](lead) &&
+        (!words ||
+          (["company_name", "country", "contact_person", "email", "whatsapp", "phone"] as B2bColumn[]).some((name) => lead[name].toLowerCase().includes(words))),
     );
-  }, [data, search]);
+  }, [data, search, only]);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!sheetId) return <Navigate to="/leads" replace />;
@@ -681,6 +745,12 @@ export function LeadSheetPage() {
             </button>
           )}
           <div className="grow" />
+          <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => setOnly(event.target.value as Only)}>
+            <option value="all">{t("كل الشركات", "All companies")}</option>
+            <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
+            <option value="replied">{t("ردّوا علينا", "They answered")}</option>
+            <option value="untouched">{t("لسه ماتواصلناش", "Not contacted yet")}</option>
+          </select>
           <div className="field-icon" style={{ margin: 0 }}>
             <Icon name="search" className="ic--lead" />
             <input className="input" value={search} maxLength={100} placeholder={t("ابحث…", "Search…")} aria-label={t("بحث", "Search")} onChange={(event) => setSearch(event.target.value)} />
@@ -709,6 +779,12 @@ export function LeadSheetPage() {
                     <strong>{lead.company_name}</strong>
                     <div className="muted">{[lead.country, lead.industry].filter(Boolean).join(" · ")}</div>
                     {lead.languages && <div className="muted">{lead.languages}</div>}
+                    {lead.replied_at && (
+                      <div className="chip chip--sm chip--replied" title={lead.replied_at} style={{ marginTop: 4 }}>
+                        <Icon name="reply" size="sm" />
+                        {t("ردّوا", "They answered")} <span className="mono">{lead.replied_at}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     {lead.contact_person || "—"}
@@ -738,7 +814,9 @@ export function LeadSheetPage() {
                   <td>
                     <span className="chip chip--sm">{status(lead.status)}</span>
                   </td>
-                  <td className={lead.overdue ? "mono deadline--late" : "mono"}>{lead.next_follow_up || "—"}</td>
+                  <td>
+                    <FollowUpBadge date={lead.next_follow_up} state={lead.follow_up} />
+                  </td>
                   <td className="mono">{lead.last_contact_at || "—"}</td>
                   <td>
                     <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
@@ -758,7 +836,7 @@ export function LeadSheetPage() {
                     <Icon name="building" size="xl" />
                     <span>
                       {data.leads.length
-                        ? t("مفيش شركة بالبحث ده.", "No company matches.")
+                        ? t("مفيش شركة بالبحث أو الاختيار ده.", "No company matches.")
                         : t("الشيت فاضي. ضيف شركة أو لزّق صفوف من Google Sheets.", "The sheet is empty. Add a company or paste rows from Google Sheets.")}
                     </span>
                   </td>

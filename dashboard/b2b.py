@@ -10,6 +10,11 @@ person. That person fills it with the companies they research and contacts each 
 * E-mail: a letter written on the row leaves from the Sales person's own address, dressed like their other letters.
 * A phone call is written by hand (outcome, notes, the next follow-up).
 
+Part 2 (10/10/2026): the company's answer on the Sales person's line marks the row too (``note_inbound``, called by
+``services.ingest_message``); a row's next follow-up is due, late or done (``follow_up_state``); the Sales person gets one
+reminder a day for theirs (``daily_digest``, from ``manage.py sweep`` and the heartbeat) and the manager sees the team's late
+ones; the manager moves a company to another Sales person's sheet (``move_lead``).
+
 Whatever reaches the company on the Sales person's line marks the row by itself - the button's message and any message they
 send it later from the chats or the mail page (``note_outbound``, called by ``services.send_client_message``). Nobody types
 "contacted".
@@ -29,7 +34,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Channel, Client, Lead, LeadActivity, LeadSheet, OutboundMessage, Role, User
+from .models import Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Role, User
 
 # ---------------------------------------------------------------------------
 # The opening template
@@ -152,29 +157,53 @@ FIRST_FIELD = {
 }
 
 
-def _record(lead, kind, by, *, outbound=None, automatic=False, at=None, **details):
-    """Write what happened on the row's timeline and stamp the row. A message is one line a day per channel: a chat of
-    forty messages is one conversation on the timeline, not forty lines; the row's last contact moves with every one."""
+def _later(lead, field, at):
+    """Move ``field`` on to ``at`` when it is later; ``[field]`` when it moved."""
+    if getattr(lead, field) is None or at > getattr(lead, field):
+        setattr(lead, field, at)
+        return [field]
+    return []
+
+
+def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, incoming=False, at=None, **details):
+    """Write what happened on the row's timeline and stamp the row. A message is one line a day per channel and direction:
+    a chat of forty messages is one conversation on the timeline, not forty lines; the row's times move with every one.
+
+    Ours (a message sent, a call) stamps the channel's first time and the last outreach; the company's answer stamps the
+    first reply. Both move the last contact."""
     at = at or timezone.now()
     fields = []
-    first = FIRST_FIELD[kind]
-    if getattr(lead, first) is None:
-        setattr(lead, first, at)
-        fields.append(first)
-    if lead.last_contact_at is None or at > lead.last_contact_at:
-        lead.last_contact_at = at
-        fields.append("last_contact_at")
-    if outbound is not None and lead.client_id is None:
-        lead.client_id = outbound.client_id
+    if incoming:
+        if lead.replied_at is None:
+            lead.replied_at = at
+            fields.append("replied_at")
+    else:
+        first = FIRST_FIELD[kind]
+        if getattr(lead, first) is None:
+            setattr(lead, first, at)
+            fields.append(first)
+        fields += _later(lead, "last_outreach_at", at)
+    fields += _later(lead, "last_contact_at", at)
+    client_id = client_id or (outbound.client_id if outbound is not None else None)
+    if client_id and lead.client_id is None:
+        lead.client_id = client_id
         fields.append("client")
+    # The pipeline's first step moves by itself: the first letter to a new company is «Email sent».
+    if kind == LeadActivity.Kind.EMAIL and not incoming and lead.status == LeadStatus.NEW:
+        lead.status = LeadStatus.EMAIL_SENT
+        fields.append("status")
     if fields:
         lead.save(update_fields=fields + ["updated_at"])
+    if "status" in fields:
+        from . import services
+
+        services.log(by, "b2b.lead_status", f"lead {lead.pk}", f"{LeadStatus.NEW} -> {LeadStatus.EMAIL_SENT} (automatic)")
     if automatic:
         day = timezone.localtime(at).date()
-        if lead.activities.filter(kind=kind, automatic=True, at__date=day).exists():
+        if lead.activities.filter(kind=kind, automatic=True, incoming=incoming, at__date=day).exists():
             return None
     return LeadActivity.objects.create(
-        lead=lead, kind=kind, automatic=automatic, at=at, by=by, outbound=outbound, **details
+        lead=lead, kind=kind, automatic=automatic, incoming=incoming, at=at, by=by, outbound=outbound, **details
     )
 
 
@@ -201,6 +230,156 @@ def note_outbound(outbound):
         same |= Q(client__isnull=True, email_key=target.lower())
     for lead in Lead.objects.filter(same, sheet__assigned_to_id=outbound.owner_id):
         _record(lead, kind, outbound.created_by, outbound=outbound, automatic=True)
+
+
+def note_inbound(message):
+    """The company answered: a message came in on the Sales person's own line (``owner``) from a company on their sheets.
+
+    The same rule as ``note_outbound``, the other way: only the owner's line and the owner's sheets, and a row is the company
+    when it is linked to the client already or - a row nobody pressed yet - when the number or the address is the row's. A
+    message to the company line (``owner`` empty) is nobody's sheet. The words are never copied onto the row.
+    """
+    if message.owner_id is None or message.client_id is None:
+        return
+    kind = KIND_OF_CHANNEL.get(message.channel)
+    if kind is None:
+        return
+    same = Q(client_id=message.client_id)
+    sender = (message.sender_identity or "").strip()
+    if kind == LeadActivity.Kind.WHATSAPP:
+        key = Client.phone_key(sender)
+        if key:
+            same |= Q(client__isnull=True, phone_key=key)
+    elif sender:
+        same |= Q(client__isnull=True, email_key=sender.lower())
+    for lead in Lead.objects.filter(same, sheet__assigned_to_id=message.owner_id):
+        _record(lead, kind, None, client_id=message.client_id, automatic=True, incoming=True, at=message.received_at)
+
+
+# ---------------------------------------------------------------------------
+# Follow-ups (part 2)
+# ---------------------------------------------------------------------------
+
+#: Where a row's next follow-up stands. A follow-up is done once the Sales person reached out on or after its day (a message
+#: or a call: the company writing to us is not us following up). Won and lost companies are followed up no more.
+FOLLOW_UP_DONE, FOLLOW_UP_UPCOMING, FOLLOW_UP_TODAY, FOLLOW_UP_OVERDUE = "done", "upcoming", "today", "overdue"
+CLOSED_STATUSES = (LeadStatus.WON, LeadStatus.LOST)
+
+
+def follow_up_state(lead, today=None):
+    """``""`` (no follow-up), or one of the four above."""
+    if lead.next_follow_up is None or lead.status in CLOSED_STATUSES:
+        return ""
+    today = today or timezone.localdate()
+    if lead.last_outreach_at is not None and timezone.localtime(lead.last_outreach_at).date() >= lead.next_follow_up:
+        return FOLLOW_UP_DONE
+    if lead.next_follow_up > today:
+        return FOLLOW_UP_UPCOMING
+    return FOLLOW_UP_TODAY if lead.next_follow_up == today else FOLLOW_UP_OVERDUE
+
+
+def _open_follow_ups(rows, today):
+    """The rows whose follow-up is due today or late: narrowed in the query, then ``follow_up_state`` (the "done" test
+    needs the Cairo date of the last outreach, which is clearer here than in SQL)."""
+    rows = rows.filter(next_follow_up__isnull=False, next_follow_up__lte=today).exclude(status__in=CLOSED_STATUSES)
+    return [lead for lead in rows if follow_up_state(lead, today) in (FOLLOW_UP_TODAY, FOLLOW_UP_OVERDUE)]
+
+
+#: The most follow-ups one list answers with.
+MAX_FOLLOW_UPS = 300
+
+
+def follow_ups_for(user, today=None):
+    """The follow-ups due today or late on the sheets this person reads: their own, or the team's for the manager."""
+    today = today or timezone.localdate()
+    rows = Lead.objects.filter(sheet__in=sheets_for(user)).select_related("sheet", "sheet__assigned_to")
+    return _open_follow_ups(rows.order_by("next_follow_up", "id"), today)[:MAX_FOLLOW_UPS]
+
+
+#: The hour (Cairo) from which the day's reminder goes: not at midnight, when the sweep may happen to run first.
+DIGEST_HOUR = 9
+DIGEST_PATH = "/app/leads"
+
+
+def digest_marker(day):
+    """The reminder's link, which is also how the day's one is found again: one a day per person."""
+    return f"{DIGEST_PATH}#follow-ups-{day.isoformat()}"
+
+
+def daily_digest(user, now=None):
+    """One reminder a day to a Sales person: how many of their follow-ups are due today and how many are late. Nothing
+    when there is none, before ``DIGEST_HOUR``, or when today's went already. Returns the notification or ``None``."""
+    from . import services
+    from .models import Notification
+
+    if not (user.is_active and user.is_sales):
+        return None
+    now = timezone.localtime(now or timezone.now())
+    if now.hour < DIGEST_HOUR:
+        return None
+    today = now.date()
+    marker = digest_marker(today)
+    if Notification.objects.filter(user=user, url=marker).exists():
+        return None
+    due = _open_follow_ups(Lead.objects.filter(sheet__assigned_to=user), today)
+    if not due:
+        return None
+    late = sum(1 for lead in due if lead.next_follow_up < today)
+    on_time = len(due) - late
+    parts_ar = [f"{on_time} النهارده"] if on_time else []
+    parts_en = [f"{on_time} today"] if on_time else []
+    if late:
+        parts_ar.append(f"{late} متأخرة")
+        parts_en.append(f"{late} overdue")
+    return services.notify(
+        user,
+        title_ar="متابعات الشركات",
+        title_en="Company follow-ups",
+        body_ar=f"عندك متابعات: {' و'.join(parts_ar)}. افتح «شيتات الشركات».",
+        body_en=f"You have follow-ups: {' and '.join(parts_en)}. Open «Company sheets».",
+        level="warning" if late else "info",
+        url=marker,
+    )
+
+
+def sweep(now=None):
+    """The day's reminder to every Sales person who has follow-ups (``manage.py sweep``). Returns how many went."""
+    sent = 0
+    for person in User.objects.filter(role=Role.SALES, is_active=True, lead_sheets__isnull=False).distinct():
+        if daily_digest(person, now=now) is not None:
+            sent += 1
+    return sent
+
+
+# ---------------------------------------------------------------------------
+# Handing a company to another Sales person (part 2)
+# ---------------------------------------------------------------------------
+
+def move_lead(lead, sheet, actor):
+    """The manager moves a row to another sheet - and so to that sheet's Sales person. The conversation with the company
+    stays on the line it was had on: the new Sales person starts their own from the row. ``Refused`` when it may not."""
+    from . import services
+
+    if not actor.manages_sales:
+        raise Refused("not_manager", "نقل الشركات للمانجر بس.", "Only the Sales manager moves companies.")
+    if sheet.pk == lead.sheet_id:
+        raise Refused("same_sheet", "الشركة في الشيت ده أصلًا.", "The company is on that sheet already.")
+    if sheet.leads.count() >= MAX_SHEET_ROWS:
+        raise Refused("sheet_full", f"الشيت مايشيلش أكتر من {MAX_SHEET_ROWS} شركة.", f"A sheet holds at most {MAX_SHEET_ROWS} companies.")
+    before = lead.sheet
+    lead.sheet = sheet
+    lead.save(update_fields=["sheet", "updated_at"])
+    services.log(actor, "b2b.lead_move", f"lead {lead.pk}", f"sheet {before.pk} -> {sheet.pk} ({sheet.assigned_to.username})")
+    if sheet.assigned_to_id not in (actor.pk, before.assigned_to_id):
+        services.notify(
+            sheet.assigned_to,
+            title_ar="شركة اتنقلتلك",
+            title_en="A company was moved to you",
+            body_ar=f"«{lead.company_name}» بقت في شيت «{sheet.title}».",
+            body_en=f"“{lead.company_name}” is now on the sheet “{sheet.title}”.",
+            level="info", url=f"/app/leads/{sheet.pk}",
+        )
+    return lead
 
 
 # ---------------------------------------------------------------------------

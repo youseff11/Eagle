@@ -428,3 +428,224 @@ class ResetStaffTests(_Staff):
         self.assertIn("dashboard.leadsheet", backup)
         self.assertIn("Delta", backup)
         self.assertFalse(LeadSheet.objects.exists())
+
+
+# ---------------------------------------------------------------------------
+# Part 2: the company's answer, the follow-ups, the reminder, moving a company
+# ---------------------------------------------------------------------------
+
+class InboundTests(_B2b):
+    def ingest(self, owner=None, sender=PHONE, channel=Channel.WHATSAPP, **kw):
+        return services.ingest_message(
+            channel=channel, body="Yes, interested", sender_identity=sender, external_id=kw.pop("external_id", "wamid.in.77"),
+            owner=owner, **kw,
+        )
+
+    def test_an_answer_on_the_sales_persons_line_marks_the_row(self):
+        self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
+        self.lead.refresh_from_db()
+        sent_at = self.lead.last_outreach_at
+        message = self.ingest(owner=self.sales)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.replied_at, message.received_at)
+        self.assertEqual(self.lead.last_contact_at, message.received_at)
+        # The company writing is not us reaching out.
+        self.assertEqual(self.lead.last_outreach_at, sent_at)
+        answer = self.lead.activities.get(incoming=True)
+        self.assertEqual((answer.kind, answer.automatic, answer.notes), ("whatsapp", True, ""))
+
+    def test_a_row_nobody_pressed_is_found_by_its_number(self):
+        self.ingest(owner=self.sales)
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.replied_at)
+        self.assertIsNotNone(self.lead.client_id)
+        self.assertIsNone(self.lead.whatsapp_at)
+
+    def test_the_company_line_and_another_sales_persons_line_do_not_count(self):
+        self.ingest(owner=None)
+        self.ingest(owner=self.other, external_id="wamid.in.78")
+        self.lead.refresh_from_db()
+        self.assertIsNone(self.lead.replied_at)
+        self.assertFalse(self.lead.activities.exists())
+
+    def test_a_letter_to_the_sales_persons_address_marks_the_row(self):
+        self.ingest(channel=Channel.EMAIL, sender="anna@lingua.test", external_id="<m1@lingua.test>",
+                    subject="Re: partnership", recipients=["seller@eagle.test"])
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.replied_at)
+        self.assertEqual(self.lead.activities.get().kind, "email")
+
+    def test_a_mark_that_breaks_does_not_cost_the_message(self):
+        with mock.patch("dashboard.b2b.note_inbound", side_effect=RuntimeError("boom")):
+            message = self.ingest(owner=self.sales)
+        self.assertTrue(InboundMessage.objects.filter(pk=message.pk).exists())
+
+    def test_the_first_letter_moves_a_new_company_to_email_sent(self):
+        self.post(self.sales, "v1_b2b_lead_email", {"subject": "s", "body": "b"}, self.lead.pk)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "email_sent")
+        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_status", detail__contains="automatic").exists())
+        # A company further on the way stays where it is.
+        Lead.objects.filter(pk=self.lead.pk).update(status="negotiation")
+        self.post(self.sales, "v1_b2b_lead_email", {"subject": "s2", "body": "b2"}, self.lead.pk)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "negotiation")
+
+    def test_a_whatsapp_does_not_move_the_status(self):
+        self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "new")
+
+
+class FollowUpStateTests(_B2b):
+    def at(self, **kw):
+        Lead.objects.filter(pk=self.lead.pk).update(**kw)
+        self.lead.refresh_from_db()
+        return b2b.follow_up_state(self.lead)
+
+    def test_the_four_states(self):
+        today = timezone.localdate()
+        self.assertEqual(self.at(next_follow_up=None), "")
+        self.assertEqual(self.at(next_follow_up=today + timedelta(days=2)), "upcoming")
+        self.assertEqual(self.at(next_follow_up=today), "today")
+        self.assertEqual(self.at(next_follow_up=today - timedelta(days=1)), "overdue")
+        self.assertEqual(self.at(status="won"), "")
+        self.assertEqual(self.at(status="lost"), "")
+
+    def test_reaching_out_on_or_after_the_day_is_done_and_before_it_is_not(self):
+        today = timezone.localdate()
+        self.assertEqual(self.at(next_follow_up=today - timedelta(days=1), last_outreach_at=timezone.now() - timedelta(days=3)), "overdue")
+        self.assertEqual(self.at(last_outreach_at=timezone.now()), "done")
+
+    def test_the_company_answering_is_not_us_following_up(self):
+        Lead.objects.filter(pk=self.lead.pk).update(next_follow_up=timezone.localdate() - timedelta(days=1))
+        services.ingest_message(channel=Channel.WHATSAPP, body="hi", sender_identity=PHONE, external_id="wamid.in.5", owner=self.sales)
+        self.lead.refresh_from_db()
+        self.assertEqual(b2b.follow_up_state(self.lead), "overdue")
+        # A call today is.
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "follow_up"}, self.lead.pk)
+        self.lead.refresh_from_db()
+        self.assertEqual(b2b.follow_up_state(self.lead), "done")
+
+    def test_the_row_says_its_state(self):
+        Lead.objects.filter(pk=self.lead.pk).update(next_follow_up=timezone.localdate() - timedelta(days=2))
+        row = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["leads"][0]
+        self.assertEqual((row["follow_up"], row["overdue"]), ("overdue", True))
+
+
+class FollowUpListTests(_B2b):
+    def setUp(self):
+        super().setUp()
+        today = timezone.localdate()
+        Lead.objects.filter(pk=self.lead.pk).update(next_follow_up=today - timedelta(days=1))
+        theirs = LeadSheet.objects.create(title="Spain", assigned_to=self.other)
+        self.theirs = Lead.objects.create(sheet=theirs, company_name="Iberia SL", next_follow_up=today)
+        Lead.objects.create(sheet=theirs, company_name="Later SL", next_follow_up=today + timedelta(days=3))
+        Lead.objects.create(sheet=theirs, company_name="Won SL", next_follow_up=today - timedelta(days=3), status="won")
+
+    def names(self, user):
+        return [row["company_name"] for row in _json(self.get(user, "v1_b2b_follow_ups"))["items"]]
+
+    def test_a_sales_person_sees_their_own_and_the_manager_the_teams(self):
+        self.assertEqual(self.names(self.sales), ["Lingua GmbH"])
+        self.assertEqual(self.names(self.other), ["Iberia SL"])
+        self.assertEqual(self.names(self.manager), ["Lingua GmbH", "Iberia SL"])
+        self.assertEqual(self.names(self.admin), ["Lingua GmbH", "Iberia SL"])
+        row = _json(self.get(self.manager, "v1_b2b_follow_ups"))["items"][1]
+        self.assertEqual((row["sales"]["id"], row["sheet"]["title"], row["follow_up"]), (self.other.pk, "Spain", "today"))
+
+    def test_no_door_for_anybody_else_and_the_list_is_written_down(self):
+        self.assertEqual(self.get(self.ops, "v1_b2b_follow_ups").status_code, 403)
+        self.get(self.sales, "v1_b2b_follow_ups")
+        self.assertTrue(AuditLog.objects.filter(actor=self.sales, action="client.identity.list", target="b2b follow-ups").exists())
+
+    def test_a_done_follow_up_leaves_the_list(self):
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
+        self.assertEqual(self.names(self.sales), [])
+
+
+class DigestTests(_B2b):
+    def setUp(self):
+        super().setUp()
+        Lead.objects.filter(pk=self.lead.pk).update(next_follow_up=timezone.localdate() - timedelta(days=1))
+        Lead.objects.create(sheet=self.sheet, company_name="Today GmbH", next_follow_up=timezone.localdate())
+
+    def at_hour(self, hour):
+        return timezone.localtime().replace(hour=hour, minute=5)
+
+    def reminders(self, user):
+        return user.notifications.filter(url=b2b.digest_marker(timezone.localdate()))
+
+    def test_one_reminder_a_day_from_nine_with_the_counts(self):
+        self.assertIsNone(b2b.daily_digest(self.sales, now=self.at_hour(8)))
+        note = b2b.daily_digest(self.sales, now=self.at_hour(9))
+        self.assertIsNotNone(note)
+        self.assertEqual(note.body_ar, "عندك متابعات: 1 النهارده و1 متأخرة. افتح «شيتات الشركات».")
+        self.assertEqual(note.level, "warning")
+        self.assertIsNone(b2b.daily_digest(self.sales, now=self.at_hour(15)))
+        self.assertEqual(self.reminders(self.sales).count(), 1)
+        # The words carry counts, never a company.
+        self.assertNotIn("Lingua", note.body_ar + note.body_en)
+
+    def test_nothing_when_nothing_is_due_and_nothing_for_another_role(self):
+        Lead.objects.update(next_follow_up=None)
+        self.assertIsNone(b2b.daily_digest(self.sales, now=self.at_hour(10)))
+        self.assertIsNone(b2b.daily_digest(self.ops, now=self.at_hour(10)))
+
+    def test_the_sweep_reminds_every_sales_person_who_has_some(self):
+        from django.core.management import call_command
+
+        with mock.patch("dashboard.b2b.timezone.now", return_value=self.at_hour(10)):
+            call_command("sweep", stdout=mock.MagicMock())
+        self.assertEqual(self.reminders(self.sales).count(), 1)
+        self.assertEqual(self.reminders(self.other).count(), 0)
+
+    def test_the_heartbeat_reminds_a_sales_person_whose_page_is_open(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        with mock.patch("dashboard.b2b.timezone.now", return_value=self.at_hour(11)):
+            services.heartbeat(self.sales)
+            services.heartbeat(self.sales)
+        self.assertEqual(self.reminders(self.sales).count(), 1)
+
+
+class MoveTests(_B2b):
+    def setUp(self):
+        super().setUp()
+        self.spain = LeadSheet.objects.create(title="Spain", assigned_to=self.other)
+
+    def test_the_manager_moves_a_company_to_another_sales_person(self):
+        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": self.spain.pk}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.sheet, self.spain)
+        self.assertTrue(self.other.notifications.filter(url=f"/app/leads/{self.spain.pk}").exists())
+        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_move").exists())
+        # The new Sales person contacts from it now, the old one no longer reads it.
+        self.assertTrue(_json(self.get(self.other, "v1_b2b_lead", self.lead.pk))["can_contact"])
+        self.assertEqual(self.get(self.sales, "v1_b2b_lead", self.lead.pk).status_code, 404)
+
+    def test_a_sales_person_does_not_move_companies(self):
+        answer = self.post(self.sales, "v1_b2b_lead_move", {"sheet": self.spain.pk}, self.lead.pk)
+        # The other sheet is not theirs to name: it is not found, and nothing moves.
+        self.assertEqual(answer.status_code, 404)
+        mine = LeadSheet.objects.create(title="Mine too", assigned_to=self.sales)
+        answer = self.post(self.sales, "v1_b2b_lead_move", {"sheet": mine.pk}, self.lead.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "not_manager"))
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.sheet, self.sheet)
+
+    def test_a_bad_target_moves_nothing(self):
+        for body in ({"sheet": 99999}, {"sheet": "x"}, {}, {"sheet": True}):
+            answer = self.post(self.manager, "v1_b2b_lead_move", body, self.lead.pk)
+            self.assertIn(answer.status_code, (400, 404), body)
+        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": self.sheet.pk}, self.lead.pk)
+        self.assertEqual(_json(answer)["error"], "same_sheet")
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.sheet, self.sheet)
+
+    def test_the_manager_is_offered_the_other_sheets_and_a_sales_person_none(self):
+        offered = _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]
+        self.assertEqual([s["title"] for s in offered], ["Spain"])
+        self.assertEqual(_json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["sheets"], [])

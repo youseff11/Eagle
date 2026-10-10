@@ -78,7 +78,8 @@ def _contacted_q():
     return Q(whatsapp_at__isnull=False) | Q(email_at__isnull=False) | Q(call_at__isnull=False)
 
 
-def _lead_json(lead):
+def _lead_json(lead, today=None):
+    state = b2b.follow_up_state(lead, today)
     return {
         "id": lead.pk,
         **{name: getattr(lead, name) for name, *_rest in b2b.COLUMNS},
@@ -90,8 +91,11 @@ def _lead_json(lead):
         "email_at": _stamp(lead.email_at),
         "call_at": _stamp(lead.call_at),
         "last_contact_at": _stamp(lead.last_contact_at),
-        "overdue": bool(lead.next_follow_up and lead.next_follow_up < timezone.localdate()
-                        and lead.status not in (LeadStatus.WON, LeadStatus.LOST)),
+        "replied_at": _stamp(lead.replied_at),
+        "last_outreach_at": _stamp(lead.last_outreach_at),
+        # "" (none), "upcoming", "today", "overdue" or "done" (reached out on or after the day): ``b2b.follow_up_state``.
+        "follow_up": state,
+        "overdue": state == b2b.FOLLOW_UP_OVERDUE,
     }
 
 
@@ -100,6 +104,7 @@ def _activity_json(row):
         "id": row.pk,
         "kind": row.kind,
         "automatic": row.automatic,
+        "incoming": row.incoming,
         "at": _stamp(row.at),
         "by": _person(row.by),
         "outcome": row.outcome,
@@ -231,12 +236,42 @@ def sheet(request, sheet_id):
     # The companies and their people are drawn here: one row in the log for the sheet, as for a page of client names.
     if leads:
         identity.audit(request, request.user, identity.IDENTITY_LIST, f"sheet {sheet.pk}", f"{len(leads)} companies")
+    today = timezone.localdate()
+    manager = request.user.manages_sales
     return JsonResponse({
         "ok": True,
         "sheet": _sheet_json(sheet, request.user, len(leads), contacted),
-        "sales": [_person(p) for p in b2b.sales_people()] if request.user.manages_sales else [],
-        "leads": [_lead_json(lead) for lead in leads],
+        "sales": [_person(p) for p in b2b.sales_people()] if manager else [],
+        # Where the manager may move a company to: the other sheets.
+        "sheets": [
+            {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
+            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk)
+        ] if manager else [],
+        "leads": [_lead_json(lead, today) for lead in leads],
         **_choices(),
+    })
+
+
+@endpoint("GET")
+@api_gate(b2b.has_door)
+def follow_ups(request):
+    """The follow-ups due today or late: a Sales person's own, the team's for the manager and the owner. Companies and their
+    people are drawn, so it is a row in the log when there are any."""
+    today = timezone.localdate()
+    rows = b2b.follow_ups_for(request.user, today)
+    if rows:
+        identity.audit(request, request.user, identity.IDENTITY_LIST, "b2b follow-ups", f"{len(rows)} companies")
+    return JsonResponse({
+        "ok": True,
+        "today": today.isoformat(),
+        "items": [
+            {
+                **_lead_json(lead, today),
+                "sheet": {"id": lead.sheet_id, "title": lead.sheet.title},
+                "sales": _person(lead.sheet.assigned_to),
+            }
+            for lead in rows
+        ],
     })
 
 
@@ -338,6 +373,27 @@ def lead_save(request, lead_id):
     lead.save()
     if before != status:
         services.log(request.user, "b2b.lead_status", f"lead {lead.pk}", f"{before} -> {status}")
+    return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def lead_move(request, lead_id):
+    """``{"sheet": <id>}`` - the manager moves a company to another sheet, and so to that sheet's Sales person."""
+    lead = _lead_or_404(request, lead_id)
+    try:
+        target = _object(request).get("sheet")
+    except BadBody:
+        return _error(400, "bad_request")
+    if not isinstance(target, int) or isinstance(target, bool):
+        return _error(400, "bad_request")
+    sheet = b2b.sheets_for(request.user).filter(pk=target).first()
+    if sheet is None:
+        return _error(404, "not_found")
+    try:
+        b2b.move_lead(lead, sheet, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal, status=403 if refusal.code == "not_manager" else 400)
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
 
 

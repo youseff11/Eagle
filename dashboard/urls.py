@@ -228,6 +228,7 @@ urlpatterns = [
     # B2B: the company sheets the Sales manager hands out, and contacting a company from its row (b2b.py).
     path("api/v1/b2b/sheets/", api_b2b.sheets, name="v1_b2b_sheets"),
     path("api/v1/b2b/sheets/new/", api_b2b.sheet_create, name="v1_b2b_sheet_create"),
+    path("api/v1/b2b/follow-ups/", api_b2b.follow_ups, name="v1_b2b_follow_ups"),
     path("api/v1/b2b/sheets/<int:sheet_id>/", api_b2b.sheet, name="v1_b2b_sheet"),
     path("api/v1/b2b/sheets/<int:sheet_id>/save/", api_b2b.sheet_save, name="v1_b2b_sheet_save"),
     path("api/v1/b2b/sheets/<int:sheet_id>/delete/", api_b2b.sheet_delete, name="v1_b2b_sheet_delete"),
@@ -235,6 +236,7 @@ urlpatterns = [
     path("api/v1/b2b/leads/<int:lead_id>/", api_b2b.lead, name="v1_b2b_lead"),
     path("api/v1/b2b/leads/<int:lead_id>/save/", api_b2b.lead_save, name="v1_b2b_lead_save"),
     path("api/v1/b2b/leads/<int:lead_id>/delete/", api_b2b.lead_delete, name="v1_b2b_lead_delete"),
+    path("api/v1/b2b/leads/<int:lead_id>/move/", api_b2b.lead_move, name="v1_b2b_lead_move"),
     path("api/v1/b2b/leads/<int:lead_id>/whatsapp/", api_b2b.lead_whatsapp, name="v1_b2b_lead_whatsapp"),
     path("api/v1/b2b/leads/<int:lead_id>/email/", api_b2b.lead_email, name="v1_b2b_lead_email"),
     path("api/v1/b2b/leads/<int:lead_id>/call/", api_b2b.lead_call, name="v1_b2b_lead_call"),

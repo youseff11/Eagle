@@ -1053,14 +1053,42 @@ GUIDES = (
             "في «شيت جديد» اكتب «اسم الشيت»، واختار «الـSales اللي هياخده»، واضغط «اعمل الشيت». الـSales بيوصله تنبيه.",
             "تقدر تفتح أي شيت وتشوف مين اتواصلنا معاه وإمتى. التواصل نفسه من رقم وإيميل صاحب الشيت بس.",
             "عشان تغيّر الاسم أو الـSales أو تمسح الشيت: افتحه واضغط «إعدادات الشيت». شيت فيه شركة اتواصلنا معاها مابيتمسحش.",
+            "عشان تنقل شركة واحدة لـSales تاني: اضغط «تعديل» على صفها، واختار الشيت من «انقلها لشيت تاني» واضغط «انقل».",
         ],
         [
             "In the «Work» section open «Company sheets».",
             "Under «New sheet» type the «Sheet name», choose the «Sales person» and press «Make the sheet». The Sales person is notified.",
             "You can open any sheet and see who was contacted and when. The contacting itself is from the sheet owner's number and address only.",
             "To rename it, give it to another Sales person or delete it: open it and press «Sheet settings». A sheet with a contacted company is not deleted.",
+            "To move one company to another Sales person: press «Edit» on its row, choose the sheet under «Move it to another sheet» and press «Move».",
         ],
         cap="is_sales_manager",
+    ),
+    _guide(
+        "sales-follow-ups", (Role.SALES, Role.ADMIN), "/leads",
+        ("فين متابعاتي النهارده والمتأخرة", "Where are my follow-ups for today and the overdue ones"),
+        (
+            "متابعة، متابعات، فولو اب، follow up، متأخرة، المتابعة الجاية، تذكير، مين رد، ردوا علينا، شركات مردتش",
+            "follow-up, follow-ups, overdue, next follow-up, reminder, who answered, they answered, companies that did not reply",
+        ),
+        [
+            "حدد «المتابعة الجاية» للشركة من «تعديل» على صفها أو وانت بتسجّل المكالمة.",
+            "كل يوم الساعة 9 الصبح بيوصلك تنبيه بعدد متابعاتك النهارده والمتأخرة.",
+            "افتح «شيتات الشركات»: فوق خالص «متابعاتك النهارده والمتأخرة»، وكل واحدة جنبها «افتح الشيت».",
+            "المتابعة بتبقى «اتعملت» لوحدها أول ما تبعتلهم رسالة أو تسجّل مكالمة في يومها أو بعده. ردّهم هم مابيقفلهاش.",
+            "جوه الشيت اختار من «اعرض»: «متابعة النهارده أو متأخرة» أو «ردّوا علينا» أو «لسه ماتواصلناش».",
+        ],
+        [
+            "Set the company's «Next follow-up» from «Edit» on its row, or while logging a call.",
+            "Every day at 9 in the morning a notice tells you how many follow-ups are due today and overdue.",
+            "Open «Company sheets»: at the top is «Your follow-ups: today and overdue», each with «Open the sheet».",
+            "A follow-up turns «Done» by itself once you message them or log a call on its day or after. Their own answer does not close it.",
+            "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered» or «Not contacted yet».",
+        ],
+        note=(
+            "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة.",
+            "The Sales manager sees the whole team's follow-ups, and whose each one is.",
+        ),
     ),
     # ------------------------------------------------------------------------------------------------------------------
     # The team leader.

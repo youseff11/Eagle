@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { refusalText, useB2bSheets, useCreateSheet, type B2bPerson } from "../api/b2b";
+import { refusalText, useB2bFollowUps, useB2bSheets, useCreateSheet, type B2bPerson } from "../api/b2b";
 import { useMe } from "../api/queries";
+import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { usePreferences } from "../i18n/Preferences";
@@ -77,6 +78,61 @@ function NewSheet({ sales }: { sales: B2bPerson[] }) {
   );
 }
 
+/** The follow-ups due today or late: the Sales person's own, or the whole team's for the manager (with whose they are). */
+function FollowUps({ team }: { team: boolean }) {
+  const { t } = usePreferences();
+  const list = useB2bFollowUps();
+  const items = list.data?.items ?? [];
+  if (!list.data || items.length === 0) return null;
+  const late = items.filter((item) => item.follow_up === "overdue").length;
+
+  return (
+    <div className="card" id="follow-ups" style={{ marginBottom: 14 }}>
+      <div className="card__head">
+        <Icon name="calendar" />
+        <h3>{team ? t("متابعات الفريق النهارده والمتأخرة", "The team's follow-ups: today and overdue") : t("متابعاتك النهارده والمتأخرة", "Your follow-ups: today and overdue")}</h3>
+        <span className="chip chip--sm mono">{items.length}</span>
+        {late > 0 && <span className="chip chip--sm deadline--late">{t(`${late} متأخرة`, `${late} overdue`)}</span>}
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t("الشركة", "Company")}</th>
+              <th>{t("الشيت", "Sheet")}</th>
+              {team && <th>{t("الـSales", "Sales person")}</th>}
+              <th>{t("المتابعة", "Follow-up")}</th>
+              <th>{t("آخر تواصل منّا", "Our last outreach")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} data-follow-up-row={item.id}>
+                <td>
+                  <strong>{item.company_name}</strong>
+                  {item.contact_person && <div className="muted">{item.contact_person}</div>}
+                </td>
+                <td>{item.sheet.title}</td>
+                {team && <td>{item.sales?.name ?? "—"}</td>}
+                <td>
+                  <FollowUpBadge date={item.next_follow_up} state={item.follow_up} />
+                </td>
+                <td className="mono">{item.last_outreach_at || "—"}</td>
+                <td>
+                  <Link className="btn btn--sm" to={`/leads/${item.sheet.id}`}>
+                    {t("افتح الشيت", "Open the sheet")}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The B2B company sheets: a Sales person's own, or - for the Sales manager and the owner - all of them, with the box that
  * makes a new one. Titles and counts only: the companies are on the sheet's own page.
@@ -101,6 +157,8 @@ export function LeadSheetsPage() {
           )}
         </span>
       </div>
+
+      {data && <FollowUps team={data.can_manage} />}
 
       {data?.can_manage && <NewSheet sales={data.sales} />}
 

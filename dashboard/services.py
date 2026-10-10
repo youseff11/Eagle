@@ -257,6 +257,16 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         owner=owner,
     )
 
+    # A company on the Sales person's B2B sheet answered: the row says so. In a savepoint of its own, so a mark that breaks
+    # is logged and never costs the message itself.
+    try:
+        from . import b2b
+
+        with transaction.atomic():
+            b2b.note_inbound(message)
+    except Exception:  # noqa: BLE001
+        logger.exception("Marking the B2B sheet for inbound message %s failed", message.pk)
+
     from .files import mask_name
 
     for item in attachments or []:
@@ -6579,6 +6589,27 @@ def heartbeat(user):
     User.objects.filter(pk=user.pk).update(last_seen=timezone.now())
     sweep_expired_assignments()
     sweep_deadlines()
+    if user.is_sales:
+        _b2b_digest(user)
+
+
+#: How often the heartbeat looks for a Sales person's follow-up reminder: the day's one is found again in the database, this
+#: only keeps the look from running on every beat.
+B2B_DIGEST_EVERY_SECONDS = 15 * 60
+
+
+def _b2b_digest(user):
+    from django.core.cache import cache
+
+    from . import b2b
+
+    key = f"b2b-digest:{user.pk}:{timezone.localdate().isoformat()}"
+    if not cache.add(key, 1, B2B_DIGEST_EVERY_SECONDS):
+        return
+    try:
+        b2b.daily_digest(user)
+    except Exception:  # noqa: BLE001 - a reminder that breaks must not break the heartbeat
+        logger.exception("The B2B follow-up reminder for %s failed", user.pk)
 
 
 # ---------------------------------------------------------------------------
