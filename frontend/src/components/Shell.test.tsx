@@ -411,7 +411,8 @@ describe("Shell: the Sales screen", () => {
   it("lists their mail, their company sheets, the chats, their number and mail, and the client codes in order and words", async () => {
     const view = at("/inbox", ["sales", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/inbox", "/leads", "/chats", "/line", "/clients", "/notifications"]);
+    expect(links(view.container)).toEqual(["/inbox", "/leads", "/sales-performance", "/chats", "/line", "/clients", "/notifications"]);
+    expect(within(view.container.querySelector('.sidebar a[href="/sales-performance"]') as HTMLElement).getByText("أداء المبيعات")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/leads"]') as HTMLElement).getByText("شيتات الشركات")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/line"]') as HTMLElement).getByText("رقمي وإيميلي")).toBeInTheDocument();
@@ -541,7 +542,7 @@ describe("Shell: the admin's panel", () => {
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
-      "/admin", "/chats", "/admin/clients", "/leads",
+      "/admin", "/chats", "/admin/clients", "/leads", "/sales-performance",
       "/admin/settings", "/admin/simulate", "/admin/audit",
       "/notifications", "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
@@ -549,7 +550,7 @@ describe("Shell: the admin's panel", () => {
       "الشغل", "الإعدادات", "حسابي", "منطقة خطر",
     ]);
     const words: [string, string][] = [
-      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"],
+      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
       ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];

@@ -4652,6 +4652,8 @@ class LeadActivity(models.Model):
         WHATSAPP = "whatsapp", "WhatsApp"
         EMAIL = "email", "Email"
         CALL = "call", "Call"
+        #: The company moved on the pipeline (part 3): what the Sales numbers count meetings, proposals, won and lost by.
+        STATUS = "status", "Stage changed"
 
     class Outcome(models.TextChoices):
         INTERESTED = "interested", "Interested"
@@ -4662,6 +4664,13 @@ class LeadActivity(models.Model):
 
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="activities")
     kind = models.CharField(max_length=10, choices=Kind.choices)
+    #: Whose company it was when this happened (the sheet's Sales person then): the Sales numbers count it for them, so a
+    #: company moved to somebody else later keeps its history with the one who worked it.
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="lead_activities")
+    #: A stage change: the stage the company moved to.
+    status = models.CharField(max_length=12, choices=LeadStatus.choices, blank=True)
+    #: Our message or call that did a follow-up that was due: the follow-up's own date. On that date is on time, later is late.
+    follow_up_for = models.DateField(null=True, blank=True)
     #: Written by the system (a message that left or arrived) or by hand (a call).
     automatic = models.BooleanField(default=False)
     #: The company's own message to the Sales person, not ours to them.

@@ -229,6 +229,7 @@ urlpatterns = [
     path("api/v1/b2b/sheets/", api_b2b.sheets, name="v1_b2b_sheets"),
     path("api/v1/b2b/sheets/new/", api_b2b.sheet_create, name="v1_b2b_sheet_create"),
     path("api/v1/b2b/follow-ups/", api_b2b.follow_ups, name="v1_b2b_follow_ups"),
+    path("api/v1/b2b/kpis/", api_b2b.kpis, name="v1_b2b_kpis"),
     path("api/v1/b2b/sheets/<int:sheet_id>/", api_b2b.sheet, name="v1_b2b_sheet"),
     path("api/v1/b2b/sheets/<int:sheet_id>/save/", api_b2b.sheet_save, name="v1_b2b_sheet_save"),
     path("api/v1/b2b/sheets/<int:sheet_id>/delete/", api_b2b.sheet_delete, name="v1_b2b_sheet_delete"),

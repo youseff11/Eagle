@@ -133,4 +133,5 @@ export const qk = {
   b2bSheet: (id: number) => ["b2b", "sheet", id] as const,
   b2bLead: (id: number) => ["b2b", "lead", id] as const,
   b2bFollowUps: ["b2b", "follow-ups"] as const,
+  b2bKpis: (from: string, to: string) => ["b2b", "kpis", from, to] as const,
 };

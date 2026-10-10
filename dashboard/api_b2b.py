@@ -105,6 +105,7 @@ def _activity_json(row):
         "kind": row.kind,
         "automatic": row.automatic,
         "incoming": row.incoming,
+        "status": row.status,
         "at": _stamp(row.at),
         "by": _person(row.by),
         "outcome": row.outcome,
@@ -245,7 +246,7 @@ def sheet(request, sheet_id):
         # Where the manager may move a company to: the other sheets.
         "sheets": [
             {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
-            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk)
+            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk).filter(assigned_to__in=b2b.sales_people())
         ] if manager else [],
         "leads": [_lead_json(lead, today) for lead in leads],
         **_choices(),
@@ -371,9 +372,43 @@ def lead_save(request, lead_id):
         setattr(lead, name, value)
     lead.status, lead.notes, lead.next_follow_up = status, notes, follow_up
     lead.save()
-    if before != status:
-        services.log(request.user, "b2b.lead_status", f"lead {lead.pk}", f"{before} -> {status}")
+    # On the timeline and in the log: what the Sales numbers count meetings, proposals, won and lost by.
+    b2b.note_status(lead, before, status, request.user)
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+
+
+def _period(request):
+    """``(start, end)`` from ``?from=YYYY-MM-DD&to=YYYY-MM-DD``; this month so far when they are not given. ``BadBody``
+    for a date that is not one, an end before the start, or more than ``b2b.MAX_KPI_DAYS`` days."""
+    today = timezone.localdate()
+    try:
+        start = date.fromisoformat(request.GET["from"]) if request.GET.get("from") else today.replace(day=1)
+        end = date.fromisoformat(request.GET["to"]) if request.GET.get("to") else today
+    except ValueError:
+        raise BadBody from None
+    if end < start or (end - start).days >= b2b.MAX_KPI_DAYS:
+        raise BadBody
+    return start, end
+
+
+@endpoint("GET")
+@api_gate(b2b.has_door)
+def kpis(request):
+    """The Sales numbers for a period: a Sales person's own, every Sales person's for the manager and the owner, and the
+    team's total. Counts and rates only - no company is named here."""
+    try:
+        start, end = _period(request)
+    except BadBody:
+        return _error(400, "bad_period")
+    rows, total = b2b.kpis(request.user, start, end)
+    return JsonResponse({
+        "ok": True,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "team": request.user.manages_sales,
+        "rows": rows,
+        "total": total,
+    })
 
 
 @endpoint("POST")

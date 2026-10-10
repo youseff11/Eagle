@@ -64,6 +64,7 @@ import { PayrollPage } from "./pages/PayrollPage";
 import { SalesLinePage } from "./pages/SalesLinePage";
 import { LeadSheetPage } from "./pages/LeadSheetPage";
 import { LeadSheetsPage } from "./pages/LeadSheetsPage";
+import { SalesPerformancePage } from "./pages/SalesPerformancePage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
@@ -156,6 +157,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="line" element={<SalesLinePage />} />
         <Route path="leads" element={<LeadSheetsPage />} />
         <Route path="leads/:id" element={<LeadSheetPage />} />
+        <Route path="sales-performance" element={<SalesPerformancePage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:code" element={<ClientPage />} />
         <Route path="team" element={<TeamPage />} />

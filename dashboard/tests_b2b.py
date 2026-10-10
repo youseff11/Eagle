@@ -93,7 +93,8 @@ class DoorTests(_B2b):
             body = _json(self.get(user, "v1_b2b_sheets"))
             self.assertEqual({s["title"] for s in body["sheets"]}, {"Germany", "Spain"}, user.username)
             self.assertTrue(body["can_manage"])
-            self.assertEqual({p["id"] for p in body["sales"]}, {self.manager.pk, self.sales.pk, self.other.pk})
+            # The manager hands the sheets out and holds none: not on the list.
+            self.assertEqual({p["id"] for p in body["sales"]}, {self.sales.pk, self.other.pk})
 
     def test_another_sales_persons_sheet_is_a_written_404(self):
         for name, args in (("v1_b2b_sheet", [self.sheet.pk]), ("v1_b2b_lead", [self.lead.pk])):
@@ -139,6 +140,20 @@ class SheetTests(_B2b):
         answer = self.post(self.manager, "v1_b2b_sheet_create", {"title": "", "assigned_to": self.sales.pk})
         self.assertEqual(_json(answer)["error"], "no_title")
         self.assertFalse(LeadSheet.objects.filter(title="X").exists())
+
+    def test_a_sheet_never_goes_to_a_sales_manager(self):
+        second = User.objects.create_user("manager2", password="pw", role=Role.SALES, is_sales_manager=True)
+        for person in (self.manager, second):
+            answer = self.post(self.manager, "v1_b2b_sheet_create", {"title": "Mine", "assigned_to": person.pk})
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"), person.username)
+            answer = self.post(self.admin, "v1_b2b_sheet_save", {"title": "Germany", "assigned_to": person.pk}, self.sheet.pk)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"), person.username)
+        self.assertFalse(LeadSheet.objects.filter(title="Mine").exists())
+        self.sheet.refresh_from_db()
+        self.assertEqual(self.sheet.assigned_to, self.sales)
+        listed = {p["id"] for p in _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sales"]}
+        self.assertNotIn(self.manager.pk, listed)
+        self.assertNotIn(second.pk, listed)
 
     def test_handing_a_sheet_over_moves_who_contacts_from_it(self):
         answer = self.post(self.manager, "v1_b2b_sheet_save", {"title": "Germany", "note": "", "assigned_to": self.other.pk}, self.sheet.pk)
@@ -355,7 +370,10 @@ class EmailTests(_B2b):
         self.lead.refresh_from_db()
         self.assertIsNotNone(self.lead.email_at)
         self.assertEqual(self.lead.client.email, "anna@lingua.test")
-        self.assertEqual(self.lead.activities.get().kind, "email")
+        self.assertEqual(self.lead.activities.get(kind="email").owner, self.sales)
+        # The first letter moved it to «Email sent», and that is on the timeline too.
+        stage = self.lead.activities.get(kind="status")
+        self.assertEqual((stage.status, stage.automatic, stage.owner), ("email_sent", True, self.sales))
 
     def test_a_letter_needs_an_address_a_subject_and_words(self):
         self.assertEqual(_json(self.post(self.sales, "v1_b2b_lead_email", {"subject": "", "body": "x"}, self.lead.pk))["error"], "empty")
@@ -645,7 +663,144 @@ class MoveTests(_B2b):
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.sheet, self.sheet)
 
+    def test_no_company_is_moved_to_a_sheet_a_manager_holds(self):
+        # A sheet from before the rule, held by the manager: not offered, and refused when named by hand.
+        held = LeadSheet.objects.create(title="Held", assigned_to=self.manager)
+        offered = [s["title"] for s in _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]]
+        self.assertNotIn("Held", offered)
+        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": held.pk}, self.lead.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"))
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.sheet, self.sheet)
+
     def test_the_manager_is_offered_the_other_sheets_and_a_sales_person_none(self):
         offered = _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]
         self.assertEqual([s["title"] for s in offered], ["Spain"])
         self.assertEqual(_json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["sheets"], [])
+
+
+# ---------------------------------------------------------------------------
+# Part 3: the Sales numbers
+# ---------------------------------------------------------------------------
+
+class KpiTests(_B2b):
+    def setUp(self):
+        super().setUp()
+        self.today = timezone.localdate()
+        self.period = {"from": (self.today - timedelta(days=30)).isoformat(), "to": self.today.isoformat()}
+
+    def numbers(self, user, **period):
+        browser = self.browser(user)
+        return browser.get(reverse("dashboard:v1_b2b_kpis"), period or self.period)
+
+    def row(self, user, person=None):
+        body = _json(self.numbers(user))
+        person = person or user
+        return next(row for row in body["rows"] if row["person"]["id"] == person.pk)
+
+    def save_status(self, lead, status):
+        values = {name: getattr(lead, name) for name, *_r in b2b.COLUMNS}
+        values.update(status=status, notes="", next_follow_up="")
+        self.assertEqual(self.post(self.manager, "v1_b2b_lead_save", values, lead.pk).status_code, 200)
+
+    def test_the_door_is_under_api_v1_and_closed_to_other_roles(self):
+        self.assertEqual(reverse("dashboard:v1_b2b_kpis"), "/api/v1/b2b/kpis/")
+        self.assertEqual(self.numbers(self.ops).status_code, 403)
+        self.assertEqual(self.numbers(self.tr).status_code, 403)
+
+    def test_what_the_sales_person_did_is_counted(self):
+        self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
+        self.post(self.sales, "v1_b2b_lead_email", {"subject": "s", "body": "b"}, self.lead.pk)
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
+        services.ingest_message(channel=Channel.WHATSAPP, body="ok", sender_identity=PHONE, external_id="wamid.k1", owner=self.sales)
+        Lead.objects.create(sheet=self.sheet, company_name="Untouched AG")
+        row = self.row(self.sales)
+        expected = {"new_leads": 2, "contacted": 1, "whatsapp": 1, "emails": 1, "calls": 1, "replies": 1, "holding": 2, "untouched": 1}
+        self.assertEqual({name: row[name] for name in expected}, expected)
+
+    def test_stages_are_counted_once_per_company_and_the_conversion_rate(self):
+        self.save_status(self.lead, "meeting")
+        self.save_status(self.lead, "proposal")
+        self.save_status(self.lead, "meeting")
+        self.save_status(self.lead, "won")
+        theirs = Lead.objects.create(sheet=LeadSheet.objects.create(title="Spain", assigned_to=self.other), company_name="Iberia")
+        self.save_status(theirs, "lost")
+        mine = self.row(self.manager, self.sales)
+        self.assertEqual((mine["meetings"], mine["proposals"], mine["won"], mine["lost"], mine["conversion_rate"]), (1, 1, 1, 0, 100))
+        theirs_row = self.row(self.manager, self.other)
+        # Measured, and nothing won: 0%, not "not measured".
+        self.assertEqual((theirs_row["lost"], theirs_row["conversion_rate"]), (1, 0))
+        total = _json(self.numbers(self.manager))["total"]
+        self.assertEqual((total["won"], total["lost"], total["conversion_rate"]), (1, 1, 50))
+
+    def test_no_data_is_not_measured_never_zero_percent(self):
+        row = self.row(self.sales)
+        self.assertIsNone(row["conversion_rate"])
+        self.assertIsNone(row["follow_up_rate"])
+        self.assertEqual(row["calls"], 0)
+
+    def test_follow_ups_on_time_late_and_missed(self):
+        yesterday = self.today - timedelta(days=1)
+        on_time = Lead.objects.create(sheet=self.sheet, company_name="On time", next_follow_up=self.today)
+        late = Lead.objects.create(sheet=self.sheet, company_name="Late", next_follow_up=yesterday)
+        Lead.objects.create(sheet=self.sheet, company_name="Missed", next_follow_up=yesterday)
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "follow_up"}, on_time.pk)
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "follow_up"}, late.pk)
+        # A second call the same day does the same follow-up no more.
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "follow_up"}, late.pk)
+        row = self.row(self.sales)
+        self.assertEqual(
+            (row["follow_ups_on_time"], row["follow_ups_late"], row["follow_ups_missed"], row["overdue_now"], row["follow_up_rate"]),
+            (1, 1, 1, 1, 33),
+        )
+
+    def test_a_reply_does_not_do_a_follow_up(self):
+        Lead.objects.filter(pk=self.lead.pk).update(next_follow_up=self.today)
+        services.ingest_message(channel=Channel.WHATSAPP, body="hi", sender_identity=PHONE, external_id="wamid.k2", owner=self.sales)
+        self.assertEqual(self.row(self.sales)["follow_ups_on_time"], 0)
+
+    def test_a_sales_person_reads_their_own_row_and_the_manager_the_team(self):
+        body = _json(self.numbers(self.sales))
+        self.assertEqual(([r["person"]["id"] for r in body["rows"]], body["team"]), ([self.sales.pk], False))
+        for user in (self.manager, self.admin):
+            body = _json(self.numbers(user))
+            ids = {r["person"]["id"] for r in body["rows"]}
+            self.assertEqual(ids, {self.sales.pk, self.other.pk}, user.username)
+            self.assertTrue(body["team"])
+
+    def test_a_moved_company_keeps_its_history_with_who_worked_it(self):
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
+        spain = LeadSheet.objects.create(title="Spain", assigned_to=self.other)
+        self.post(self.manager, "v1_b2b_lead_move", {"sheet": spain.pk}, self.lead.pk)
+        self.assertEqual(self.row(self.manager, self.sales)["calls"], 1)
+        self.assertEqual(self.row(self.manager, self.other)["calls"], 0)
+        self.assertEqual(self.row(self.manager, self.other)["holding"], 1)
+
+    def test_what_happened_outside_the_period_is_not_counted(self):
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
+        LeadActivity.objects.update(at=timezone.now() - timedelta(days=40))
+        self.assertEqual(self.row(self.sales)["calls"], 0)
+
+    def test_a_bad_period_is_refused(self):
+        tomorrow = (self.today + timedelta(days=1)).isoformat()
+        for period in ({"from": tomorrow, "to": self.today.isoformat()}, {"from": "soon"},
+                       {"from": (self.today - timedelta(days=400)).isoformat(), "to": self.today.isoformat()}):
+            answer = self.numbers(self.sales, **period)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_period"), period)
+
+    def test_this_month_when_no_period_is_given(self):
+        body = _json(self.browser(self.sales).get(reverse("dashboard:v1_b2b_kpis")))
+        self.assertEqual((body["from"], body["to"]), (self.today.replace(day=1).isoformat(), self.today.isoformat()))
+
+    def test_no_company_is_named(self):
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
+        text = self.numbers(self.manager).content.decode()
+        for word in ("Lingua", "Anna", "lingua.test", "7700"):
+            self.assertNotIn(word, text)
+
+    def test_a_stage_change_is_on_the_timeline_for_who_holds_the_company(self):
+        self.save_status(self.lead, "negotiation")
+        stage = self.lead.activities.get(kind="status")
+        self.assertEqual((stage.status, stage.owner, stage.by), ("negotiation", self.sales, self.manager))
+        self.save_status(self.lead, "negotiation")
+        self.assertEqual(self.lead.activities.filter(kind="status").count(), 1)

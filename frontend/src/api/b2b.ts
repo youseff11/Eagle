@@ -80,10 +80,12 @@ export interface B2bFollowUpsResponse {
 
 export interface B2bActivity {
   id: number;
-  kind: "whatsapp" | "email" | "call";
+  kind: "whatsapp" | "email" | "call" | "status";
   automatic: boolean;
   /** The company's own message to us, not ours to them. */
   incoming: boolean;
+  /** A stage change: the stage the company moved to. */
+  status: string;
   at: string;
   by: B2bPerson | null;
   outcome: string;
@@ -161,6 +163,56 @@ export function useB2bFollowUps(enabled = true) {
   return useQuery({
     queryKey: qk.b2bFollowUps,
     queryFn: () => api<B2bFollowUpsResponse>("/api/v1/b2b/follow-ups/"),
+    enabled,
+  });
+}
+
+/** The counts of one Sales person's row (or the team's total): a zero is a real zero. */
+export interface KpiCounts {
+  new_leads: number;
+  contacted: number;
+  whatsapp: number;
+  emails: number;
+  calls: number;
+  replies: number;
+  meetings: number;
+  proposals: number;
+  won: number;
+  lost: number;
+  follow_ups_on_time: number;
+  follow_ups_late: number;
+  follow_ups_missed: number;
+  overdue_now: number;
+  holding: number;
+  untouched: number;
+  /** Percentages, `null` when there is nothing to divide by: "not measured", never 0%. */
+  conversion_rate: number | null;
+  follow_up_rate: number | null;
+}
+
+export interface KpiRow extends KpiCounts {
+  person: { id: number; name: string; active: boolean };
+}
+
+export interface KpiResponse {
+  ok: boolean;
+  from: string;
+  to: string;
+  /** The manager's (and the owner's) answer: every Sales person, and the team's total. */
+  team: boolean;
+  rows: KpiRow[];
+  total: KpiCounts;
+}
+
+/** The Sales numbers for the days `from`..`to` (both included; empty = this month so far). */
+export function useB2bKpis(from: string, to: string, enabled = true) {
+  const query = new URLSearchParams();
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+  const search = query.toString();
+  return useQuery({
+    queryKey: qk.b2bKpis(from, to),
+    queryFn: () => api<KpiResponse>(`/api/v1/b2b/kpis/${search ? `?${search}` : ""}`),
     enabled,
   });
 }

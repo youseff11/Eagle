@@ -141,8 +141,10 @@ def may_contact(user, sheet):
 
 
 def sales_people():
-    """Who a sheet may be given to: the Sales people still working."""
-    return User.objects.filter(role=Role.SALES, is_active=True).order_by("first_name", "username")
+    """Who a sheet may be given to: the Sales people still working - never a Sales manager (the owner's rule, 10/10/2026):
+    the manager hands the sheets out and watches them, and does not hold one. The list the page draws and the check of what
+    is posted are both this, so a manager typed into the request by hand is refused like anybody else not on it."""
+    return User.objects.filter(role=Role.SALES, is_active=True, is_sales_manager=False).order_by("first_name", "username")
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +175,12 @@ def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, i
     first reply. Both move the last contact."""
     at = at or timezone.now()
     fields = []
+    # A follow-up that was due and not done yet is done by this, our own message or call on its day or after it.
+    follow_up_for = None
+    if not incoming and lead.next_follow_up is not None and lead.status not in CLOSED_STATUSES:
+        done_before = lead.last_outreach_at is not None and timezone.localtime(lead.last_outreach_at).date() >= lead.next_follow_up
+        if not done_before and timezone.localtime(at).date() >= lead.next_follow_up:
+            follow_up_for = lead.next_follow_up
     if incoming:
         if lead.replied_at is None:
             lead.replied_at = at
@@ -195,15 +203,29 @@ def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, i
     if fields:
         lead.save(update_fields=fields + ["updated_at"])
     if "status" in fields:
-        from . import services
-
-        services.log(by, "b2b.lead_status", f"lead {lead.pk}", f"{LeadStatus.NEW} -> {LeadStatus.EMAIL_SENT} (automatic)")
-    if automatic:
+        note_status(lead, LeadStatus.NEW, LeadStatus.EMAIL_SENT, by, automatic=True, at=at)
+    owner_id = lead.sheet.assigned_to_id
+    if automatic and follow_up_for is None:
         day = timezone.localtime(at).date()
         if lead.activities.filter(kind=kind, automatic=True, incoming=incoming, at__date=day).exists():
             return None
     return LeadActivity.objects.create(
-        lead=lead, kind=kind, automatic=automatic, incoming=incoming, at=at, by=by, outbound=outbound, **details
+        lead=lead, kind=kind, automatic=automatic, incoming=incoming, at=at, by=by, outbound=outbound,
+        owner_id=owner_id, follow_up_for=follow_up_for, **details
+    )
+
+
+def note_status(lead, before, after, by, *, automatic=False, at=None):
+    """The company moved on the pipeline: a line on its timeline (the stage it moved to, counted for whoever holds the
+    company) and a row in the audit log. Nothing when the stage did not change."""
+    from . import services
+
+    if before == after:
+        return None
+    services.log(by, "b2b.lead_status", f"lead {lead.pk}", f"{before} -> {after}" + (" (automatic)" if automatic else ""))
+    return LeadActivity.objects.create(
+        lead=lead, kind=LeadActivity.Kind.STATUS, status=after, automatic=automatic, at=at or timezone.now(), by=by,
+        owner_id=lead.sheet.assigned_to_id, notes=f"{before} -> {after}",
     )
 
 
@@ -352,6 +374,106 @@ def sweep(now=None):
 
 
 # ---------------------------------------------------------------------------
+# The Sales numbers (part 3): the B2B requirements' sections 11 and 12
+# ---------------------------------------------------------------------------
+
+#: The longest period the numbers are counted over.
+MAX_KPI_DAYS = 366
+#: The counts a person's row carries (zero is a real zero: nothing was done), and the two rates (``None`` when there is
+#: nothing to divide by: "not measured", never 0%).
+KPI_COUNTS = (
+    "new_leads", "contacted", "whatsapp", "emails", "calls", "replies", "meetings", "proposals", "won", "lost",
+    "follow_ups_on_time", "follow_ups_late", "follow_ups_missed", "overdue_now", "holding", "untouched",
+)
+
+
+def _rate(part, whole):
+    return None if not whole else round(100 * part / whole)
+
+
+def _rates(row):
+    row["conversion_rate"] = _rate(row["won"], row["won"] + row["lost"])
+    due = row["follow_ups_on_time"] + row["follow_ups_late"] + row["follow_ups_missed"]
+    row["follow_up_rate"] = _rate(row["follow_ups_on_time"], due)
+    return row
+
+
+def kpi_people(user, start_at, end_at):
+    """Whose numbers this person reads: their own, or - for the manager and the owner - every Sales person who holds
+    companies now or worked one in the period (somebody who left mid-month still has their month)."""
+    if not user.manages_sales:
+        return [user] if user.is_sales else []
+    worked = LeadActivity.objects.filter(at__gte=start_at, at__lt=end_at).values("owner_id")
+    rows = User.objects.filter(role=Role.SALES).filter(
+        Q(is_active=True, is_sales_manager=False) | Q(pk__in=worked) | Q(lead_sheets__isnull=False)
+    ).distinct()
+    return list(rows.order_by("first_name", "username"))
+
+
+def kpis(user, start, end, today=None):
+    """``(rows, total)`` for the days ``start``..``end`` (Cairo, both included).
+
+    * new_leads - companies added to the person's sheets in the period;
+    * contacted - companies they reached out to (a message or a call); whatsapp / emails - the messages themselves that left
+      their line to a company on their sheets; calls - the calls they logged;
+    * replies - companies that answered them for the first time in the period;
+    * meetings / proposals / won / lost - companies moved to that stage in the period (each company once);
+    * follow-ups that fell due in the period: done on the day, done later, or still not done;
+    * overdue_now, holding, untouched - today, whatever the period: late follow-ups, companies on their sheets, and of those
+      the ones nobody contacted yet.
+
+    Counted for the person who held the company when it happened (``LeadActivity.owner``).
+    """
+    from datetime import datetime, time as dtime
+
+    today = today or timezone.localdate()
+    start_at = timezone.make_aware(datetime.combine(start, dtime.min))
+    end_at = timezone.make_aware(datetime.combine(end + timedelta(days=1), dtime.min))
+    rows = []
+    for person in kpi_people(user, start_at, end_at):
+        acts = LeadActivity.objects.filter(owner=person, at__gte=start_at, at__lt=end_at)
+        ours = acts.filter(incoming=False, kind__in=(LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.EMAIL, LeadActivity.Kind.CALL))
+        stage = acts.filter(kind=LeadActivity.Kind.STATUS)
+        sent = OutboundMessage.objects.filter(
+            owner=person, status=OutboundMessage.Status.SENT, created_at__gte=start_at, created_at__lt=end_at,
+            client__leads__sheet__assigned_to=person,
+        )
+        mine = Lead.objects.filter(sheet__assigned_to=person)
+        done = [
+            (timezone.localtime(at).date(), due)
+            for at, due in acts.filter(follow_up_for__isnull=False).values_list("at", "follow_up_for")
+        ]
+        missed = [
+            lead for lead in _open_follow_ups(mine, today)
+            if lead.next_follow_up < today and start <= lead.next_follow_up <= end
+        ]
+        row = {
+            "person": {"id": person.pk, "name": person.get_full_name() or person.username, "active": person.is_active},
+            "new_leads": mine.filter(created_at__gte=start_at, created_at__lt=end_at).count(),
+            "contacted": ours.values("lead").distinct().count(),
+            "whatsapp": sent.filter(channel=Channel.WHATSAPP).distinct().count(),
+            "emails": sent.filter(channel=Channel.EMAIL).distinct().count(),
+            "calls": ours.filter(kind=LeadActivity.Kind.CALL).count(),
+            "replies": Lead.objects.filter(
+                activities__owner=person, activities__incoming=True, replied_at__gte=start_at, replied_at__lt=end_at,
+            ).distinct().count(),
+            "meetings": stage.filter(status=LeadStatus.MEETING).values("lead").distinct().count(),
+            "proposals": stage.filter(status=LeadStatus.PROPOSAL).values("lead").distinct().count(),
+            "won": stage.filter(status=LeadStatus.WON).values("lead").distinct().count(),
+            "lost": stage.filter(status=LeadStatus.LOST).values("lead").distinct().count(),
+            "follow_ups_on_time": sum(1 for day, due in done if day == due),
+            "follow_ups_late": sum(1 for day, due in done if day > due),
+            "follow_ups_missed": len(missed),
+            "overdue_now": sum(1 for lead in _open_follow_ups(mine, today) if lead.next_follow_up < today),
+            "holding": mine.count(),
+            "untouched": mine.filter(whatsapp_at__isnull=True, email_at__isnull=True, call_at__isnull=True).count(),
+        }
+        rows.append(_rates(row))
+    total = _rates({name: sum(row[name] for row in rows) for name in KPI_COUNTS})
+    return rows, total
+
+
+# ---------------------------------------------------------------------------
 # Handing a company to another Sales person (part 2)
 # ---------------------------------------------------------------------------
 
@@ -364,6 +486,8 @@ def move_lead(lead, sheet, actor):
         raise Refused("not_manager", "نقل الشركات للمانجر بس.", "Only the Sales manager moves companies.")
     if sheet.pk == lead.sheet_id:
         raise Refused("same_sheet", "الشركة في الشيت ده أصلًا.", "The company is on that sheet already.")
+    if not sales_people().filter(pk=sheet.assigned_to_id).exists():
+        raise Refused("no_sales", "الشيت ده مع حد مايستلمش شركات (مانجر أو حساب مقفول).", "That sheet is with someone who takes no companies (a manager, or a closed account).")
     if sheet.leads.count() >= MAX_SHEET_ROWS:
         raise Refused("sheet_full", f"الشيت مايشيلش أكتر من {MAX_SHEET_ROWS} شركة.", f"A sheet holds at most {MAX_SHEET_ROWS} companies.")
     before = lead.sheet

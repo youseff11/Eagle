@@ -86,6 +86,7 @@ export const WARM_URLS: Record<string, readonly string[]> = {
   "/payroll": ["/api/v1/translator/payroll/"],
   "/line": ["/api/v1/sales/line/"],
   "/leads": ["/api/v1/b2b/sheets/"],
+  "/sales-performance": ["/api/v1/b2b/kpis/"],
   "/leave": ["/api/v1/leave/"],
 };
 

@@ -1086,8 +1086,32 @@ GUIDES = (
             "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered» or «Not contacted yet».",
         ],
         note=(
-            "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة.",
-            "The Sales manager sees the whole team's follow-ups, and whose each one is.",
+            "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة. والمانجر عمره ما بياخد شيت: الشيتات للـSales بس.",
+            "The Sales manager sees the whole team's follow-ups, and whose each one is. The manager never holds a sheet: sheets are for Sales people only.",
+        ),
+    ),
+    _guide(
+        "sales-performance", (Role.SALES, Role.ADMIN), "/sales-performance",
+        ("فين أرقام المبيعات وأداء كل Sales", "Where are the Sales numbers and each Sales person's performance"),
+        (
+            "اداء المبيعات، ارقامي، ارقام السيلز، داشبورد المبيعات، كام won، نسبة التحويل، كام مكالمة، اداء الفريق، تقرير الشهر",
+            "sales performance, my numbers, sales numbers, sales dashboard, how many won, conversion rate, how many calls, team performance, monthly report",
+        ),
+        [
+            "من قسم «الشغل» افتح «أداء المبيعات».",
+            "اختار الفترة: «الشهر ده» أو «الشهر اللي فات» أو «آخر 7 أيام»، أو حط التاريخين بإيدك.",
+            "فوق الإجمالي، وتحت جدول فيه الشركات الجديدة واللي اتواصلنا معاهم والواتساب والإيميلات والمكالمات واللي ردّوا والاجتماعات والـWon والـLost.",
+            "«نسبة التحويل» = الـWon من الشركات اللي اتحسمت في الفترة، و«الالتزام بالمتابعة» = المتابعات اللي اتعملت في يومها.",
+        ],
+        [
+            "In the «Work» section open «Sales performance».",
+            "Choose the period: «This month», «Last month» or «Last 7 days», or type the two dates.",
+            "The totals are on top, and below them a table of new leads, contacted, WhatsApp, e-mails, calls, answers, meetings, won and lost.",
+            "«Conversion» = the won among the companies decided in the period, and «Follow-up on time» = the follow-ups done on their day.",
+        ],
+        note=(
+            "الـSales بيشوف أرقامه هو بس، والمانجر بيشوف كل Sales والفريق كله. رقم مالوش داتا بيتكتب «مش متقاس» مش صفر.",
+            "A Sales person sees their own numbers only; the manager sees each Sales person and the whole team. A number with no data reads «Not measured», never zero.",
         ),
     ),
     # ------------------------------------------------------------------------------------------------------------------

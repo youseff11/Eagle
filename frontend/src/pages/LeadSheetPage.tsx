@@ -581,13 +581,15 @@ function LogCall({ lead, outcomes, onClose }: { lead: B2bLead; outcomes: B2bChoi
 
 /** A row's timeline: every message that reached the company, every call. */
 function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2bChoice[]; onClose: () => void }) {
-  const { t } = usePreferences();
+  const { t, lang } = usePreferences();
+  const statusWord = (value: string) => (lang === "ar" ? (STATUS_AR[value] ?? value) : value);
   const label = useChoiceLabel();
   const detail = useB2bLead(leadId);
   const kinds: Record<string, [string, string, string]> = {
     whatsapp: ["message", "واتساب", "WhatsApp"],
     email: ["mail", "إيميل", "E-mail"],
     call: ["phone", "مكالمة", "Call"],
+    status: ["target", "الحالة اتغيّرت", "Stage changed"],
   };
   const data = detail.data;
 
@@ -606,6 +608,7 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
                     <strong>{t(ar, en)}</strong>
                     {outcome && <span className="chip chip--sm">{label(outcome, OUTCOME_AR)}</span>}
                     {row.incoming && <span className="chip chip--sm chip--replied">{t("ردّوا", "They answered")}</span>}
+                    {row.kind === "status" && <span className="chip chip--sm">{statusWord(row.status)}</span>}
                     <span className="muted">{row.automatic ? t("اتسجّل لوحده", "recorded by itself") : row.by?.name}</span>
                     <div className="grow" />
                     <span className="mono muted">{row.at}</span>
