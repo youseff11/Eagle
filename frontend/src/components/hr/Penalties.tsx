@@ -27,12 +27,15 @@ export function PenaltyRow({
   canDecide,
   canChange = false,
   showPerson,
+  linkPerson = true,
 }: {
   row: HrPenalty;
   canDecide: boolean;
   /** The admin: what was decided can be turned round - forgive what stands, apply again what was forgiven. */
   canChange?: boolean;
   showPerson: boolean;
+  /** The name opens the person's HR file; off for a reader who has no HR file to open. */
+  linkPerson?: boolean;
 }) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
@@ -63,7 +66,7 @@ export function PenaltyRow({
         <span className={`badge ${row.decision.value === "forgiven" ? "badge--ok" : "badge--dead"} mono`} title={t("نجوم اتخصمت", "Stars taken off")}>
           -{row.amount}
         </span>
-        {showPerson && <Link to={`/hr/employees/${row.user.id}`}>{row.user.name}</Link>}
+        {showPerson && (linkPerson ? <Link to={`/hr/employees/${row.user.id}`}>{row.user.name}</Link> : <span>{row.user.name}</span>)}
         <span className="grow">{lang === "en" ? row.reason.en || row.reason.ar : row.reason.ar}</span>
         {row.task && <span className="chip chip--sm mono">{row.task}</span>}
         <small className="muted mono">{row.at ? (lang === "en" ? row.at.en : row.at.ar) : ""}</small>

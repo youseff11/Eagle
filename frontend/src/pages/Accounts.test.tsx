@@ -12,6 +12,7 @@ import type {
   AccountsViolation,
   AccountsViolations,
   FormField,
+  HrPenalty,
   Role,
 } from "../api/types";
 import { ToastProvider } from "../components/Toasts";
@@ -603,9 +604,31 @@ describe("AccountsAttendancePage", () => {
   });
 });
 
+function star(id: number, value: "pending" | "confirmed" | "forgiven", over: Partial<HrPenalty> = {}): HrPenalty {
+  const labels = { pending: "مستني قرار", confirmed: "اتطبق", forgiven: "اتسامح" };
+  return {
+    id,
+    user: { id: 11, name: "Sam" },
+    amount: "0.125",
+    reason: { ar: `سبب ${id}`, en: `reason ${id}` },
+    task: "TSK-00009",
+    at: { ar: "10-09", en: "10-09" },
+    decision: { value, ar: labels[value], en: value, tone: "ok" } as HrPenalty["decision"],
+    decided_by: value === "pending" ? null : "Mona",
+    decided_at: null,
+    note: "",
+    ...over,
+  };
+}
+
 function violations(over: Partial<AccountsViolations> = {}): AccountsViolations {
   return {
     ok: true,
+    stars: {
+      rows: [star(21, "pending"), star(22, "confirmed"), star(23, "forgiven")],
+      waiting: 1,
+      can: { decide: false, change: false },
+    },
     pending: [violation(5, { task: "TSK-00009" })],
     decided: [violation(6, { status: "approved", decided_by: "Mona" }), violation(7, { status: "rejected", decided_by: "Mona", user: "Nada" })],
     conf: { quality_penalty_days: "1.00", unexcused_penalty_days: "2.00", low_output_penalty_days: "0.50", extra_leave_penalty_days: "1.00", target_miss_penalty: "250.00" },
@@ -631,6 +654,32 @@ describe("AccountsViolationsPage", () => {
     expect(within(decided.querySelector('[data-violation="6"]') as HTMLElement).getByText("مطبق")).toHaveClass("badge--dead");
     expect(within(decided.querySelector('[data-violation="7"]') as HTMLElement).getByText("مرفوض")).toHaveClass("badge--info");
     expect(within(decided).getAllByText("Mona")).toHaveLength(2);
+  });
+
+  it("lists the star penalties in every state, the applied ones included, and filters them", async () => {
+    serve("accounting", { "/api/v1/accounts/violations/": () => jsonResponse(violations()) });
+    const user = userEvent.setup();
+    const { container } = open("/accounts/violations");
+    const card = (await screen.findByText("خصومات النجوم (تأخير وأخطاء ترجمة)")).closest(".card") as HTMLElement;
+    expect(card.querySelectorAll("[data-penalty]")).toHaveLength(3);
+    expect(card.querySelector('[data-penalty="22"]')).toHaveAttribute("data-decision", "confirmed");
+    await user.click(within(card).getByRole("button", { name: "اتطبق" }));
+    expect(Array.from(card.querySelectorAll("[data-penalty]")).map((node) => node.getAttribute("data-penalty"))).toEqual(["22"]);
+    // Accounting reads only: no button decides, and the name does not lead to an HR file it cannot open.
+    expect(container.querySelector(".penalty__actions")).toBeNull();
+    expect(card.querySelector('a[href^="/hr/"]')).toBeNull();
+  });
+
+  it("gives the admin the button that turns an applied penalty round", async () => {
+    const served = serve("admin", {
+      "/api/v1/accounts/violations/": () =>
+        jsonResponse(violations({ stars: { rows: [star(22, "confirmed")], waiting: 0, can: { decide: true, change: true } } })),
+      "/api/v1/hr/penalties/22/forgive/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    const user = userEvent.setup();
+    open("/accounts/violations");
+    await user.click(await screen.findByRole("button", { name: "سامحه وارجّع النجوم" }));
+    await waitFor(() => expect(served.sent.map((post) => post.url)).toEqual(["/api/v1/hr/penalties/22/forgive/"]));
   });
 
   it("shows the default penalties, with days only where they are days", async () => {

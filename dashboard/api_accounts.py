@@ -21,11 +21,12 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from . import api_forms, attendance, clock, identity, payroll, services
+from . import api_forms, attendance, clock, identity, payroll, penalties, services
+from .api_people import _penalty_json
 from .api_v1 import BadBody, _day_status_json, _error, _object, _two, endpoint
 from .forms import PayrollSettingsForm, ProductionTierForm, SalaryRecordForm, ViolationForm, WorkDayForm
 from .models import (
-    LEAVE_STATUSES, ApprovalStatus, PayrollLine, PayrollPeriod, PayrollSettings, PeriodStatus, ProductionTier, Role,
+    LEAVE_STATUSES, ApprovalStatus, PayrollLine, PayrollPeriod, PayrollSettings, PeriodStatus, ProductionTier, RatingEvent, Role,
     SalaryRecord, Task, TierScale, User, Violation, WordCountState, WorkDay,
 )
 from .payroll_texts import SECTIONS as RULE_SECTIONS
@@ -36,7 +37,9 @@ from .templatetags.eagle_tags import VIOLATION_KIND_MAP
 #: How many rows each card lists: the classic pages' own numbers.
 MAX_PENDING = 50
 MAX_UNSETTLED = 30
-MAX_DECIDED = 60
+#: The violations page is the one place to look anything up and turn it round, so it lists every decision (newest first), not the latest few.
+MAX_DECIDED = 500
+MAX_STARS = 500
 MAX_SALARY_MONTHS = 24
 
 PERIOD_STATUS = {
@@ -438,9 +441,15 @@ def attendance_save(request):
 @endpoint("GET")
 @api_role_required(Role.ACCOUNTING)
 def violations(request):
-    """What waits for a decision, what was decided lately, the defaults, and the form that proposes a deduction."""
+    """What waits for a decision, everything that was decided, the star penalties (late answers, accepted review notes) in every
+    state, the defaults, and the form that proposes a deduction.
+
+    The star penalties are HR's and the admin's to apply or forgive (``penalties.decide``, through ``/api/v1/hr/penalties/``);
+    accounting reads them here, and ``stars.can`` says whether the reader may also decide.
+    """
     user = request.user
     conf = PayrollSettings.load()
+    stars = RatingEvent.objects.select_related("user", "task", "decided_by").order_by("-created_at", "-id")
     return JsonResponse({
         "ok": True,
         "pending": [
@@ -452,6 +461,11 @@ def violations(request):
             for row in Violation.objects.exclude(status=ApprovalStatus.PENDING)
             .select_related("user", "task__client", "approved_by")[:MAX_DECIDED]
         ],
+        "stars": {
+            "rows": [_penalty_json(one) for one in stars[:MAX_STARS]],
+            "waiting": RatingEvent.objects.filter(decision=RatingEvent.Decision.PENDING).count(),
+            "can": {"decide": penalties.may_decide(user), "change": penalties.may_change(user)},
+        },
         "conf": {
             "quality_penalty_days": _money(conf.quality_penalty_days),
             "unexcused_penalty_days": _money(conf.unexcused_penalty_days),

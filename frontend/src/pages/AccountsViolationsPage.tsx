@@ -6,6 +6,7 @@ import { useAccountsViolations } from "../api/queries";
 import type { AccountsViolation, FormErrors } from "../api/types";
 import { Penalty, Waiting, refusal, useMayRunTheMonth } from "../components/accounts/shared";
 import { DjangoForm, useFormEdits } from "../components/admin/DjangoForm";
+import { PenaltyRow } from "../components/hr/Penalties";
 import { Icon } from "../components/Icon";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
@@ -40,9 +41,18 @@ export function AccountsViolationsPage() {
   const edits = useFormEdits(data?.form);
   const [errors, setErrors] = useState<FormErrors>({});
   const [failed, setFailed] = useState(false);
+  const [starFilter, setStarFilter] = useState<"all" | "pending" | "confirmed" | "forgiven">("all");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!data) return <Waiting failed={query.isError} />;
+
+  const stars = data.stars.rows.filter((row) => starFilter === "all" || row.decision.value === starFilter);
+  const starFilters: ["all" | "pending" | "confirmed" | "forgiven", string, string][] = [
+    ["all", "الكل", "All"],
+    ["pending", "مستني قرار", "Waiting"],
+    ["confirmed", "اتطبق", "Applied"],
+    ["forgiven", "اتسامح", "Forgiven"],
+  ];
 
   const act = (id: number, action: "approve" | "reject") =>
     decide.mutate({ id, action }, { onError: (error) => push({ level: "danger", title: refusal(error, t("حصلت مشكلة.", "Something went wrong.")) }) });
@@ -168,6 +178,44 @@ export function AccountsViolationsPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="card" data-card="star-penalties">
+            <div className="card__head">
+              <Icon name="star" />
+              <h3>{t("خصومات النجوم (تأخير وأخطاء ترجمة)", "Star penalties (late answers and translation errors)")}</h3>
+              {data.stars.waiting > 0 && <span className="chip chip--sm mono">{data.stars.waiting}</span>}
+            </div>
+            <p className="muted">
+              {data.stars.can.change
+                ? t(
+                    "كل الخصومات بكل حالاتها. اللي اتطبق تسامحه، واللي اتسامح تطبقه تاني، في أي وقت.",
+                    "Every penalty in every state. Forgive what was applied, or apply again what was forgiven, at any time.",
+                  )
+                : data.stars.can.decide
+                  ? t("طبّق الخصم أو سامحه. القرار مرة واحدة، والمالك بس هو اللي يغيّره بعد كده.", "Apply or forgive. A decision is taken once; only the owner can change it afterwards.")
+                  : t("للقراءة. الـHR والمالك هما اللي بيطبّقوا أو بيسامحوا.", "Read only. HR and the owner apply or forgive.")}
+            </p>
+            <div className="row row--tight" role="group" aria-label={t("فلتر الحالة", "State filter")}>
+              {starFilters.map(([value, ar, en]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`btn btn--sm${starFilter === value ? " btn--primary" : " btn--ghost"}`}
+                  aria-pressed={starFilter === value}
+                  data-star-filter={value}
+                  onClick={() => setStarFilter(value)}
+                >
+                  {t(ar, en)}
+                </button>
+              ))}
+            </div>
+            <ul className="timeline">
+              {stars.map((row) => (
+                <PenaltyRow key={row.id} row={row} canDecide={data.stars.can.decide} canChange={data.stars.can.change} showPerson linkPerson={data.stars.can.decide} />
+              ))}
+              {stars.length === 0 && <li className="muted">{t("مفيش خصومات.", "No penalties.")}</li>}
+            </ul>
           </div>
         </div>
 

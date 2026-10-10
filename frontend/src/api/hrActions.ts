@@ -31,9 +31,17 @@ function useWrite<V, R>(run: (values: V) => Promise<R>) {
 
 /** Apply a star penalty (`confirm`: the stars stay off) or forgive it (`forgive`: they are given back); the note is optional. */
 export function useDecidePenalty() {
-  return useWrite<{ id: number; action: "confirm" | "forgive"; note: string }, { ok: true }>(({ id, action, note }) =>
-    api(`/api/v1/hr/penalties/${id}/${action}/`, { json: { note } }),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, note }: { id: number; action: "confirm" | "forgive"; note: string }) =>
+      api<{ ok: true }>(`/api/v1/hr/penalties/${id}/${action}/`, { json: { note } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.hr });
+      void client.invalidateQueries({ queryKey: qk.hrRegisterAll });
+      // The accounts violations page lists the same penalties.
+      void client.invalidateQueries({ queryKey: qk.accountsViolations });
+    },
+  });
 }
 
 /** Correct a day: the boxes that changed, and the reason (not optional). */

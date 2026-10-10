@@ -20,7 +20,7 @@ from django.utils import timezone
 from . import identity, newui, payroll
 from .forms import PayrollSettingsForm, ViolationForm
 from .models import (
-    ApprovalStatus, AppSettings, AuditLog, PayrollLine, PayrollPeriod, PayrollSettings, ProductionTier, Role,
+    ApprovalStatus, AppSettings, AuditLog, PayrollLine, PayrollPeriod, PayrollSettings, ProductionTier, RatingEvent, Role,
     SalaryRecord, Task, TaskStatus, User, Violation, WordCountState, WorkDay,
 )
 from .payroll_texts import SECTIONS as RULE_SECTIONS
@@ -532,10 +532,48 @@ class ViolationTests(_Accounts):
         conf = PayrollSettings.load()
         self.assertEqual(_json(self.get(self.accounting, VIOLATIONS))["conf"]["quality_penalty_days"], str(conf.quality_penalty_days))
 
-    def test_the_decided_list_is_the_latest_sixty(self):
+    def test_the_decided_list_holds_every_decision_up_to_a_ceiling(self):
         for _ in range(65):
-            self.violation(status=ApprovalStatus.REJECTED)
-        self.assertEqual(len(_json(self.get(self.accounting, VIOLATIONS))["decided"]), 60)
+            self.violation(status=ApprovalStatus.APPROVED, approved_by=self.admin)
+        self.assertEqual(len(_json(self.get(self.accounting, VIOLATIONS))["decided"]), 65)
+        with mock.patch("dashboard.api_accounts.MAX_DECIDED", 10):
+            self.assertEqual(len(_json(self.get(self.accounting, VIOLATIONS))["decided"]), 10)
+
+    def star(self, **over):
+        values = {"user": self.tr, "task": self.task, "delta": Decimal("-0.125"), "reason_en": "No response within 30s", "reason_ar": "لم يرد"}
+        values.update(over)
+        return RatingEvent.objects.create(**values)
+
+    def test_star_penalties_are_listed_in_every_state_applied_ones_included(self):
+        waiting = self.star()
+        applied = self.star(decision=RatingEvent.Decision.CONFIRMED, decided_by=self.hr)
+        forgiven = self.star(decision=RatingEvent.Decision.FORGIVEN, decided_by=self.admin)
+        stars = _json(self.get(self.accounting, VIOLATIONS))["stars"]
+        self.assertEqual({row["id"] for row in stars["rows"]}, {waiting.pk, applied.pk, forgiven.pk})
+        self.assertEqual(stars["waiting"], 1)
+        by_id = {row["id"]: row for row in stars["rows"]}
+        self.assertEqual(by_id[applied.pk]["decision"]["value"], "confirmed")
+        self.assertEqual(by_id[applied.pk]["decided_by"], self.hr.short_name)
+        self.assertEqual(by_id[forgiven.pk]["decision"]["value"], "forgiven")
+        self.assertEqual(by_id[waiting.pk]["task"], self.task.code)
+
+    def test_who_may_decide_a_star_penalty_is_told_to_the_page(self):
+        self.star()
+        accounting = _json(self.get(self.accounting, VIOLATIONS))["stars"]["can"]
+        admin = _json(self.get(self.admin, VIOLATIONS))["stars"]["can"]
+        self.assertEqual(accounting, {"decide": False, "change": False})
+        self.assertEqual(admin, {"decide": True, "change": True})
+
+    def test_a_star_penalty_applied_here_can_be_forgiven_by_the_admin_through_the_hr_door(self):
+        event = self.star(decision=RatingEvent.Decision.CONFIRMED, decided_by=self.hr)
+        self.tr.rating = Decimal("3.000")
+        self.tr.save()
+        answer = self.post(self.admin, "dashboard:v1_hr_penalty_decide", {}, [event.pk, "forgive"])
+        self.assertEqual(answer.status_code, 200, answer.content)
+        row = next(one for one in _json(self.get(self.admin, VIOLATIONS))["stars"]["rows"] if one["id"] == event.pk)
+        self.assertEqual(row["decision"]["value"], "forgiven")
+        self.tr.refresh_from_db()
+        self.assertEqual(self.tr.rating, Decimal("3.125"))
 
     def test_a_deduction_is_proposed_and_waits_for_a_person(self):
         answer = self.propose()

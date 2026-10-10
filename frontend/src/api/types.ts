@@ -1478,6 +1478,8 @@ export interface AccountsViolations {
   ok: true;
   pending: AccountsViolation[];
   decided: AccountsViolation[];
+  /** Star penalties (a late answer, accepted review notes) in every state, newest first; `can` says whether the reader may decide them. */
+  stars: { rows: HrPenalty[]; waiting: number; can: { decide: boolean; change: boolean } };
   conf: Record<"quality_penalty_days" | "unexcused_penalty_days" | "low_output_penalty_days" | "extra_leave_penalty_days" | "target_miss_penalty", string>;
   form: FormField[];
 }
