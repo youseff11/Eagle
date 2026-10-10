@@ -2016,7 +2016,10 @@ img, video, canvas, svg:not(.ic) { max-width: 100%; }
 .ai-issue__accept { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; cursor: pointer; }
 .ai-notes__accept { margin-bottom: 10px; flex-wrap: wrap; }
 .ai-issue__done { font-size: .72rem; }
-.penalty { display: grid; gap: 6px; }
+/* `.timeline li` is a flex row; a penalty stacks its head, its note and its buttons instead. */
+.penalty, .timeline li.penalty { display: grid; gap: 6px; align-items: stretch; }
+.penalty__reason { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.penalty__actions .btn { white-space: normal; }
 .penalty__actions { flex-wrap: wrap; }
 .penalty__actions .input { flex: 1 1 200px; min-width: 140px; }
 .ai-issue__where {

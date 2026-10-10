@@ -67,7 +67,7 @@ export function PenaltyRow({
           -{row.amount}
         </span>
         {showPerson && (linkPerson ? <Link to={`/hr/employees/${row.user.id}`}>{row.user.name}</Link> : <span>{row.user.name}</span>)}
-        <span className="grow">{lang === "en" ? row.reason.en || row.reason.ar : row.reason.ar}</span>
+        <span className="penalty__reason">{lang === "en" ? row.reason.en || row.reason.ar : row.reason.ar}</span>
         {row.task && <span className="chip chip--sm mono">{row.task}</span>}
         <small className="muted mono">{row.at ? (lang === "en" ? row.at.en : row.at.ar) : ""}</small>
         <LeaveStatusBadge status={row.decision} />

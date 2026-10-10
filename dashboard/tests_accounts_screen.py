@@ -557,6 +557,13 @@ class ViolationTests(_Accounts):
         self.assertEqual(by_id[forgiven.pk]["decision"]["value"], "forgiven")
         self.assertEqual(by_id[waiting.pk]["task"], self.task.code)
 
+    def test_a_decision_note_naming_the_client_is_masked_for_accounting_and_open_for_the_admin(self):
+        self.star(decision=RatingEvent.Decision.FORGIVEN, decided_by=self.hr, decision_note=f"{CLIENT_NAME} complained, my mistake")
+        accounting = json.dumps(_json(self.get(self.accounting, VIOLATIONS))["stars"])
+        self.assertNotIn(CLIENT_NAME, accounting)
+        self.assertIn(self.client_obj.code, accounting)
+        self.assertIn(CLIENT_NAME, json.dumps(_json(self.get(self.admin, VIOLATIONS))["stars"]))
+
     def test_who_may_decide_a_star_penalty_is_told_to_the_page(self):
         self.star()
         accounting = _json(self.get(self.accounting, VIOLATIONS))["stars"]["can"]

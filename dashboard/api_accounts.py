@@ -99,6 +99,13 @@ def _violation_json(row, viewer):
     }
 
 
+def _star_json(event, viewer):
+    """A star penalty as HR sees it, with the decider's free-text note passed through the client mask like a deduction's reason."""
+    row = _penalty_json(event)
+    row["note"] = identity.mask_client(row["note"], event.task.client if event.task_id else None, viewer)
+    return row
+
+
 # ---------------------------------------------------------------------------
 # The month's sheet
 # ---------------------------------------------------------------------------
@@ -449,7 +456,7 @@ def violations(request):
     """
     user = request.user
     conf = PayrollSettings.load()
-    stars = RatingEvent.objects.select_related("user", "task", "decided_by").order_by("-created_at", "-id")
+    stars = RatingEvent.objects.select_related("user", "task__client", "decided_by").order_by("-created_at", "-id")
     return JsonResponse({
         "ok": True,
         "pending": [
@@ -462,7 +469,7 @@ def violations(request):
             .select_related("user", "task__client", "approved_by")[:MAX_DECIDED]
         ],
         "stars": {
-            "rows": [_penalty_json(one) for one in stars[:MAX_STARS]],
+            "rows": [_star_json(one, user) for one in stars[:MAX_STARS]],
             "waiting": RatingEvent.objects.filter(decision=RatingEvent.Decision.PENDING).count(),
             "can": {"decide": penalties.may_decide(user), "change": penalties.may_change(user)},
         },
