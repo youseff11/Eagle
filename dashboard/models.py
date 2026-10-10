@@ -757,8 +757,10 @@ class User(AbstractUser):
         """Rating rounded to the nearest eighth, as a float for templates."""
         return float(self.rating)
 
-    def apply_penalty(self, task, reason_en, reason_ar, amount=None):
-        """Take stars off: the company's penalty, or ``amount`` when the reason is worth more (several accepted notes)."""
+    def apply_penalty(self, task, reason_en, reason_ar, amount=None, check=None, notes=None):
+        """Take stars off: the company's penalty, or ``amount`` when the reason is worth more (several accepted notes).
+
+        ``check`` and ``notes`` say which AI check and which of its notes this penalty is for, so whoever decides it can read them."""
         settings_row = AppSettings.load()
         penalty = settings_row.penalty_value if amount is None else amount
         old_value = Decimal(self.rating)
@@ -769,6 +771,7 @@ class User(AbstractUser):
         event = RatingEvent.objects.create(
             user=self, task=task, delta=new_value - old_value,
             reason_en=reason_en, reason_ar=reason_ar,
+            ai_check=check, notes=list(notes or []),
         )
         # HR and the admin are shown what came off and why, and decide whether it stands (penalties.py).
         from . import penalties
@@ -1843,6 +1846,10 @@ class RatingEvent(models.Model):
     decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     decided_at = models.DateTimeField(null=True, blank=True)
     decision_note = models.CharField(max_length=200, blank=True)
+    #: A penalty for accepted AI review notes remembers which check and which of its notes (positions in ``issues``), so the page
+    #: that decides it can show them. Empty on a penalty for anything else, and on one written before this existed.
+    ai_check = models.ForeignKey("AICheckResult", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    notes = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ("-created_at",)

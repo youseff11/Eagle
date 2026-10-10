@@ -20,6 +20,7 @@ import type {
   HrDevices,
   HrEmployee,
   HrPenalties,
+  HrPenaltyNotes,
   HrHire,
   HrInterview,
   HrLeave,
@@ -560,6 +561,16 @@ export function useHrPenalties(enabled = true) {
     queryKey: qk.hrPenalties,
     queryFn: () => api<HrPenalties>("/api/v1/hr/penalties/"),
     refetchInterval,
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** The AI notes a star penalty was written for; asked only when the person opens them. */
+export function useHrPenaltyNotes(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.hrPenaltyNotes(id),
+    queryFn: () => api<HrPenaltyNotes>(`/api/v1/hr/penalties/${id}/notes/`),
     refetchOnWindowFocus: false,
     enabled,
   });

@@ -682,6 +682,35 @@ describe("AccountsViolationsPage", () => {
     await waitFor(() => expect(served.sent.map((post) => post.url)).toEqual(["/api/v1/hr/penalties/22/forgive/"]));
   });
 
+  it("opens the AI notes a penalty was written for, only when asked, and only for who may decide", async () => {
+    const note = { id: 1, accepted: true, severity: "high" as const, location: "p2", category: null, source: "Source words", translation: "Wrong words", compared: true, text: { ar: "خطأ في الرقم", en: "Wrong number" }, meaning: "" };
+    const served = serve("admin", {
+      "/api/v1/accounts/violations/": () =>
+        jsonResponse(violations({ stars: { rows: [star(22, "confirmed", { has_notes: true }), star(23, "forgiven")], waiting: 0, can: { decide: true, change: true } } })),
+      "/api/v1/hr/penalties/22/notes/": () => jsonResponse({ ok: true, task: "TSK-00009", translator: "Sam", approximate: false, notes: [note] }),
+    });
+    const user = userEvent.setup();
+    const { container } = open("/accounts/violations");
+    await screen.findByText("سبب 22");
+    // Only the penalty for accepted notes carries the button, and nothing is read before it is pressed.
+    expect(container.querySelectorAll("[data-penalty-notes]")).toHaveLength(1);
+    expect(served.calls.some((call) => call.url.includes("/notes/"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "شوف الملاحظات اللي اتقبلت" }));
+    expect(await screen.findByText("خطأ في الرقم")).toBeInTheDocument();
+    expect(screen.getByText("Wrong words")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "اخفي الملاحظات" }));
+    expect(screen.queryByText("خطأ في الرقم")).toBeNull();
+  });
+
+  it("offers no notes to a reader who may not decide", async () => {
+    serve("accounting", {
+      "/api/v1/accounts/violations/": () => jsonResponse(violations({ stars: { rows: [star(22, "confirmed", { has_notes: true })], waiting: 0, can: { decide: false, change: false } } })),
+    });
+    const { container } = open("/accounts/violations");
+    await screen.findByText("سبب 22");
+    expect(container.querySelector("[data-penalty-notes]")).toBeNull();
+  });
+
   it("shows the default penalties, with days only where they are days", async () => {
     serve("accounting", { "/api/v1/accounts/violations/": () => jsonResponse(violations()) });
     open("/accounts/violations");

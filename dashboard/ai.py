@@ -745,7 +745,7 @@ def accept_notes(check, user, indexes):
             task,
             reason_en=f"{len(fresh)} AI review note(s) accepted on {task.code}",
             reason_ar=f"قبول {len(fresh)} ملاحظة من مراجعة الـAI على {task.code}",
-            amount=amount,
+            amount=amount, check=locked, notes=fresh,
         )
         taken = abs(translator.rating_events.order_by("-id").values_list("delta", flat=True).first() or Decimal("0"))
         services.log(user, "task.ai_accept", task.code, f"{len(fresh)} note(s), {taken} star(s) off {translator.username}")

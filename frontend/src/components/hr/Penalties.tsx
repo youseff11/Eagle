@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useDecidePenalty } from "../../api/hrActions";
+import { useHrPenaltyNotes } from "../../api/queries";
 import { ApiError } from "../../api/client";
 import type { HrPenalty } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
+import { Issue } from "../ai/AiNotesCard";
 import { Icon } from "../Icon";
 import { LeaveStatusBadge } from "../leave/shared";
 import { useToasts } from "../Toasts";
@@ -16,6 +18,49 @@ function refusalWords(failure: unknown, t: (ar: string, en: string) => string): 
     if (failure.status === 403) return t("مش مسموحلك.", "You may not do that.");
   }
   return t("ماتحفظش. جرّب تاني.", "Not saved. Try again.");
+}
+
+/** The AI notes a penalty was written for: read when opened, never before, and only HR and the admin are offered the button. */
+function PenaltyNotes({ id }: { id: number }) {
+  const { t } = usePreferences();
+  const [open, setOpen] = useState(false);
+  const query = useHrPenaltyNotes(id, open);
+  return (
+    <div className="penalty__notes" data-penalty-notes={id}>
+      <button className="btn btn--sm btn--ghost" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="sparkles" size="sm" />
+        <span>{open ? t("اخفي الملاحظات", "Hide the notes") : t("شوف الملاحظات اللي اتقبلت", "See the notes that were accepted")}</span>
+      </button>
+      {open && !query.data && !query.isError && <div className="muted">{t("بيحمّل...", "Loading...")}</div>}
+      {open && query.isError && (
+        <div className="note note--high" role="alert">
+          <Icon name="alert" />
+          <div>{t("الملاحظات ماتحمّلتش. جرّب تاني.", "The notes could not be loaded. Try again.")}</div>
+        </div>
+      )}
+      {open && query.data && (
+        <>
+          {query.data.approximate && (
+            <p className="muted">
+              {t(
+                "الخصم ده اتكتب قبل ما النظام يحفظ ملاحظاته، فدي الملاحظات المقبولة في آخر فحص على التاسك.",
+                "This penalty was written before the notes were kept, so these are the accepted notes of the newest check on the task.",
+              )}
+            </p>
+          )}
+          {query.data.notes.length === 0 ? (
+            <div className="muted">{t("مفيش ملاحظات متسجلة.", "No notes on record.")}</div>
+          ) : (
+            <ol className="ai-issues">
+              {query.data.notes.map((issue, index) => (
+                <Issue key={issue.id ?? index} issue={issue} index={index} />
+              ))}
+            </ol>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -78,6 +123,7 @@ export function PenaltyRow({
           {row.note ? ` - ${row.note}` : ""}
         </small>
       )}
+      {row.has_notes && canDecide && <PenaltyNotes id={row.id} />}
       {waiting && canDecide && (
         <div className="row row--tight penalty__actions">
           <input

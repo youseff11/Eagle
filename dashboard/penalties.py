@@ -16,7 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import services
-from .models import AppSettings, RatingEvent, Role, User
+from .models import AICheckResult, AppSettings, RatingEvent, Role, User
 
 #: What the door's action word means.
 ACTIONS = {
@@ -34,6 +34,31 @@ def may_decide(user):
 def may_change(user):
     """The admin alone: a decision HR or the admin took is his to take back."""
     return bool(user and user.is_authenticated and user.is_active and user.is_admin_role)
+
+
+#: What ``ai.accept_notes`` writes in an English reason; a penalty from before the link was kept is told apart by it.
+AI_NOTES_MARK = "AI review note"
+
+
+def has_notes(event):
+    """Whether this penalty is for accepted AI review notes."""
+    return event.ai_check_id is not None or AI_NOTES_MARK in (event.reason_en or "")
+
+
+def notes_of(event):
+    """``(check, places, approximate)``: the check this penalty was written for and the positions of its notes in ``check.issues``.
+
+    A penalty from before the link was kept has none: the newest check of that translator on the task, made before the penalty, with
+    accepted notes stands in, and ``approximate`` is true (it shows every note accepted on that check, which may be more than this
+    penalty's).
+    """
+    if event.ai_check_id is not None:
+        return event.ai_check, list(event.notes or []), False
+    check = (
+        AICheckResult.objects.filter(task_id=event.task_id, translator_id=event.user_id, created_at__lte=event.created_at)
+        .exclude(accepted=[]).order_by("-created_at", "-id").first()
+    )
+    return check, list(check.accepted or []) if check is not None else [], True
 
 
 def announce(event):

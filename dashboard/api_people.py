@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from . import api_forms, attendance, avatars, employees, identity, payroll, penalties, performance, services, shiftpick
 from .api_forms import named
+from .api_ai import _issue_json
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
 from .api_leave import request_json as leave_json
 from .api_ops import _seen_json
@@ -392,6 +393,8 @@ def _penalty_json(event):
         "decided_by": event.decided_by.short_name if event.decided_by_id else None,
         "decided_at": _stamp(event.decided_at, "%m-%d"),
         "note": event.decision_note,
+        # A penalty for accepted AI review notes can show them (``penalty_notes``). Older ones were written before the link was kept.
+        "has_notes": penalties.has_notes(event),
     }
 
 
@@ -412,6 +415,35 @@ def penalty_list(request):
         "ok": True,
         "rows": [_penalty_json(one) for one in rows.order_by("-created_at", "-id")[:MAX_PENALTIES]],
         "waiting": waiting.count(),
+    })
+
+
+@endpoint("GET")
+@can_decide
+def penalty_notes(request, pk):
+    """The AI review notes a penalty was written for, read through the client mask for this reader.
+
+    ``approximate`` is true for a penalty written before it remembered its notes: then they are the accepted notes of the newest check
+    on that task for that translator, which is what it was almost always about.
+    """
+    event = get_object_or_404(RatingEvent.objects.select_related("user", "task__client", "ai_check"), pk=pk)
+    if not penalties.has_notes(event) or event.task_id is None:
+        return _error(404, "not_found")
+    check, places, approximate = penalties.notes_of(event)
+    issues = check.issues if check is not None and isinstance(check.issues, list) else []
+    shown = [place for place in places if isinstance(place, int) and 0 <= place < len(issues) and isinstance(issues[place], dict)]
+    notes = [_issue_json(issues[place], event.task, request.user, place, set(shown)) for place in shown]
+    if not request.user.can_see_client_identity:
+        # The quotes are lifted from the client's own file, and the mask only knows the name as the record spells it. Whoever may not know
+        # the client decides from the AI's description of the mistake, not from the client's words.
+        for note in notes:
+            note.update(source="", translation="", meaning="", compared=False)
+    return JsonResponse({
+        "ok": True,
+        "task": event.task.code,
+        "translator": event.user.short_name,
+        "approximate": approximate,
+        "notes": notes,
     })
 
 

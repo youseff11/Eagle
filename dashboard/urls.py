@@ -133,6 +133,7 @@ urlpatterns = [
     path("api/v1/hr/employees/<int:pk>/plan/", api_people.employee_plan, name="v1_hr_employee_plan"),
     path("api/v1/hr/employees/<int:pk>/incentive/", api_people.employee_incentive, name="v1_hr_employee_incentive"),
     path("api/v1/hr/penalties/", api_people.penalty_list, name="v1_hr_penalties"),
+    path("api/v1/hr/penalties/<int:pk>/notes/", api_people.penalty_notes, name="v1_hr_penalty_notes"),
     path("api/v1/hr/penalties/<int:pk>/<str:action>/", api_people.penalty_decide, name="v1_hr_penalty_decide"),
     path("api/v1/hr/probation/", api_people.probation, name="v1_hr_probation"),
     path("api/v1/hr/probation/<int:pk>/decide/", api_people.probation_decide, name="v1_hr_probation_decide"),

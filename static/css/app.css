@@ -2083,3 +2083,5 @@ html.has-gate, html.has-gate body { overflow: hidden; }
 .spin { animation: spin-slow 1.4s linear infinite; }
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.penalty__notes { display: grid; gap: 8px; }
+.penalty__notes .ai-issues { margin: 0; }

@@ -17,8 +17,8 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from . import penalties, services
-from .models import AppSettings, AuditLog, Notification, RatingEvent, Role, TaskStatus, User
+from . import ai, penalties, services
+from .models import AICheckResult, AppSettings, AuditLog, Notification, RatingEvent, Role, TaskStatus, User
 from .tests_api_v1 import CLIENT_NAME, CLIENT_PHONE, _json, _Site
 
 LIST = "dashboard:v1_hr_penalties"
@@ -499,3 +499,93 @@ class LockedRowTests(_Penalties):
         event, problem = penalties.decide(self.event.pk, self.hr, "forgive")
         self.assertEqual((problem, event.decision), ("", RatingEvent.Decision.FORGIVEN))
         self.assertEqual(self.decide(self.admin, "confirm").status_code, 200)
+
+
+class AcceptedNotesTests(_Penalties):
+    """A penalty for accepted AI review notes opens onto those notes (10/10/2026): the ones accepted then, read through the mask."""
+
+    NOTES = "dashboard:v1_hr_penalty_notes"
+
+    def setUp(self):
+        super().setUp()
+        self.check = AICheckResult.objects.create(
+            task=self.task, translator=self.tr, status=AICheckResult.Status.ISSUES, summary="Three",
+            issues=[
+                {"location": "p1", "issue_en": "first", "issue_ar": "الأولى", "severity": "low"},
+                {"location": "p2", "issue_en": f"{CLIENT_NAME} is spelled wrong", "issue_ar": "الثانية", "severity": "high"},
+                {"location": "p3", "issue_en": "third", "issue_ar": "الثالثة", "severity": "low"},
+            ],
+        )
+
+    def accept(self, *places):
+        taken, problem = ai.accept_notes(self.check, self.admin, list(places))
+        self.assertEqual(problem, "")
+        return RatingEvent.objects.filter(user=self.tr).order_by("-id").first()
+
+    def notes(self, who, event):
+        return self.browser(who).get(reverse(self.NOTES, args=[event.pk]))
+
+    def test_the_penalty_remembers_the_check_and_exactly_the_notes_accepted(self):
+        event = self.accept(0, 2)
+        self.assertEqual((event.ai_check_id, event.notes), (self.check.pk, [0, 2]))
+        later = self.accept(1)
+        self.assertEqual(later.notes, [1])
+        body = _json(self.notes(self.hr, event))
+        self.assertEqual([one["id"] for one in body["notes"]], [0, 2])
+        self.assertFalse(body["approximate"])
+        self.assertEqual(body["task"], self.task.code)
+
+    def test_the_list_says_which_penalties_have_notes(self):
+        event = self.accept(0)
+        rows = {row["id"]: row for row in _json(self.listing(self.admin, status="all"))["rows"]}
+        self.assertTrue(rows[event.pk]["has_notes"])
+        self.assertFalse(rows[self.event.pk]["has_notes"])
+
+    def test_a_penalty_for_something_else_has_no_notes(self):
+        self.assertEqual(self.notes(self.admin, self.event).status_code, 404)
+
+    def test_the_client_name_inside_a_note_is_masked_for_hr_and_open_for_the_admin(self):
+        event = self.accept(1)
+        self.assertNotIn(CLIENT_NAME, self.notes(self.hr, event).content.decode())
+        self.assertIn(CLIENT_NAME, self.notes(self.admin, event).content.decode())
+
+    def test_hr_reads_the_description_but_not_the_words_lifted_from_the_clients_file(self):
+        self.check.issues[0].update(source_excerpt="Acme Holdings LLC letterhead", translation_excerpt="Ackme", correct_meaning_ar="شركة أكمي")
+        self.check.save()
+        event = self.accept(0)
+        hr = self.notes(self.hr, event).content.decode()
+        for quoted in ("Acme Holdings", "Ackme", "أكمي"):
+            self.assertNotIn(quoted, hr)
+        self.assertIn("first", hr)
+        self.assertFalse(_json(self.notes(self.hr, event))["notes"][0]["compared"])
+        admin = self.notes(self.admin, event).content.decode()
+        for quoted in ("Acme Holdings", "Ackme"):
+            self.assertIn(quoted, admin)
+
+    def test_only_hr_and_the_admin_open_them(self):
+        event = self.accept(0)
+        for who in (self.ops, self.lead, self.tr, self.accounting, None):
+            answer = self.notes(who, event)
+            self.assertIn(answer.status_code, (302, 401, 403), getattr(who, "username", who))
+            self.assertNotIn("first", answer.content.decode())
+
+    def test_a_penalty_from_before_the_link_was_kept_shows_the_accepted_notes_of_the_newest_check(self):
+        event = self.accept(0, 1)
+        RatingEvent.objects.filter(pk=event.pk).update(ai_check=None, notes=[])
+        event.refresh_from_db()
+        body = _json(self.notes(self.admin, event))
+        self.assertTrue(body["approximate"])
+        self.assertEqual([one["id"] for one in body["notes"]], [0, 1])
+
+    def test_the_old_penalty_fallback_stays_on_that_translator_and_before_the_penalty(self):
+        event = self.accept(0)
+        RatingEvent.objects.filter(pk=event.pk).update(ai_check=None, notes=[])
+        event.refresh_from_db()
+        later = AICheckResult.objects.create(
+            task=self.task, translator=self.tr, status=AICheckResult.Status.ISSUES, issues=[{"issue_en": "later"}], accepted=[0],
+        )
+        AICheckResult.objects.filter(pk=later.pk).update(created_at=event.created_at + timedelta(hours=1))
+        self.check.translator = None
+        self.check.save()
+        body = _json(self.notes(self.admin, event))
+        self.assertEqual(body["notes"], [])

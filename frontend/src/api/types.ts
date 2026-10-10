@@ -1909,6 +1909,18 @@ export interface HrPenalty {
   decided_by: string | null;
   decided_at: Stamp | null;
   note: string;
+  /** The penalty is for accepted AI review notes, and HR or the admin may open them (`HrPenaltyNotes`). */
+  has_notes?: boolean;
+}
+
+/** GET /api/v1/hr/penalties/<id>/notes/: the AI notes a penalty was written for (read through the client mask for this reader). */
+export interface HrPenaltyNotes {
+  ok: true;
+  task: string;
+  translator: string;
+  /** A penalty from before the notes were kept: these are the newest check's accepted notes, which it was almost always about. */
+  approximate: boolean;
+  notes: AiNote[];
 }
 
 /** GET /api/v1/hr/penalties/: the penalties waiting for a decision (`?status=all` adds the decided). */
