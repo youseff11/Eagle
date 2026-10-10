@@ -4654,6 +4654,8 @@ class LeadActivity(models.Model):
         CALL = "call", "Call"
         #: The company moved on the pipeline (part 3): what the Sales numbers count meetings, proposals, won and lost by.
         STATUS = "status", "Stage changed"
+        #: A quotation was made, sent, accepted or turned down (part 4); ``notes`` says which, ``quotation`` which one.
+        QUOTATION = "quotation", "Quotation"
 
     class Outcome(models.TextChoices):
         INTERESTED = "interested", "Interested"
@@ -4671,6 +4673,8 @@ class LeadActivity(models.Model):
     status = models.CharField(max_length=12, choices=LeadStatus.choices, blank=True)
     #: Our message or call that did a follow-up that was due: the follow-up's own date. On that date is on time, later is late.
     follow_up_for = models.DateField(null=True, blank=True)
+    #: The quotation a QUOTATION line is about.
+    quotation = models.ForeignKey("Quotation", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     #: Written by the system (a message that left or arrived) or by hand (a call).
     automatic = models.BooleanField(default=False)
     #: The company's own message to the Sales person, not ours to them.
@@ -4690,3 +4694,84 @@ class LeadActivity(models.Model):
 
     def __str__(self):
         return f"{self.lead} {self.kind} {self.at:%Y-%m-%d}"
+
+
+class Quotation(models.Model):
+    """A price offered to a company on a B2B sheet (part 4, the requirements' section 13).
+
+    Made and sent by the sheet's Sales person; its words go to the company by e-mail from their own address. A sent
+    quotation is never changed: a new price is a new quotation (``copy``), so the history stays what the company saw. Once
+    the company accepts, the company is Won and the operation is told to make the task from it - the operation makes the
+    task, the quotation only fills the form (the client's code, the pair, the size, the deadline: never the price nor the
+    company's name).
+    """
+
+    class Service(models.TextChoices):
+        TRANSLATION = "translation", "Translation"
+        REVIEW = "review", "Proofreading / review"
+        CERTIFIED = "certified", "Certified translation"
+        LOCALIZATION = "localization", "Localization"
+        TRANSCRIPTION = "transcription", "Transcription"
+        DTP = "dtp", "DTP"
+        INTERPRETING = "interpreting", "Interpreting"
+        OTHER = "other", "Other"
+
+    class Unit(models.TextChoices):
+        WORDS = "words", "Words"
+        PAGES = "pages", "Pages"
+        HOURS = "hours", "Hours"
+        PROJECT = "project", "Whole project"
+
+    class Currency(models.TextChoices):
+        USD = "USD", "USD"
+        EUR = "EUR", "EUR"
+        GBP = "GBP", "GBP"
+        EGP = "EGP", "EGP"
+        SAR = "SAR", "SAR"
+        AED = "AED", "AED"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SENT = "sent", "Sent"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="quotations")
+    #: The Sales person whose company it was when the quotation was made: the Sales numbers count it for them.
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="quotations")
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    source_lang = models.CharField(max_length=40)
+    target_lang = models.CharField(max_length=40)
+    service = models.CharField(max_length=16, choices=Service.choices, default=Service.TRANSLATION)
+    unit = models.CharField(max_length=10, choices=Unit.choices, default=Unit.WORDS)
+    quantity = models.PositiveIntegerField(help_text="How many words / pages / hours (1 for a whole project).")
+    rate = models.DecimalField(max_digits=12, decimal_places=4, help_text="The price of one unit.")
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    #: quantity x rate, less the discount, to the cent: written by ``b2b`` whenever the three change.
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    currency = models.CharField(max_length=3, choices=Currency.choices, default=Currency.USD)
+    deadline = models.DateField(null=True, blank=True)
+    payment_terms = models.CharField(max_length=250, blank=True)
+    #: Words to the company, under the figures in the letter.
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT, db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    #: The letter it went in, and the task the operation made from it.
+    outbound = models.ForeignKey(OutboundMessage, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="quotations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Quotation, "code", "QT")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code

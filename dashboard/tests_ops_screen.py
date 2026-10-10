@@ -768,7 +768,11 @@ class TaskStartDoorTests(_Start):
         Client.objects.filter(pk=self.other_client.pk).update(is_active=False)
         body = _json(self.start())
         self.assertEqual((body["messages"], body["picked"], body["from_task"], body["requirements"]), ([], [], None, []))
-        self.assertEqual(body["initial"], {"client": None, "title": "", "description": "", "source_lang": ""})
+        self.assertEqual(body["initial"], {
+            "client": None, "title": "", "description": "", "source_lang": "",
+            "target_lang": "", "word_count": None, "deadline_days": None,
+        })
+        self.assertIsNone(body["quote"])
         self.assertEqual([c["code"] for c in body["clients"]], [self.client_obj.code])
         self.assertEqual(body["quick_languages"], ["AR", "EN", "FR", "DE", "IT", "ES"])
         self.assertIn("EN", [lang["code"] for lang in body["languages"]])

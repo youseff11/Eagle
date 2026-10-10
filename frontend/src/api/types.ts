@@ -450,7 +450,18 @@ export interface TaskStartResponse {
   messages: { id: number; channel: Channel; at: Stamp | null; subject: string; body: string; files: TaskFile[] }[];
   /** The files ticked on the way here; empty means "every file of the messages". */
   picked: TaskFile[];
-  initial: { client: number | null; title: string; description: string; source_lang: string };
+  initial: {
+    client: number | null;
+    title: string;
+    description: string;
+    source_lang: string;
+    /** Filled from an accepted B2B quotation (`?quote=`): the pair, the words, the days to its deadline. */
+    target_lang?: string;
+    word_count?: number | null;
+    deadline_days?: number | null;
+  };
+  /** The accepted quotation the form was filled from, if it was. */
+  quote?: { code: string } | null;
   requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
   clients: { id: number; code: string; label: string }[];
   languages: { code: string; ar: string; en: string }[];

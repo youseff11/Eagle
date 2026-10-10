@@ -27,6 +27,7 @@ Who:
 """
 
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -34,7 +35,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Role, User
+from .models import Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, User
 
 # ---------------------------------------------------------------------------
 # The opening template
@@ -384,7 +385,16 @@ MAX_KPI_DAYS = 366
 KPI_COUNTS = (
     "new_leads", "contacted", "whatsapp", "emails", "calls", "replies", "meetings", "proposals", "won", "lost",
     "follow_ups_on_time", "follow_ups_late", "follow_ups_missed", "overdue_now", "holding", "untouched",
+    "quotations", "quotes_accepted",
 )
+
+
+def _revenue(rows):
+    """The accepted quotations' totals, one figure per currency: dollars and pounds are never added together."""
+    out = {}
+    for currency, total in rows:
+        out[currency] = out.get(currency, Decimal(0)) + total
+    return {currency: f"{amount:.2f}" for currency, amount in sorted(out.items())}
 
 
 def _rate(part, whole):
@@ -420,7 +430,9 @@ def kpis(user, start, end, today=None):
     * meetings / proposals / won / lost - companies moved to that stage in the period (each company once);
     * follow-ups that fell due in the period: done on the day, done later, or still not done;
     * overdue_now, holding, untouched - today, whatever the period: late follow-ups, companies on their sheets, and of those
-      the ones nobody contacted yet.
+      the ones nobody contacted yet;
+    * quotations - the quotations they sent in the period; quotes_accepted and revenue - the ones accepted in the period,
+      and their totals per currency (part 4).
 
     Counted for the person who held the company when it happened (``LeadActivity.owner``).
     """
@@ -468,8 +480,16 @@ def kpis(user, start, end, today=None):
             "holding": mine.count(),
             "untouched": mine.filter(whatsapp_at__isnull=True, email_at__isnull=True, call_at__isnull=True).count(),
         }
+        quotes = Quotation.objects.filter(owner=person)
+        accepted = quotes.filter(status=Quotation.Status.ACCEPTED, decided_at__gte=start_at, decided_at__lt=end_at)
+        row["quotations"] = quotes.filter(sent_at__gte=start_at, sent_at__lt=end_at).count()
+        row["quotes_accepted"] = accepted.count()
+        row["revenue"] = _revenue(accepted.values_list("currency", "total"))
         rows.append(_rates(row))
     total = _rates({name: sum(row[name] for row in rows) for name in KPI_COUNTS})
+    total["revenue"] = _revenue(
+        (currency, Decimal(amount)) for row in rows for currency, amount in row["revenue"].items()
+    )
     return rows, total
 
 
@@ -627,11 +647,11 @@ def send_email(lead, user, subject, body):
             lead.client = client
             lead.save(update_fields=["client", "updated_at"])
     # The row is marked by ``note_outbound``, which the send calls when the letter has left.
-    ok, _outbound, error = services.send_client_message(client, user, body, force_channel=Channel.EMAIL, subject=subject)
+    ok, outbound, error = services.send_client_message(client, user, body, force_channel=Channel.EMAIL, subject=subject)
     if not ok:
         raise Refused("send_failed", error or "الإيميل ماتبعتش.", "The e-mail was not sent.")
     services.log(user, "b2b.email", client.code, f"lead {lead.pk}")
-    return client
+    return client, outbound
 
 
 def log_call(lead, user, *, outcome, notes="", duration=None, at=None, next_follow_up=None):
@@ -656,3 +676,238 @@ def log_call(lead, user, *, outcome, notes="", duration=None, at=None, next_foll
             lead.save(update_fields=["next_follow_up", "updated_at"])
     services.log(user, "b2b.call", f"lead {lead.pk}", outcome)
     return activity
+
+
+# ---------------------------------------------------------------------------
+# Quotations (part 4, the requirements' section 13)
+# ---------------------------------------------------------------------------
+
+#: The stages a company is still before the proposal at: a quotation sent moves it on to «Proposal / rate sheet sent».
+BEFORE_PROPOSAL = (
+    LeadStatus.NEW, LeadStatus.EMAIL_SENT, LeadStatus.FOLLOW_UP_1, LeadStatus.FOLLOW_UP_2, LeadStatus.MEETING,
+)
+#: The largest figures a quotation takes: a quantity, a unit price, and the discount in percent.
+MAX_QUANTITY = 10_000_000
+MAX_RATE = Decimal("1000000")
+CENT = Decimal("0.01")
+
+
+def quotation_total(quantity, rate, discount_percent):
+    """quantity x rate, less the discount, to the cent (half up, as an invoice rounds)."""
+    gross = Decimal(quantity) * Decimal(rate)
+    return (gross * (Decimal(100) - Decimal(discount_percent)) / Decimal(100)).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _quote_line(quote, kind_word, by, at=None):
+    """A line on the company's timeline: the quotation was made, sent, accepted or turned down."""
+    return LeadActivity.objects.create(
+        lead=quote.lead, kind=LeadActivity.Kind.QUOTATION, quotation=quote, notes=kind_word,
+        automatic=kind_word != "accepted" and kind_word != "rejected", at=at or timezone.now(), by=by,
+        owner_id=quote.lead.sheet.assigned_to_id,
+    )
+
+
+def may_decide(user, lead):
+    """Who writes down the company's answer to a quotation: the Sales person who sent it, the manager, the owner."""
+    return may_contact(user, lead.sheet) or user.manages_sales
+
+
+def save_quotation(lead, user, values, quote=None):
+    """Make a quotation, or change a draft one. ``values`` are already of the right types (the door checks them); the
+    languages are written as the task form writes them (EN, AR...). ``Refused`` when it may not."""
+    from . import services
+    from .forms import _language_code
+
+    if not may_contact(user, lead.sheet):
+        raise Refused("not_yours", "عروض الأسعار لصاحب الشيت بس.", "Only the sheet's own Sales person makes its quotations.")
+    if quote is not None and quote.status != Quotation.Status.DRAFT:
+        raise Refused("not_draft", "العرض ده اتبعت، فمابيتغيّرش. اعمل نسخة جديدة منه.", "This quotation was sent, so it is not changed. Make a new copy of it.")
+    source, target = _language_code(values["source_lang"]), _language_code(values["target_lang"])
+    if not source or not target:
+        raise Refused("no_languages", "اكتب اللغتين.", "Write both languages.")
+    if source == target:
+        raise Refused("same_language", "اللغتين لازم يبقوا مختلفين.", "The two languages must differ.")
+    if not 0 < values["quantity"] <= MAX_QUANTITY:
+        raise Refused("bad_quantity", "الكمية لازم تبقى رقم أكبر من صفر.", "The quantity must be more than zero.")
+    if not Decimal(0) < values["rate"] <= MAX_RATE:
+        raise Refused("bad_rate", "السعر لازم يبقى أكبر من صفر.", "The rate must be more than zero.")
+    if not Decimal(0) <= values["discount_percent"] < Decimal(100):
+        raise Refused("bad_discount", "الخصم من 0 لأقل من 100%.", "The discount is from 0 to under 100%.")
+    if values["deadline"] is not None and values["deadline"] < timezone.localdate():
+        raise Refused("past_deadline", "الديدلاين عدّى.", "That deadline has passed.")
+    made = quote is None
+    quote = quote or Quotation(lead=lead, owner=lead.sheet.assigned_to, created_by=user)
+    for name, value in values.items():
+        setattr(quote, name, value)
+    quote.source_lang, quote.target_lang = source, target
+    quote.total = quotation_total(quote.quantity, quote.rate, quote.discount_percent)
+    quote.save()
+    if made:
+        _quote_line(quote, "created", user)
+        services.log(user, "b2b.quote_create", quote.code, f"lead {lead.pk} {quote.total} {quote.currency}")
+    else:
+        services.log(user, "b2b.quote_update", quote.code, f"{quote.total} {quote.currency}")
+    return quote
+
+
+def copy_quotation(quote, user):
+    """A new draft with the same figures: how a sent price is changed, so the company's earlier quotation stays as it was."""
+    values = {name: getattr(quote, name) for name in QUOTE_FIELDS}
+    if values["deadline"] is not None and values["deadline"] < timezone.localdate():
+        values["deadline"] = None
+    return save_quotation(quote.lead, user, values)
+
+
+#: The figures of a quotation: what a form writes, and what a copy takes.
+QUOTE_FIELDS = (
+    "source_lang", "target_lang", "service", "unit", "quantity", "rate", "discount_percent", "currency", "deadline",
+    "payment_terms", "notes",
+)
+
+
+def _amount(value):
+    return f"{value:,.2f}"
+
+
+def quotation_letter(quote, user):
+    """``(subject, body)`` of the letter a quotation goes in: English, like the company's side of the conversation."""
+    name = (quote.lead.contact_person or "").strip().split(" ")[0] or "there"
+    sender = (user.get_full_name() or user.username).strip()
+    unit = quote.get_unit_display().lower()
+    lines = [
+        f"Dear {name},",
+        "",
+        f"Thank you for your interest in EagleLingua. Please find our quotation {quote.code} below.",
+        "",
+        f"Service: {quote.get_service_display()}",
+        f"Language pair: {quote.source_lang} > {quote.target_lang}",
+        f"Volume: {quote.quantity:,} {unit}",
+        f"Rate: {quote.rate.normalize():f} {quote.currency} per {unit.rstrip('s')}" if quote.unit != Quotation.Unit.PROJECT
+        else f"Rate: {_amount(quote.rate)} {quote.currency}",
+    ]
+    if quote.discount_percent:
+        lines.append(f"Discount: {quote.discount_percent.normalize():f}%")
+    lines.append(f"Total: {_amount(quote.total)} {quote.currency}")
+    if quote.deadline:
+        lines.append(f"Delivery by: {quote.deadline:%d %B %Y}")
+    if quote.payment_terms:
+        lines.append(f"Payment terms: {quote.payment_terms}")
+    if quote.notes.strip():
+        lines += ["", quote.notes.strip()]
+    lines += ["", "To go ahead, simply reply to this e-mail.", "", "Best regards,", sender]
+    return f"Quotation {quote.code} - EagleLingua", "\n".join(lines)
+
+
+def send_quotation(quote, user):
+    """Send a draft quotation by e-mail from the person's own address. The company moves on to «Proposal / rate sheet sent»
+    when it was not that far yet. ``Refused`` when it may not or the letter did not leave (the quotation stays a draft)."""
+    lead = quote.lead
+    if not may_contact(user, lead.sheet):
+        raise Refused("not_yours", "عروض الأسعار لصاحب الشيت بس.", "Only the sheet's own Sales person sends its quotations.")
+    with transaction.atomic():
+        locked = Quotation.objects.select_for_update().filter(pk=quote.pk).first()
+        if locked is None or locked.status != Quotation.Status.DRAFT:
+            raise Refused("not_draft", "العرض ده اتبعت قبل كده.", "This quotation was sent already.")
+        # Written before the letter leaves, so a second press finds it on its way and sends nothing.
+        locked.status = Quotation.Status.SENT
+        locked.sent_at = timezone.now()
+        locked.save(update_fields=["status", "sent_at", "updated_at"])
+    subject, body = quotation_letter(quote, user)
+    try:
+        _client, outbound = send_email(lead, user, subject, body)
+    except Refused:
+        Quotation.objects.filter(pk=quote.pk).update(status=Quotation.Status.DRAFT, sent_at=None)
+        raise
+    quote.refresh_from_db()
+    quote.outbound = outbound
+    quote.save(update_fields=["outbound", "updated_at"])
+    _quote_line(quote, "sent", user, at=quote.sent_at)
+    lead.refresh_from_db()
+    if lead.status in BEFORE_PROPOSAL:
+        before = lead.status
+        lead.status = LeadStatus.PROPOSAL
+        lead.save(update_fields=["status", "updated_at"])
+        note_status(lead, before, LeadStatus.PROPOSAL, user, automatic=True)
+    return quote
+
+
+def decide_quotation(quote, user, accepted):
+    """The company's answer to a sent quotation. Accepted: the company is Won, and the operation is told to make the task
+    from it (the link fills the task form; the operation makes the task). Turned down: written down, the company stays
+    where it is (another price may follow). ``Refused`` when it may not."""
+    from . import services
+
+    lead = quote.lead
+    if not may_decide(user, lead):
+        raise Refused("not_yours", "مش من حقك تسجّل رد الشركة على العرض ده.", "You may not record this company's answer.")
+    with transaction.atomic():
+        locked = Quotation.objects.select_for_update().filter(pk=quote.pk).first()
+        if locked is None or locked.status != Quotation.Status.SENT:
+            raise Refused("not_sent", "ده مش عرض متبعت ومستني رد.", "This is not a sent quotation waiting for an answer.")
+        locked.status = Quotation.Status.ACCEPTED if accepted else Quotation.Status.REJECTED
+        locked.decided_at = timezone.now()
+        locked.decided_by = user
+        locked.save(update_fields=["status", "decided_at", "decided_by", "updated_at"])
+    quote.refresh_from_db()
+    _quote_line(quote, "accepted" if accepted else "rejected", user, at=quote.decided_at)
+    services.log(user, "b2b.quote_accepted" if accepted else "b2b.quote_rejected", quote.code, f"lead {lead.pk}")
+    if not accepted:
+        return quote
+    lead.refresh_from_db()
+    if lead.status != LeadStatus.WON:
+        before = lead.status
+        lead.status = LeadStatus.WON
+        lead.save(update_fields=["status", "updated_at"])
+        note_status(lead, before, LeadStatus.WON, user, automatic=True)
+    _tell_the_operation(quote)
+    return quote
+
+
+def _tell_the_operation(quote):
+    """The operation (and the owner) hear that a quotation was accepted, with a link that fills the task form from it. The
+    words carry the client's code, the pair, the size and the deadline - never the company's name nor the price."""
+    from . import services
+
+    client = quote.lead.client
+    code = client.code if client is not None else "—"
+    size = f"{quote.quantity:,} {quote.get_unit_display().lower()}"
+    due_ar = f"، الديدلاين {quote.deadline:%d/%m/%Y}" if quote.deadline else ""
+    due_en = f", due {quote.deadline:%d/%m/%Y}" if quote.deadline else ""
+    for person in User.objects.filter(role__in=(Role.OPERATION, Role.ADMIN), is_active=True):
+        services.notify(
+            person,
+            title_ar="عرض سعر اتقبل: اعمل التاسك",
+            title_en="A quotation was accepted: make the task",
+            body_ar=f"{quote.code} للعميل {code}: {quote.source_lang} > {quote.target_lang}، {size}{due_ar}. الفورم متعبّية من العرض.",
+            body_en=f"{quote.code} for client {code}: {quote.source_lang} > {quote.target_lang}, {size}{due_en}. The form is filled from it.",
+            level="info", url=f"/app/tasks/new?quote={quote.code}", sound=True,
+        )
+
+
+def delete_quotation(quote, user):
+    """Take a draft away. A sent quotation is what the company saw: it is kept."""
+    from . import services
+
+    if not may_contact(user, quote.lead.sheet):
+        raise Refused("not_yours", "عروض الأسعار لصاحب الشيت بس.", "Only the sheet's own Sales person deletes its quotations.")
+    if quote.status != Quotation.Status.DRAFT:
+        raise Refused("not_draft", "العرض ده اتبعت للشركة، فمابيتمسحش.", "This quotation went to the company, so it is kept.")
+    services.log(user, "b2b.quote_delete", quote.code, f"lead {quote.lead_id}")
+    quote.delete()
+
+
+def quotation_for_task(code, user):
+    """The accepted quotation a new task is being made from (``?quote=``), or ``None``: one not accepted, one a task was made
+    from already, or a person who does not make tasks finds nothing."""
+    if not (user.is_operation or user.is_admin_role) or not code:
+        return None
+    return (
+        Quotation.objects.select_related("lead__client")
+        .filter(code=code, status=Quotation.Status.ACCEPTED, task__isnull=True, lead__client__isnull=False)
+        .first()
+    )
+
+
+def link_task(quote, task):
+    """The task the operation made from the quotation. Once: a second task from the same quotation is a task of its own."""
+    return Quotation.objects.filter(pk=quote.pk, task__isnull=True).update(task=task) == 1

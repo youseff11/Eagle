@@ -54,6 +54,7 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     last_outreach_at: "",
     follow_up: "",
     overdue: false,
+    quote: null,
     ...over,
   };
 }

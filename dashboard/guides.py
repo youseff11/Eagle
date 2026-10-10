@@ -1091,6 +1091,50 @@ GUIDES = (
         ),
     ),
     _guide(
+        "sales-quotations", (Role.SALES, Role.ADMIN), "/leads",
+        ("إزاي أعمل عرض سعر لشركة وأبعته", "How do I make a quotation for a company and send it"),
+        (
+            "عرض سعر، عروض الاسعار، كوتيشن، quotation، rate sheet، ابعت سعر، سعر الكلمة، خصم، العرض اتقبل، العرض اترفض، won",
+            "quotation, quote, rate sheet, send a price, rate per word, discount, quotation accepted, quotation turned down, won",
+        ),
+        [
+            "افتح الشيت واضغط «عروض الأسعار» جنب الشركة، وبعدين «عرض سعر جديد».",
+            "اكتب اللغتين والخدمة والكمية و«سعر الوحدة» والخصم والعملة والديدلاين، واضغط «اعمل المسودة». الإجمالي بيتحسب لوحده.",
+            "اضغط «ابعته»: العرض بيروح للشركة بالإيميل من إيميلك، والشركة بتبقى «اتبعت عرض / Rate sheet».",
+            "العرض اللي اتبعت مابيتغيّرش. لو السعر اتغيّر اضغط «نسخة جديدة» وعدّلها وابعتها.",
+            "لما الشركة ترد اضغط «اتقبل» أو «اترفض». «اتقبل» بيخلي الشركة Won والأوبريشن بيوصله تنبيه يعمل التاسك.",
+        ],
+        [
+            "Open the sheet, press «Quotations» beside the company, then «New quotation».",
+            "Type the pair, the service, the quantity, the «Unit rate», the discount, the currency and the deadline, and press «Make the draft». The total is worked out for you.",
+            "Press «Send it»: the quotation goes to the company by e-mail from your address, and the company moves to «Proposal / rate sheet sent».",
+            "A sent quotation is never changed. If the price changes press «New copy», change it and send it.",
+            "When the company answers press «Accepted» or «Turned down». «Accepted» makes the company Won and tells the operation to make the task.",
+        ],
+        note=(
+            "الأوبريشن بيشوف كود العميل واللغتين والكمية والديدلاين بس: لا اسم الشركة ولا السعر.",
+            "The operation sees the client's code, the pair, the size and the deadline only: never the company's name nor the price.",
+        ),
+    ),
+    _guide(
+        "ops-task-from-quotation", (Role.OPERATION, Role.ADMIN), "/tasks",
+        ("إزاي أعمل التاسك من عرض سعر اتقبل", "How do I make the task from an accepted quotation"),
+        (
+            "عرض سعر اتقبل، تاسك من عرض، تاسك من السيلز، عميل جديد من السيلز، اعمل التاسك من العرض، QT",
+            "accepted quotation, task from a quotation, task from sales, new client from sales, make the task from the quotation",
+        ),
+        [
+            "لما الـSales يسجّل إن عرض اتقبل بيوصلك تنبيه «عرض سعر اتقبل: اعمل التاسك».",
+            "اضغط «افتح»: فورم التاسك بتتفتح متعبّية من العرض، فيها كود العميل واللغتين وعدد الكلمات والديدلاين.",
+            "راجعها واضغط «اعمل التاسك». التاسك بتبقى بتاعتك زي أي تاسك، وبتترفع الملفات عليها لما العميل يبعتها.",
+        ],
+        [
+            "When a Sales person records that a quotation was accepted, you get «A quotation was accepted: make the task».",
+            "Press «Open»: the task form opens filled from the quotation, with the client's code, the pair, the words and the deadline.",
+            "Check it and press «Create task». The task is yours like any other; the files go on it when the client sends them.",
+        ],
+    ),
+    _guide(
         "sales-performance", (Role.SALES, Role.ADMIN), "/sales-performance",
         ("فين أرقام المبيعات وأداء كل Sales", "Where are the Sales numbers and each Sales person's performance"),
         (

@@ -244,9 +244,36 @@ describe("NewTaskPage: making the task", () => {
       {
         client: 6, title: "Lease agreement", description: "Two pages", source_lang: "en", target_lang: "AR", priority: "high",
         deadline: { days: "2", hours: "3", minutes: "" }, word_count: 1200, is_difficult: true, is_secondary_language: false,
-        messages: [], files: [], from: "",
+        messages: [], files: [], from: "", quote: "",
       },
     ]);
+  });
+
+  it("fills the form from an accepted quotation, says so, and names it when it makes the task", async () => {
+    const fromQuote = start({
+      quote: { code: "QT-0003" },
+      initial: {
+        client: 6, title: "QT-0003 · EN > AR", description: "Translation: 1,000 words.", source_lang: "EN",
+        target_lang: "AR", word_count: 1000, deadline_days: 5,
+      },
+    });
+    const mocked = serve(fromQuote, { [CREATE]: () => jsonResponse({ ok: true, code: "TSK-00050" }) });
+    const { container } = open("/tasks/new?quote=QT-0003");
+    await waitFor(() => expect(container.querySelector('[data-quote="QT-0003"]')).not.toBeNull());
+    expect(mocked.calls.some((call) => call.url === `${START}?quote=QT-0003`)).toBe(true);
+    expect((screen.getByLabelText("كود العميل") as HTMLSelectElement).value).toBe("6");
+    expect((screen.getByLabelText("من لغة") as HTMLInputElement).value).toBe("EN");
+    expect((screen.getByLabelText("عدد الكلمات") as HTMLInputElement).value).toBe("1000");
+    await userEvent.click(screen.getByRole("button", { name: /اعمل التاسك/ }));
+    await screen.findByText("one task page");
+    expect(sent(mocked.calls)[0]).toMatchObject({ client: 6, source_lang: "EN", target_lang: "AR", word_count: 1000, quote: "QT-0003", deadline: { days: "5" } });
+  });
+
+  it("passes on only a quotation code that looks like one", async () => {
+    const mocked = serve(start());
+    open("/tasks/new?quote=../../x");
+    await screen.findByLabelText("كود العميل");
+    expect(mocked.calls.some((call) => call.url.includes("quote"))).toBe(false);
   });
 
   it("sends what the task is made from: the messages and the files ticked, and the task it repeats", async () => {

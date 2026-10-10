@@ -22,6 +22,7 @@ import {
 } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
+import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { Modal } from "../components/Modal";
@@ -590,6 +591,13 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
     email: ["mail", "إيميل", "E-mail"],
     call: ["phone", "مكالمة", "Call"],
     status: ["target", "الحالة اتغيّرت", "Stage changed"],
+    quotation: ["file", "عرض سعر", "Quotation"],
+  };
+  const quoteWord: Record<string, [string, string]> = {
+    created: ["اتعمل", "made"],
+    sent: ["اتبعت", "sent"],
+    accepted: ["اتقبل", "accepted"],
+    rejected: ["اترفض", "turned down"],
   };
   const data = detail.data;
 
@@ -609,12 +617,17 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
                     {outcome && <span className="chip chip--sm">{label(outcome, OUTCOME_AR)}</span>}
                     {row.incoming && <span className="chip chip--sm chip--replied">{t("ردّوا", "They answered")}</span>}
                     {row.kind === "status" && <span className="chip chip--sm">{statusWord(row.status)}</span>}
+                    {row.kind === "quotation" && (
+                      <span className="chip chip--sm">
+                        <span className="mono">{row.quotation}</span> {t(...(quoteWord[row.notes] ?? [row.notes, row.notes]))}
+                      </span>
+                    )}
                     <span className="muted">{row.automatic ? t("اتسجّل لوحده", "recorded by itself") : row.by?.name}</span>
                     <div className="grow" />
                     <span className="mono muted">{row.at}</span>
                   </div>
                   {row.duration_minutes != null && <div className="muted">{t(`${row.duration_minutes} دقيقة`, `${row.duration_minutes} minutes`)}</div>}
-                  {row.notes && <div>{row.notes}</div>}
+                  {row.notes && row.kind !== "quotation" && row.kind !== "status" && <div>{row.notes}</div>}
                 </li>
               );
             })}
@@ -648,7 +661,8 @@ type Open =
   | { kind: "paste" }
   | { kind: "settings" }
   | { kind: "edit" | "whatsapp" | "email" | "call"; lead: B2bLead }
-  | { kind: "timeline"; id: number };
+  | { kind: "timeline"; id: number }
+  | { kind: "quotes"; id: number };
 
 function ContactCell({ value, children, at, reached }: { value: string; children?: ReactNode; at: string; reached: string }) {
   return (
@@ -816,6 +830,12 @@ export function LeadSheetPage() {
                   </ContactCell>
                   <td>
                     <span className="chip chip--sm">{status(lead.status)}</span>
+                    {lead.quote && (
+                      <div className="row row--tight" style={{ marginTop: 4, flexWrap: "nowrap" }} data-lead-quote={lead.quote.code}>
+                        <span className="mono muted">{lead.quote.code}</span>
+                        <QuoteStatus status={lead.quote.status} />
+                      </div>
+                    )}
                   </td>
                   <td>
                     <FollowUpBadge date={lead.next_follow_up} state={lead.follow_up} />
@@ -823,6 +843,9 @@ export function LeadSheetPage() {
                   <td className="mono">{lead.last_contact_at || "—"}</td>
                   <td>
                     <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
+                      <button className="icon-btn" type="button" title={t("عروض الأسعار", "Quotations")} aria-label={t("عروض الأسعار", "Quotations")} onClick={() => setOpen({ kind: "quotes", id: lead.id })}>
+                        <Icon name="file" />
+                      </button>
                       <button className="icon-btn" type="button" title={t("السجل", "Timeline")} aria-label={t("السجل", "Timeline")} onClick={() => setOpen({ kind: "timeline", id: lead.id })}>
                         <Icon name="history" />
                       </button>
@@ -858,6 +881,7 @@ export function LeadSheetPage() {
       {open?.kind === "email" && <SendEmail lead={open.lead} sender={sender} onClose={close} />}
       {open?.kind === "call" && <LogCall lead={open.lead} outcomes={data.outcomes} onClose={close} />}
       {open?.kind === "timeline" && <Timeline leadId={open.id} outcomes={data.outcomes} onClose={close} />}
+      {open?.kind === "quotes" && <QuotesModal leadId={open.id} onClose={close} />}
     </>
   );
 }

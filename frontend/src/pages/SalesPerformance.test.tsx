@@ -27,6 +27,9 @@ function counts(over: Partial<KpiCounts> = {}): KpiCounts {
     overdue_now: 0,
     holding: 9,
     untouched: 6,
+    quotations: 3,
+    quotes_accepted: 1,
+    revenue: { EUR: "100.00", USD: "1250.50" },
     conversion_rate: 50,
     follow_up_rate: 67,
     ...over,
@@ -68,6 +71,16 @@ describe("SalesPerformancePage", () => {
     expect(container.querySelector('[data-kpi="conversion_rate"] .kpi__value')).toHaveTextContent("50%");
     expect(container.querySelector('[data-person="7"]')).toHaveTextContent("Seller");
     expect(container.querySelector('[data-person="total"]')).toBeNull();
+  });
+
+  it("shows the revenue one currency at a time, never added together", async () => {
+    serve("sales", () => jsonResponse(answer()));
+    const { container } = open();
+    await screen.findByText("Seller");
+    const revenue = container.querySelector('[data-kpi="revenue"] .kpi__value') as HTMLElement;
+    expect(revenue).toHaveTextContent("100.00 EUR");
+    expect(revenue).toHaveTextContent("1,250.50 USD");
+    expect(container.querySelector('[data-kpi="quotations"] .kpi__value')).toHaveTextContent("3");
   });
 
   it("writes «مش متقاس» for a rate with nothing to measure, never 0%", async () => {

@@ -62,6 +62,60 @@ export interface B2bLead extends B2bRow {
   /** Where the next follow-up stands (`b2b.follow_up_state`): none, coming, due today, late, or done. */
   follow_up: FollowUpState;
   overdue: boolean;
+  /** The row's newest quotation, in a word. */
+  quote: { code: string; status: QuotationStatus; total: string; currency: string } | null;
+}
+
+export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected";
+
+export interface Quotation {
+  id: number;
+  code: string;
+  status: QuotationStatus;
+  source_lang: string;
+  target_lang: string;
+  service: string;
+  unit: string;
+  quantity: number;
+  rate: string;
+  discount_percent: string;
+  total: string;
+  currency: string;
+  deadline: string;
+  payment_terms: string;
+  notes: string;
+  created_at: string;
+  sent_at: string;
+  decided_at: string;
+  /** The task the operation made from it, once accepted. */
+  task: string;
+}
+
+export interface QuotationsResponse {
+  ok: boolean;
+  lead: { id: number; company_name: string; contact_person: string; email: string };
+  quotations: Quotation[];
+  can_make: boolean;
+  can_decide: boolean;
+  services: B2bChoice[];
+  units: B2bChoice[];
+  currencies: string[];
+  languages: { code: string; ar: string; en: string }[];
+}
+
+/** What a quotation form posts. */
+export interface QuotationValues {
+  source_lang: string;
+  target_lang: string;
+  service: string;
+  unit: string;
+  quantity: number;
+  rate: string;
+  discount_percent: string;
+  currency: string;
+  deadline: string;
+  payment_terms: string;
+  notes: string;
 }
 
 export type FollowUpState = "" | "upcoming" | "today" | "overdue" | "done";
@@ -80,12 +134,14 @@ export interface B2bFollowUpsResponse {
 
 export interface B2bActivity {
   id: number;
-  kind: "whatsapp" | "email" | "call" | "status";
+  kind: "whatsapp" | "email" | "call" | "status" | "quotation";
   automatic: boolean;
   /** The company's own message to us, not ours to them. */
   incoming: boolean;
   /** A stage change: the stage the company moved to. */
   status: string;
+  /** A quotation line: which one (`notes` says what happened to it: created, sent, accepted, rejected). */
+  quotation: string;
   at: string;
   by: B2bPerson | null;
   outcome: string;
@@ -185,6 +241,10 @@ export interface KpiCounts {
   overdue_now: number;
   holding: number;
   untouched: number;
+  quotations: number;
+  quotes_accepted: number;
+  /** The accepted quotations' totals, per currency ("USD" -> "72.00"): never added across currencies. */
+  revenue: Record<string, string>;
   /** Percentages, `null` when there is nothing to divide by: "not measured", never 0%. */
   conversion_rate: number | null;
   follow_up_rate: number | null;
@@ -261,6 +321,33 @@ export function useSaveLead() {
 export function useMoveLead() {
   return useWrite(({ id, sheet }: { id: number; sheet: number }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/move/`, { json: { sheet } }),
+  );
+}
+
+export function useQuotations(leadId: number) {
+  return useQuery({
+    queryKey: qk.b2bQuotes(leadId),
+    queryFn: () => api<QuotationsResponse>(`/api/v1/b2b/leads/${leadId}/quotations/`),
+    enabled: leadId > 0,
+  });
+}
+
+type QuoteAnswer = { ok: boolean; quotation: Quotation };
+
+export function useCreateQuotation(leadId: number) {
+  return useWrite((values: QuotationValues) => api<QuoteAnswer>(`/api/v1/b2b/leads/${leadId}/quotations/new/`, { json: values }));
+}
+
+export function useSaveQuotation() {
+  return useWrite(({ id, values }: { id: number; values: QuotationValues }) =>
+    api<QuoteAnswer>(`/api/v1/b2b/quotations/${id}/save/`, { json: values }),
+  );
+}
+
+/** Send, copy or delete a quotation, or write down the company's answer: one door each, the quotation's id in the address. */
+export function useQuotationAction() {
+  return useWrite(({ id, action, accepted }: { id: number; action: "send" | "copy" | "delete" | "decide"; accepted?: boolean }) =>
+    api<QuoteAnswer>(`/api/v1/b2b/quotations/${id}/${action}/`, { json: action === "decide" ? { accepted } : {} }),
   );
 }
 

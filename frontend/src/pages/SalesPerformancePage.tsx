@@ -39,6 +39,9 @@ const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, s
   { key: "replies", ar: "ردّوا", en: "Answered" },
   { key: "meetings", ar: "اجتماعات", en: "Meetings" },
   { key: "proposals", ar: "عروض / Rate sheet", en: "Proposals" },
+  { key: "quotations", ar: "عروض اتبعتت", en: "Quotations sent" },
+  { key: "quotes_accepted", ar: "عروض اتقبلت", en: "Quotations accepted" },
+  { key: "revenue", ar: "الإيراد", en: "Revenue", hint: ["إجمالي العروض اللي اتقبلت في الفترة، كل عملة لوحدها.", "The accepted quotations' totals in the period, each currency on its own."] },
   { key: "won", ar: "Won", en: "Won" },
   { key: "lost", ar: "Lost", en: "Lost" },
   { key: "conversion_rate", ar: "نسبة التحويل", en: "Conversion", hint: ["من الشركات اللي اتحسمت (Won أو Lost) في الفترة: نسبة الـWon.", "Of the companies decided (won or lost) in the period: the share won."] },
@@ -52,10 +55,27 @@ const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, s
 ];
 const RATES = new Set<keyof KpiCounts>(["conversion_rate", "follow_up_rate"]);
 
+/** The revenue, one figure per currency (never added across them); none accepted is a real zero. */
+function Revenue({ value }: { value: Record<string, string> }) {
+  const entries = Object.entries(value);
+  if (entries.length === 0) return <span className="mono">0</span>;
+  return (
+    <span className="mono">
+      {entries.map(([currency, amount]) => (
+        <div key={currency}>
+          {Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
+        </div>
+      ))}
+    </span>
+  );
+}
+
 function Cell({ counts, name }: { counts: KpiCounts; name: keyof KpiCounts }) {
   const value = counts[name];
+  if (name === "revenue") return <Revenue value={value as Record<string, string>} />;
   if (RATES.has(name)) return <Rate value={value as number | null} />;
-  return <span className={name === "overdue_now" && (value as number) > 0 ? "mono deadline--late" : "mono"}>{value}</span>;
+  const count = value as number;
+  return <span className={name === "overdue_now" && count > 0 ? "mono deadline--late" : "mono"}>{count}</span>;
 }
 
 /**
@@ -82,6 +102,8 @@ export function SalesPerformancePage() {
     { key: "replies", ar: "ردّوا", en: "Answered" },
     { key: "meetings", ar: "اجتماعات", en: "Meetings" },
     { key: "won", ar: "Won", en: "Won", tone: "kpi--ok" },
+    { key: "quotations", ar: "عروض اتبعتت", en: "Quotations sent" },
+    { key: "revenue", ar: "الإيراد", en: "Revenue" },
     { key: "lost", ar: "Lost", en: "Lost" },
     { key: "conversion_rate", ar: "نسبة التحويل", en: "Conversion" },
     { key: "overdue_now", ar: "متابعات متأخرة دلوقتي", en: "Overdue follow-ups now", tone: "kpi--danger" },
@@ -126,7 +148,7 @@ export function SalesPerformancePage() {
         <>
           <div className="grid grid--4" style={{ marginBottom: 14 }}>
             {tiles.map((tile) => (
-              <div key={tile.key} className={tile.tone && (data.total[tile.key] as number) > 0 ? `kpi ${tile.tone}` : "kpi"} data-kpi={tile.key}>
+              <div key={tile.key} className={tile.tone && Number(data.total[tile.key]) > 0 ? `kpi ${tile.tone}` : "kpi"} data-kpi={tile.key}>
                 <div className="kpi__value">
                   <Cell counts={data.total} name={tile.key} />
                 </div>
@@ -193,8 +215,8 @@ export function SalesPerformancePage() {
             </div>
             <p className="muted" style={{ marginTop: 10 }}>
               {t(
-                "الأرقام بتتحسب للـSales اللي كانت الشركة معاه وقت ما الحاجة حصلت. «متأخرة دلوقتي» و«الشركات عنده» و«لسه ماتواصلناش» عن النهارده مش عن الفترة. عروض الأسعار والإيراد هييجوا مع البارت الجاي.",
-                "Numbers count for the Sales person who held the company when it happened. «Overdue now», «Companies held» and «Not contacted yet» are about today, not the period. Quotations and revenue come with the next part.",
+                "الأرقام بتتحسب للـSales اللي كانت الشركة معاه وقت ما الحاجة حصلت. «متأخرة دلوقتي» و«الشركات عنده» و«لسه ماتواصلناش» عن النهارده مش عن الفترة. الإيراد = العروض اللي اتقبلت، كل عملة لوحدها.",
+                "Numbers count for the Sales person who held the company when it happened. «Overdue now», «Companies held» and «Not contacted yet» are about today, not the period. Revenue = the accepted quotations, each currency on its own.",
               )}
             </p>
           </div>

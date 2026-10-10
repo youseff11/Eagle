@@ -122,6 +122,8 @@ export interface NewTask {
   messages: number[];
   files: number[];
   from: string;
+  /** The accepted quotation the task is made from: it is linked to the task once made. */
+  quote?: string;
 }
 
 /**

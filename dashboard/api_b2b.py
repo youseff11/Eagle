@@ -12,6 +12,7 @@ the list of sheets carries titles and counts only.
 
 import json
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -21,7 +22,7 @@ from django.utils import timezone
 
 from . import b2b, clock, identity, services
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import Lead, LeadActivity, LeadSheet, LeadStatus
+from .models import Lead, LeadActivity, LeadSheet, LeadStatus, Quotation
 from .permissions import api_gate
 
 #: The longest title and note of a sheet.
@@ -96,7 +97,16 @@ def _lead_json(lead, today=None):
         # "" (none), "upcoming", "today", "overdue" or "done" (reached out on or after the day): ``b2b.follow_up_state``.
         "follow_up": state,
         "overdue": state == b2b.FOLLOW_UP_OVERDUE,
+        "quote": _quote_brief(lead),
     }
+
+
+def _quote_brief(lead):
+    """The row's newest quotation, in a word: its code, where it stands and its total."""
+    newest = next(iter(lead.quotations.all()), None)
+    if newest is None:
+        return None
+    return {"code": newest.code, "status": newest.status, "total": f"{newest.total:.2f}", "currency": newest.currency}
 
 
 def _activity_json(row):
@@ -106,6 +116,7 @@ def _activity_json(row):
         "automatic": row.automatic,
         "incoming": row.incoming,
         "status": row.status,
+        "quotation": row.quotation.code if row.quotation_id else "",
         "at": _stamp(row.at),
         "by": _person(row.by),
         "outcome": row.outcome,
@@ -232,7 +243,7 @@ def sheet_delete(request, sheet_id):
 def sheet(request, sheet_id):
     """One sheet and all of its rows."""
     sheet = _sheet_or_404(request, sheet_id)
-    leads = list(sheet.leads.select_related("client"))
+    leads = list(sheet.leads.select_related("client").prefetch_related("quotations"))
     contacted = sum(1 for lead in leads if lead.contacted)
     # The companies and their people are drawn here: one row in the log for the sheet, as for a page of client names.
     if leads:
@@ -344,7 +355,7 @@ def lead(request, lead_id):
     return JsonResponse({
         "ok": True,
         "lead": _lead_json(lead),
-        "activities": [_activity_json(a) for a in lead.activities.select_related("by")[:MAX_TIMELINE]],
+        "activities": [_activity_json(a) for a in lead.activities.select_related("by", "quotation")[:MAX_TIMELINE]],
         "can_contact": b2b.may_contact(request.user, lead.sheet),
     })
 
@@ -521,4 +532,203 @@ def lead_call(request, lead_id):
         return _refused(refusal)
     lead.refresh_from_db()
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+
+
+# ---------------------------------------------------------------------------
+# Quotations (part 4)
+# ---------------------------------------------------------------------------
+
+#: The longest payment terms and words to the company a quotation keeps.
+MAX_TERMS = 250
+MAX_QUOTE_NOTES = 4000
+
+
+def _quote_or_404(request, quote_id):
+    quote = get_object_or_404(Quotation.objects.select_related("lead", "lead__sheet", "lead__client", "task"), pk=quote_id)
+    if not b2b.may_read(request.user, quote.lead.sheet):
+        identity.hidden(request, "quotation")
+    return quote
+
+
+def _quote_json(quote):
+    return {
+        "id": quote.pk,
+        "code": quote.code,
+        "status": quote.status,
+        "source_lang": quote.source_lang,
+        "target_lang": quote.target_lang,
+        "service": quote.service,
+        "unit": quote.unit,
+        "quantity": quote.quantity,
+        "rate": f"{quote.rate.normalize():f}",
+        "discount_percent": f"{quote.discount_percent.normalize():f}",
+        "total": f"{quote.total:.2f}",
+        "currency": quote.currency,
+        "deadline": quote.deadline.isoformat() if quote.deadline else "",
+        "payment_terms": quote.payment_terms,
+        "notes": quote.notes,
+        "created_at": _stamp(quote.created_at),
+        "sent_at": _stamp(quote.sent_at),
+        "decided_at": _stamp(quote.decided_at),
+        "task": quote.task.code if quote.task_id else "",
+    }
+
+
+def _quote_choices():
+    from .forms import language_choices
+
+    return {
+        "services": [{"value": v, "label": label} for v, label in Quotation.Service.choices],
+        "units": [{"value": v, "label": label} for v, label in Quotation.Unit.choices],
+        "currencies": [v for v, _label in Quotation.Currency.choices],
+        "languages": language_choices(),
+    }
+
+
+def _decimal(body, name):
+    """A price or a percentage: a JSON number or a string of one; ``BadBody`` for anything else."""
+    raw = body.get(name)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)) or len(str(raw)) > 20:
+        raise BadBody
+    try:
+        value = Decimal(str(raw).strip())
+    except InvalidOperation:
+        raise BadBody from None
+    if not value.is_finite():
+        raise BadBody
+    return value
+
+
+def _quote_values(body):
+    """The quotation's figures from the body, of the right types. Their sense (more than zero, a deadline to come) is
+    ``b2b.save_quotation``'s to judge."""
+    quantity = body.get("quantity")
+    if isinstance(quantity, bool) or not isinstance(quantity, int):
+        raise BadBody
+    values = {
+        "source_lang": _text(body, "source_lang", 40),
+        "target_lang": _text(body, "target_lang", 40),
+        "service": _text(body, "service", 16),
+        "unit": _text(body, "unit", 10),
+        "quantity": quantity,
+        "rate": _decimal(body, "rate"),
+        "discount_percent": _decimal(body, "discount_percent") if body.get("discount_percent") not in (None, "") else Decimal(0),
+        "currency": _text(body, "currency", 3),
+        "deadline": _parse_date(body.get("deadline", "")),
+        "payment_terms": _text(body, "payment_terms", MAX_TERMS),
+        "notes": _text(body, "notes", MAX_QUOTE_NOTES),
+    }
+    if values["service"] not in Quotation.Service.values or values["unit"] not in Quotation.Unit.values:
+        raise BadBody
+    if values["currency"] not in Quotation.Currency.values:
+        raise BadBody
+    if values["rate"].as_tuple().exponent < -4 or values["discount_percent"].as_tuple().exponent < -2:
+        raise BadBody
+    return values
+
+
+@endpoint("GET")
+@api_gate(b2b.has_door)
+def quotations(request, lead_id):
+    """A company's quotations, newest first, and what the form offers."""
+    lead = _lead_or_404(request, lead_id)
+    return JsonResponse({
+        "ok": True,
+        "lead": {"id": lead.pk, "company_name": lead.company_name, "contact_person": lead.contact_person, "email": lead.email},
+        "quotations": [_quote_json(q) for q in lead.quotations.select_related("task")],
+        "can_make": b2b.may_contact(request.user, lead.sheet),
+        "can_decide": b2b.may_decide(request.user, lead),
+        **_quote_choices(),
+    })
+
+
+def _quote_answer(quote):
+    quote.refresh_from_db()
+    return JsonResponse({"ok": True, "quotation": _quote_json(quote)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_create(request, lead_id):
+    """A new draft quotation for the company: its figures as JSON."""
+    lead = _lead_or_404(request, lead_id)
+    try:
+        values = _quote_values(_object(request))
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        quote = b2b.save_quotation(lead, request.user, values)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return _quote_answer(quote)
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_save(request, quote_id):
+    """Change a draft's figures. A sent quotation is not changed (``not_draft``): a copy is."""
+    quote = _quote_or_404(request, quote_id)
+    try:
+        values = _quote_values(_object(request))
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        b2b.save_quotation(quote.lead, request.user, values, quote)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return _quote_answer(quote)
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_send(request, quote_id):
+    """Send a draft to the company by e-mail, from the person's own address."""
+    quote = _quote_or_404(request, quote_id)
+    try:
+        b2b.send_quotation(quote, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return _quote_answer(quote)
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_copy(request, quote_id):
+    """A new draft with the same figures (how a sent price is changed)."""
+    quote = _quote_or_404(request, quote_id)
+    try:
+        copy = b2b.copy_quotation(quote, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return _quote_answer(copy)
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_decide(request, quote_id):
+    """``{"accepted": true|false}`` - the company's answer to a sent quotation."""
+    quote = _quote_or_404(request, quote_id)
+    try:
+        accepted = _object(request).get("accepted")
+    except BadBody:
+        return _error(400, "bad_request")
+    if not isinstance(accepted, bool):
+        return _error(400, "bad_request")
+    try:
+        b2b.decide_quotation(quote, request.user, accepted)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return _quote_answer(quote)
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def quotation_delete(request, quote_id):
+    """Take a draft away; a sent quotation is kept."""
+    quote = _quote_or_404(request, quote_id)
+    try:
+        b2b.delete_quotation(quote, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return JsonResponse({"ok": True})
 

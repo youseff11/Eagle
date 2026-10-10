@@ -15,6 +15,7 @@ Held here:
 
 import json
 from datetime import timedelta
+from decimal import Decimal
 from unittest import mock
 
 from django.test import Client as DjangoClient
@@ -26,7 +27,7 @@ from . import b2b, identity, services, whatsapp
 from .forms import StaffEditForm
 from .tests_reset_staff import _Staff
 from .models import (
-    AuditLog, Channel, Client, InboundMessage, Lead, LeadActivity, LeadSheet, OutboundMessage, Role, User,
+    AuditLog, Channel, Client, InboundMessage, Lead, LeadActivity, LeadSheet, OutboundMessage, Quotation, Role, Task, User,
 )
 
 PHONE = "+44 7700 900123"
@@ -804,3 +805,248 @@ class KpiTests(_B2b):
         self.assertEqual((stage.status, stage.owner, stage.by), ("negotiation", self.sales, self.manager))
         self.save_status(self.lead, "negotiation")
         self.assertEqual(self.lead.activities.filter(kind="status").count(), 1)
+
+
+# ---------------------------------------------------------------------------
+# Part 4: quotations, and the task the operation makes from an accepted one
+# ---------------------------------------------------------------------------
+
+class _Quotes(_B2b):
+    FIGURES = {
+        "source_lang": "english", "target_lang": "Arabic", "service": "translation", "unit": "words", "quantity": 1000,
+        "rate": "0.08", "discount_percent": "10", "currency": "USD", "deadline": "", "payment_terms": "50% upfront",
+        "notes": "Includes one revision.",
+    }
+
+    def make(self, user=None, **over):
+        return self.post(user or self.sales, "v1_b2b_quotation_create", {**self.FIGURES, **over}, self.lead.pk)
+
+    def made(self, **over):
+        answer = self.make(**over)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        return Quotation.objects.get(pk=_json(answer)["quotation"]["id"])
+
+    def send(self, quote, user=None):
+        return self.post(user or self.sales, "v1_b2b_quotation_send", {}, quote.pk)
+
+    def decide(self, quote, accepted, user=None):
+        return self.post(user or self.sales, "v1_b2b_quotation_decide", {"accepted": accepted}, quote.pk)
+
+
+class QuotationTests(_Quotes):
+    def test_the_doors_are_under_api_v1(self):
+        self.assertEqual(reverse("dashboard:v1_b2b_quotations", args=[4]), "/api/v1/b2b/leads/4/quotations/")
+        self.assertEqual(reverse("dashboard:v1_b2b_quotation_send", args=[9]), "/api/v1/b2b/quotations/9/send/")
+
+    def test_a_draft_is_made_with_its_total_and_the_languages_as_codes(self):
+        quote = self.made()
+        self.assertEqual((quote.status, quote.total, quote.source_lang, quote.target_lang), ("draft", Decimal("72.00"), "EN", "AR"))
+        self.assertEqual((quote.owner, quote.created_by), (self.sales, self.sales))
+        self.assertTrue(quote.code.startswith("QT-"))
+        self.assertEqual(self.lead.activities.get(kind="quotation").notes, "created")
+        self.assertTrue(AuditLog.objects.filter(action="b2b.quote_create", target=quote.code).exists())
+
+    def test_only_the_sheets_sales_person_makes_quotations(self):
+        for user in (self.manager, self.admin):
+            self.assertEqual(_json(self.make(user))["error"], "not_yours", user.username)
+        self.assertEqual(self.make(self.other).status_code, 404)
+        self.assertEqual(self.make(self.ops).status_code, 403)
+        self.assertFalse(Quotation.objects.exists())
+
+    def test_figures_that_make_no_sense_are_refused(self):
+        for over, code in (
+            ({"target_lang": "en"}, "same_language"), ({"rate": "0"}, "bad_rate"), ({"quantity": 0}, "bad_quantity"),
+            ({"discount_percent": "100"}, "bad_discount"), ({"deadline": "2020-01-01"}, "past_deadline"),
+        ):
+            answer = self.make(**over)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, code), over)
+        for over in ({"currency": "XYZ"}, {"rate": "0.00001"}, {"quantity": "5"}, {"rate": "abc"}, {"service": "magic"}, {"rate": "NaN"}):
+            self.assertEqual(self.make(**over).status_code, 400, over)
+        self.assertFalse(Quotation.objects.exists())
+
+    def test_sending_mails_it_from_the_persons_address_and_moves_the_company_to_proposal(self):
+        quote = self.made()
+        answer = self.send(quote)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, "sent")
+        self.assertIsNotNone(quote.outbound)
+        args, kwargs = self.mail.call_args
+        self.assertEqual((args[1], kwargs["from_email"]), ("anna@lingua.test", "seller@eagle.test"))
+        self.assertIn(quote.code, kwargs["subject"])
+        self.assertIn("Total: 72.00 USD", kwargs["body"])
+        self.assertIn("Dear Anna", kwargs["body"])
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "proposal")
+        self.assertIsNotNone(self.lead.email_at)
+        self.assertEqual(set(self.lead.activities.filter(kind="quotation").values_list("notes", flat=True)), {"created", "sent"})
+
+    def test_a_sent_quotation_is_never_changed_or_sent_again_or_deleted(self):
+        quote = self.made()
+        self.send(quote)
+        self.assertEqual(_json(self.post(self.sales, "v1_b2b_quotation_save", {**self.FIGURES, "rate": "1"}, quote.pk))["error"], "not_draft")
+        self.assertEqual(_json(self.send(quote))["error"], "not_draft")
+        self.assertEqual(_json(self.post(self.sales, "v1_b2b_quotation_delete", {}, quote.pk))["error"], "not_draft")
+        quote.refresh_from_db()
+        self.assertEqual(quote.total, Decimal("72.00"))
+        self.assertEqual(self.mail.call_count, 1)
+
+    def test_a_letter_that_did_not_leave_leaves_a_draft(self):
+        quote = self.made()
+        self.mail.side_effect = __import__("dashboard.mailer", fromlist=["MailError"]).MailError("x", "x")
+        answer = self.send(quote)
+        self.assertEqual(_json(answer)["error"], "send_failed")
+        quote.refresh_from_db()
+        self.assertEqual((quote.status, quote.sent_at), ("draft", None))
+
+    def test_a_company_further_on_keeps_its_stage(self):
+        Lead.objects.filter(pk=self.lead.pk).update(status="negotiation")
+        self.send(self.made())
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "negotiation")
+
+    def test_a_copy_is_a_new_draft_and_the_sent_one_stays(self):
+        quote = self.made()
+        self.send(quote)
+        answer = self.post(self.sales, "v1_b2b_quotation_copy", {}, quote.pk)
+        copy = Quotation.objects.get(pk=_json(answer)["quotation"]["id"])
+        self.assertNotEqual(copy.code, quote.code)
+        self.assertEqual((copy.status, copy.total, copy.notes), ("draft", quote.total, quote.notes))
+        quote.refresh_from_db()
+        self.assertEqual(quote.status, "sent")
+
+    def test_a_draft_is_changed_and_deleted(self):
+        quote = self.made()
+        answer = self.post(self.sales, "v1_b2b_quotation_save", {**self.FIGURES, "quantity": 2000, "discount_percent": "0"}, quote.pk)
+        self.assertEqual(_json(answer)["quotation"]["total"], "160.00")
+        self.assertEqual(self.post(self.sales, "v1_b2b_quotation_delete", {}, quote.pk).status_code, 200)
+        self.assertFalse(Quotation.objects.exists())
+
+    def test_the_row_carries_its_newest_quotation(self):
+        self.send(self.made())
+        row = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["leads"][0]
+        self.assertEqual((row["quote"]["status"], row["quote"]["total"], row["quote"]["currency"]), ("sent", "72.00", "USD"))
+
+    def test_another_sales_person_reads_no_quotation(self):
+        quote = self.made()
+        self.assertEqual(self.get(self.other, "v1_b2b_quotations", self.lead.pk).status_code, 404)
+        self.assertEqual(self.post(self.other, "v1_b2b_quotation_copy", {}, quote.pk).status_code, 404)
+        self.assertEqual(self.post(self.ops, "v1_b2b_quotation_send", {}, quote.pk).status_code, 403)
+
+
+class QuotationAnswerTests(_Quotes):
+    def setUp(self):
+        super().setUp()
+        self.quote = self.made(deadline=(timezone.localdate() + timedelta(days=5)).isoformat())
+        self.send(self.quote)
+
+    def test_accepted_makes_the_company_won_and_tells_the_operation_without_name_or_price(self):
+        answer = self.decide(self.quote, True)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.quote.refresh_from_db()
+        self.assertEqual((self.quote.status, self.quote.decided_by), ("accepted", self.sales))
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "won")
+        self.assertTrue(self.lead.activities.filter(kind="status", status="won").exists())
+        url = f"/app/tasks/new?quote={self.quote.code}"
+        for person in (self.ops, self.admin):
+            note = person.notifications.get(url=url)
+            words = note.body_ar + note.body_en + note.title_ar + note.title_en
+            for secret in ("Lingua", "Anna", "72", "USD", "anna@"):
+                self.assertNotIn(secret, words, person.username)
+            self.assertIn(self.lead.client.code, words)
+        self.assertFalse(self.tr.notifications.exists())
+
+    def test_turned_down_is_written_down_and_the_stage_stays(self):
+        self.decide(self.quote, False)
+        self.quote.refresh_from_db()
+        self.lead.refresh_from_db()
+        self.assertEqual((self.quote.status, self.lead.status), ("rejected", "proposal"))
+        self.assertFalse(self.ops.notifications.exists())
+
+    def test_the_manager_may_record_the_answer_and_nobody_answers_twice_or_a_draft(self):
+        self.assertEqual(self.decide(self.quote, True, self.manager).status_code, 200)
+        self.assertEqual(_json(self.decide(self.quote, False))["error"], "not_sent")
+        draft = self.made()
+        self.assertEqual(_json(self.decide(draft, True))["error"], "not_sent")
+        self.assertEqual(self.decide(self.quote, True, self.other).status_code, 404)
+        self.assertEqual(self.post(self.sales, "v1_b2b_quotation_decide", {"accepted": "yes"}, self.quote.pk).status_code, 400)
+
+
+class TaskFromQuotationTests(_Quotes):
+    def setUp(self):
+        super().setUp()
+        self.quote = self.made(deadline=(timezone.localdate() + timedelta(days=5)).isoformat())
+        self.send(self.quote)
+        self.decide(self.quote, True)
+        self.quote.refresh_from_db()
+        self.lead.refresh_from_db()
+
+    def form(self, user=None, code=None):
+        return self.browser(user or self.ops).get(reverse("dashboard:v1_task_start"), {"quote": code or self.quote.code})
+
+    def create(self, **over):
+        body = {"client": self.lead.client_id, "title": "Job", "description": "", "source_lang": "EN", "target_lang": "AR",
+                "priority": "normal", "quote": self.quote.code, "word_count": 1000, **over}
+        return self.browser(self.ops).post(reverse("dashboard:v1_task_create"), json.dumps(body), content_type="application/json")
+
+    def test_the_form_is_filled_from_the_quotation_without_the_company_or_the_price(self):
+        answer = self.form()
+        body = _json(answer)
+        self.assertEqual(body["quote"], {"code": self.quote.code})
+        self.lead.refresh_from_db()
+        initial = body["initial"]
+        self.assertEqual(
+            (initial["client"], initial["source_lang"], initial["target_lang"], initial["word_count"], initial["deadline_days"]),
+            (self.lead.client_id, "EN", "AR", 1000, 5),
+        )
+        raw = answer.content.decode()
+        for secret in ("Lingua", "Anna", "72.00", "0.08", "50% upfront", "one revision"):
+            self.assertNotIn(secret, raw)
+
+    def test_only_an_accepted_quotation_without_a_task_fills_the_form_and_only_for_the_operation(self):
+        self.assertEqual(self.form(self.sales).status_code, 403)
+        draft = self.made()
+        self.assertIsNone(_json(self.form(code=draft.code))["quote"])
+        self.assertIsNone(_json(self.form(code="QT-9999"))["quote"])
+
+    def test_the_task_made_from_it_is_the_operations_and_is_linked_once(self):
+        answer = self.create()
+        self.assertEqual(answer.status_code, 200, answer.content)
+        task = Task.objects.get(code=_json(answer)["code"])
+        self.assertEqual((task.created_by, task.client_id), (self.ops, self.lead.client_id))
+        self.quote.refresh_from_db()
+        self.assertEqual(self.quote.task, task)
+        # Taken: the form no longer fills from it, and a second task does not take it over.
+        self.assertIsNone(_json(self.form())["quote"])
+        second = Task.objects.get(code=_json(self.create())["code"])
+        self.quote.refresh_from_db()
+        self.assertEqual(self.quote.task, task)
+        self.assertNotEqual(second, task)
+
+    def test_two_tasks_at_once_link_the_quotation_to_the_first_only(self):
+        # Two people pressing at the same moment both got the form filled; the quotation goes to whoever was first.
+        first = Task.objects.create(client=self.lead.client, title="a", created_by=self.ops)
+        second = Task.objects.create(client=self.lead.client, title="b", created_by=self.ops)
+        self.assertTrue(b2b.link_task(self.quote, first))
+        self.assertFalse(b2b.link_task(self.quote, second))
+        self.quote.refresh_from_db()
+        self.assertEqual(self.quote.task, first)
+
+    def test_another_client_named_in_the_form_is_refused(self):
+        other = Client.objects.create(name="Someone else", phone="+201111111111")
+        answer = self.create(client=other.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "client_mismatch"))
+        self.quote.refresh_from_db()
+        self.assertIsNone(self.quote.task)
+
+    def test_the_numbers_count_quotations_and_revenue_per_currency(self):
+        euro = self.made(currency="EUR", rate="0.10", discount_percent="0")
+        self.send(euro)
+        self.decide(euro, True)
+        period = {"from": (timezone.localdate() - timedelta(days=3)).isoformat(), "to": timezone.localdate().isoformat()}
+        body = _json(self.browser(self.manager).get(reverse("dashboard:v1_b2b_kpis"), period))
+        row = next(r for r in body["rows"] if r["person"]["id"] == self.sales.pk)
+        self.assertEqual((row["quotations"], row["quotes_accepted"]), (2, 2))
+        self.assertEqual(row["revenue"], {"EUR": "100.00", "USD": "72.00"})
+        self.assertEqual(body["total"]["revenue"], {"EUR": "100.00", "USD": "72.00"})

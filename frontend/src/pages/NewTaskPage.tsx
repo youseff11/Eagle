@@ -22,6 +22,8 @@ function startQuery(params: URLSearchParams): string {
   }
   const from = params.get("from") ?? "";
   if (/^[A-Za-z0-9-]{1,40}$/.test(from)) out.set("from", from);
+  const quote = params.get("quote") ?? "";
+  if (/^QT-[0-9]{1,9}$/.test(quote)) out.set("quote", quote);
   const text = out.toString();
   return text ? `?${text}` : "";
 }
@@ -47,12 +49,12 @@ function Form({ start }: { start: TaskStartResponse }) {
     title: start.initial.title,
     description: start.initial.description,
     source_lang: start.initial.source_lang,
-    target_lang: "",
+    target_lang: start.initial.target_lang ?? "",
     priority: "normal",
-    days: "",
+    days: start.initial.deadline_days != null ? String(start.initial.deadline_days) : "",
     hours: "",
     minutes: "",
-    words: "",
+    words: start.initial.word_count != null ? String(start.initial.word_count) : "",
     difficult: false,
     secondary: false,
   });
@@ -79,6 +81,7 @@ function Form({ start }: { start: TaskStartResponse }) {
         messages: start.messages.map((message) => message.id),
         files: start.picked.map((file) => file.id),
         from: start.from_task?.code ?? "",
+        quote: start.quote?.code ?? "",
       },
       {
         onSuccess: (answer) => {
@@ -108,6 +111,18 @@ function Form({ start }: { start: TaskStartResponse }) {
             if (!create.isPending) submit();
           }}
         >
+          {start.quote && (
+            <div className="note mt" style={{ marginBottom: 12 }} data-quote={start.quote.code}>
+              <Icon name="file" />
+              <div>
+                <span>{t("التاسك دي من عرض السعر اللي اتقبل", "This task comes from the accepted quotation")}</span>{" "}
+                <span className="mono">{start.quote.code}</span>
+                {" — "}
+                <span>{t("راجع الديدلاين وارفع الملفات لما العميل يبعتها.", "Check the deadline, and attach the files when the client sends them.")}</span>
+              </div>
+            </div>
+          )}
+
           {start.from_task && (
             <div className="note mt" style={{ marginBottom: 12 }}>
               <Icon name="layers" />

@@ -610,7 +610,11 @@ def _start_json(start, user):
             "title": identity.mask_client(start.initial.get("title", ""), client, user),
             "description": identity.mask_client(start.initial.get("description", ""), client, user),
             "source_lang": start.initial.get("source_lang", ""),
+            "target_lang": start.initial.get("target_lang", ""),
+            "word_count": start.initial.get("word_count"),
+            "deadline_days": start.initial.get("deadline_days"),
         },
+        "quote": {"code": start.quote.code} if start.quote is not None else None,
         "requirements": [
             _requirement_json(r, client, user) for r in client.requirements.select_related("author")
         ] if client is not None else [],
@@ -635,11 +639,13 @@ def task_start(request):
     if messages is None or files is None or texts is None:
         return _error(400, "too_many")
     source = request.GET.get("from", "")
-    if len(source) > 40 or "\x00" in source:
+    quote = request.GET.get("quote", "")
+    if len(source) > 40 or "\x00" in source or len(quote) > 40 or "\x00" in quote:
         return _error(400, "bad_request")
     # Absent is "every message's words"; present is only the messages ticked for the details.
     start = taskstart.resolve(
         user, message_ids=messages, file_ids=files, from_code=source, text_ids=texts if "texts" in request.GET else None,
+        quote_code=quote,
     )
     return JsonResponse({
         "ok": True,
@@ -677,6 +683,7 @@ def task_create(request):
         messages = _list(body, "messages", _clean_id)
         files = _list(body, "files", _clean_id)
         source = _text(body, "from", 40)
+        quote = _text(body, "quote", 40)
         client = body.get("client")
         words = body.get("word_count")
         if isinstance(client, bool) or not isinstance(client, int):
@@ -707,8 +714,15 @@ def task_create(request):
             "ok": False, "error": "invalid",
             "fields": {name: [str(problem) for problem in problems] for name, problems in form.errors.items()},
         }, status=400)
-    start = taskstart.resolve(request.user, message_ids=messages, file_ids=files, from_code=source)
+    start = taskstart.resolve(request.user, message_ids=messages, file_ids=files, from_code=source, quote_code=quote)
     if start.messages and start.messages[0].client_id != form.cleaned_data["client"].pk:
         return _error(400, "client_mismatch")
+    # A task made from a quotation is that company's: another client named in the form is refused.
+    if start.quote is not None and start.quote.lead.client_id != form.cleaned_data["client"].pk:
+        return _error(400, "client_mismatch")
     task = taskstart.create(request.user, form.cleaned_data, start)
+    if start.quote is not None:
+        from . import b2b
+
+        b2b.link_task(start.quote, task)
     return JsonResponse({"ok": True, "code": task.code})

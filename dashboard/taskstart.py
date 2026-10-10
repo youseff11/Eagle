@@ -74,13 +74,16 @@ class Start:
     picked: list = field(default_factory=list)
     from_task: Task | None = None
     initial: dict = field(default_factory=dict)
+    #: The accepted B2B quotation the task is made from (``?quote=``): the operation makes the task, the quotation fills the
+    #: form - the client's code, the pair, the size, the deadline. Never the price, nor the company's name.
+    quote: object = None
 
     @property
     def message(self):
         return self.messages[0] if self.messages else None
 
 
-def resolve(user, message_ids=(), file_ids=(), from_code="", text_ids=None):
+def resolve(user, message_ids=(), file_ids=(), from_code="", text_ids=None, quote_code=""):
     """Work out what a new task starts from.
 
     ``from_code`` is "a new request on the same files": a new task on a finished (or running) one's material - the
@@ -138,7 +141,23 @@ def resolve(user, message_ids=(), file_ids=(), from_code="", text_ids=None):
             "description": services.clean_client_text(from_task.description),
             "source_lang": from_task.source_lang,
         })
-    return Start(messages=messages, picked=picked, from_task=from_task, initial=initial)
+    from . import b2b
+
+    quote = None if (messages or from_task is not None) else b2b.quotation_for_task((quote_code or "").strip(), user)
+    if quote is not None:
+        from django.utils import timezone
+
+        size = f"{quote.quantity:,} {quote.get_unit_display().lower()}"
+        initial = {
+            "client": quote.lead.client_id,
+            "title": f"{quote.code} · {quote.source_lang} > {quote.target_lang}",
+            "description": f"{quote.get_service_display()}: {size}.",
+            "source_lang": quote.source_lang,
+            "target_lang": quote.target_lang,
+            "word_count": quote.quantity if quote.unit == quote.Unit.WORDS else None,
+            "deadline_days": max(0, (quote.deadline - timezone.localdate()).days) if quote.deadline else None,
+        }
+    return Start(messages=messages, picked=picked, from_task=from_task, initial=initial, quote=quote)
 
 
 def create(user, cleaned, start):
