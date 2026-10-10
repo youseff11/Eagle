@@ -32,6 +32,7 @@ export const KEYWORDS: Record<string, string> = {
   "/inbox": "ميل ايميل بريد رسايل واردة جيميل mail email inbox letters",
   "/chats": "شات محادثات واتساب عملاء جروب زمايل رسايل chat whatsapp messages groups",
   "/line": "رقمي خطي واتساب ايميلي سيلز sales line number whatsapp mail alias",
+  "/leads": "شيت شيتات شركات ليدز عملاء جداد تواصل مكالمة b2b sheet sheets companies leads prospects outreach",
   "/tasks": "تاسك مهام شغل جديد task tasks jobs new",
   "/team": "فريق مترجمين متاح مشغول اونلاين team status online busy",
   "/announce": "اشعار تنبيه للكل الموظفين اعلان رسالة announce notify everyone broadcast",

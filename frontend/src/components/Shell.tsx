@@ -107,6 +107,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     order: 0,
     extra: [
       { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], order: 100 },
+      // The B2B sheets the Sales manager hands out: the owner reads and writes all of them.
+      { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 105 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
@@ -221,6 +223,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     order: 10,
     badge: "mail_unseen",
     extra: [
+      { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 20 },
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], order: 90 },
     ],

@@ -238,6 +238,27 @@ def send_text(to, body, context_id="", from_id=""):
     }, context_id), from_id=from_id)
 
 
+def send_template(to, name, language, params=(), from_id=""):
+    """Send an approved template - the only message WhatsApp carries to a number whose 24-hour window is closed.
+
+    ``params`` fill the body's ``{{1}}``, ``{{2}}``... in order. The template itself (its words, its category) lives in
+    ``management/commands/wa_templates.py`` and is approved by Meta under ``name``.
+    """
+    template = {"name": name, "language": {"code": language}}
+    if params:
+        template["components"] = [{
+            "type": "body",
+            "parameters": [{"type": "text", "text": str(value)[:1000]} for value in params],
+        }]
+    return _send({
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": normalize_number(to),
+        "type": "template",
+        "template": template,
+    }, from_id=from_id)
+
+
 def upload_media(content, filename, mime, from_id=""):
     """Upload bytes to Meta and return the media id used when sending."""
     conf = _conf()

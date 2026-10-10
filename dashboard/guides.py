@@ -1015,6 +1015,53 @@ GUIDES = (
         ],
         starter=True,
     ),
+    _guide(
+        "sales-sheets", (Role.SALES, Role.ADMIN), "/leads",
+        ("إزاي أملا شيت الشركات وأتواصل معاهم", "How do I fill a company sheet and contact the companies"),
+        (
+            "شيت الشركات، شيتات، ليدز، b2b، شركات ترجمة، أتواصل مع شركة، أبعت واتساب لشركة، أسجل مكالمة، ألزق من جوجل شيت، اتواصلت",
+            "company sheet, sheets, leads, b2b, translation agencies, contact a company, whatsapp a company, log a call, paste from google sheets, contacted",
+        ),
+        [
+            "من قسم «الشغل» افتح «شيتات الشركات» واضغط «افتح» على الشيت اللي المانجر بعتهولك.",
+            "ضيف الشركات بـ«شركة جديدة»، أو انسخ الصفوف من Google Sheets واضغط «لزق من شيت» (الأعمدة بنفس الترتيب اللي ظاهر هناك).",
+            "جنب رقم الواتساب زرار «ابعت واتساب»: بيبعت الرسالة الافتتاحية من رقمك وبعدين اضغط «ابعت وافتح الشات» والشات بيتفتح.",
+            "جنب الإيميل زرار «ابعت إيميل»: اكتب الرسالة واضغط «ابعت»، والرد بيوصل «ميلاتي».",
+            "أي رسالة توصل للشركة من رقمك أو إيميلك بتتعلّم في الصف لوحدها بالوقت. المكالمة بتسجّلها انت من «سجّل مكالمة».",
+        ],
+        [
+            "In the «Work» section open «Company sheets» and press «Open» on the sheet your manager sent you.",
+            "Add companies with «New company», or copy the rows from Google Sheets and press «Paste from a spreadsheet» (columns in the order shown there).",
+            "Beside the WhatsApp number is «Send WhatsApp»: it sends the opening message from your number; press «Send and open the chat» and the chat opens.",
+            "Beside the e-mail is «Send e-mail»: write the message and press «Send»; the answer arrives in «My mail».",
+            "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call».",
+        ],
+        note=(
+            "واتساب مابيوصّلش لشركة عمرها ما كلمتنا غير الرسالة الافتتاحية المتوافق عليها. أول ما يردّوا تكلمهم عادي من الشات.",
+            "WhatsApp carries nothing to a company that never wrote to us but the approved opening message. Once they answer you write to them as usual from the chat.",
+        ),
+    ),
+    _guide(
+        "sales-manager-sheets", (Role.ADMIN,), "/leads",
+        ("إزاي أعمل شيت شركات وأديه لـSales", "How do I make a company sheet and give it to a Sales person"),
+        (
+            "شيت جديد، أعمل شيت، أوزع شركات، أدي شيت لسيلز، مانجر السيلز، أغير السيلز بتاع الشيت، أمسح شيت",
+            "new sheet, make a sheet, hand out companies, give a sheet to sales, sales manager, change the sheet's sales person, delete a sheet",
+        ),
+        [
+            "من قسم «الشغل» افتح «شيتات الشركات».",
+            "في «شيت جديد» اكتب «اسم الشيت»، واختار «الـSales اللي هياخده»، واضغط «اعمل الشيت». الـSales بيوصله تنبيه.",
+            "تقدر تفتح أي شيت وتشوف مين اتواصلنا معاه وإمتى. التواصل نفسه من رقم وإيميل صاحب الشيت بس.",
+            "عشان تغيّر الاسم أو الـSales أو تمسح الشيت: افتحه واضغط «إعدادات الشيت». شيت فيه شركة اتواصلنا معاها مابيتمسحش.",
+        ],
+        [
+            "In the «Work» section open «Company sheets».",
+            "Under «New sheet» type the «Sheet name», choose the «Sales person» and press «Make the sheet». The Sales person is notified.",
+            "You can open any sheet and see who was contacted and when. The contacting itself is from the sheet owner's number and address only.",
+            "To rename it, give it to another Sales person or delete it: open it and press «Sheet settings». A sheet with a contacted company is not deleted.",
+        ],
+        cap="is_sales_manager",
+    ),
     # ------------------------------------------------------------------------------------------------------------------
     # The team leader.
     # ------------------------------------------------------------------------------------------------------------------

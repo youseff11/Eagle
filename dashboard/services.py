@@ -5199,7 +5199,7 @@ def reset_all_staff(admin, password):
     again (counted with the others' wrong tries), one transaction.
 
     What goes with a person (CASCADE, as the models say): their shifts, attendance, leave, salary records, payroll lines,
-    violations, rating events, devices, notifications and call history. What goes by this function, because leaving it would be
+    violations, rating events, devices, notifications and call history, and a Sales person's B2B sheets. What goes by this function, because leaving it would be
     worse: the internal chats they were in (a conversation with nobody left in it), and the mail and WhatsApp on their private
     line - ``owner`` goes NULL when a person is deleted, and NULL is the company's line, so a Sales person's private letters
     would otherwise turn up in the operation's inbox. If a task stands on one of those letters, or on a file shared in one of
@@ -5220,8 +5220,8 @@ def reset_all_staff(admin, password):
     from django.db.models.functions import Concat
 
     from .models import (
-        LeaveRequest, MessageAttachment, OutboundAttachment, OvertimeClaim, PayrollLine, ProbationReview, RatingEvent,
-        SalaryChangeRequest, SalaryRecord, ScheduleOverride, Shift, Violation, WorkDay,
+        Lead, LeadActivity, LeadSheet, LeaveRequest, MessageAttachment, OutboundAttachment, OvertimeClaim, PayrollLine,
+        ProbationReview, RatingEvent, SalaryChangeRequest, SalaryRecord, ScheduleOverride, Shift, Violation, WorkDay,
     )
 
     if admin is None or not admin.is_admin_role:
@@ -5257,6 +5257,9 @@ def reset_all_staff(admin, password):
             *LeaveRequest.objects.filter(**mine), *OvertimeClaim.objects.filter(**mine), *ScheduleOverride.objects.filter(**mine),
             *WorkDay.objects.filter(**mine), *PayrollLine.objects.filter(**mine), *Violation.objects.filter(**mine),
             *RatingEvent.objects.filter(**mine), *ProbationReview.objects.filter(**mine),
+            # A Sales person's B2B sheets go with them (CASCADE): the companies on them are in the file.
+            *LeadSheet.objects.filter(assigned_to_id__in=ids), *Lead.objects.filter(sheet__assigned_to_id__in=ids),
+            *LeadActivity.objects.filter(lead__sheet__assigned_to_id__in=ids),
             *rooms, *room_messages, *chat_files, *letters, *letter_files, *sent, *sent_files,
         ]))
         backup = json.dumps(rows, indent=1, ensure_ascii=False)
@@ -6438,6 +6441,14 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     outbound.status = OutboundMessage.Status.SENT
     outbound.save(update_fields=["status", "provider_id", "files"])
     log(user, "client.reply", client.code, (body or f"{len(payload)} file(s)")[:120])
+    # A company on the sender's B2B sheet is marked as contacted. The message has left: a mark that fails is logged, and
+    # must not turn a sent message into a failed one.
+    try:
+        from . import b2b
+
+        b2b.note_outbound(outbound)
+    except Exception:  # noqa: BLE001
+        logger.exception("Marking the B2B sheet for client %s failed", client.code)
     return True, outbound, ""
 
 

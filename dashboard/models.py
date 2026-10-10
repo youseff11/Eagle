@@ -501,6 +501,13 @@ class User(AbstractUser):
         max_length=254, blank=True, db_index=True,
         help_text="Sales / Operation: the company-mailbox address this person receives.",
     )
+    #: The Sales manager (10/10/2026): a Sales person who also makes the B2B company sheets, hands each one to a Sales person
+    #: and reads every one of them (``b2b.py``). A mark on a Sales account, not a role of its own: everything else about the
+    #: person (their line, their mail, their attendance) stays a Sales person's. Ignored for every other role.
+    is_sales_manager = models.BooleanField(
+        default=False,
+        help_text="Sales only: makes the B2B company sheets, gives each to a Sales person and reads all of them.",
+    )
 
     # -- employee profile --------------------------------------------------
     # Section 18 asks for an "Employee Profile". It is these fields on the
@@ -552,6 +559,7 @@ class User(AbstractUser):
         if self.role != Role.SALES:
             self.wa_phone_number_id = ""
             self.wa_display_number = ""
+            self.is_sales_manager = False
         # A grade is a translator's: whoever stops being one stops carrying it.
         if self.role != Role.TRANSLATOR:
             self.translator_level = ""
@@ -614,6 +622,11 @@ class User(AbstractUser):
     @property
     def is_sales(self):
         return self.role == Role.SALES
+
+    @property
+    def manages_sales(self):
+        """Makes the B2B sheets and reads all of them: the owner, and the Sales person the owner marked as the manager."""
+        return self.is_admin_role or (self.is_sales and bool(self.is_sales_manager))
 
     @property
     def handles_clients(self):
@@ -4533,3 +4546,132 @@ class SalaryChangeRequest(models.Model):
     @property
     def delta(self):
         return Decimal(self.new_amount) - Decimal(self.current_amount)
+
+
+# ---------------------------------------------------------------------------
+# B2B: the company sheets (10/10/2026)
+#
+# The Sales manager makes a sheet and gives it to one Sales person; that person fills it with the companies they research
+# (one row each, the columns of the B2B requirements) and contacts them from the row. A WhatsApp or e-mail sent to the row's
+# company marks the row by itself (``b2b.note_outbound``); a phone call is written by hand. The rules - who reads a sheet,
+# who writes it, who contacts from it - are ``b2b.py``.
+# ---------------------------------------------------------------------------
+
+class LeadStatus(models.TextChoices):
+    """Where a company stands with us: the B2B pipeline."""
+
+    NEW = "new", "New lead"
+    EMAIL_SENT = "email_sent", "Email sent"
+    FOLLOW_UP_1 = "follow_up_1", "Follow-up 1"
+    FOLLOW_UP_2 = "follow_up_2", "Follow-up 2"
+    MEETING = "meeting", "Meeting scheduled"
+    PROPOSAL = "proposal", "Proposal / rate sheet sent"
+    NEGOTIATION = "negotiation", "Negotiation"
+    WON = "won", "Won"
+    LOST = "lost", "Lost"
+
+
+class LeadSheet(models.Model):
+    """One sheet of companies, made by the Sales manager for one Sales person."""
+
+    title = models.CharField(max_length=160)
+    note = models.TextField(blank=True, help_text="What the manager wants from this sheet.")
+    #: The Sales person who fills it and contacts the companies on it, from their own number and address. A person who leaves
+    #: is switched off, not deleted, and the manager hands the sheet on; only the owner's "reset staff" deletes people, and
+    #: their sheets go with them (into its backup file).
+    assigned_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name="lead_sheets")
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return self.title
+
+
+class Lead(models.Model):
+    """One company on a sheet, and its contact person."""
+
+    sheet = models.ForeignKey(LeadSheet, on_delete=models.CASCADE, related_name="leads")
+    company_name = models.CharField(max_length=160)
+    country = models.CharField(max_length=80, blank=True)
+    website = models.CharField(max_length=250, blank=True)
+    industry = models.CharField(max_length=120, blank=True, help_text="Industry / company type.")
+    contact_person = models.CharField(max_length=160, blank=True)
+    position = models.CharField(max_length=120, blank=True)
+    email = models.CharField(max_length=254, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    whatsapp = models.CharField(max_length=40, blank=True)
+    linkedin = models.CharField(max_length=250, blank=True)
+    languages = models.CharField(max_length=250, blank=True, help_text="Languages / language pairs.")
+    services = models.CharField(max_length=250, blank=True, help_text="Services required.")
+    source = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=12, choices=LeadStatus.choices, default=LeadStatus.NEW, db_index=True)
+    next_follow_up = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    #: The client this company became the first time it was contacted from the row: the conversation lives on it.
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="leads")
+    #: What a message to the company is matched on: the last nine digits of its WhatsApp (or phone) number, and its address
+    #: lower-cased. Kept by ``save``.
+    phone_key = models.CharField(max_length=12, blank=True, db_index=True)
+    email_key = models.CharField(max_length=254, blank=True, db_index=True)
+    #: The first time each channel reached the company, and the last time anything did. Written by ``b2b``, never by a form.
+    whatsapp_at = models.DateTimeField(null=True, blank=True)
+    email_at = models.DateTimeField(null=True, blank=True)
+    call_at = models.DateTimeField(null=True, blank=True)
+    last_contact_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("id",)
+
+    def save(self, *args, **kwargs):
+        self.phone_key = Client.phone_key(self.whatsapp or self.phone)
+        self.email_key = (self.email or "").strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.company_name
+
+    @property
+    def contacted(self):
+        return bool(self.whatsapp_at or self.email_at or self.call_at)
+
+
+class LeadActivity(models.Model):
+    """Something that happened with a company on a sheet: a message sent, a call made."""
+
+    class Kind(models.TextChoices):
+        WHATSAPP = "whatsapp", "WhatsApp"
+        EMAIL = "email", "Email"
+        CALL = "call", "Call"
+
+    class Outcome(models.TextChoices):
+        INTERESTED = "interested", "Interested"
+        FOLLOW_UP = "follow_up", "Follow-up"
+        QUOTATION = "quotation", "Quotation requested"
+        NO_ANSWER = "no_answer", "No answer"
+        NOT_INTERESTED = "not_interested", "Not interested"
+
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="activities")
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    #: Written by the system (a message that left) or by hand (a call).
+    automatic = models.BooleanField(default=False)
+    at = models.DateTimeField(default=timezone.now)
+    by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    #: A call only.
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, blank=True)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    #: The message that made it, when a message did.
+    outbound = models.ForeignKey(OutboundMessage, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-at", "-id")
+
+    def __str__(self):
+        return f"{self.lead} {self.kind} {self.at:%Y-%m-%d}"

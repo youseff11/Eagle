@@ -125,7 +125,7 @@ describe("WARM_URLS: the rest of the menu, by address", () => {
     for (const [path, urls] of Object.entries(WARM_URLS)) {
       expect(urls.length, path).toBeGreaterThan(0);
       for (const url of urls) {
-        expect(url, path).toMatch(/^\/api\/v1\/[a-z/-]+\/$/);
+        expect(url, path).toMatch(/^\/api\/v1\/[a-z0-9/-]+\/$/);
         expect(url, path).not.toMatch(/clients|^\/api\/v1\/attendance\/$/);
       }
     }

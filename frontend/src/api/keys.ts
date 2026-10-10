@@ -127,4 +127,9 @@ export const qk = {
   navTasks: (query: string) => ["nav-tasks", query] as const,
   /** The help assistant's first questions for a language (outside `boards`: they are the role's, not a board that moves). */
   help: (lang: string) => ["help", lang] as const,
+  /** The B2B company sheets: the list, one sheet with its rows, one row with its timeline. A write asks all of them again. */
+  b2b: ["b2b"] as const,
+  b2bSheets: ["b2b", "sheets"] as const,
+  b2bSheet: (id: number) => ["b2b", "sheet", id] as const,
+  b2bLead: (id: number) => ["b2b", "lead", id] as const,
 };

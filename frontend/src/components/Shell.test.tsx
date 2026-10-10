@@ -397,6 +397,8 @@ describe("Shell: the Sales screen", () => {
           <Route path="inbox" element={<div>mailbox</div>} />
           <Route path="inbox/thread/:id" element={<div>conversation</div>} />
           <Route path="line" element={<div>line</div>} />
+          <Route path="leads" element={<div>sheets</div>} />
+          <Route path="leads/:id" element={<div>sheet</div>} />
           <Route path="clients" element={<div>clients</div>} />
           <Route path="clients/:code" element={<div>client</div>} />
         </Route>
@@ -406,10 +408,11 @@ describe("Shell: the Sales screen", () => {
   };
   const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
 
-  it("lists their mail, the chats, their number and mail, and the client codes in the classic menu's order and words", async () => {
+  it("lists their mail, their company sheets, the chats, their number and mail, and the client codes in order and words", async () => {
     const view = at("/inbox", ["sales", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/inbox", "/chats", "/line", "/clients", "/notifications"]);
+    expect(links(view.container)).toEqual(["/inbox", "/leads", "/chats", "/line", "/clients", "/notifications"]);
+    expect(within(view.container.querySelector('.sidebar a[href="/leads"]') as HTMLElement).getByText("شيتات الشركات")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/line"]') as HTMLElement).getByText("رقمي وإيميلي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
@@ -427,6 +430,8 @@ describe("Shell: the Sales screen", () => {
       ["/inbox", "ميلاتي", "/inbox"],
       ["/inbox/thread/12", "ميلاتي", "/inbox"],
       ["/line", "رقمي وإيميلي", "/line"],
+      ["/leads", "شيتات الشركات", "/leads"],
+      ["/leads/3", "شيتات الشركات", "/leads"],
       ["/clients", "أكواد العملاء", "/clients"],
       ["/clients/CL-0001", "أكواد العملاء", "/clients"],
     ];
@@ -536,7 +541,7 @@ describe("Shell: the admin's panel", () => {
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
-      "/admin", "/chats", "/admin/clients",
+      "/admin", "/chats", "/admin/clients", "/leads",
       "/admin/settings", "/admin/simulate", "/admin/audit",
       "/notifications", "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
@@ -544,7 +549,7 @@ describe("Shell: the admin's panel", () => {
       "الشغل", "الإعدادات", "حسابي", "منطقة خطر",
     ]);
     const words: [string, string][] = [
-      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"],
+      ["/admin", "نظرة عامة"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"],
       ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];

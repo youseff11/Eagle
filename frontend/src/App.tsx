@@ -62,6 +62,8 @@ import { NewTaskPage } from "./pages/NewTaskPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PayrollPage } from "./pages/PayrollPage";
 import { SalesLinePage } from "./pages/SalesLinePage";
+import { LeadSheetPage } from "./pages/LeadSheetPage";
+import { LeadSheetsPage } from "./pages/LeadSheetsPage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
@@ -152,6 +154,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="lead" element={<LeadHomePage />} />
         <Route path="lead/translators" element={<LeadBoardPage />} />
         <Route path="line" element={<SalesLinePage />} />
+        <Route path="leads" element={<LeadSheetsPage />} />
+        <Route path="leads/:id" element={<LeadSheetPage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:code" element={<ClientPage />} />
         <Route path="team" element={<TeamPage />} />

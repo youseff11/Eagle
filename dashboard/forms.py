@@ -518,9 +518,11 @@ class StaffEditForm(forms.ModelForm):
             "translator_level",
             "client_identity_access",
             "mail_alias",
+            "is_sales_manager",
         )
         labels = {
             "translator_level": "مستوى المترجم",
+            "is_sales_manager": "مانجر Sales",
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
             "mail_alias": "بيستقبل ميلات العنوان ده",
         }
@@ -533,6 +535,10 @@ class StaffEditForm(forms.ModelForm):
                 "الأوبريشن والـSales بس. الميل اللي يتبعت للعنوان ده يروحله هو والأدمن، "
                 "وردّه يطلع منه. عنوان واحد لكل موظف، ومحدش تاني ياخده. "
                 "العنوان لازم يبقى متضاف alias على ميل الشركة في Google Workspace."
+            ),
+            "is_sales_manager": (
+                "للـSales بس. بيعمل شيتات الشركات (B2B) ويديها للـSales، وبيشوف شيتات الفريق كله. "
+                "باقي حسابه زي أي Sales: خطه وميله وحضوره."
             ),
             "client_identity_access": (
                 "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
@@ -608,6 +614,9 @@ class StaffEditForm(forms.ModelForm):
                 "client_identity_access",
                 "الصلاحية دي لـSales وAccounting بس. الأوبريشن والليدر والمترجم بيشتغلوا بالكود.",
             )
+        # Same for the Sales manager's mark: on any other role it would mean nothing and mislead whoever reads the form.
+        if data.get("is_sales_manager") and data.get("role") != Role.SALES:
+            self.add_error("is_sales_manager", "العلامة دي للـSales بس.")
         # The owner cannot close or demote the last owner's account: the panel, the settings and every other owner-only door
         # would be gone, and the way back is a command on the server. (``self.instance`` still holds what is stored here:
         # the form writes the posted values onto it after ``clean``.)

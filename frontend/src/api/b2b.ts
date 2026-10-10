@@ -1,0 +1,225 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError, api } from "./client";
+import { qk } from "./keys";
+
+/**
+ * The B2B company sheets (`/api/v1/b2b/`, `dashboard/api_b2b.py`). The Sales manager makes a sheet and gives it to a Sales
+ * person, who fills it with companies and contacts each one from its row. What reaches the company on that person's line
+ * marks the row by itself; a call is written by hand. Who may do what is the server's (`b2b.py`): the page draws what the
+ * answer says (`can_manage`, `can_contact`) and nothing more.
+ */
+
+export interface B2bPerson {
+  id: number;
+  name: string;
+}
+
+export interface B2bSheet {
+  id: number;
+  title: string;
+  note: string;
+  assigned_to: B2bPerson | null;
+  created_by: B2bPerson | null;
+  created_at: string;
+  rows: number;
+  contacted: number;
+  can_manage: boolean;
+  can_contact: boolean;
+}
+
+/** The columns a row is typed or pasted in, in the order the server reads a pasted block. */
+export type B2bColumn =
+  | "company_name"
+  | "country"
+  | "website"
+  | "industry"
+  | "contact_person"
+  | "position"
+  | "email"
+  | "phone"
+  | "whatsapp"
+  | "linkedin"
+  | "languages"
+  | "services"
+  | "source";
+
+export type B2bRow = Record<B2bColumn, string>;
+
+export interface B2bLead extends B2bRow {
+  id: number;
+  status: string;
+  next_follow_up: string;
+  notes: string;
+  client_code: string;
+  whatsapp_at: string;
+  email_at: string;
+  call_at: string;
+  last_contact_at: string;
+  overdue: boolean;
+}
+
+export interface B2bActivity {
+  id: number;
+  kind: "whatsapp" | "email" | "call";
+  automatic: boolean;
+  at: string;
+  by: B2bPerson | null;
+  outcome: string;
+  duration_minutes: number | null;
+  notes: string;
+}
+
+export interface B2bChoice {
+  value: string;
+  label: string;
+}
+
+export interface B2bSheetsResponse {
+  ok: boolean;
+  can_manage: boolean;
+  sales: B2bPerson[];
+  sheets: B2bSheet[];
+}
+
+export interface B2bSheetResponse {
+  ok: boolean;
+  sheet: B2bSheet;
+  sales: B2bPerson[];
+  leads: B2bLead[];
+  columns: { name: B2bColumn; ar: string; en: string; max: number }[];
+  statuses: B2bChoice[];
+  outcomes: B2bChoice[];
+}
+
+export interface B2bLeadResponse {
+  ok: boolean;
+  lead: B2bLead;
+  activities: B2bActivity[];
+  can_contact: boolean;
+}
+
+/** The reason a refusal gave, in the page's language, or `fallback`. */
+export function refusalText(failure: unknown, lang: string, fallback: string): string {
+  if (failure instanceof ApiError && failure.payload && typeof failure.payload === "object") {
+    const { message, message_en } = failure.payload as { message?: unknown; message_en?: unknown };
+    const words = lang === "en" ? message_en : message;
+    if (typeof words === "string" && words) return words;
+  }
+  return fallback;
+}
+
+export function useB2bSheets(enabled = true) {
+  return useQuery({
+    queryKey: qk.b2bSheets,
+    queryFn: () => api<B2bSheetsResponse>("/api/v1/b2b/sheets/"),
+    enabled,
+  });
+}
+
+export function useB2bSheet(id: number) {
+  return useQuery({
+    queryKey: qk.b2bSheet(id),
+    queryFn: () => api<B2bSheetResponse>(`/api/v1/b2b/sheets/${id}/`),
+    enabled: id > 0,
+  });
+}
+
+export function useB2bLead(id: number) {
+  return useQuery({
+    queryKey: qk.b2bLead(id),
+    queryFn: () => api<B2bLeadResponse>(`/api/v1/b2b/leads/${id}/`),
+    enabled: id > 0,
+  });
+}
+
+/** Every write: the door, then the sheets asked again (a row's marks, a sheet's counts). */
+function useWrite<V, R>(run: (values: V) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.b2b }),
+  });
+}
+
+export interface SheetValues {
+  title: string;
+  note: string;
+  assigned_to: number;
+}
+
+export function useCreateSheet() {
+  return useWrite((values: SheetValues) => api<{ ok: boolean; sheet: B2bSheet }>("/api/v1/b2b/sheets/new/", { json: values }));
+}
+
+export function useSaveSheet(id: number) {
+  return useWrite((values: SheetValues) => api<{ ok: boolean; sheet: B2bSheet }>(`/api/v1/b2b/sheets/${id}/save/`, { json: values }));
+}
+
+export function useDeleteSheet(id: number) {
+  return useWrite(() => api<{ ok: boolean }>(`/api/v1/b2b/sheets/${id}/delete/`, { json: {} }));
+}
+
+export function useAddRows(sheetId: number) {
+  return useWrite((rows: Partial<B2bRow>[]) =>
+    api<{ ok: boolean; added: number; leads: B2bLead[] }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }),
+  );
+}
+
+export type LeadValues = B2bRow & { status: string; next_follow_up: string; notes: string };
+
+export function useSaveLead() {
+  return useWrite(({ id, values }: { id: number; values: LeadValues }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
+  );
+}
+
+export function useDeleteLead() {
+  return useWrite((id: number) => api<{ ok: boolean }>(`/api/v1/b2b/leads/${id}/delete/`, { json: {} }));
+}
+
+export function useLeadWhatsapp() {
+  return useWrite((id: number) =>
+    api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: {} }),
+  );
+}
+
+export function useLeadEmail() {
+  return useWrite(({ id, subject, body }: { id: number; subject: string; body: string }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/email/`, { json: { subject, body } }),
+  );
+}
+
+export interface CallValues {
+  outcome: string;
+  notes: string;
+  duration_minutes: number | null;
+  at: string;
+  next_follow_up: string;
+}
+
+export function useLeadCall() {
+  return useWrite(({ id, values }: { id: number; values: CallValues }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/call/`, { json: values }),
+  );
+}
+
+/**
+ * Cells copied from Google Sheets or Excel arrive as lines of tab-separated values. Each line is a row, read in `columns`'
+ * order; a first line that names the columns (in Arabic or English) is the header and is left out. Empty lines are skipped.
+ */
+export function parsePasted(text: string, columns: { name: B2bColumn; ar: string; en: string; max: number }[]): Partial<B2bRow>[] {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((line) => line.trim() !== "");
+  const names = new Set(columns.flatMap((column) => [column.ar.trim().toLowerCase(), column.en.trim().toLowerCase()]));
+  if (lines.length > 0) {
+    const first = (lines[0] ?? "").split("\t")[0]?.trim().toLowerCase() ?? "";
+    if (names.has(first)) lines.shift();
+  }
+  return lines.map((line) => {
+    const cells = line.split("\t");
+    const row: Partial<B2bRow> = {};
+    columns.forEach((column, index) => {
+      row[column.name] = (cells[index] ?? "").trim().slice(0, column.max);
+    });
+    return row;
+  });
+}

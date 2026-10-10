@@ -18,7 +18,11 @@ there" rather than treating it as a failure.
 
 Every template below is UTILITY — a reply to something the client already did.
 Anything that advertises, upsells, or greets without a triggering action is
-MARKETING, costs more, and is rejected far more often. Keep it that way.
+MARKETING, costs more, and is rejected far more often. Keep it that way. The one
+exception is the B2B opening message (``b2b.INTRO_TEMPLATE``): a first contact
+with a company that has done nothing yet can only be MARKETING. Its words live
+in ``dashboard/b2b.py``, next to the button that sends it, and are read from
+there.
 """
 
 import json
@@ -26,11 +30,11 @@ import urllib.parse
 
 from django.core.management.base import BaseCommand, CommandError
 
-from dashboard import whatsapp
+from dashboard import b2b, whatsapp
 
 #: Arabic, because that is what Eagle's clients read. A template is submitted
-#: per language, so an English set would be separate entries with the same
-#: ``name`` and ``language: "en"``.
+#: per language; an entry with ``"language"`` of its own (the English B2B
+#: opening message) is submitted in that one.
 LANGUAGE = "ar"
 
 #: name -> {category, body, footer, example, purpose}
@@ -76,6 +80,7 @@ TEMPLATES = {
         "example": ["أحمد", "T-1042", "48 ساعة"],
         "purpose": "Sent on delivery, and it reopens the 24h window for revisions.",
     },
+    b2b.INTRO_TEMPLATE: b2b.INTRO_SPEC,
 }
 
 
@@ -133,11 +138,13 @@ class Command(BaseCommand):
     def _show_local(self):
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING(
-            f"Templates defined in this file ({len(TEMPLATES)}), language {LANGUAGE}"
+            f"Templates defined in this file ({len(TEMPLATES)}), language {LANGUAGE} unless named"
         ))
         for name, spec in sorted(TEMPLATES.items()):
             self.stdout.write("")
-            self.stdout.write(self.style.SUCCESS(f"  {name}  [{spec['category']}]"))
+            self.stdout.write(self.style.SUCCESS(
+                f"  {name}  [{spec['category']}, {spec.get('language', LANGUAGE)}]"
+            ))
             self.stdout.write(f"    {spec['purpose']}")
             self.stdout.write(f"    | {spec['body']}")
             self.stdout.write(f"    | -- {spec['footer']}")
@@ -266,7 +273,7 @@ class Command(BaseCommand):
                 body["example"] = {"body_text": [spec["example"]]}
             payload = {
                 "name": name,
-                "language": LANGUAGE,
+                "language": spec.get("language", LANGUAGE),
                 "category": spec["category"],
                 "components": [body, {"type": "FOOTER", "text": spec["footer"]}],
             }

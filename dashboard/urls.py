@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -225,6 +225,19 @@ urlpatterns = [
     path("api/v1/staff/<int:user_id>/ai-notes/", api_ai.staff_notes, name="v1_ai_staff_notes"),
     path("api/v1/sales/line/", api_sales.line, name="v1_sales_line"),
     path("api/v1/sales/line/save/", api_sales.line_save, name="v1_sales_line_save"),
+    # B2B: the company sheets the Sales manager hands out, and contacting a company from its row (b2b.py).
+    path("api/v1/b2b/sheets/", api_b2b.sheets, name="v1_b2b_sheets"),
+    path("api/v1/b2b/sheets/new/", api_b2b.sheet_create, name="v1_b2b_sheet_create"),
+    path("api/v1/b2b/sheets/<int:sheet_id>/", api_b2b.sheet, name="v1_b2b_sheet"),
+    path("api/v1/b2b/sheets/<int:sheet_id>/save/", api_b2b.sheet_save, name="v1_b2b_sheet_save"),
+    path("api/v1/b2b/sheets/<int:sheet_id>/delete/", api_b2b.sheet_delete, name="v1_b2b_sheet_delete"),
+    path("api/v1/b2b/sheets/<int:sheet_id>/rows/", api_b2b.rows_add, name="v1_b2b_rows_add"),
+    path("api/v1/b2b/leads/<int:lead_id>/", api_b2b.lead, name="v1_b2b_lead"),
+    path("api/v1/b2b/leads/<int:lead_id>/save/", api_b2b.lead_save, name="v1_b2b_lead_save"),
+    path("api/v1/b2b/leads/<int:lead_id>/delete/", api_b2b.lead_delete, name="v1_b2b_lead_delete"),
+    path("api/v1/b2b/leads/<int:lead_id>/whatsapp/", api_b2b.lead_whatsapp, name="v1_b2b_lead_whatsapp"),
+    path("api/v1/b2b/leads/<int:lead_id>/email/", api_b2b.lead_email, name="v1_b2b_lead_email"),
+    path("api/v1/b2b/leads/<int:lead_id>/call/", api_b2b.lead_call, name="v1_b2b_lead_call"),
     path("api/v1/clients/", api_clients.clients, name="v1_clients"),
     path("api/v1/clients/<str:code>/", api_clients.client, name="v1_client"),
     path("api/v1/clients/<str:code>/requirements/", api_clients.client_requirement, name="v1_client_requirement"),
