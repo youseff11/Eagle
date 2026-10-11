@@ -7,6 +7,7 @@ import { MonthPicker } from "../components/accounts/MonthPicker";
 import { Penalty, refusal, useMayRunTheMonth } from "../components/accounts/shared";
 import { Confirm } from "../components/Confirm";
 import { Icon } from "../components/Icon";
+import { PersonName } from "../components/PersonName";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 import { hasMoney, periodLabel, periodText } from "../lib/payroll";
@@ -109,11 +110,17 @@ export function AccountsOverviewPage() {
                   {data.unsettled_tasks.map((task) =>
                     data.can.task ? (
                       <Link key={task.code} className="chip mono" to={`/tasks/${encodeURIComponent(task.code)}`}>
-                        {task.code} <span className="muted">{task.translator ?? "—"}</span>
+                        {task.code}{" "}
+                        <span className="muted">
+                          <PersonName name={task.translator} gone={task.translator_gone} />
+                        </span>
                       </Link>
                     ) : (
                       <span key={task.code} className="chip mono">
-                        {task.code} <span className="muted">{task.translator ?? "—"}</span>
+                        {task.code}{" "}
+                        <span className="muted">
+                          <PersonName name={task.translator} gone={task.translator_gone} />
+                        </span>
                       </span>
                     ),
                   )}

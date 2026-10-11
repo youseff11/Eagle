@@ -965,3 +965,81 @@ describe("the salary typed from the file", () => {
     expect(await screen.findByText("Ensure this value is greater than or equal to 0.")).toBeInTheDocument();
   });
 });
+
+describe("deleting a person from the staff", () => {
+  const can = { edit: true, shift: true, plan: true, decide_penalties: true };
+  const file = (data: HrEmployee) => ({ "/api/v1/hr/employees/11/": () => jsonResponse(data) });
+
+  it("is offered to the admin only, and asks before it deletes", async () => {
+    serve("hr", file(employee()));
+    const view = open("/hr/employees/11");
+    await screen.findByText("البيانات");
+    expect(screen.queryByRole("button", { name: "امسح الموظف" })).toBeNull();
+    view.unmount();
+    const served = serve("admin", {
+      ...file(employee({ can: { ...can, delete: true } })),
+      ...adminHalf(11),
+      "/api/v1/hr/employees/11/delete/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await user.click(await screen.findByRole("button", { name: "امسح الموظف" }));
+    expect(served.sent).toEqual([]);
+    expect(screen.getByText(/التاسكات اللي عملها هتفضل باسمه بلون مختلف/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "امسح" }));
+    await waitFor(() => expect(served.sent.map((one) => one.url)).toEqual(["/api/v1/hr/employees/11/delete/"]));
+  });
+
+  it("says why it was refused, in the question", async () => {
+    serve("admin", {
+      ...file(employee({ can: { ...can, delete: true } })),
+      ...adminHalf(11),
+      "/api/v1/hr/employees/11/delete/": () =>
+        jsonResponse({ ok: false, error: "refused", message: "معاه تاسكات لسه شغالة: انقلها لحد تاني الأول." }, 409),
+    });
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await user.click(await screen.findByRole("button", { name: "امسح الموظف" }));
+    await user.click(screen.getByRole("button", { name: "امسح" }));
+    expect(await screen.findByText("معاه تاسكات لسه شغالة: انقلها لحد تاني الأول.")).toBeInTheDocument();
+  });
+
+  it("a deleted file says so and offers the restore, not the edit", async () => {
+    const deleted = employee({ can: { ...can, edit: false, restore: true } });
+    deleted.person.deleted_at = stampOf("2026-10-11", "2026-10-11");
+    const served = serve("admin", {
+      ...file(deleted),
+      ...adminHalf(11),
+      "/api/v1/hr/employees/11/restore/": (url, init) => served.record(url, init, { ok: true }),
+    });
+    const user = userEvent.setup();
+    const { container } = open("/hr/employees/11");
+    await screen.findByText("البيانات");
+    expect(container.querySelector("[data-deleted]")).toHaveTextContent("الموظف ده اتمسح يوم");
+    expect(screen.queryByRole("button", { name: /عدّل$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "امسح الموظف" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "رجّعه" }));
+    await waitFor(() => expect(served.sent.map((one) => one.url)).toEqual(["/api/v1/hr/employees/11/restore/"]));
+  });
+
+  it("the register draws a deleted team leader in the deleted colour, and the admin opens the list of the deleted", async () => {
+    const data = register();
+    data.rows[0] = { ...data.rows[0], team_lead_gone: true };
+    const served = serve("admin", { "/api/v1/hr/employees/": () => jsonResponse(data) });
+    const user = userEvent.setup();
+    const { container } = open("/hr/employees");
+    await screen.findByText("السجل");
+    const leader = within(container.querySelector('[data-person="11"]') as HTMLElement).getByText("Mona");
+    expect(leader).toHaveClass("person-gone");
+    expect(within(container.querySelector('[data-person="12"]') as HTMLElement).queryByText("Mona")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "المحذوفين" }));
+    await waitFor(() => expect(reads(served, "/api/v1/hr/employees/").some((url) => url.includes("deleted=1"))).toBe(true));
+  });
+
+  it("HR is not offered the list of the deleted", async () => {
+    serve("hr", { "/api/v1/hr/employees/": () => jsonResponse(register()) });
+    open("/hr/employees");
+    await screen.findByText("السجل");
+    expect(screen.queryByRole("button", { name: "المحذوفين" })).toBeNull();
+  });
+});

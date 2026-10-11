@@ -7,16 +7,18 @@ import { PenaltyQueue } from "../components/hr/Penalties";
 import { useHrAllowed } from "../components/hr/shared";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { Icon } from "../components/Icon";
+import { PersonName } from "../components/PersonName";
 import { LevelBadge } from "../components/hr/LevelBadge";
 import { Presence } from "../components/Presence";
 import { usePreferences } from "../i18n/Preferences";
 
-const FILTERS = ["department", "status"] as const;
+const FILTERS = ["department", "status", "deleted"] as const;
 
 /**
  * Everybody on the staff, in one list: HR's columns (role, department, kind of work, status) and the staff table's (leader, whether they
  * are here, shifts, rating). The file opens from the name. The admin also sees the switched-off, the address a person receives mail for,
- * and makes a new person from the button. The filters live in the address.
+ * and makes a new person from the button, and alone reads the list of the people they deleted (`?deleted=1`), each restorable from
+ * their file. The filters live in the address.
  */
 export function HrEmployeesPage() {
   const { t } = usePreferences();
@@ -43,6 +45,7 @@ export function HrEmployeesPage() {
     setParams(next);
   };
   const columns = isAdmin ? 11 : 10;
+  const showDeleted = isAdmin && kept.get("deleted") === "1";
 
   return (
     <>
@@ -65,6 +68,18 @@ export function HrEmployeesPage() {
             </option>
           ))}
         </select>
+        {isAdmin && (
+          <button
+            className="btn"
+            type="button"
+            aria-pressed={showDeleted}
+            data-show-deleted=""
+            onClick={() => set("deleted", showDeleted ? "" : "1")}
+          >
+            <Icon name="trash" size="sm" />
+            <span>{t("المحذوفين", "Deleted")}</span>
+          </button>
+        )}
         {isAdmin && (
           <Link className="btn btn--primary" to="/hr/employees/new">
             <Icon name="plus" size="sm" />
@@ -104,7 +119,9 @@ export function HrEmployeesPage() {
                     <div className="row row--tight">
                       <Avatar src={row.avatar} initials={row.initials} tone="" className="avatar--sm" />
                       <div>
-                        <Link to={`/hr/employees/${row.id}`}>{row.name}</Link>
+                        <Link to={`/hr/employees/${row.id}`}>
+                          <PersonName name={row.name} gone={Boolean(row.deleted_at)} />
+                        </Link>
                         {row.level && <LevelBadge level={row.level} />}
                         <div>
                           <small className="muted mono">{[row.code, row.username].filter(Boolean).join(" · ") || "—"}</small>
@@ -116,7 +133,9 @@ export function HrEmployeesPage() {
                     <span className="chip">{words(row.role)}</span>
                   </td>
                   <td className="muted">{row.department ?? "—"}</td>
-                  <td>{row.team_lead ?? "—"}</td>
+                  <td>
+                    <PersonName name={row.team_lead} gone={row.team_lead_gone} />
+                  </td>
                   <td>
                     <span className="chip">{words(row.employment)}</span>
                   </td>
@@ -124,7 +143,7 @@ export function HrEmployeesPage() {
                   <td>
                     <LeaveStatusBadge status={row.status} />
                   </td>
-                  <td>{row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
+                  <td>{row.deleted_at ? <span className="badge badge--dead">{t("اتمسح", "Deleted")} <span className="mono">{t(row.deleted_at.ar, row.deleted_at.en)}</span></span> : row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
                   <td className="mono">{row.shifts ?? "—"}</td>
                   <td>
                     {row.rating === null ? "—" : <Rating value={row.rating} />}
@@ -144,7 +163,7 @@ export function HrEmployeesPage() {
               {data.rows.length === 0 && (
                 <tr>
                   <td colSpan={columns} className="empty">
-                    {t("مفيش موظفين.", "Nobody yet.")}
+                    {showDeleted ? t("مفيش موظفين ممسوحين.", "Nobody has been deleted.") : t("مفيش موظفين.", "Nobody yet.")}
                   </td>
                 </tr>
               )}

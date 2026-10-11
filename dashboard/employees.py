@@ -23,7 +23,10 @@ from django.utils import timezone
 
 from . import attendance, services
 from .models import (
+    ACTIVE_TASK_STATUSES,
     ApprovalStatus,
+    Assignment,
+    AssignmentStatus,
     DayStatus,
     Notification,
     EmploymentStatus,
@@ -39,8 +42,11 @@ from .models import (
     Role,
     SalaryChangeRequest,
     SalaryRecord,
+    Task,
+    TaskStatus,
     User,
     WorkDay,
+    translator_holdings,
 )
 
 class LifecycleError(Exception):
@@ -598,6 +604,72 @@ def decide_salary_change(row, actor, approve, note=""):
 
 # ---------------------------------------------------------------------------
 # The sweep entry point
+# ---------------------------------------------------------------------------
+# Deleting somebody from the staff
+# ---------------------------------------------------------------------------
+
+#: The audit actions of a delete and of taking it back.
+DELETE_ACTION = "user.delete"
+RESTORE_ACTION = "user.restore"
+
+
+def holds_work(person):
+    """Whether a task is still in this person's hands: a translator's share or task, a leader's task before it is reviewed, an offer.
+
+    Deleting somebody who holds work would leave the task waiting on a person nobody can reach or pick any more.
+    """
+    if translator_holdings([person.pk]):
+        return True
+    leading = [status for status in ACTIVE_TASK_STATUSES if status != TaskStatus.REVIEWED]
+    if Task.objects.filter(team_lead=person, status__in=leading).exists():
+        return True
+    return Assignment.objects.filter(assignee=person, status=AssignmentStatus.PENDING, task__status__in=leading).exists()
+
+
+@transaction.atomic
+def delete_employee(person, actor):
+    """Take a person off the staff without wiping what they did: the admin's alone.
+
+    The row stays, switched off (``is_active`` False, so they cannot sign in and every picker leaves them out) and stamped with
+    ``deleted_at``: the tasks they worked keep their name, which the pages draw in the "deleted" colour, and the register leaves
+    them out. The owner's "reset staff" is the delete that wipes (``services.reset_all_staff``); this one can be taken back
+    (``restore_employee``).
+    """
+    person = User.objects.select_for_update().get(pk=person.pk)
+    if actor is None or not actor.is_admin_role:
+        raise LifecycleError("الخطوة دي للأدمن بس.", "Only the admin can do this.")
+    if person.pk == actor.pk:
+        raise LifecycleError("مينفعش تمسح نفسك.", "You cannot delete yourself.")
+    if person.is_admin_role:
+        raise LifecycleError("ده أدمن: غيّر دوره الأول وبعدين امسحه.", "This is an admin: change their role first.")
+    if person.is_deleted:
+        raise LifecycleError("الموظف ده ممسوح أصلًا.", "Already deleted.")
+    if holds_work(person):
+        raise LifecycleError(
+            "معاه تاسكات لسه شغالة: انقلها لحد تاني الأول.", "They still hold tasks in progress: move them to someone else first."
+        )
+    person.deleted_at = timezone.now()
+    person.is_active = False
+    person.save(update_fields=["deleted_at", "is_active"])
+    services.log(actor, DELETE_ACTION, person.username, person.short_name)
+    return person
+
+
+@transaction.atomic
+def restore_employee(person, actor):
+    """Take a delete back: the person is on the staff and can sign in again, as they were."""
+    person = User.objects.select_for_update().get(pk=person.pk)
+    if actor is None or not actor.is_admin_role:
+        raise LifecycleError("الخطوة دي للأدمن بس.", "Only the admin can do this.")
+    if not person.is_deleted:
+        raise LifecycleError("الموظف ده مش ممسوح.", "Not deleted.")
+    person.deleted_at = None
+    person.is_active = True
+    person.save(update_fields=["deleted_at", "is_active"])
+    services.log(actor, RESTORE_ACTION, person.username, person.short_name)
+    return person
+
+
 # ---------------------------------------------------------------------------
 
 def sweep(now=None):

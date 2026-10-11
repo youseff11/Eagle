@@ -5,6 +5,7 @@ import { useMe, useTasks } from "../api/queries";
 import type { OpsTaskRow, TasksResponse } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
+import { PersonName } from "../components/PersonName";
 import { usePreferences } from "../i18n/Preferences";
 
 function Counters({ counters }: { counters: TasksResponse["counters"] }) {
@@ -44,8 +45,12 @@ function Row({ task }: { task: OpsTaskRow }) {
       <td>
         <StatusBadge status={task.status} />
       </td>
-      <td>{task.team_lead ?? "—"}</td>
-      <td>{task.translator ?? "—"}</td>
+      <td>
+        <PersonName name={task.team_lead} gone={task.gone?.includes("team_lead")} />
+      </td>
+      <td>
+        <PersonName name={task.translator} gone={task.gone?.includes("translator")} />
+      </td>
       <td className={`mono ${deadlineClass(task.due_state)}`}>{due ?? "—"}</td>
       <td>
         <Link className="btn btn--sm" to={`/tasks/${encodeURIComponent(task.code)}`}>

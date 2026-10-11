@@ -317,6 +317,14 @@ export interface AssignmentResponse {
   };
 }
 
+/** Who is on a task by name, and which of them were deleted from the staff (their names drawn in the "deleted" colour). */
+export interface TaskPeople {
+  operation: string | null;
+  team_lead: string | null;
+  translator: string | null;
+  gone?: ("operation" | "team_lead" | "translator")[];
+}
+
 /** One row of the operation's task list (`api_ops.tasks`). */
 export interface OpsTaskRow {
   code: string;
@@ -328,6 +336,8 @@ export interface OpsTaskRow {
   status: Labelled & { tone: string };
   team_lead: string | null;
   translator: string | null;
+  /** Which of the two names belong to somebody deleted from the staff: drawn in the "deleted" colour (`PersonName`). */
+  gone?: ("team_lead" | "translator")[];
   /** The client's date (the operation answers for the promise), as month-day and the time. */
   due: Stamp | null;
   due_state: "none" | "ok" | "soon" | "late" | "done";
@@ -351,6 +361,8 @@ export interface OpsPart {
   translator: number;
   name: string;
   initials: string;
+  /** This translator was deleted from the staff. */
+  gone?: boolean;
   status: "pending" | "accepted";
   source_lang: string;
   target_lang: string;
@@ -387,7 +399,7 @@ export interface OpsTask {
   due_iso?: string;
   translator_due_iso?: string;
   description: string;
-  people: { operation: string | null; team_lead: string | null; translator: string | null };
+  people: TaskPeople;
   /** Each translator on it and what they were given (`api_ops._parts_json`): offered or taken, and whether they handed in. */
   parts: OpsPart[];
   /** Who has been asked to take it and has not answered yet, and how long they have. */
@@ -571,7 +583,7 @@ export interface TranslatorTask {
   /** The translator's own deadline as an ISO time, for the countdown. Empty when there is none or the task is done. */
   due_iso?: string;
   description: string;
-  people: { operation: string | null; team_lead: string | null; translator: string | null };
+  people: TaskPeople;
   /** Whether this task is the person's own (the admin may look at any). */
   mine: boolean;
   /** Their share of the task - the pair, the words, the pages - and whether they have handed it in. */
@@ -1412,7 +1424,7 @@ export interface AccountsOverview {
   lines: AccountsLineRow[];
   pending_violations: AccountsViolation[];
   missing_salary: { id: number; name: string; username: string; initials: string }[];
-  unsettled_tasks: { code: string; translator: string | null }[];
+  unsettled_tasks: { code: string; translator: string | null; translator_gone?: boolean }[];
   can: { line: boolean; task: boolean };
 }
 
@@ -1828,6 +1840,10 @@ export interface HrRegister {
     role: Labelled;
     department: string | null;
     team_lead: string | null;
+    /** The team leader was deleted from the staff. */
+    team_lead_gone?: boolean;
+    /** When the admin deleted this person (only in the admin's list of the deleted, `?deleted=1`). */
+    deleted_at?: Stamp | null;
     employment: Labelled;
     joining_date: string | null;
     status: DayStatusJson;
@@ -1874,6 +1890,8 @@ export interface HrEmployee {
     probation_end: string | null;
     phone: string;
     attendance_enabled: boolean;
+    /** When the admin deleted this person from the staff; `null` while they are on it. */
+    deleted_at?: Stamp | null;
   };
   summary: Record<"scheduled_days" | "present_days" | "office_days" | "remote_days" | "leave_days" | "absent_days" | "late_days" | "work_minutes" | "overtime_minutes", number> | null;
   shifts: HrRosterRow[];
@@ -1898,6 +1916,9 @@ export interface HrEmployee {
     edit: boolean;
     shift: boolean;
     plan: boolean;
+    /** The admin may delete this person from the staff (never an admin, never themself), or take a delete back. */
+    delete?: boolean;
+    restore?: boolean;
     decide_penalties: boolean;
     /** The admin may turn a decision round (forgive what stands, apply again what was forgiven). */
     change_penalties?: boolean;

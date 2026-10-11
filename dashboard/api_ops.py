@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404
 
 from . import api, identity, services, taskstart, wordcount
 from .api_v1 import (
-    BadBody, BadIds, _clean_id, _error, _kind_json, _list, _object, _origin_json, _stamp, _status_json, _task_file_json,
+    BadBody, BadIds, _clean_id, _error, _gone, _kind_json, _list, _object, _origin_json, _stamp, _status_json, _task_file_json,
     _text, _two, endpoint,
 )
 from .forms import QUICK_LANGUAGES, RequirementForm, TaskForm, language_choices
@@ -62,6 +62,7 @@ def _list_row(task, user, warning_minutes):
         "status": _status_json(task.status),
         "team_lead": task.team_lead.short_name if task.team_lead_id else None,
         "translator": task.translator.short_name if task.translator_id else None,
+        "gone": _gone(team_lead=task.team_lead, translator=task.translator),
         "due": _stamp(due, "%m-%d"),
         "due_state": task.deadline_state(user, warning_minutes),
     }
@@ -251,6 +252,7 @@ def _parts_json(task, details=True):
             "translator": part.assignee_id,
             "name": part.assignee.short_name,
             "initials": part.assignee.initials,
+            "gone": part.assignee.is_deleted,
             "status": part.status,
             "source_lang": part.source_lang if details else "",
             "target_lang": part.target_lang if details else "",
@@ -379,6 +381,7 @@ def task(request, code):
                 "operation": task.created_by.short_name if task.created_by_id else None,
                 "team_lead": task.team_lead.short_name if task.team_lead_id else None,
                 "translator": task.translator.short_name if task.translator_id else None,
+                "gone": _gone(operation=task.created_by, team_lead=task.team_lead, translator=task.translator),
             },
             # Each translator and their share: who translates what, how many words, which pages, who has handed in. Technical support
             # reads only who is on it and where each stands: the words and the pages are a person's production.

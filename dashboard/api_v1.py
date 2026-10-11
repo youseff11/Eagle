@@ -1065,6 +1065,12 @@ def translator_home(request):
 # JSON - and the 404 + audit row for a task that is not theirs.
 # ---------------------------------------------------------------------------
 
+def _gone(**people):
+    """Which of the named people were deleted from the staff (``User.deleted_at``): the page draws those names in the "deleted"
+    colour, so a task they worked still says who did it and that they are no longer here."""
+    return [key for key, person in people.items() if person is not None and person.is_deleted]
+
+
 def _stamp(value, fmt):
     """A moment as the page shows it, written by the server in both languages (Cairo, twelve hours)."""
     return {"ar": clock.fmt12(value, "ar", fmt), "en": clock.fmt12(value, "en", fmt)} if value else None
@@ -1265,6 +1271,7 @@ def translator_task(request, code):
                 "team_lead": task.team_lead.short_name if task.team_lead_id else None,
                 # A translator reads their own name here, never a colleague's: the others on a split task are not theirs to know.
                 "translator": user.short_name if share is not None else (task.translator.short_name if task.translator_id else None),
+                "gone": _gone(operation=task.created_by, team_lead=task.team_lead, translator=None if share is not None else task.translator),
             },
             "mine": mine,
             # Their share of the task (the pair, the words, the pages the leader gave them). ``None`` when the task is whole.

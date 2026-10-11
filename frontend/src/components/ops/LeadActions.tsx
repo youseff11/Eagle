@@ -18,6 +18,7 @@ import { taskProblem } from "../../lib/taskProblem";
 import { Confirm } from "../Confirm";
 import { Countdown } from "../Countdown";
 import { Icon } from "../Icon";
+import { PersonName } from "../PersonName";
 import { pagesOf } from "../PartBox";
 import { useToasts } from "../Toasts";
 
@@ -647,7 +648,7 @@ export function PartWordsBox({ task }: { task: OpsTask }) {
         return (
           <div className="field" key={part.id} data-part-words={part.id}>
             <label htmlFor={`part-words-${part.id}`}>
-              {part.name}
+              <PersonName name={part.name} gone={part.gone} />
               {pages && <small className="muted mono"> · {t("صفحات", "pages")} {pages}</small>}
             </label>
             <input

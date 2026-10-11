@@ -7,6 +7,7 @@ import type { TaskFile, TranslatorTask } from "../api/types";
 import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../components/Badges";
 import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
+import { PersonName } from "../components/PersonName";
 import { Modal } from "../components/Modal";
 import { PartBox } from "../components/PartBox";
 import { AiCheckCard } from "../components/task/AiCheckCard";
@@ -335,11 +336,13 @@ function MoreTime({ task, open, onToggle }: { task: TranslatorTask; open: boolea
   );
 }
 
-function Person({ label, name }: { label: string; name: string | null }) {
+function Person({ label, name, gone = false }: { label: string; name: string | null; gone?: boolean }) {
   return (
     <div>
       <div className="label">{label}</div>
-      <div>{name ?? "—"}</div>
+      <div>
+        <PersonName name={name} gone={gone} />
+      </div>
     </div>
   );
 }
@@ -402,9 +405,9 @@ function Task({ task }: { task: TranslatorTask }) {
             </div>
           </div>
           <div className="row" style={{ gap: 22 }}>
-            <Person label={t("الأوبريشن", "Operation")} name={task.people.operation} />
-            <Person label={t("التيم ليدر", "Team leader")} name={task.people.team_lead} />
-            <Person label={t("المترجم", "Translator")} name={task.people.translator} />
+            <Person label={t("الأوبريشن", "Operation")} name={task.people.operation} gone={task.people.gone?.includes("operation")} />
+            <Person label={t("التيم ليدر", "Team leader")} name={task.people.team_lead} gone={task.people.gone?.includes("team_lead")} />
+            <Person label={t("المترجم", "Translator")} name={task.people.translator} gone={task.people.gone?.includes("translator")} />
           </div>
         </div>
         {task.description && (

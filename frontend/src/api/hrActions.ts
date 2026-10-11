@@ -302,3 +302,23 @@ export function useMarkTest(id: number) {
     },
   });
 }
+
+/**
+ * Delete a person from the staff, or take it back (the admin's). Every page is asked again: the person leaves the register and the
+ * pickers, and their name on the tasks they worked turns to the "deleted" colour.
+ */
+function useStaffChange(door: "delete" | "restore") {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<{ ok: true }>(`/api/v1/hr/employees/${id}/${door}/`, { json: {} }),
+    onSettled: () => void client.invalidateQueries(),
+  });
+}
+
+export function useDeleteEmployee() {
+  return useStaffChange("delete");
+}
+
+export function useRestoreEmployee() {
+  return useStaffChange("restore");
+}

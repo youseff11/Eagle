@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { useSyncAliases } from "../api/adminActions";
 import { ApiError } from "../api/client";
-import { useAssignPlan, usePickHrShift } from "../api/hrActions";
+import { useAssignPlan, useDeleteEmployee, usePickHrShift, useRestoreEmployee } from "../api/hrActions";
 import { useAdminUser, useHrEmployee } from "../api/queries";
 import { Waiting, refusal } from "../components/accounts/shared";
 import { AccountCard } from "../components/hr/AccountCard";
@@ -15,6 +15,7 @@ import { RosterCard } from "../components/hr/RosterCard";
 import { useHrAllowed } from "../components/hr/shared";
 import { WorkModeCard } from "../components/hr/WorkModeCard";
 import { Avatar } from "../components/Avatar";
+import { Confirm } from "../components/Confirm";
 import { Icon } from "../components/Icon";
 import { LeaveStatusBadge, useLeaveWords } from "../components/leave/shared";
 import { ShiftPicker } from "../components/ShiftPicker";
@@ -39,6 +40,9 @@ export function HrEmployeePage() {
   const assign = useAssignPlan(id);
   const [plan, setPlan] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const remove = useDeleteEmployee();
+  const restore = useRestoreEmployee();
   const data = query.data;
   const canEdit = data?.can.edit === true;
   // The admin's half of the file is asked for with HR's, at the same time, by whoever is the admin (`/me/` says so): not after
@@ -69,6 +73,19 @@ export function HrEmployeePage() {
     </div>
   );
   const chosenPlan = plan ?? String(data.plan.current?.id ?? "");
+  const deleteNow = () =>
+    remove.mutate(id, {
+      onSuccess: () => {
+        setAsking(false);
+        setEditing(false);
+        push({ level: "success", title: t("الموظف اتمسح", "Employee deleted") });
+      },
+    });
+  const restoreNow = () =>
+    restore.mutate(id, {
+      onSuccess: () => push({ level: "success", title: t("الموظف رجع", "Employee restored") }),
+      onError: (error) => push({ level: "danger", title: refusal(error, t("حصلت مشكلة.", "Something went wrong.")) }),
+    });
   const savePlan = () =>
     assign.mutate(chosenPlan ? Number(chosenPlan) : null, {
       onSuccess: () => {
@@ -97,7 +114,47 @@ export function HrEmployeePage() {
             <span>{t("عدّل", "Edit")}</span>
           </button>
         )}
+        {data.can.delete && (
+          <button className="btn btn--sm btn--danger" type="button" onClick={() => setAsking(true)}>
+            <Icon name="trash" size="sm" />
+            <span>{t("امسح الموظف", "Delete employee")}</span>
+          </button>
+        )}
       </div>
+
+      {person.deleted_at && (
+        <div className="note note--high person-gone-banner" role="status" data-deleted="">
+          <Icon name="alert" />
+          <div className="grow">
+            {t("الموظف ده اتمسح يوم", "This employee was deleted on")} <span className="mono">{t(person.deleted_at.ar, person.deleted_at.en)}</span>
+            {t(". تاسكاته فاضلة باسمه بلون مختلف.", ". Their tasks keep their name, in a different colour.")}
+          </div>
+          {data.can.restore && (
+            <button className="btn btn--sm" type="button" disabled={restore.isPending} onClick={restoreNow}>
+              <span>{t("رجّعه", "Restore")}</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {asking && (
+        <Confirm
+          title={t(`تمسح ${person.name}؟`, `Delete ${person.name}?`)}
+          body={t(
+            "مش هيقدر يدخل السيستم ومش هيظهر في الموظفين ولا في أي قايمة اختيار. التاسكات اللي عملها هتفضل باسمه بلون مختلف. تقدر ترجّعه بعدين من «المحذوفين».",
+            "They will not be able to sign in and will not appear among the staff or in any picker. The tasks they worked keep their name, in a different colour. You can restore them later from \"Deleted\".",
+          )}
+          yes={t("امسح", "Delete")}
+          danger
+          busy={remove.isPending}
+          problem={remove.isError ? refusal(remove.error, t("حصلت مشكلة.", "Something went wrong.")) : ""}
+          onYes={deleteNow}
+          onNo={() => {
+            setAsking(false);
+            remove.reset();
+          }}
+        />
+      )}
 
       <div className="grid grid--main">
         <div className="stack">

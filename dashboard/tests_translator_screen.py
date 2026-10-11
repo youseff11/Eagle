@@ -230,7 +230,7 @@ class TaskApiTests(_Screen):
         self.assertEqual(task["client"], self.client_obj.code)
         self.assertEqual((task["source_lang"], task["target_lang"]), ("Arabic", "English"))
         self.assertEqual(task["people"], {"operation": self.ops.short_name, "team_lead": self.lead.short_name,
-                                          "translator": self.tr.short_name})
+                                          "translator": self.tr.short_name, "gone": []})
         # The translator's own date: never the client's.
         self.assertEqual(task["due"]["en"], clock.fmt12(mine, "en", "%Y-%m-%d"))
         self.assertEqual(task["due"]["ar"], clock.fmt12(mine, "ar", "%Y-%m-%d"))

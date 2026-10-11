@@ -448,6 +448,9 @@ class User(AbstractUser):
     languages = models.CharField(max_length=160, blank=True, help_text="e.g. EN, AR, FR")
     rating = models.DecimalField(max_digits=5, decimal_places=3, default=Decimal("5.000"))
     force_offline = models.BooleanField(default=False)
+    #: When the admin deleted this person from the staff (``services.delete_employee``). The row stays, switched off, so the
+    #: tasks they worked keep their name (drawn in the "deleted" colour); the register leaves them out and nobody can pick them.
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text="Deleted from the staff: kept so their tasks keep their name.")
     last_seen = models.DateTimeField(null=True, blank=True)
     ui_lang = models.CharField(max_length=5, default="ar")
     ui_theme = models.CharField(max_length=10, default="dark")
@@ -693,6 +696,10 @@ class User(AbstractUser):
     @property
     def short_name(self):
         return self.get_full_name() or self.username
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
     @property
     def initials(self):

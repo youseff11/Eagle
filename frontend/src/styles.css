@@ -418,3 +418,12 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 .avatar-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .lightbox__img--avatar { width: min(78vmin, 440px); height: min(78vmin, 440px); object-fit: cover; border-radius: 18px; }
 .lightbox__caption { position: absolute; bottom: 22px; left: 0; right: 0; text-align: center; color: #fff; font-weight: 600; font-size: 1rem; padding-inline: 16px; }
+
+/* A person the admin deleted from the staff, where their name stays on the work they did (`PersonName`). */
+.person-gone {
+  color: var(--danger);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: .85;
+}
+.person-gone-banner { border-inline-start: 3px solid var(--danger); }

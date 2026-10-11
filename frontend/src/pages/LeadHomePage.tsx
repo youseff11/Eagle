@@ -4,6 +4,7 @@ import { useLeadHome, useMe } from "../api/queries";
 import type { LeadHome, OpsTaskRow } from "../api/types";
 import { deadlineClass, OriginBadge, Rating, StatusBadge } from "../components/Badges";
 import { Icon } from "../components/Icon";
+import { PersonName } from "../components/PersonName";
 import { Presence } from "../components/Presence";
 import { usePreferences } from "../i18n/Preferences";
 
@@ -46,7 +47,9 @@ function Row({ task }: { task: OpsTaskRow }) {
       <td>
         <StatusBadge status={task.status} />
       </td>
-      <td>{task.translator ?? "—"}</td>
+      <td>
+        <PersonName name={task.translator} gone={task.gone?.includes("translator")} />
+      </td>
       <td className={`mono ${deadlineClass(task.due_state)}`}>{due ?? "—"}</td>
       <td>
         <Link className={`btn btn--sm${primary ? " btn--primary" : ""}`} to={`/tasks/${encodeURIComponent(task.code)}`}>

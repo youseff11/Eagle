@@ -165,7 +165,10 @@ def overview(request):
         ],
         # A job whose word count nobody has settled would walk into the month as a number that is missing or unchecked.
         "unsettled_tasks": [
-            {"code": task.code, "translator": task.translator.short_name if task.translator_id else None}
+            {
+                "code": task.code, "translator": task.translator.short_name if task.translator_id else None,
+                "translator_gone": bool(task.translator_id and task.translator.is_deleted),
+            }
             for task in Task.objects.filter(
                 translated_at__date__range=(first_day, last_day),
                 word_count_state__in=(WordCountState.EMPTY, WordCountState.REVIEW, WordCountState.MANUAL_NEEDED),

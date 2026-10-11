@@ -6,6 +6,7 @@ import { ROLE_LABELS } from "../../lib/roles";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { taskProblem } from "../../lib/taskProblem";
 import { Icon } from "../Icon";
+import { PersonName } from "../PersonName";
 import { pagesOf } from "../PartBox";
 import { Requirements } from "./Requirements";
 import { useToasts } from "../Toasts";
@@ -295,7 +296,9 @@ export function PartsCard({ task }: { task: OpsTask }) {
             <li key={part.id} data-part-row={part.id}>
               <span className="avatar avatar--sm">{part.initials}</span>
               <div className="grow">
-                <div>{part.name}</div>
+                <div>
+                  <PersonName name={part.name} gone={part.gone} />
+                </div>
                 <small className="muted mono">
                   {[
                     part.source_lang || part.target_lang ? `${part.source_lang || "—"} → ${part.target_lang || "—"}` : "",

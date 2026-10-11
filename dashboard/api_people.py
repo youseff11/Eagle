@@ -26,7 +26,7 @@ from . import api_forms, attendance, avatars, employees, identity, payroll, pena
 from .api_forms import named
 from .api_ai import _issue_json
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
-from .api_leave import request_json as leave_json
+from .api_leave import refusal, request_json as leave_json
 from .api_ops import _seen_json
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
 from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeRequestForm, SalaryPlanForm
@@ -135,6 +135,8 @@ def register(request):
     )
     if not admin:
         rows = rows.filter(is_active=True)
+    # The deleted are a list of their own, the admin's: ``?deleted=1``. Everybody else never sees them here.
+    rows = rows.filter(deleted_at__isnull=not (admin and request.GET.get("deleted") == "1"))
     if request.GET.get("department"):
         which = _digits(request.GET["department"])
         if which is None:
@@ -155,6 +157,8 @@ def register(request):
                 "role": _two(ROLE_MAP, one.role),
                 "department": _label(one.department),
                 "team_lead": one.team_lead.short_name if one.team_lead_id else None,
+                "team_lead_gone": bool(one.team_lead_id and one.team_lead.is_deleted),
+                "deleted_at": _stamp(one.deleted_at, "%Y-%m-%d"),
                 "employment": _two(EMPLOYMENT_MAP, one.employment_type),
                 "joining_date": one.joining_date.isoformat() if one.joining_date else None,
                 "status": _badge(EMPLOYMENT_STATUS_MAP, one.employment_status),
@@ -235,6 +239,8 @@ def employee(request, pk):
             "probation_end": person.probation_end.isoformat() if person.probation_end else None,
             "phone": person.phone,
             "attendance_enabled": person.attendance_enabled,
+            # Deleted from the staff by the admin (``employees.delete_employee``): the file stays readable, nothing on it moves.
+            "deleted_at": _stamp(person.deleted_at, "%Y-%m-%d"),
         },
         "summary": summary,
         "shifts": [_roster_json(one) for one in person.shifts.select_related("template").all()] if bound else [],
@@ -262,12 +268,41 @@ def employee(request, pk):
         "incentive": str(person.incentive) if bound and viewer.is_admin_role else None,
         "salary": [{"effective_from": one.effective_from.isoformat(), "amount": str(one.amount)} for one in person.salary_records.all()[:MAX_FILE_ROWS]] if bound else [],
         "can": {
-            "edit": viewer.is_admin_role, "shift": bound and viewer.can_manage_attendance, "plan": bound and viewer.is_admin_role,
+            "edit": viewer.is_admin_role and not person.is_deleted,
+            "shift": bound and viewer.can_manage_attendance and not person.is_deleted,
+            "plan": bound and viewer.is_admin_role and not person.is_deleted,
+            # The admin deletes anybody but an admin and themself; whether they still hold work is asked when the button is pressed.
+            "delete": viewer.is_admin_role and not person.is_deleted and not person.is_admin_role and person.pk != viewer.pk,
+            "restore": viewer.is_admin_role and person.is_deleted,
             "decide_penalties": penalties.may_decide(viewer),
             "change_penalties": penalties.may_change(viewer),
-            "incentive": bound and viewer.is_admin_role,
+            "incentive": bound and viewer.is_admin_role and not person.is_deleted,
         },
     })
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def employee_delete(request, pk):
+    """Delete a person from the staff: switched off and out of the register, their name kept on the tasks they worked."""
+    person = get_object_or_404(User, pk=pk)
+    try:
+        employees.delete_employee(person, request.user)
+    except employees.LifecycleError as refused:
+        return refusal(refused)
+    return JsonResponse({"ok": True})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def employee_restore(request, pk):
+    """Take a delete back: on the staff again, and able to sign in."""
+    person = get_object_or_404(User, pk=pk)
+    try:
+        employees.restore_employee(person, request.user)
+    except employees.LifecycleError as refused:
+        return refusal(refused)
+    return JsonResponse({"ok": True})
 
 
 @endpoint("POST")

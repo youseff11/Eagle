@@ -362,7 +362,7 @@ class OpsTaskDoorTests(_Ops):
         self.assertEqual((task["source_lang"], task["target_lang"]), ("Arabic", "English"))
         self.assertEqual(task["description"], "Translate pages 2-4")
         self.assertEqual(task["people"], {"operation": self.ops.short_name, "team_lead": self.lead.short_name,
-                                          "translator": self.tr.short_name})
+                                          "translator": self.tr.short_name, "gone": []})
         # The client date is the operation's; what the translator was given is a chip beside it.
         self.assertIn(timezone.localtime(clients).strftime("%Y-%m-%d"), task["due"]["en"])
         self.assertIn(timezone.localtime(mine).strftime("%m-%d"), task["translator_due"]["en"])

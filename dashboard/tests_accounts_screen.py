@@ -175,7 +175,7 @@ class OverviewTests(_Accounts):
             translated_at=timezone.now(), word_count_state=WordCountState.REVIEW, status=TaskStatus.DELIVERED,
         )
         rows = _json(self.get(self.admin, OVERVIEW))["unsettled_tasks"]
-        self.assertEqual(rows, [{"code": self.task.code, "translator": self.tr.short_name}])
+        self.assertEqual(rows, [{"code": self.task.code, "translator": self.tr.short_name, "translator_gone": False}])
 
     def test_only_the_admin_is_told_they_may_open_a_payslip_or_a_task(self):
         self.assertEqual(_json(self.get(self.admin, OVERVIEW))["can"], {"line": True, "task": True})

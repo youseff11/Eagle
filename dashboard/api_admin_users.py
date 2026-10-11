@@ -81,6 +81,10 @@ def user_create(request):
 def user_save(request, pk):
     """Save a person's file as the classic page does, and write down a changed role, identity grant or mail address."""
     person = get_object_or_404(User, pk=pk)
+    # A deleted person's file is read, not written: ticking "active" here would bring them back half-deleted. The way back is
+    # the restore button (``employees.restore_employee``).
+    if person.is_deleted:
+        return _error(409, "deleted")
     # Read before the form binds: a ModelForm writes the posted values onto the instance while it validates.
     before = identity.access_snapshot(person)
     alias_before = person.mail_alias

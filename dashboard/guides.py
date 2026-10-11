@@ -1857,6 +1857,30 @@ GUIDES = (
         starter=True,
     ),
     _guide(
+        "admin-employee-delete", (Role.ADMIN,), "/hr/employees",
+        ("إزاي أمسح موظف", "How do I delete an employee"),
+        (
+            "امسح موظف، حذف موظف، شيل موظف، موظف ساب الشغل، رجّع موظف، المحذوفين، الموظفين الممسوحين",
+            "delete an employee, remove staff, someone left, restore an employee, deleted staff",
+        ),
+        [
+            "افتح «ملفات الموظفين» وادخل على الموظف.",
+            "اضغط «امسح الموظف» وبعدين «امسح».",
+            "مش هيقدر يدخل السيستم ومش هيظهر في الموظفين. التاسكات اللي عملها فاضلة باسمه بلون مختلف.",
+            "عشان ترجّعه: اضغط «المحذوفين» في صفحة الموظفين، ادخل عليه واضغط «رجّعه».",
+        ],
+        [
+            "Open «Employee files» and go into the person.",
+            "Press «Delete employee», then «Delete».",
+            "They cannot sign in and leave the staff list. The tasks they worked keep their name, in a different colour.",
+            "To bring them back: press «Deleted» on the employees page, open them and press «Restore».",
+        ],
+        note=(
+            "لو معاه تاسكات لسه شغالة السيستم بيرفض: انقلها لحد تاني الأول. ومينفعش تمسح أدمن ولا نفسك.",
+            "If they still hold tasks in progress it is refused: move them first. An admin, or yourself, cannot be deleted.",
+        ),
+    ),
+    _guide(
         "admin-support-account", (Role.ADMIN,), "/hr/employees",
         ("إزاي أعمل حساب الدعم الفني", "How do I make the technical-support account"),
         (
