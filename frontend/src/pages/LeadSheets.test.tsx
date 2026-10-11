@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parsePasted, type B2bFollowUpsResponse, type B2bLead, type B2bSheetResponse, type B2bSheetsResponse } from "../api/b2b";
+import { type B2bFollowUpsResponse, type B2bLead, type B2bSheetResponse, type B2bSheetsResponse } from "../api/b2b";
 import type { Role } from "../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { LeadSheetPage } from "./LeadSheetPage";
@@ -110,22 +110,6 @@ function open(route: string) {
 
 const posted = (calls: { url: string; init?: RequestInit }[], url: string) =>
   calls.filter((call) => call.url === url && call.init?.method === "POST").map((call) => JSON.parse(String(call.init?.body)));
-
-describe("parsePasted", () => {
-  it("reads tab-separated lines in the sheet's column order, leaving out a header line and empty lines", () => {
-    const text = "Company name\tCountry\nAlpha\tFrance\t\t\t\t\talpha@a.test\n\nBeta\r\n";
-    const rows = parsePasted(text, COLUMNS);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ company_name: "Alpha", country: "France", email: "alpha@a.test", whatsapp: "" });
-    expect(rows[1]).toMatchObject({ company_name: "Beta" });
-  });
-
-  it("knows an Arabic header too, and cuts a cell to its column's length", () => {
-    const rows = parsePasted(`اسم الشركة\tالدولة\nGamma\t${"x".repeat(200)}`, COLUMNS);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.country).toHaveLength(80);
-  });
-});
 
 const noFollowUps: B2bFollowUpsResponse = { ok: true, today: "2026-10-10", items: [] };
 
@@ -319,24 +303,11 @@ describe("LeadSheetPage", () => {
     expect(screen.queryByLabelText("انقلها لشيت تاني")).toBeNull();
   });
 
-  it("adds a pasted block of rows in one request", async () => {
+  it("opens the upload window from the sheet", async () => {
     const user = userEvent.setup();
-    const mocked = serve("sales", {
-      "/api/v1/b2b/sheets/3/rows/": () => jsonResponse({ ok: true, added: 2, leads: [] }),
-      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
-    });
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
     open("/leads/3");
-    await user.click(await screen.findByRole("button", { name: "لزق من شيت" }));
-    const box = screen.getByLabelText("الصفوف");
-    await user.click(box);
-    await user.paste("Alpha\tFrance\nBeta\tSpain");
-    expect(screen.getByText("2 شركة جاهزة تتضاف")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "ضيفهم" }));
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/rows/")).toHaveLength(1));
-    const [body] = posted(mocked.calls, "/api/v1/b2b/sheets/3/rows/");
-    expect(body.rows.map((row: { company_name: string; country: string }) => [row.company_name, row.country])).toEqual([
-      ["Alpha", "France"],
-      ["Beta", "Spain"],
-    ]);
+    await user.click(await screen.findByRole("button", { name: "ارفع Excel أو Google Sheet" }));
+    expect(screen.getByLabelText("ملف Excel أو CSV")).toBeInTheDocument();
   });
 });

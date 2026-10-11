@@ -1,7 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
-  parsePasted,
   refusalText,
   useAddRows,
   useB2bLead,
@@ -22,6 +21,7 @@ import {
 } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
+import { ImportRows } from "../components/b2b/ImportRows";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
@@ -29,7 +29,6 @@ import { Modal } from "../components/Modal";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 
-type Columns = B2bSheetResponse["columns"];
 
 /** The Arabic words for the pipeline and the call outcomes (the server's labels are the English ones). */
 const STATUS_AR: Record<string, string> = {
@@ -254,61 +253,6 @@ function MoveLead({ lead, sheets, onMoved }: { lead: B2bLead; sheets: B2bSheetRe
       </div>
       <Problem text={problem} />
     </div>
-  );
-}
-
-/** Rows copied from Google Sheets or Excel, pasted in one go: the columns in the sheet's order. */
-function PasteRows({ sheetId, columns, onClose }: { sheetId: number; columns: Columns; onClose: () => void }) {
-  const { t, lang } = usePreferences();
-  const toasts = useToasts();
-  const add = useAddRows(sheetId);
-  const [text, setText] = useState("");
-  const [problem, setProblem] = useState("");
-  const rows = useMemo(() => parsePasted(text, columns).filter((row) => (row.company_name ?? "") !== ""), [text, columns]);
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (add.isPending || rows.length === 0) return;
-    setProblem("");
-    add.mutate(rows, {
-      onSuccess: (answer) => {
-        toasts.push({ level: "success", title: t(`اتضاف ${answer.added} شركة`, `${answer.added} companies added`) });
-        onClose();
-      },
-      onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أضيفهم. جرّب تاني.", "Could not add them. Try again."))),
-    });
-  };
-
-  return (
-    <Modal title={t("لزق من شيت", "Paste from a spreadsheet")} icon="upload" busy={add.isPending} wide onClose={onClose}>
-      <form onSubmit={submit}>
-        <p className="muted">
-          {t(
-            "انسخ الصفوف من Google Sheets أو Excel ولزّقها هنا. الأعمدة لازم تبقى بالترتيب ده (صف العناوين لو موجود بيتشال لوحده):",
-            "Copy the rows from Google Sheets or Excel and paste them here. The columns must be in this order (a header row is left out by itself):",
-          )}
-        </p>
-        <div className="mono muted" style={{ fontSize: ".78rem", marginBottom: 8 }}>
-          {columns.map((column) => (lang === "ar" ? column.ar : column.en)).join(" · ")}
-        </div>
-        <textarea
-          className="input mono"
-          rows={8}
-          dir="ltr"
-          value={text}
-          aria-label={t("الصفوف", "Rows")}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <div className="muted" style={{ marginTop: 6 }}>
-          {t(`${rows.length} شركة جاهزة تتضاف`, `${rows.length} companies ready to add`)}
-        </div>
-        <Problem text={problem} />
-        <button className="btn btn--primary" type="submit" disabled={add.isPending || rows.length === 0} style={{ marginTop: 10 }}>
-          <Icon name="plus" />
-          {t("ضيفهم", "Add them")}
-        </button>
-      </form>
-    </Modal>
   );
 }
 
@@ -753,7 +697,7 @@ export function LeadSheetPage() {
           </button>
           <button className="btn" type="button" onClick={() => setOpen({ kind: "paste" })}>
             <Icon name="upload" />
-            {t("لزق من شيت", "Paste from a spreadsheet")}
+            {t("ارفع Excel أو Google Sheet", "Upload Excel or Google Sheets")}
           </button>
           {data.sheet.can_manage && (
             <button className="btn" type="button" onClick={() => setOpen({ kind: "settings" })}>
@@ -863,7 +807,7 @@ export function LeadSheetPage() {
                     <span>
                       {data.leads.length
                         ? t("مفيش شركة بالبحث أو الاختيار ده.", "No company matches.")
-                        : t("الشيت فاضي. ضيف شركة أو لزّق صفوف من Google Sheets.", "The sheet is empty. Add a company or paste rows from Google Sheets.")}
+                        : t("الشيت فاضي. ضيف شركة أو ارفع ملف Excel أو Google Sheet.", "The sheet is empty. Add a company or upload a file from Excel or Google Sheets.")}
                     </span>
                   </td>
                 </tr>
@@ -875,7 +819,7 @@ export function LeadSheetPage() {
 
       {open?.kind === "new" && <LeadForm data={data} lead={null} onClose={close} />}
       {open?.kind === "edit" && <LeadForm data={data} lead={open.lead} onClose={close} />}
-      {open?.kind === "paste" && <PasteRows sheetId={data.sheet.id} columns={data.columns} onClose={close} />}
+      {open?.kind === "paste" && <ImportRows sheetId={data.sheet.id} columns={data.columns} onClose={close} />}
       {open?.kind === "settings" && <SheetSettings data={data} onClose={close} />}
       {open?.kind === "whatsapp" && <StartWhatsapp lead={open.lead} onClose={close} />}
       {open?.kind === "email" && <SendEmail lead={open.lead} sender={sender} onClose={close} />}

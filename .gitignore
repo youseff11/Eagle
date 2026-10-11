@@ -70,3 +70,4 @@ CLAUDE.md
 /.claude/*
 !/.claude/verify.py
 SPEC.md
+application

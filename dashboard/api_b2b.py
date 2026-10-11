@@ -346,6 +346,42 @@ def rows_add(request, sheet_id):
     return JsonResponse({"ok": True, "added": len(made), "leads": [_lead_json(lead) for lead in made]})
 
 
+#: The longest pasted text read (500 rows of 13 columns, generously).
+MAX_PASTED_TEXT = 2 * 1024 * 1024
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def rows_read(request, sheet_id):
+    """Read a block of companies, and write nothing: an Excel or CSV file (``file``, multipart) or pasted cells (``{"text"}``).
+    The rows come back for the page to show and correct; adding them is ``rows_add``. The columns are found by their names
+    (``b2b_import``), and ``mapped`` says which header each came from."""
+    from . import b2b_import
+
+    _sheet_or_404(request, sheet_id)
+    try:
+        if (request.content_type or "").startswith("multipart/"):
+            upload = request.FILES.get("file")
+            if upload is None:
+                return _error(400, "no_file")
+            if upload.size > b2b_import.MAX_FILE_BYTES:
+                raise b2b_import.Unreadable("الملف أكبر من 5 ميجا. قسّمه على أكتر من ملف.", "The file is over 5 MB. Split it into smaller ones.")
+            rows, mapped = b2b_import.read(upload.name, upload.read(b2b_import.MAX_FILE_BYTES + 1))
+        else:
+            if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_PASTED_TEXT:
+                return _error(400, "too_big")
+            body = json.loads(request.body or b"{}")
+            text = body.get("text") if isinstance(body, dict) else None
+            if not isinstance(text, str) or "\x00" in text:
+                return _error(400, "bad_request")
+            rows, mapped = b2b_import.to_rows(b2b_import.read_text(text))
+    except b2b_import.Unreadable as problem:
+        return JsonResponse({"ok": False, "error": "unreadable", "message": problem.ar, "message_en": problem.en}, status=400)
+    except (ValueError, RecursionError, UnicodeDecodeError):
+        return _error(400, "bad_request")
+    return JsonResponse({"ok": True, "rows": rows, "mapped": mapped, "more": len(rows) >= b2b_import.MAX_ROWS})
+
+
 @endpoint("GET")
 @api_gate(b2b.has_door)
 def lead(request, lead_id):

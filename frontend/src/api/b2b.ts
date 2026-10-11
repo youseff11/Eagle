@@ -383,24 +383,26 @@ export function useLeadCall() {
   );
 }
 
-/**
- * Cells copied from Google Sheets or Excel arrive as lines of tab-separated values. Each line is a row, read in `columns`'
- * order; a first line that names the columns (in Arabic or English) is the header and is left out. Empty lines are skipped.
- */
-export function parsePasted(text: string, columns: { name: B2bColumn; ar: string; en: string; max: number }[]): Partial<B2bRow>[] {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((line) => line.trim() !== "");
-  const names = new Set(columns.flatMap((column) => [column.ar.trim().toLowerCase(), column.en.trim().toLowerCase()]));
-  if (lines.length > 0) {
-    const first = (lines[0] ?? "").split("\t")[0]?.trim().toLowerCase() ?? "";
-    if (names.has(first)) lines.shift();
-  }
-  return lines.map((line) => {
-    const cells = line.split("\t");
-    const row: Partial<B2bRow> = {};
-    columns.forEach((column, index) => {
-      row[column.name] = (cells[index] ?? "").trim().slice(0, column.max);
-    });
-    return row;
+/** What reading a file or pasted cells answered: the rows (to correct before adding), and which header each column came from. */
+export interface ReadRowsResponse {
+  ok: boolean;
+  rows: B2bRow[];
+  mapped: Partial<Record<B2bColumn, string>>;
+  /** The file had more rows than one go takes: the rest is in another upload. */
+  more: boolean;
+}
+
+/** Read an Excel / CSV file, or pasted cells, into rows - nothing is written (`/sheets/<id>/read/`). */
+export function useReadRows(sheetId: number) {
+  return useMutation({
+    mutationFn: (source: { file: File } | { text: string }) => {
+      if ("file" in source) {
+        const form = new FormData();
+        form.append("file", source.file);
+        return api<ReadRowsResponse>(`/api/v1/b2b/sheets/${sheetId}/read/`, { multipart: form });
+      }
+      return api<ReadRowsResponse>(`/api/v1/b2b/sheets/${sheetId}/read/`, { json: { text: source.text } });
+    },
   });
 }
 

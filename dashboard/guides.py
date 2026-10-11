@@ -1019,19 +1019,19 @@ GUIDES = (
         "sales-sheets", (Role.SALES, Role.ADMIN), "/leads",
         ("إزاي أملا شيت الشركات وأتواصل معاهم", "How do I fill a company sheet and contact the companies"),
         (
-            "شيت الشركات، شيتات، ليدز، b2b، شركات ترجمة، أتواصل مع شركة، أبعت واتساب لشركة، أسجل مكالمة، ألزق من جوجل شيت، اتواصلت",
+            "شيت الشركات، شيتات، ليدز، b2b، شركات ترجمة، أتواصل مع شركة، أبعت واتساب لشركة، أسجل مكالمة، ألزق من جوجل شيت، أرفع اكسيل، أرفع ملف، استيراد، اتواصلت",
             "company sheet, sheets, leads, b2b, translation agencies, contact a company, whatsapp a company, log a call, paste from google sheets, contacted",
         ),
         [
             "من قسم «الشغل» افتح «شيتات الشركات» واضغط «افتح» على الشيت اللي المانجر بعتهولك.",
-            "ضيف الشركات بـ«شركة جديدة»، أو انسخ الصفوف من Google Sheets واضغط «لزق من شيت» (الأعمدة بنفس الترتيب اللي ظاهر هناك).",
+            "ضيف الشركات بـ«شركة جديدة»، أو اضغط «ارفع Excel أو Google Sheet» وارفع ملف Excel أو CSV (أو الزق الصفوف)، وعدّل أي خانة في الجدول قبل «ضيفهم». الأعمدة بتتعرف بأسمائها.",
             "جنب رقم الواتساب زرار «ابعت واتساب»: بيبعت الرسالة الافتتاحية من رقمك وبعدين اضغط «ابعت وافتح الشات» والشات بيتفتح.",
             "جنب الإيميل زرار «ابعت إيميل»: اكتب الرسالة واضغط «ابعت»، والرد بيوصل «ميلاتي».",
             "أي رسالة توصل للشركة من رقمك أو إيميلك بتتعلّم في الصف لوحدها بالوقت. المكالمة بتسجّلها انت من «سجّل مكالمة».",
         ],
         [
             "In the «Work» section open «Company sheets» and press «Open» on the sheet your manager sent you.",
-            "Add companies with «New company», or copy the rows from Google Sheets and press «Paste from a spreadsheet» (columns in the order shown there).",
+            "Add companies with «New company», or press «Upload Excel or Google Sheets» and upload an Excel or CSV file (or paste the rows), correcting any cell in the grid before «Add them». Columns are found by their names.",
             "Beside the WhatsApp number is «Send WhatsApp»: it sends the opening message from your number; press «Send and open the chat» and the chat opens.",
             "Beside the e-mail is «Send e-mail»: write the message and press «Send»; the answer arrives in «My mail».",
             "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call».",
