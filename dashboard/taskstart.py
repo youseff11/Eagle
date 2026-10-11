@@ -108,7 +108,8 @@ def resolve(user, message_ids=(), file_ids=(), from_code="", text_ids=None, quot
 
     raw_files = list(file_ids or [])
     if from_task is not None and not raw_files:
-        raw_files = [str(a.pk) for a in services.task_source_files(from_task)]
+        # Only the client's own files: a file the leader uploaded is not on any message, and its id is another table's.
+        raw_files = [str(a.pk) for a in services.task_source_files(from_task) if isinstance(a, MessageAttachment)]
     picked = picked_attachments(messages, raw_files)
     # A message already behind a task stays with it (services.create_task), so a new task on it has to name its
     # files - "nothing ticked" would otherwise leave it with none at all.
@@ -190,3 +191,115 @@ def create(user, cleaned, start):
     if cleaned.get("word_count"):
         wordcount.confirm_task(task, user, words=int(cleaned["word_count"]))
     return task
+
+
+def owner_admin():
+    """The admin who answers for a task a team leader made: the first active one. ``None`` when there is none."""
+    from .models import Role, User
+
+    return (
+        User.objects.filter(role=Role.ADMIN, is_active=True, deleted_at__isnull=True).order_by("pk").first()
+        or User.objects.filter(is_superuser=True, is_active=True, deleted_at__isnull=True).order_by("pk").first()
+    )
+
+
+def create_for_lead(lead, cleaned, uploads):
+    """A team leader makes a task himself, with the files from his own machine (11/10/2026): ``(task, error)``.
+
+    The owner's rule: the task is the leader's from the first moment (accepted, ready to hand out to his translators) and no
+    operation is on it. ``created_by`` is the admin, which is what every later step reads as "who takes it over": the reviewed
+    files land in the leader's chat with the admin, and the admin delivers to the client. Errors: ``no_files``, ``no_admin``.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from .models import AssignmentStatus, Role, TaskStatus
+
+    uploads = [u for u in (uploads or []) if u]
+    if not uploads:
+        return None, "no_files"
+    admin = owner_admin()
+    if admin is None:
+        return None, "no_admin"
+    client = cleaned["client"]
+    with transaction.atomic():
+        task = services.create_task(
+            client=client, title=cleaned["title"], created_by=admin, description=cleaned["description"],
+            deadline=cleaned["deadline"], priority=cleaned["priority"],
+            source_lang=cleaned["source_lang"], target_lang=cleaned["target_lang"],
+        )
+        now = timezone.now()
+        task.opened_by_lead = lead
+        task.team_lead = lead
+        task.status = TaskStatus.LEAD_ACCEPTED
+        task.lead_accepted_at = now
+        task.is_difficult = bool(cleaned.get("is_difficult"))
+        task.is_secondary_language = bool(cleaned.get("is_secondary_language"))
+        task.save(update_fields=[
+            "opened_by_lead", "team_lead", "status", "lead_accepted_at", "is_difficult", "is_secondary_language", "updated_at",
+        ])
+        # The leader's own "yes", written the way an accepted hand-off is, so the task reads like any task a leader took.
+        task.assignments.create(
+            assignee=lead, assigned_by=lead, target_role=Role.TEAM_LEAD, status=AssignmentStatus.ACCEPTED,
+            assigned_at=now, expires_at=now, responded_at=now,
+        )
+        add_uploads(task, lead, uploads)
+    services.notify(
+        admin,
+        title_ar="تيم ليدر عمل تاسك",
+        title_en="A team leader made a task",
+        body_ar=f"{lead.short_name} عمل التاسك {task.code} ({client.code}) بملفاته. هيوزّعها على فريقه، وبعد المراجعة الملفات هتوصلك تسلّمها للعميل.",
+        body_en=f"{lead.short_name} made task {task.code} ({client.code}) with their own files. They will hand it out, and after the review the files reach you to deliver.",
+        level="info", url=f"/tasks/{task.code}/", sound=True, task=task,
+    )
+    services.log(lead, "task.lead_create", task.code, f"{len(uploads)} file(s)")
+    return task, ""
+
+
+def add_uploads(task, user, uploads):
+    """Store files on the task as the leader's (``TaskUpload``), each name masked against the client."""
+    from . import files as stored
+    from .models import TaskUpload
+
+    rows = []
+    for item in uploads:
+        name = services.short_name(item.name)
+        rows.append(TaskUpload.objects.create(
+            task=task, file=item, original_name=stored.mask_name(name, task.client)[:250], raw_name=name[:250],
+            size=item.size or 0, mime=(getattr(item, "content_type", "") or "")[:120], uploaded_by=user,
+        ))
+    return rows
+
+
+#: While the translation is still being made, the leader who made the task may add a file he forgot.
+ADD_FILES_STATUSES = ("lead_accepted", "awaiting_translator", "in_progress")
+
+
+def may_add_files(task, user):
+    """The leader who made this task himself (and still leads it), or the admin, while it is being translated."""
+    if task.opened_by_lead_id is None or task.status not in ADD_FILES_STATUSES:
+        return False
+    return user.is_admin_role or (user.is_team_lead and task.team_lead_id == user.pk == task.opened_by_lead_id)
+
+
+def add_files_later(task, user, uploads):
+    """A file the leader forgot, added from the task page: stored on the task and put in every translator's chat with him at once.
+
+    ``(rows, error)``; errors ``forbidden``, ``empty``.
+    """
+    from django.db import transaction
+
+    if not may_add_files(task, user):
+        return [], "forbidden"
+    uploads = [u for u in (uploads or []) if u]
+    if not uploads:
+        return [], "empty"
+    with transaction.atomic():
+        rows = add_uploads(task, user, uploads)
+    lead = task.team_lead
+    for person in task.translator_users():
+        room = services.task_thread(task, lead, person)
+        if room is not None:
+            services.share_files_quietly(task, room)
+    services.log(user, "task.lead_files_added", task.code, str(len(rows)))
+    return rows, ""

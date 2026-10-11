@@ -8,6 +8,7 @@ that were redirects with a flash message (the word count, a requirement) and the
 so a front end can read what happened.
 """
 
+from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -389,6 +390,10 @@ def task(request, code):
             "waiting_for": (
                 {"name": pending.assignee.short_name, "seconds_left": pending.seconds_left} if pending else None
             ),
+            # Made by a team leader himself (11/10/2026): no operation on it, the admin takes it over after the review.
+            "opened_by_lead": task.opened_by_lead_id is not None,
+            # The leader who made it adds a file he forgot, while it is being translated.
+            "can_add_files": taskstart.may_add_files(task, user),
             "files": {
                 "original": [] if watching else [_task_file_json(a) for a in services.task_source_files(task)],
                 "translation": [] if watching else [
@@ -625,7 +630,7 @@ def _start_json(start, user):
 
 
 @endpoint("GET")
-@api_role_required(Role.OPERATION)
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
 def task_start(request):
     """What the new-task form starts from: ``?message=``, ``?messages=1,2``, ``?files=3``, ``?texts=2``, ``?from=TSK-00001``.
 
@@ -636,6 +641,11 @@ def task_start(request):
     The clients are listed as ``label_for`` gives them: a code for the operation.
     """
     user = request.user
+    # A team leader makes a task from nothing but the form and his own files (11/10/2026): no client message, no other task, no
+    # quotation is his to start from, so whatever the address names is not read.
+    lead = user.is_team_lead and not user.is_admin_role
+    if lead:
+        return JsonResponse({"ok": True, "lead": True, **_start_json(taskstart.Start(), user), **_form_lists(user)})
     messages = _start_ids(request, "message", "messages")
     files = _start_ids(request, "files")
     texts = _start_ids(request, "texts")
@@ -650,9 +660,12 @@ def task_start(request):
         user, message_ids=messages, file_ids=files, from_code=source, text_ids=texts if "texts" in request.GET else None,
         quote_code=quote,
     )
-    return JsonResponse({
-        "ok": True,
-        **_start_json(start, user),
+    return JsonResponse({"ok": True, "lead": False, **_start_json(start, user), **_form_lists(user)})
+
+
+def _form_lists(user):
+    """The lists the form picks from. The clients as ``label_for`` gives them: a code for whoever may not know the client."""
+    return {
         "clients": [
             {"id": c.pk, "code": c.code, "label": c.label_for(user)}
             for c in Client.objects.filter(is_active=True).order_by("code")
@@ -660,7 +673,7 @@ def task_start(request):
         "languages": language_choices(),
         "quick_languages": list(QUICK_LANGUAGES),
         "priorities": [_two(PRIORITY_MAP, value) for value, _label in Priority.choices],
-    })
+    }
 
 
 #: The boxes the form reads, and the kind of value each takes.
@@ -729,3 +742,70 @@ def task_create(request):
 
         b2b.link_task(start.quote, task)
     return JsonResponse({"ok": True, "code": task.code})
+
+
+#: The boxes the team leader's form sends, as multipart fields beside the files.
+_LEAD_FORM_TEXT = {"title": 400, "description": 20000, "source_lang": 400, "target_lang": 400, "priority": 400}
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def lead_task_create(request):
+    """A team leader makes a task with files from his own machine (multipart): the form's boxes, ``client``, ``deadline_days`` /
+    ``deadline_hours`` / ``deadline_minutes``, the two switches as ``"1"``, and ``files``.
+
+    Only a team leader: the admin and the operation make tasks on the operation's form. The boxes go through ``TaskForm`` (the same
+    rules and words); the task is his, accepted, with no operation on it, and the admin takes it over after the review
+    (``taskstart.create_for_lead``). The word count is not asked: the leader writes it per translator at the review.
+    """
+    user = request.user
+    if not user.is_team_lead:
+        raise PermissionDenied("lead_task_create: not a team leader")
+    post = request.POST
+    data = {}
+    for name, limit in _LEAD_FORM_TEXT.items():
+        value = post.get(name, "")
+        if len(value) > limit or "\x00" in value:
+            return _error(400, "bad_request")
+        data[name] = value
+    client = post.get("client", "")
+    if not client.isdigit() or len(client) > 12:
+        return _error(400, "bad_request")
+    data["client"] = client
+    for part in ("days", "hours", "minutes"):
+        value = post.get(f"deadline_{part}", "").strip()
+        if len(value) > 6:
+            return _error(400, "bad_request")
+        data[f"deadline_{part}"] = value
+    data["word_count"] = "0"
+    for flag in ("is_difficult", "is_secondary_language"):
+        if post.get(flag) == "1":
+            data[flag] = "on"
+    form = TaskForm(data)
+    if not form.is_valid():
+        return JsonResponse({
+            "ok": False, "error": "invalid",
+            "fields": {name: [str(problem) for problem in problems] for name, problems in form.errors.items()},
+        }, status=400)
+    task, error = taskstart.create_for_lead(user, form.cleaned_data, request.FILES.getlist("files"))
+    if task is None:
+        return _error(400 if error == "no_files" else 409, error)
+    return JsonResponse({"ok": True, "code": task.code})
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def task_lead_files(request, code):
+    """A file the leader forgot, added to a task he made himself while it is being translated (multipart ``files``).
+
+    It goes into each translator's chat with him at once. Anybody else (another leader, the operation) is refused; a task this
+    person may not open at all is a logged 404.
+    """
+    task = get_object_or_404(Task.objects.select_related("client", "team_lead"), code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    rows, error = taskstart.add_files_later(task, user, request.FILES.getlist("files"))
+    if error:
+        return _error(403 if error == "forbidden" else 400, error)
+    return JsonResponse({"ok": True, "files": [_task_file_json(row) for row in rows]})

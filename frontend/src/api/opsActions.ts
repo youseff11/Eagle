@@ -138,6 +138,47 @@ export function useCreateTask() {
   });
 }
 
+/** The team leader's own task, with the files from his machine (`api_ops.lead_task_create`): the form's boxes and the files as parts. */
+export interface NewLeadTask {
+  client: string;
+  title: string;
+  description: string;
+  source_lang: string;
+  target_lang: string;
+  priority: string;
+  deadline: { days: string; hours: string; minutes: string };
+  is_difficult: boolean;
+  is_secondary_language: boolean;
+  files: File[];
+}
+
+export function useCreateLeadTask() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (values: NewLeadTask) => {
+      const form = new FormData();
+      for (const name of ["client", "title", "description", "source_lang", "target_lang", "priority"] as const) form.append(name, values[name]);
+      form.append("deadline_days", values.deadline.days);
+      form.append("deadline_hours", values.deadline.hours);
+      form.append("deadline_minutes", values.deadline.minutes);
+      if (values.is_difficult) form.append("is_difficult", "1");
+      if (values.is_secondary_language) form.append("is_secondary_language", "1");
+      for (const file of values.files) form.append("files", file, file.name);
+      return refused(await api<{ ok: boolean; code: string }>("/api/v1/task-form/lead-create/", { multipart: form }));
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: qk.boards }),
+  });
+}
+
+/** A file the leader forgot, on a task he made himself: it reaches his translators' chats at once (`api_ops.task_lead_files`). */
+export function useAddLeadFiles(code: string) {
+  return useOpsAction<File[], { ok: boolean }>(code, (files) => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file, file.name);
+    return api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/lead-files/`, { multipart: form });
+  });
+}
+
 export function useSaveWords(code: string) {
   return useOpsAction<number, { ok: boolean }>(code, (words) =>
     api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/words/`, { json: { words } }),

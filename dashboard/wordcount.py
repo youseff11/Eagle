@@ -201,7 +201,7 @@ def _sum_attachments(attachments):
 
 
 def source_attachments(task):
-    """The client's files this task is about.
+    """The client's files this task is about, as a list.
 
     The ones ticked when it was made - which is also how a second request on
     the same material holds its files - and otherwise every file on the
@@ -210,9 +210,10 @@ def source_attachments(task):
     from .models import MessageAttachment
 
     picked = task.source_files.select_related("message")
-    if picked.exists():
-        return picked
-    return MessageAttachment.objects.filter(message__task=task).select_related("message")
+    if not picked.exists():
+        picked = MessageAttachment.objects.filter(message__task=task).select_related("message")
+    # And the files a team leader uploaded when he made the task himself: they are the source just the same.
+    return [*picked, *task.lead_files.all()]
 
 
 def translated_attachments(task):

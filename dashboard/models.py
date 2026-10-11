@@ -1414,6 +1414,12 @@ class Task(models.Model):
     team_lead = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="lead_tasks"
     )
+    #: A team leader made this task himself (11/10/2026), with files from his own machine (``TaskUpload``): it is his from the start,
+    #: no operation is on it, and ``created_by`` is the admin, who gets the reviewed files and delivers (``taskstart.create_for_lead``).
+    opened_by_lead = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="The team leader who made this task himself. Empty for a task the operation made.",
+    )
     translator = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="translator_tasks"
     )
@@ -1661,6 +1667,37 @@ class Task(models.Model):
         Not ``can_view``: that one opens the task's files and its rooms, and support is not given those.
         """
         return getattr(user, "is_support", False)
+
+
+def upload_task_file(instance, filename):
+    from .files import storage_name
+
+    return storage_name("tasks", instance, filename)
+
+
+class TaskUpload(PlayableFile, models.Model):
+    """A file of the job a team leader uploaded himself when he made the task (11/10/2026): the source to translate.
+
+    The task's own, not a client's message: it is listed with the client's files (``services.task_source_files``), reaches the
+    translator the same way (``services.share_source_files``) and opens to whoever may open the task (``files.may_open``).
+    """
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="lead_files")
+    file = models.FileField(upload_to=upload_task_file)
+    #: What the dashboard shows: the client's name, company and number replaced by their code (``files.mask_name``).
+    original_name = models.CharField(max_length=250, blank=True)
+    #: The name exactly as it was uploaded. The admin's download only.
+    raw_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    mime = models.CharField(max_length=120, blank=True)
+    uploaded_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+
+    def __str__(self):
+        return self.original_name or self.file.name
 
 
 class ExtensionRequest(models.Model):

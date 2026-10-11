@@ -755,10 +755,14 @@ class _Start(_Ops):
 
 
 class TaskStartDoorTests(_Start):
-    def test_the_operation_and_the_admin_are_answered_everybody_else_is_refused(self):
-        for user in (self.ops, self.admin):
+    def test_the_operation_the_admin_and_the_team_leader_are_answered_everybody_else_is_refused(self):
+        # The team leader makes tasks himself since 11/10/2026: he is answered with his own form (tests_lead_task).
+        for user in (self.ops, self.admin, self.lead):
             self.assertEqual(self.start(user).status_code, 200, user.username)
-        self.refused_for_everybody_else("dashboard:v1_task_start")
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            answer = self.door(user, "dashboard:v1_task_start")
+            self.assertEqual((answer.status_code, _json(answer)), (403, {"ok": False, "error": "forbidden"}), user.username)
+        self.assertEqual(self.door(None, "dashboard:v1_task_start").status_code, 401)
         self.post_refused("dashboard:v1_task_start")
         self.assertEqual(self.start()["Cache-Control"], "private, no-store")
 

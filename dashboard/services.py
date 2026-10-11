@@ -37,6 +37,7 @@ from .models import (
     RoomKind,
     Task,
     TaskStatus,
+    TaskUpload,
     User,
     WordCountState,
     translator_holdings,
@@ -1005,6 +1006,26 @@ def share_source_files(task, room=None):
             sender=None,
             body="ملفات العميل الأصلية. The client's original files.",
         ))
+    # The files a team leader uploaded himself when he made the task: the same stored files, pointed at rather than copied, in one
+    # message on the task. Only the ones not in this room for this task yet, so a second call posts nothing.
+    uploads = list(task.lead_files.all())
+    if uploads:
+        posted = set(
+            ChatAttachment.objects.filter(message__room=room, message__task=task).values_list("file", flat=True)
+        )
+        fresh = [u for u in uploads if u.file.name not in posted]
+        if fresh:
+            message = ChatMessage.objects.create(
+                room=room, task=task, sender=task.opened_by_lead,
+                body=f"ملفات التاسك {task.code}. The task's files.",
+            )
+            for upload in fresh:
+                ChatAttachment.objects.create(
+                    message=message, file=upload.file.name, size=upload.size or 0,
+                    original_name=upload.original_name or upload.file.name.rsplit("/", 1)[-1],
+                    origin_client_id=task.client_id,
+                )
+            shared.append(message)
     return shared
 
 
@@ -4625,6 +4646,7 @@ def task_source_files(task):
             MessageAttachment.objects.filter(message__task=task)
             .select_related("message").order_by("message__received_at", "id")
         )
+    picked += list(task.lead_files.all())
     return [a for a in picked if not a.is_audio]
 
 

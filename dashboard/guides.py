@@ -1181,6 +1181,34 @@ GUIDES = (
         starter=True,
     ),
     _guide(
+        "lead-task-new", (Role.TEAM_LEAD,), "/tasks/new",
+        ("إزاي أعمل تاسك بنفسي", "How do I make a task myself"),
+        (
+            "اعمل تاسك، تاسك جديدة، تاسك جديد، اضافة تاسك، ضيف تاسك، ارفع ملفات التاسك، تاسك من عندي",
+            "make a task, new task, add a task, upload the task's files, a task of my own",
+        ),
+        [
+            "افتح «تاسكاتي» واضغط «تاسك جديدة».",
+            "اختار «كود العميل» واكتب «عنوان التاسك» و«من لغة» و«للغة» و«الديدلاين (بتاخده من العميل)».",
+            "من «ملفات التاسك» ارفع الملفات اللي هتتترجم من جهازك (ملف واحد على الأقل). لو اخترت ملف غلط اضغط علامة الشيل جنبه.",
+            "اضغط «اعمل التاسك». التاسك بتبقى بتاعتك على طول، فوزّعها على المترجمين من صفحتها زي أي تاسك. الملفات بتوصل للمترجم في الشات معاك.",
+            "لو نسيت ملف افتح التاسك ومن «ضيف ملف للتاسك» ارفعه واضغط «ارفع الملف»، وبيوصل للمترجمين اللي عليها على طول.",
+            "بعد ما تراجعها الملفات بتروح للأدمن مش للأوبريشن، والأدمن هو اللي بيسلّمها للعميل.",
+        ],
+        [
+            "Open «My tasks» and press «New task».",
+            "Choose the «Client code» and write the «Task title», «Source language», «Target language» and «Deadline (agreed with the client)».",
+            "In «The task's files» upload the files to translate from your computer (at least one). A file picked by mistake comes off with the remove mark beside it.",
+            "Press «Create task». The task is yours at once, so hand it out to the translators from its page like any task. The files reach the translator in their chat with you.",
+            "If you forgot a file, open the task, pick it in «Add a file to the task» and press «Upload the file»; it reaches the translators on the task at once.",
+            "After your review the files go to the admin, not the operation, and the admin delivers them to the client.",
+        ],
+        note=(
+            "عدد الكلمات مش في الفورم: بتكتبه لكل مترجم وانت بتراجع.",
+            "The word count is not on the form: you write it for each translator while you review.",
+        ),
+    ),
+    _guide(
         "lead-assign-translator", (Role.TEAM_LEAD, Role.ADMIN), "/lead",
         ("إزاي أوزّع تاسك على مترجم", "How do I assign a task to a translator"),
         (

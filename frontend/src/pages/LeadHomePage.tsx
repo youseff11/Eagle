@@ -78,6 +78,12 @@ export function LeadHomePage() {
     <>
       <div className="page-head">
         <h1>{t("لوحة التيم ليدر", "Team leader board")}</h1>
+        <div className="grow" />
+        {/* A task he makes himself, with files from his own computer: his at once (11/10/2026). */}
+        <Link className="btn btn--primary" to="/tasks/new">
+          <Icon name="plus" size="sm" />
+          <span>{t("تاسك جديدة", "New task")}</span>
+        </Link>
       </div>
 
       {data && <Counters counters={data.counters} />}

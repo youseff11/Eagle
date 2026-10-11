@@ -231,7 +231,7 @@ def owner_of(name):
     """
     from .models import (
         Candidate, CandidateAnswer, CandidateTest, ChatAttachment,
-        MessageAttachment, OutboundAttachment, User,
+        MessageAttachment, OutboundAttachment, TaskUpload, User,
     )
 
     # A picture is a picture: the only row that can own a name under ``avatars/`` is a person's, so the eight other tables
@@ -243,6 +243,7 @@ def owner_of(name):
     found += [("inbound", r) for r in _rows(MessageAttachment, name, "message", "message__task")]
     found += [("chat", r) for r in _rows(ChatAttachment, name, "message", "message__room")]
     found += [("outbound", r) for r in _rows(OutboundAttachment, name, "message", "message__task")]
+    found += [("task_upload", r) for r in _rows(TaskUpload, name, "task", "task__client")]
     found += [("cv", r) for r in Candidate.objects.filter(cv=name)[:5]]
     found += [("answer", r) for r in CandidateAnswer.objects.filter(file=name)[:5]]
     found += [("test", r) for r in CandidateTest.objects.filter(assignment=name)[:5]]
@@ -263,6 +264,9 @@ def may_open(user, name):
         if kind == "chat" and _chat_open_to(user, row):
             return True, (kind, row)
         if kind == "outbound" and _outbound_open_to(user, row):
+            return True, (kind, row)
+        # A file a team leader uploaded on a task he made: the task's, so whoever may open the task (or is offered it) may.
+        if kind == "task_upload" and (user.is_admin_role or _task_open_to(user, row.task)):
             return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)
@@ -291,6 +295,8 @@ def client_of(kind, row):
         return row.origin_client or row.message.room.relay_client
     if kind == "outbound":
         return row.message.client
+    if kind == "task_upload":
+        return row.task.client
     return None
 
 
@@ -311,7 +317,7 @@ def download_name(user, name, owner):
     if kind == "test":
         return (row.submission_name if row.submission and row.submission.name == name else row.assignment_name) or fallback
     shown = getattr(row, "original_name", "") or fallback
-    if kind == "inbound" and user.is_admin_role and getattr(row, "raw_name", ""):
+    if kind in ("inbound", "task_upload") and user.is_admin_role and getattr(row, "raw_name", ""):
         return row.raw_name
     if user.can_see_client_identity:
         return shown

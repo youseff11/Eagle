@@ -2,13 +2,14 @@ import { Loading } from "../components/Loading";
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "../api/client";
-import { useCreateTask } from "../api/opsActions";
+import { useCreateLeadTask, useCreateTask } from "../api/opsActions";
 import { useMe, useTaskStart } from "../api/queries";
 import type { TaskStartResponse } from "../api/types";
 import { Icon } from "../components/Icon";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 import { safeInternalPath } from "../lib/safeUrl";
+import { prettySize } from "../lib/size";
 
 const REQUIREMENT_ICON: Record<string, string> = { like: "thumbs-up", dislike: "thumbs-down", rule: "pin" };
 
@@ -44,6 +45,12 @@ function Form({ start }: { start: TaskStartResponse }) {
   const { push } = useToasts();
   const navigate = useNavigate();
   const create = useCreateTask();
+  const createLead = useCreateLeadTask();
+  // A team leader's form (11/10/2026): his own files instead of a client's messages, no word count (he writes it at the review),
+  // and the task is his the moment it is made.
+  const leadMode = start.lead === true;
+  const pending = create.isPending || createLead.isPending;
+  const [files, setFiles] = useState<File[]>([]);
   const [values, setValues] = useState({
     client: start.initial.client !== null ? String(start.initial.client) : "",
     title: start.initial.title,
@@ -62,9 +69,44 @@ function Form({ start }: { start: TaskStartResponse }) {
   const [problem, setProblem] = useState("");
   const set = <K extends keyof typeof values>(name: K, value: (typeof values)[K]) => setValues((current) => ({ ...current, [name]: value }));
 
+  const failed = (error: Error) => {
+    const payload = error instanceof ApiError && error.payload && typeof error.payload === "object" ? (error.payload as { fields?: Record<string, string[]> }) : {};
+    if (payload.fields) setFields(payload.fields);
+    else if (error instanceof ApiError && error.code === "client_mismatch")
+      setProblem(t("الرسايل دي لعميل تاني: اختار كود العميل بتاعها.", "These messages belong to another client: choose their client code."));
+    else if (error instanceof ApiError && error.code === "no_files") setProblem(t("ارفع ملف واحد على الأقل.", "Upload at least one file."));
+    else if (error instanceof ApiError && error.code === "no_admin")
+      setProblem(t("مفيش أدمن يستلم التاسك بعد المراجعة. كلّم الإدارة.", "There is no admin to take the task over after the review. Tell the management."));
+    else if (error instanceof ApiError && error.status < 500) setProblem(t("مقدرتش أعمل التاسك.", "The task could not be made."));
+    else setProblem(t("مش متأكدين إن التاسك اتعملت. بص على قايمة التاسكات قبل ما تجرّب تاني.", "We are not sure the task was made. Look at the task list before trying again."));
+  };
+
+  const made = (answer: { code: string }) => {
+    push({ level: "success", title: answer.code });
+    navigate(`/tasks/${encodeURIComponent(answer.code)}`);
+  };
+
   const submit = () => {
     setFields({});
     setProblem("");
+    if (leadMode) {
+      createLead.mutate(
+        {
+          client: values.client,
+          title: values.title,
+          description: values.description,
+          source_lang: values.source_lang,
+          target_lang: values.target_lang,
+          priority: values.priority,
+          deadline: { days: values.days, hours: values.hours, minutes: values.minutes },
+          is_difficult: values.difficult,
+          is_secondary_language: values.secondary,
+          files,
+        },
+        { onSuccess: made, onError: failed },
+      );
+      return;
+    }
     const words = values.words.trim();
     create.mutate(
       {
@@ -83,20 +125,7 @@ function Form({ start }: { start: TaskStartResponse }) {
         from: start.from_task?.code ?? "",
         quote: start.quote?.code ?? "",
       },
-      {
-        onSuccess: (answer) => {
-          push({ level: "success", title: answer.code });
-          navigate(`/tasks/${encodeURIComponent(answer.code)}`);
-        },
-        onError: (error) => {
-          const payload = error instanceof ApiError && error.payload && typeof error.payload === "object" ? (error.payload as { fields?: Record<string, string[]> }) : {};
-          if (payload.fields) setFields(payload.fields);
-          else if (error instanceof ApiError && error.code === "client_mismatch")
-            setProblem(t("الرسايل دي لعميل تاني: اختار كود العميل بتاعها.", "These messages belong to another client: choose their client code."));
-          else if (error instanceof ApiError && error.status < 500) setProblem(t("مقدرتش أعمل التاسك.", "The task could not be made."));
-          else setProblem(t("مش متأكدين إن التاسك اتعملت. بص على قايمة التاسكات قبل ما تجرّب تاني.", "We are not sure the task was made. Look at the task list before trying again."));
-        },
-      },
+      { onSuccess: made, onError: failed },
     );
   };
 
@@ -108,7 +137,7 @@ function Form({ start }: { start: TaskStartResponse }) {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            if (!create.isPending) submit();
+            if (!pending) submit();
           }}
         >
           {start.quote && (
@@ -239,6 +268,7 @@ function Form({ start }: { start: TaskStartResponse }) {
                 )}
               </small>
             </div>
+            {!leadMode && (
             <div className="field">
               <label htmlFor="task-words">{t("عدد الكلمات", "Word count")}</label>
               <input
@@ -260,7 +290,49 @@ function Form({ start }: { start: TaskStartResponse }) {
                 )}
               </small>
             </div>
+            )}
           </div>
+
+          {leadMode && (
+            <div className="field mt">
+              <label htmlFor="task-files">{t("ملفات التاسك", "The task's files")}</label>
+              <input
+                id="task-files"
+                className="input"
+                type="file"
+                multiple
+                aria-required="true"
+                onChange={(event) => {
+                  const picked = Array.from(event.target.files ?? []);
+                  setFiles((current) => [...current, ...picked]);
+                  event.target.value = "";
+                }}
+              />
+              {files.length > 0 && (
+                <ul className="muted" style={{ margin: "6px 0", paddingInlineStart: 18 }}>
+                  {files.map((file, index) => (
+                    <li key={`${file.name}-${index}`}>
+                      {file.name} <span className="mono">{prettySize(file.size)}</span>{" "}
+                      <button
+                        className="btn btn--sm"
+                        type="button"
+                        aria-label={t("شيل الملف", "Remove the file")}
+                        onClick={() => setFiles((current) => current.filter((_file, at) => at !== index))}
+                      >
+                        <Icon name="x" size="sm" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <small className="muted">
+                {t(
+                  "الملفات اللي هتتترجم، من جهازك. بتوصل للمترجم لما توزّع التاسك عليه.",
+                  "The files to translate, from your computer. They reach the translator when you hand the task out.",
+                )}
+              </small>
+            </div>
+          )}
 
           <div className="row row--tight mt">
             <label className="switch">
@@ -279,15 +351,25 @@ function Form({ start }: { start: TaskStartResponse }) {
               <div>{problem}</div>
             </div>
           )}
-          <button className="btn btn--primary mt" type="submit" disabled={create.isPending || values.client === ""}>
+          <button className="btn btn--primary mt" type="submit" disabled={pending || values.client === "" || (leadMode && files.length === 0)}>
             <Icon name="check" size="sm" />
-            <span>{create.isPending ? t("بيتعمل...", "Making...") : t("اعمل التاسك", "Create task")}</span>
+            <span>{pending ? t("بيتعمل...", "Making...") : t("اعمل التاسك", "Create task")}</span>
           </button>
         </form>
       </div>
 
       <div className="sticky-side">
-        {start.messages.length > 0 ? (
+        {leadMode ? (
+          <div className="note note--info">
+            <Icon name="info" />
+            <div>
+              {t(
+                "التاسك هتبقى بتاعتك على طول: وزّعها على المترجمين من صفحتها. بعد ما تراجعها الملفات بتروح للأدمن وهو اللي بيسلّمها للعميل.",
+                "The task is yours at once: hand it out to the translators from its page. After your review the files go to the admin, who delivers them to the client.",
+              )}
+            </div>
+          </div>
+        ) : start.messages.length > 0 ? (
           <>
             <div className="card">
               <div className="card__head">
@@ -393,8 +475,8 @@ export function NewTaskPage() {
   const me = useMe();
   const [params] = useSearchParams();
   const search = startQuery(params);
-  // The same people the server lets in (`api_role_required`: the operation, and the admin).
-  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.is_admin);
+  // The same people the server lets in (`api_role_required`: the operation, the team leader, and the admin).
+  const allowed = me.data !== undefined && (me.data.user.role === "operation" || me.data.user.role === "team_lead" || me.data.user.is_admin);
   const query = useTaskStart(search, allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;

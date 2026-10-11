@@ -384,3 +384,65 @@ describe("NewTaskPage: making the task", () => {
     document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 });
+
+describe("NewTaskPage: a team leader's own task", () => {
+  const LEAD_CREATE = "/api/v1/task-form/lead-create/";
+  const leadStart = () => start({ lead: true });
+
+  it("asks for his files instead of a word count, explains whose the task is, and needs a file before it is made", async () => {
+    serve(leadStart(), {}, "team_lead");
+    open();
+    await ready();
+    expect(screen.getByLabelText("ملفات التاسك")).toBeInTheDocument();
+    expect(screen.queryByLabelText("عدد الكلمات")).not.toBeInTheDocument();
+    expect(screen.getByText(/التاسك هتبقى بتاعتك على طول/)).toBeInTheDocument();
+    expect(screen.queryByText(/تقدر تعمل التاسك من ميل/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("كود العميل"), "6");
+    expect(screen.getByRole("button", { name: /اعمل التاسك/ })).toBeDisabled();
+  });
+
+  it("sends the boxes and the files as one form to the leader's door, and goes to the task", async () => {
+    const mocked = serve(leadStart(), { [LEAD_CREATE]: () => jsonResponse({ ok: true, code: "TSK-00070" }) }, "team_lead");
+    open();
+    await ready();
+    await userEvent.selectOptions(screen.getByLabelText("كود العميل"), "6");
+    await userEvent.type(screen.getByLabelText("عنوان التاسك"), "Lease");
+    await userEvent.type(screen.getByLabelText("من لغة"), "en");
+    await userEvent.type(screen.getByLabelText("للغة"), "ar");
+    await userEvent.type(screen.getAllByLabelText("يوم")[0]!, "2");
+    const file = new File(["one two"], "lease.docx", { type: "application/octet-stream" });
+    await userEvent.upload(screen.getByLabelText("ملفات التاسك"), file);
+    expect(screen.getByText("lease.docx")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /اعمل التاسك/ }));
+    expect(await screen.findByText("one task page")).toBeInTheDocument();
+    const calls = mocked.calls.filter((c) => c.url === LEAD_CREATE && c.init?.method === "POST");
+    expect(calls).toHaveLength(1);
+    expect(mocked.calls.some((c) => c.url === CREATE)).toBe(false);
+    const body = calls[0]!.init!.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect([body.get("client"), body.get("title"), body.get("source_lang"), body.get("target_lang"), body.get("deadline_days")]).toEqual([
+      "6", "Lease", "en", "ar", "2",
+    ]);
+    expect((body.getAll("files") as File[]).map((f) => f.name)).toEqual(["lease.docx"]);
+    expect(body.get("word_count")).toBeNull();
+  });
+
+  it("a file picked by mistake can be taken off before the task is made", async () => {
+    serve(leadStart(), {}, "team_lead");
+    open();
+    await ready();
+    await userEvent.upload(screen.getByLabelText("ملفات التاسك"), new File(["x"], "wrong.pdf"));
+    await userEvent.click(screen.getByRole("button", { name: "شيل الملف" }));
+    expect(screen.queryByText("wrong.pdf")).not.toBeInTheDocument();
+  });
+
+  it("says when there is no admin to take it over", async () => {
+    serve(leadStart(), { [LEAD_CREATE]: () => jsonResponse({ ok: false, error: "no_admin" }, 409) }, "team_lead");
+    open();
+    await ready();
+    await userEvent.selectOptions(screen.getByLabelText("كود العميل"), "6");
+    await userEvent.upload(screen.getByLabelText("ملفات التاسك"), new File(["x"], "a.pdf"));
+    await userEvent.click(screen.getByRole("button", { name: /اعمل التاسك/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/مفيش أدمن/);
+  });
+});

@@ -1493,6 +1493,38 @@ describe("OperationTaskPage: the team leader's page", () => {
     });
   });
 
+  describe("a task the leader made himself", () => {
+    const LEAD_FILES = `/api/v1/tasks/${CODE}/lead-files/`;
+    const box = () => screen.getByLabelText("ضيف ملف للتاسك") as HTMLInputElement;
+
+    it("says the files are his and the admin delivers, and adds a forgotten file on its own door", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(
+        leaderTask({}, { opened_by_lead: true, can_add_files: true } as Partial<OpsTask>),
+        { [LEAD_FILES]: () => jsonResponse({ ok: true, files: [] }) },
+        "team_lead",
+      );
+      open();
+      await loaded();
+      expect(screen.getByText("الأدمن (بيسلّم للعميل)")).toBeInTheDocument();
+      expect(screen.queryByText("الأوبريشن")).toBeNull();
+      expect(screen.getByRole("button", { name: "ارفع الملف" })).toBeDisabled();
+      await user.upload(box(), new File(["x"], "late.pdf"));
+      await user.click(screen.getByRole("button", { name: "ارفع الملف" }));
+      expect(await screen.findByText("الملفات اتضافت ووصلت للمترجمين")).toBeInTheDocument();
+      expect(calls(mocked, LEAD_FILES)).toHaveLength(1);
+      expect((parts(calls(mocked, LEAD_FILES)[0]!).getAll("files") as File[]).map((file) => file.name)).toEqual(["late.pdf"]);
+    });
+
+    it("has no box on a task the operation made", async () => {
+      serve(leaderTask({ can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await loaded();
+      expect(screen.queryByLabelText("ضيف ملف للتاسك")).toBeNull();
+      expect(screen.getByText("الأوبريشن")).toBeInTheDocument();
+    });
+  });
+
   describe("closing the translation when a share fell through", () => {
     const stuck = () => leaderTask({ can_close_translation: true });
 

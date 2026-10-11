@@ -8,7 +8,7 @@ import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
-import { AssignTranslatorBox, CloseTranslationButton, ExtensionBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
+import { AssignTranslatorBox, CloseTranslationButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
 import { DeliveriesCard, HistoryCard, LanguagesCard, MessagesCard, PartsCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
@@ -56,7 +56,8 @@ function Files({ task }: { task: OpsTask }) {
         <div className="task-files__set">
           <div className="label">
             <Icon name="paperclip" size="sm" />
-            <span>{t("الملف الأصلي (من العميل)", "Original (from the client)")}</span> <span className="chip chip--sm">{original.length}</span>
+            <span>{task.opened_by_lead ? t("الملف الأصلي (رفعه التيم ليدر)", "Original (uploaded by the team leader)") : t("الملف الأصلي (من العميل)", "Original (from the client)")}</span>{" "}
+            <span className="chip chip--sm">{original.length}</span>
           </div>
           <div className="files">
             {original.map((file) => (
@@ -113,8 +114,9 @@ function Task({ task }: { task: OpsTask }) {
   const { can, lead } = task;
   // The leader's own tools, drawn only when there is one to use; and the card only when anything is in it.
   const leadTools =
-    lead !== null &&
-    (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null);
+    task.can_add_files === true ||
+    (lead !== null &&
+      (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null));
   const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
@@ -156,7 +158,12 @@ function Task({ task }: { task: OpsTask }) {
             </div>
           </div>
           <div className="row" style={{ gap: 22 }}>
-            <Person label={t("الأوبريشن", "Operation")} name={task.people.operation} gone={task.people.gone?.includes("operation")} />
+            {/* A task a team leader made himself has no operation: the admin takes it over after the review and delivers. */}
+            <Person
+              label={task.opened_by_lead ? t("الأدمن (بيسلّم للعميل)", "Admin (delivers to the client)") : t("الأوبريشن", "Operation")}
+              name={task.people.operation}
+              gone={task.people.gone?.includes("operation")}
+            />
             <Person label={t("التيم ليدر", "Team leader")} name={task.people.team_lead} gone={task.people.gone?.includes("team_lead")} />
             <Person label={t("المترجم", "Translator")} name={task.people.translator} gone={task.people.gone?.includes("translator")} />
           </div>
@@ -227,6 +234,7 @@ function Task({ task }: { task: OpsTask }) {
               <AddMemberBox task={task} />
               <CancelButton task={task} />
               <AssignTranslatorBox task={task} />
+              <LeadSourceFilesBox task={task} />
               <TranslatorDeadlineBox task={task} />
               <ExtensionBox task={task} />
               <PartWordsBox task={task} />

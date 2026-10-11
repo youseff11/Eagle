@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useAddLeadFiles,
   useAssignTranslator,
   useCloseTranslation,
   useDecideExtension,
@@ -469,6 +470,64 @@ export function ExtensionBox({ task }: { task: OpsTask }) {
  * The file the leader corrected. The review sends on what is put here; with nothing put, it sends the translator's own file, and the box
  * says which of the two it will be. Put after the review, it goes to the operation at once and replaces what they were given.
  */
+/** A file the leader forgot, on a task he made himself with his own files: it goes to his translators' chats at once. */
+export function LeadSourceFilesBox({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const upload = useAddLeadFiles(task.code);
+  const [chosen, setChosen] = useState<File[]>([]);
+  const [problem, setProblem] = useState("");
+  if (task.can_add_files !== true) return null;
+
+  const send = () => {
+    if (chosen.length === 0 || upload.isPending) return;
+    setProblem("");
+    upload.mutate(chosen, {
+      onSuccess: () => {
+        setChosen([]);
+        push({ level: "success", title: t("الملفات اتضافت ووصلت للمترجمين", "The files were added and reached the translators") });
+      },
+      onError: (error) => setProblem(taskProblem(error, t)),
+    });
+  };
+
+  return (
+    <div className="field mt" data-box="lead-source-files">
+      <label htmlFor="lead-source-files">{t("ضيف ملف للتاسك", "Add a file to the task")}</label>
+      <input
+        id="lead-source-files"
+        className="input"
+        type="file"
+        multiple
+        onChange={(event) => {
+          setChosen(Array.from(event.target.files ?? []));
+          event.target.value = "";
+        }}
+      />
+      {chosen.length > 0 && (
+        <ul className="muted" style={{ margin: "6px 0", paddingInlineStart: 18 }}>
+          {chosen.map((file, index) => (
+            <li key={`${file.name}-${index}`}>
+              {file.name} <span className="mono">{prettySize(file.size)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button className="btn btn--block btn--sm mt" type="button" disabled={chosen.length === 0 || upload.isPending} onClick={send}>
+        <Icon name="upload" size="sm" />
+        <span>{upload.isPending ? t("بيترفع...", "Uploading...") : t("ارفع الملف", "Upload the file")}</span>
+      </button>
+      <small className="muted">{t("بيوصل للمترجمين اللي على التاسك في الشات معاك على طول.", "It reaches the translators on the task in their chat with you at once.")}</small>
+      {problem && (
+        <div className="note note--high mt" role="alert">
+          <Icon name="alert" />
+          <div>{problem}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ReviewedFilesBox({ task }: { task: OpsTask }) {
   const { t } = usePreferences();
   const { push } = useToasts();

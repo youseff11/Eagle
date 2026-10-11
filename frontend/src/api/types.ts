@@ -404,6 +404,10 @@ export interface OpsTask {
   parts: OpsPart[];
   /** Who has been asked to take it and has not answered yet, and how long they have. */
   waiting_for: { name: string; seconds_left: number } | null;
+  /** A team leader made it himself: no operation on it, the admin takes it over after the review. */
+  opened_by_lead?: boolean;
+  /** The leader who made it may add a file he forgot, while it is being translated. */
+  can_add_files?: boolean;
   files: {
     original: TaskFile[];
     translation: (TaskFile & { at: Stamp | null; by?: string | null })[];
@@ -456,6 +460,8 @@ export interface OpsTaskResponse {
 /** GET /api/v1/task-form/ : what the new-task form starts from, and what it offers (`api_ops.task_start`). */
 export interface TaskStartResponse {
   ok: true;
+  /** A team leader's form (11/10/2026): nothing to start from, his own files instead, and the task is his once made. */
+  lead?: boolean;
   from_task: { code: string; title: string } | null;
   client_code: string;
   /** The client's own messages the task is made from (only those this person may read). */
