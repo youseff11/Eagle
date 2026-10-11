@@ -43,6 +43,8 @@ IDENTITY_GRANTABLE_ROLES = (Role.SALES, Role.ACCOUNTING)
 #: people who answer clients by mail. The admin sets it for each of them
 #: (29/09/2026); the admin needs none - they read every line.
 MAIL_ALIAS_ROLES = (Role.SALES, Role.OPERATION)
+#: Who has an agreed price of 250 words (``User.cost_per_250``): the people who translate.
+COST_RATE_ROLES = (Role.TRANSLATOR, Role.TEAM_LEAD)
 
 
 class Channel(models.TextChoices):
@@ -511,6 +513,13 @@ class User(AbstractUser):
         default=False,
         help_text="Sales only: makes the B2B company sheets, gives each to a Sales person and reads all of them.",
     )
+    #: What the company pays this translator for 250 words, by the agreement made with them (EGP; part 5, 11/10/2026). It
+    #: prices their share of a project for the project's profit (``finance.py``); payroll does not read it. Empty = not agreed:
+    #: the profit of a project they worked on reads "not measured" until it is set.
+    cost_per_250 = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Translators and team leaders: the agreed price of 250 words, in EGP. Used for project profit only.",
+    )
 
     # -- employee profile --------------------------------------------------
     # Section 18 asks for an "Employee Profile". It is these fields on the
@@ -563,6 +572,9 @@ class User(AbstractUser):
             self.wa_phone_number_id = ""
             self.wa_display_number = ""
             self.is_sales_manager = False
+        # The price of 250 words is a translator's (a team leader translates too): nobody else is priced by the word.
+        if self.role not in COST_RATE_ROLES:
+            self.cost_per_250 = None
         # A grade is a translator's: whoever stops being one stops carrying it.
         if self.role != Role.TRANSLATOR:
             self.translator_level = ""
@@ -4819,3 +4831,101 @@ class Quotation(models.Model):
 
     def __str__(self):
         return self.code
+
+
+# ---------------------------------------------------------------------------
+# Finance (part 5, 11/10/2026): client invoices, their payments, and what a project cost
+#
+# Accounting's. An invoice is drafted by itself when a task made from an accepted quotation is delivered, at the quotation's
+# price; Accounting checks it, sends it, and writes down what is paid. A project's costs are the translators' shares at their
+# agreed price of 250 words, and whatever Accounting adds by hand. The rules are ``finance.py``.
+# ---------------------------------------------------------------------------
+
+#: The company's own currency: what costs are in, and what a project's profit is worked out in.
+HOME_CURRENCY = "EGP"
+
+
+class Invoice(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SENT = "sent", "Sent"
+        PARTIAL = "partial", "Partially paid"
+        PAID = "paid", "Paid"
+        CANCELLED = "cancelled", "Cancelled"
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name="invoices")
+    task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices")
+    quotation = models.ForeignKey("Quotation", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices")
+    #: The Sales person the company belongs to: they see where their invoice stands, and the client's answers go to them.
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=3, default="USD")
+    #: How many EGP one unit of ``currency`` was worth for this invoice (1 for EGP): what the profit is counted in.
+    egp_rate = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    issue_date = models.DateField(default=timezone.localdate)
+    due_date = models.DateField(null=True, blank=True)
+    payment_terms = models.CharField(max_length=250, blank=True)
+    #: Words to the client under the figures: how to pay, the bank details.
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT, db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    #: When Accounting and the owner were told it is overdue: once.
+    overdue_alerted_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Invoice, "code", "INV")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code
+
+
+class InvoicePayment(models.Model):
+    """Money received against an invoice, as Accounting writes it down."""
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payments")
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    paid_on = models.DateField(default=timezone.localdate)
+    method = models.CharField(max_length=80, blank=True, help_text="Bank transfer, PayPal, Wise...")
+    note = models.CharField(max_length=250, blank=True)
+    by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("paid_on", "id")
+
+
+class ProjectCost(models.Model):
+    """One cost of a project (a task), in EGP: a translator's share at their agreed price, or one Accounting adds by hand."""
+
+    class Kind(models.TextChoices):
+        TRANSLATOR = "translator", "Translator"
+        REVIEWER = "reviewer", "Reviewer"
+        DTP = "dtp", "DTP"
+        OTHER = "other", "Other"
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="costs")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    person = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    description = models.CharField(max_length=200, blank=True)
+    words = models.PositiveIntegerField(null=True, blank=True)
+    #: The price of 250 words it was worked out at, kept: a translator's price that changes later does not rewrite the past.
+    rate_per_250 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    #: EGP. Empty = not known yet (a translator with no agreed price): the profit reads "not measured" until it is.
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    #: Worked out by the system on delivery (``finance``), or typed by Accounting.
+    automatic = models.BooleanField(default=False)
+    by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+

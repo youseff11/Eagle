@@ -606,14 +606,14 @@ describe("Shell: the money screens", () => {
   it("gives accounting the sheet and the deductions, and keeps attendance and the rules for the admin", async () => {
     const view = at("/accounts", ["accounts", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/accounts/violations"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/chats", "/accounts", "/accounts/violations", "/notifications"]);
+    expect(links(view.container)).toEqual(["/chats", "/accounts", "/accounts/violations", "/accounts/invoices", "/notifications"]);
     expect(links(view.container)).not.toContain("/accounts/attendance");
     expect(links(view.container)).not.toContain("/accounts/rules");
     view.unmount();
     const admin = at("/accounts", ["accounts", "chats"], "admin");
     await waitFor(() => expect(admin.container.querySelector('.sidebar a[href="/accounts/rules"]')).not.toBeNull());
     // The rules are a setting: they stand with the places and rules set once, not with the month's sheet.
-    expect(links(admin.container)).toEqual(["/chats", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/rules", "/notifications"]);
+    expect(links(admin.container)).toEqual(["/chats", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/invoices", "/accounts/rules", "/notifications"]);
   });
 
   it("titles every page and lights exactly one line on each", async () => {
@@ -624,6 +624,8 @@ describe("Shell: the money screens", () => {
       ["/accounts/violations", "المخالفات والخصومات", "/accounts/violations"],
       ["/accounts/attendance", "الحضور والإنتاج", "/accounts/attendance"],
       ["/accounts/rules", "قواعد الحساب", "/accounts/rules"],
+      ["/accounts/invoices", "فواتير العملاء", "/accounts/invoices"],
+      ["/accounts/invoices/7", "فواتير العملاء", "/accounts/invoices"],
     ] as const) {
       const view = at(route, ["accounts"], "admin");
       await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));

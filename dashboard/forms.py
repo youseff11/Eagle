@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from . import clock
 from .models import (
-    IDENTITY_GRANTABLE_ROLES,
+    COST_RATE_ROLES, IDENTITY_GRANTABLE_ROLES,
     MAIL_ALIAS_ROLES,
     AppSettings,
     Candidate,
@@ -519,10 +519,12 @@ class StaffEditForm(forms.ModelForm):
             "client_identity_access",
             "mail_alias",
             "is_sales_manager",
+            "cost_per_250",
         )
         labels = {
             "translator_level": "مستوى المترجم",
             "is_sales_manager": "مانجر Sales",
+            "cost_per_250": "سعر الـ250 كلمة (جنيه)",
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
             "mail_alias": "بيستقبل ميلات العنوان ده",
         }
@@ -535,6 +537,10 @@ class StaffEditForm(forms.ModelForm):
                 "الأوبريشن والـSales بس. الميل اللي يتبعت للعنوان ده يروحله هو والأدمن، "
                 "وردّه يطلع منه. عنوان واحد لكل موظف، ومحدش تاني ياخده. "
                 "العنوان لازم يبقى متضاف alias على ميل الشركة في Google Workspace."
+            ),
+            "cost_per_250": (
+                "للمترجمين والتيم ليدر بس: السعر اللي اتفقنا عليه معاه لكل 250 كلمة. "
+                "بيتحسب بيه ربح كل مشروع في «فواتير العملاء»، والمرتب مابيقراهوش. فاضي = لسه مااتفقناش، والربح يبقى «مش متقاس»."
             ),
             "is_sales_manager": (
                 "للـSales بس. بيعمل شيتات الشركات (B2B) ويديها للـSales، وبيشوف شيتات الفريق كله. "
@@ -617,6 +623,11 @@ class StaffEditForm(forms.ModelForm):
         # Same for the Sales manager's mark: on any other role it would mean nothing and mislead whoever reads the form.
         if data.get("is_sales_manager") and data.get("role") != Role.SALES:
             self.add_error("is_sales_manager", "العلامة دي للـSales بس.")
+        if data.get("cost_per_250") is not None:
+            if data.get("role") not in COST_RATE_ROLES:
+                self.add_error("cost_per_250", "سعر الـ250 كلمة للمترجمين والتيم ليدر بس.")
+            elif data["cost_per_250"] < 0:
+                self.add_error("cost_per_250", "السعر مايبقاش بالسالب.")
         # The owner cannot close or demote the last owner's account: the panel, the settings and every other owner-only door
         # would be gone, and the way back is a command on the server. (``self.instance`` still holds what is stored here:
         # the form writes the posted values onto it after ``clean``.)

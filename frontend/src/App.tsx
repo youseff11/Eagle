@@ -65,6 +65,8 @@ import { SalesLinePage } from "./pages/SalesLinePage";
 import { LeadSheetPage } from "./pages/LeadSheetPage";
 import { LeadSheetsPage } from "./pages/LeadSheetsPage";
 import { SalesPerformancePage } from "./pages/SalesPerformancePage";
+import { AccountsInvoicePage } from "./pages/AccountsInvoicePage";
+import { AccountsInvoicesPage } from "./pages/AccountsInvoicesPage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
@@ -97,6 +99,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="accounts/lines/:id" element={<AccountsLinePage />} />
         <Route path="accounts/attendance" element={<AccountsAttendancePage />} />
         <Route path="accounts/violations" element={<AccountsViolationsPage />} />
+        <Route path="accounts/invoices" element={<AccountsInvoicesPage />} />
+        <Route path="accounts/invoices/:id" element={<AccountsInvoicePage />} />
         <Route path="accounts/rules" element={<AccountsRulesPage />} />
         <Route path="accounts/salary/:id" element={<AccountsSalaryPage />} />
         <Route path="hr/attendance" element={<HrAttendancePage />} />

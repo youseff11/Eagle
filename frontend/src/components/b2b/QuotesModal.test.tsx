@@ -28,6 +28,7 @@ function quote(over: Partial<Quotation> = {}): Quotation {
     sent_at: "",
     decided_at: "",
     task: "",
+    invoice: null,
     ...over,
   };
 }
@@ -111,6 +112,16 @@ describe("QuotesModal", () => {
     expect(within(container.querySelector('[data-quotation="QT-0001"]') as HTMLElement).queryByRole("button", { name: "ابعته" })).toBeNull();
     expect(within(container.querySelector('[data-quotation="QT-0002"]') as HTMLElement).getByRole("button", { name: "اتقبل" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "نسخة جديدة" })).toBeNull();
+  });
+
+  it("tells the Sales person where the invoice of an accepted quotation stands", async () => {
+    serve(answer({ quotations: [quote({ status: "accepted", task: "TSK-00010", invoice: { code: "INV-0001", status: "partial", overdue: true, amount: "80.00", paid: "30.00", currency: "USD" } })] }));
+    const { container } = open();
+    await screen.findByText("QT-0001");
+    const word = container.querySelector('[data-invoice="INV-0001"]') as HTMLElement;
+    expect(word).toHaveTextContent("اتدفع جزء");
+    expect(word).toHaveTextContent("متأخرة");
+    expect(word).toHaveTextContent("30.00/80.00 USD");
   });
 
   it("will not send to a company with no e-mail, and says why", async () => {

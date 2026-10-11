@@ -30,6 +30,31 @@ export function QuoteStatus({ status }: { status: QuotationStatus }) {
   return <span className={`chip chip--sm ${tone}`.trim()}>{t(ar, en)}</span>;
 }
 
+const INVOICE_WORDS: Record<string, [string, string]> = {
+  draft: ["الفاتورة لسه ماتبعتتش", "Invoice not sent yet"],
+  sent: ["الفاتورة اتبعتت", "Invoice sent"],
+  partial: ["اتدفع جزء", "Partly paid"],
+  paid: ["اتدفعت", "Paid"],
+};
+
+/** Where the invoice of an accepted quotation stands, for the Sales person who sold it. */
+function InvoiceWord({ invoice }: { invoice: NonNullable<Quotation["invoice"]> }) {
+  const { t } = usePreferences();
+  const [ar, en] = INVOICE_WORDS[invoice.status] ?? [invoice.status, invoice.status];
+  return (
+    <div className={invoice.overdue ? "muted deadline--late" : "muted"} data-invoice={invoice.code}>
+      <span className="mono">{invoice.code}</span> {t(ar, en)}
+      {invoice.overdue && ` · ${t("متأخرة", "overdue")}`}
+      {invoice.status === "partial" && (
+        <span className="mono">
+          {" "}
+          ({invoice.paid}/{invoice.amount} {invoice.currency})
+        </span>
+      )}
+    </div>
+  );
+}
+
 const SERVICE_AR: Record<string, string> = {
   translation: "ترجمة",
   review: "مراجعة / تدقيق",
@@ -296,6 +321,7 @@ export function QuotesModal({ leadId, onClose }: { leadId: number; onClose: () =
                       <td>
                         <QuoteStatus status={quote.status} />
                         {quote.task && <div className="muted mono">{quote.task}</div>}
+                        {quote.invoice && <InvoiceWord invoice={quote.invoice} />}
                       </td>
                       <td>
                         <div className="row row--tight" style={{ flexWrap: "nowrap" }}>

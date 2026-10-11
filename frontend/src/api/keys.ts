@@ -135,4 +135,8 @@ export const qk = {
   b2bFollowUps: ["b2b", "follow-ups"] as const,
   b2bKpis: (from: string, to: string) => ["b2b", "kpis", from, to] as const,
   b2bQuotes: (leadId: number) => ["b2b", "quotes", leadId] as const,
+  /** Client invoices (Accounting's): the lists by filter, and one invoice. A write asks all of them again. */
+  finance: ["finance"] as const,
+  invoices: (show: string) => ["finance", "invoices", show] as const,
+  invoice: (id: number) => ["finance", "invoice", id] as const,
 };

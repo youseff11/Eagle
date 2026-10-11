@@ -571,7 +571,17 @@ def _quote_json(quote):
         "sent_at": _stamp(quote.sent_at),
         "decided_at": _stamp(quote.decided_at),
         "task": quote.task.code if quote.task_id else "",
+        # Where its invoice stands (code, status, amount, paid): never the costs nor the profit.
+        "invoice": _invoice_of(quote),
     }
+
+
+def _invoice_of(quote):
+    from . import finance
+    from .models import Invoice
+
+    invoice = quote.invoices.exclude(status=Invoice.Status.CANCELLED).order_by("-created_at").first()
+    return finance.invoice_brief(invoice) if invoice is not None else None
 
 
 def _quote_choices():

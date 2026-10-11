@@ -3761,6 +3761,15 @@ def mark_delivered(task, user, delivery=None):
     task.status = TaskStatus.DELIVERED
     task.delivered_at = timezone.now()
     task.save(update_fields=["status", "delivered_at", "updated_at"])
+    # Its translators are priced and, made from an accepted quotation, its invoice drafted (finance.py). In a savepoint: a
+    # failure there is logged and never undoes the delivery the client already has.
+    try:
+        from . import finance
+
+        with transaction.atomic():
+            finance.draft_for_delivered(task, by=user)
+    except Exception:  # noqa: BLE001
+        logger.exception("Drafting the invoice of %s failed", task.code)
 
     if delivery is not None and delivery.status == delivery.Status.SENT:
         channel = delivery.get_channel_display()
@@ -6613,6 +6622,22 @@ def heartbeat(user):
     sweep_deadlines()
     if user.is_sales:
         _b2b_digest(user)
+    if user.is_accounting or user.is_admin_role:
+        _overdue_invoices()
+
+
+def _overdue_invoices():
+    """The overdue-invoice alert, from the heartbeat of the people it is for: at most every quarter of an hour."""
+    from django.core.cache import cache
+
+    from . import finance
+
+    if not cache.add("finance-overdue", 1, B2B_DIGEST_EVERY_SECONDS):
+        return
+    try:
+        finance.sweep_overdue()
+    except Exception:  # noqa: BLE001 - an alert that breaks must not break the heartbeat
+        logger.exception("The overdue-invoice alert failed")
 
 
 #: How often the heartbeat looks for a Sales person's follow-up reminder: the day's one is found again in the database, this

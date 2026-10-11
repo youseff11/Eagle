@@ -89,6 +89,8 @@ export interface Quotation {
   decided_at: string;
   /** The task the operation made from it, once accepted. */
   task: string;
+  /** Where its invoice stands (Accounting's): never the costs nor the profit. */
+  invoice: { code: string; status: string; overdue: boolean; amount: string; paid: string; currency: string } | null;
 }
 
 export interface QuotationsResponse {

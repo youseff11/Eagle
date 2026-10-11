@@ -1135,6 +1135,32 @@ GUIDES = (
         ],
     ),
     _guide(
+        "accounts-invoices", (Role.ACCOUNTING, Role.ADMIN), "/accounts/invoices",
+        ("إزاي أبعت فاتورة لعميل وأسجّل الدفع", "How do I send a client an invoice and record the payment"),
+        (
+            "فاتورة، فواتير، فواتير العملاء، invoice، تحصيل، العميل دفع، اتدفعت، متأخرة، سعر الصرف، ربح المشروع، تكلفة المترجم",
+            "invoice, invoices, client invoices, billing, collection, client paid, overdue, exchange rate, project profit, translator cost",
+        ),
+        [
+            "من قسم «الحسابات» افتح «فواتير العملاء». الفاتورة بتتعمل مسودة لوحدها لما تاسك جاية من عرض سعر تتسلّم.",
+            "تاسك اتسلّمت ومالهاش عرض سعر: من تحت «تاسكات اتسلّمت ومالهاش فاتورة» اضغط «اعمل فاتورة» واكتب المبلغ والعملة.",
+            "افتح الفاتورة، اكتب سعر الصرف وبيانات الدفع واضغط «احفظ»، وبعدين «ابعت الفاتورة للعميل».",
+            "لما الفلوس توصل اكتب المبلغ واضغط «سجّل الدفع». الفاتورة بتبقى «اتدفع جزء» أو «اتدفعت» لوحدها.",
+            "تحت في «التكلفة والربح (بالجنيه)» تكلفة المترجم محسوبة لوحدها. ضيف أي تكلفة تانية (مراجعة، DTP) والربح بيتحسب.",
+        ],
+        [
+            "In the «Accounts» section open «Client invoices». An invoice is drafted by itself when a task made from a quotation is delivered.",
+            "A delivered task with no quotation: under «Delivered tasks with no invoice» press «Make an invoice» and type the amount and the currency.",
+            "Open the invoice, write the exchange rate and the payment details and press «Save», then «Send the invoice to the client».",
+            "When the money arrives type the amount and press «Record the payment». The invoice turns «Partly paid» or «Paid» by itself.",
+            "Below, under «Cost and profit (EGP)», the translator's cost is worked out for you. Add any other cost (review, DTP) and the profit follows.",
+        ],
+        note=(
+            "تكلفة المترجم = كلماته ÷ 250 × السعر المتفق عليه معاه، والأدمن بيكتبه من صفحة الموظف. لو مش مكتوب الربح بيبان «مش متقاس». والفاتورة المتأخرة بيوصل عنها تنبيه مرة واحدة.",
+            "A translator's cost = their words ÷ 250 × the price agreed with them, which the admin writes on the employee page. Without it the profit reads «Not measured». An overdue invoice is announced once.",
+        ),
+    ),
+    _guide(
         "sales-performance", (Role.SALES, Role.ADMIN), "/sales-performance",
         ("فين أرقام المبيعات وأداء كل Sales", "Where are the Sales numbers and each Sales person's performance"),
         (

@@ -129,6 +129,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/accounts/attendance", icon: "timer", label: ["الحضور والإنتاج", "Attendance & output"], adminOnly: true },
       { path: "/accounts/violations", icon: "alert", label: ["المخالفات والخصومات", "Violations"] },
+      { path: "/accounts/invoices", icon: "file", label: ["فواتير العملاء", "Client invoices"] },
       { path: "/accounts/rules", icon: "list-checks", label: ["قواعد الحساب", "Payroll rules"], adminOnly: true, section: "settings", order: 30 },
     ],
   },
