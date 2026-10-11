@@ -742,3 +742,87 @@ def quotation_delete(request, quote_id):
         return _refused(refusal)
     return JsonResponse({"ok": True})
 
+
+# ---------------------------------------------------------------------------
+# Targets (part 7)
+# ---------------------------------------------------------------------------
+
+def _month(raw):
+    """``YYYY-MM`` to the month's first day; this month when empty. ``BadBody`` otherwise."""
+    if not raw:
+        return timezone.localdate().replace(day=1)
+    if not isinstance(raw, str) or len(raw) != 7:
+        raise BadBody
+    try:
+        return date.fromisoformat(f"{raw}-01")
+    except ValueError:
+        raise BadBody from None
+
+
+@endpoint("GET")
+@api_gate(b2b.has_door)
+def targets(request):
+    """``?month=YYYY-MM`` - each person's targets for the month and how far they are: their own for a Sales person, every
+    Sales person's for the manager and the owner (who may change them)."""
+    try:
+        first = _month(request.GET.get("month", ""))
+    except BadBody:
+        return _error(400, "bad_month")
+    return JsonResponse({
+        "ok": True,
+        "month": f"{first:%Y-%m}",
+        "can_edit": request.user.manages_sales,
+        "metrics": list(b2b.TARGET_METRICS),
+        "currencies": list(Quotation.Currency.values),
+        "rows": b2b.target_rows(request.user, first),
+    })
+
+
+#: The largest figure a target takes.
+MAX_TARGET = 1_000_000
+
+
+def _target_figure(body, name, money=False):
+    raw = body.get(name)
+    if raw in (None, ""):
+        return None
+    if money:
+        try:
+            value = Decimal(str(raw).strip()) if isinstance(raw, (int, float, str)) and not isinstance(raw, bool) else None
+        except InvalidOperation:
+            value = None
+        if value is None or not value.is_finite() or not Decimal(0) <= value <= Decimal(100_000_000) or value.as_tuple().exponent < -2:
+            raise BadBody
+        return value
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= MAX_TARGET:
+        raise BadBody
+    return raw
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def target_save(request):
+    """``{"person", "month": "YYYY-MM", "new_leads", "contacted", "quotations", "won", "revenue", "revenue_currency"}`` -
+    a blank figure is no target for it."""
+    from .models import User
+
+    try:
+        body = _object(request)
+        first = _month(body.get("month", ""))
+        person_id = body.get("person")
+        if isinstance(person_id, bool) or not isinstance(person_id, int):
+            raise BadBody
+        values = {metric: _target_figure(body, metric) for metric in ("new_leads", "contacted", "quotations", "won")}
+        values["revenue"] = _target_figure(body, "revenue", money=True)
+        values["revenue_currency"] = _text(body, "revenue_currency", 3) or "USD"
+    except BadBody:
+        return _error(400, "bad_request")
+    person = User.objects.filter(pk=person_id).first()
+    if person is None:
+        return _error(404, "not_found")
+    try:
+        b2b.save_target(request.user, person, first, values)
+    except b2b.Refused as refusal:
+        return _refused(refusal, status=403 if refusal.code == "not_manager" else 400)
+    return JsonResponse({"ok": True, "rows": b2b.target_rows(request.user, first)})
+

@@ -2484,6 +2484,19 @@ class AppSettings(models.Model):
         default=False,
         help_text="Also read the mailbox's Spam folder.",
     )
+    # -- B2B (part 7, 11/10/2026) -------------------------------------------
+    #: A company that writes to a Sales person's own number or address and is on nobody's sheet becomes a row by itself, on
+    #: that person's sheet of companies that wrote first (the requirements' section 24). On: the requirements ask for it.
+    b2b_auto_leads = models.BooleanField(
+        default=True,
+        help_text="A company that writes to a Sales person's own line and is on no sheet becomes a row by itself.",
+    )
+    #: The daily follow-up reminder also goes by e-mail, to the Sales person's own address on their account (never a
+    #: company-mailbox address, which would come back in as a client's letter). Off by default.
+    b2b_reminder_email = models.BooleanField(
+        default=False,
+        help_text="Also e-mail each Sales person their daily follow-up reminder (to the e-mail on their account).",
+    )
     #: How far each mail folder has been read, as JSON: ``{folder: {"validity",
     #: "last"}}`` (the server's UIDVALIDITY and the highest UID handled). Mail is
     #: new when its UID is past ``last``, not when it is unread: a letter opened
@@ -4928,4 +4941,30 @@ class ProjectCost(models.Model):
 
     class Meta:
         ordering = ("id",)
+
+
+class SalesTarget(models.Model):
+    """What one Sales person is to reach in one month (B2B part 7, the requirements' section 12): set by the Sales manager or
+    the owner. A blank figure is no target for it. ``alerts`` remembers which alerts went, so each goes once."""
+
+    #: The figures a target may set, as ``b2b.kpis`` counts them.
+    METRICS = ("new_leads", "contacted", "quotations", "won")
+
+    person = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sales_targets")
+    #: The month's first day.
+    month = models.DateField()
+    new_leads = models.PositiveIntegerField(null=True, blank=True)
+    contacted = models.PositiveIntegerField(null=True, blank=True)
+    quotations = models.PositiveIntegerField(null=True, blank=True)
+    won = models.PositiveIntegerField(null=True, blank=True)
+    #: The value of accepted quotations, in one currency (the others do not count towards it).
+    revenue = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    revenue_currency = models.CharField(max_length=3, default="USD")
+    alerts = models.JSONField(default=list, blank=True)
+    set_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("person", "month"), name="one_sales_target_a_month")]
+        ordering = ("month", "person_id")
 

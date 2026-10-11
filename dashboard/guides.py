@@ -1037,8 +1037,8 @@ GUIDES = (
             "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call».",
         ],
         note=(
-            "واتساب مابيوصّلش لشركة عمرها ما كلمتنا غير الرسالة الافتتاحية المتوافق عليها. أول ما يردّوا تكلمهم عادي من الشات.",
-            "WhatsApp carries nothing to a company that never wrote to us but the approved opening message. Once they answer you write to them as usual from the chat.",
+            "واتساب مابيوصّلش لشركة عمرها ما كلمتنا غير الرسالة الافتتاحية المتوافق عليها. أول ما يردّوا تكلمهم عادي من الشات. والشركة اللي تكلّمك أول مرة ومش في أي شيت بتتضاف لوحدها لشيت «شركات كلّمتنا (تلقائي)» بتاعك.",
+            "WhatsApp carries nothing to a company that never wrote to us but the approved opening message. Once they answer you write to them as usual from the chat. A company on no sheet that writes to you first is added by itself to your sheet «شركات كلّمتنا (تلقائي)».",
         ),
     ),
     _guide(
@@ -1183,6 +1183,26 @@ GUIDES = (
             "الفلوس كل عملة لوحدها. الربح بيبان «مش متقاس» لو فاتورة مالهاش سعر صرف أو مترجم مالوش سعر الـ250 كلمة.",
             "Money is per currency. Profit reads «Not measured» if an invoice has no exchange rate or a translator has no price per 250 words.",
         ),
+    ),
+    _guide(
+        "sales-targets", (Role.SALES, Role.ADMIN), "/sales-performance",
+        ("إزاي أحط تارجت للـSales وأتابعه", "How do I set a Sales target and follow it"),
+        (
+            "تارجت، التارجت، هدف الشهر، أهداف المبيعات، وصلت للتارجت، متأخر عن التارجت، target، targets، goal",
+            "target, targets, monthly goal, sales goals, reached the target, behind the target",
+        ),
+        [
+            "افتح «أداء المبيعات»: فوق خالص كارت التارجت للشهر، وتقدر تختار شهر تاني من خانة الشهر.",
+            "المانجر (أو الأدمن) يضغط «حدد التارجت» جنب الـSales، ويكتب الأرقام اللي عايزها (الخانة الفاضية يعني مفيش تارجت ليها) ويضغط «احفظ التارجت».",
+            "الـSales بيشوف تارجته هو بس وكام وصل منه.",
+            "أول ما حد يوصل لتارجت بيوصله تنبيه هو والمانجر. ومن يوم 20، اللي لسه تحت نص التارجت بيتبلّغ مرة واحدة.",
+        ],
+        [
+            "Open «Sales performance»: the month's targets card is at the top; pick another month from the month box.",
+            "The manager (or the owner) presses «Set the target» beside a Sales person, types the figures wanted (an empty box is no target for it) and presses «Save the target».",
+            "A Sales person sees their own target and how far they are.",
+            "Whoever reaches a target is told, and so is the manager. From the 20th, anyone still under half a target is told once.",
+        ],
     ),
     _guide(
         "sales-performance", (Role.SALES, Role.ADMIN), "/sales-performance",

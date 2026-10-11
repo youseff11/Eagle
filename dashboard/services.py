@@ -6624,6 +6624,22 @@ def heartbeat(user):
         _b2b_digest(user)
     if user.is_accounting or user.is_admin_role:
         _overdue_invoices()
+    if user.is_sales or user.is_admin_role:
+        _sales_targets()
+
+
+def _sales_targets():
+    """The Sales targets' alerts, from the heartbeat of the people they are for: at most every quarter of an hour."""
+    from django.core.cache import cache
+
+    from . import b2b
+
+    if not cache.add("b2b-targets", 1, B2B_DIGEST_EVERY_SECONDS):
+        return
+    try:
+        b2b.check_targets()
+    except Exception:  # noqa: BLE001 - an alert that breaks must not break the heartbeat
+        logger.exception("The Sales target alerts failed")
 
 
 def _overdue_invoices():

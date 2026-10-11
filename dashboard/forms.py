@@ -872,6 +872,7 @@ class SettingsForm(forms.ModelForm):
         model = AppSettings
         fields = (
             "ai_check_enabled", "claude_api_key", "claude_model", "helpbot_ai_enabled", "helpbot_actions_enabled",
+            "b2b_auto_leads", "b2b_reminder_email",
             "response_window_seconds", "deadline_warning_minutes",
             "penalty_value", "max_rating", "rate_keywords",
             "whatsapp_verify_token", "whatsapp_access_token",

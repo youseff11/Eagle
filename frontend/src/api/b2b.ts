@@ -403,3 +403,53 @@ export function parsePasted(text: string, columns: { name: B2bColumn; ar: string
     return row;
   });
 }
+
+/** The figures a Sales target may set (part 7). */
+export type TargetMetric = "new_leads" | "contacted" | "quotations" | "won" | "revenue";
+
+export interface TargetProgress {
+  /** The target (a count, or the revenue as "100.00"); `null` = no target for it. */
+  target: number | string | null;
+  done: number | string;
+  /** `null` with no target: not measured, never 0%. */
+  percent: number | null;
+}
+
+export interface TargetRow {
+  person: { id: number; name: string };
+  currency: string;
+  progress: Record<TargetMetric, TargetProgress>;
+}
+
+export interface TargetsResponse {
+  ok: boolean;
+  month: string;
+  can_edit: boolean;
+  metrics: TargetMetric[];
+  currencies: string[];
+  rows: TargetRow[];
+}
+
+/** The targets of a month (`YYYY-MM`; empty = this month) and how far each person is. */
+export function useTargets(month: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.b2bTargets(month),
+    queryFn: () => api<TargetsResponse>(`/api/v1/b2b/targets/${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+    enabled,
+  });
+}
+
+export interface TargetValues {
+  person: number;
+  month: string;
+  new_leads: number | null;
+  contacted: number | null;
+  quotations: number | null;
+  won: number | null;
+  revenue: string | null;
+  revenue_currency: string;
+}
+
+export function useSaveTarget() {
+  return useWrite((values: TargetValues) => api<{ ok: boolean; rows: TargetRow[] }>("/api/v1/b2b/targets/save/", { json: values }));
+}

@@ -4,6 +4,7 @@ import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { PeriodPicker, usePeriod } from "../components/PeriodPicker";
+import { TargetsCard } from "../components/b2b/TargetsCard";
 import { usePreferences } from "../i18n/Preferences";
 
 /** A percentage, or «مش متقاس» when there was nothing to measure (never a made-up 0%). */
@@ -99,6 +100,8 @@ export function SalesPerformancePage() {
             : t("أرقامك انت في الفترة اللي تختارها.", "Your own numbers for the period you choose.")}
         </span>
       </div>
+
+      {allowed && <TargetsCard />}
 
       <PeriodPicker shown={shown} />
 

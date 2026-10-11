@@ -35,7 +35,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, User
+from .models import (
+    Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, SalesTarget, User,
+)
 
 # ---------------------------------------------------------------------------
 # The opening template
@@ -275,8 +277,66 @@ def note_inbound(message):
             same |= Q(client__isnull=True, phone_key=key)
     elif sender:
         same |= Q(client__isnull=True, email_key=sender.lower())
-    for lead in Lead.objects.filter(same, sheet__assigned_to_id=message.owner_id):
+    leads = list(Lead.objects.filter(same, sheet__assigned_to_id=message.owner_id))
+    if not leads:
+        made = auto_lead(message, kind)
+        leads = [made] if made is not None else []
+    for lead in leads:
         _record(lead, kind, None, client_id=message.client_id, automatic=True, incoming=True, at=message.received_at)
+
+
+#: The sheet a Sales person's companies that wrote first land on (part 7, the requirements' section 24).
+AUTO_SHEET_TITLE = "شركات كلّمتنا (تلقائي)"
+AUTO_SHEET_NOTE = "شركات بعتت على رقمك أو إيميلك ومكانتش في أي شيت. اتضافت هنا لوحدها: كمّل بياناتها."
+
+
+def auto_lead(message, kind):
+    """A company on nobody's sheet wrote to a Sales person's own line: a row on that person's sheet of companies that wrote
+    first, with what the message tells (the name, the number or the address). Nothing when the setting is off, when the
+    line is not a Sales person's (an operation person's own address is not a sales line), for an automatic sender
+    (no-reply...), or when the company is on any sheet already - another Sales person's included: the manager sees it there.
+    """
+    from . import mailbox, services
+    from .models import AppSettings
+
+    owner = message.owner
+    if owner is None or not (owner.is_sales and owner.is_active) or not AppSettings.load().b2b_auto_leads:
+        return None
+    sender = (message.sender_identity or "").strip()
+    client = message.client
+    if kind == LeadActivity.Kind.EMAIL and (not sender or mailbox.is_automated_sender(sender)):
+        return None
+    known = Q(client=client)
+    phone_key = Client.phone_key(sender) if kind == LeadActivity.Kind.WHATSAPP else ""
+    if phone_key:
+        known |= Q(phone_key=phone_key)
+    if kind == LeadActivity.Kind.EMAIL:
+        known |= Q(email_key=sender.lower())
+    if Lead.objects.filter(known).exists():
+        return None
+    sheet = LeadSheet.objects.filter(assigned_to=owner, title=AUTO_SHEET_TITLE).first() or LeadSheet.objects.create(
+        title=AUTO_SHEET_TITLE, note=AUTO_SHEET_NOTE, assigned_to=owner,
+    )
+    person = (client.name or message.sender_display or "").strip()
+    domain = sender.split("@", 1)[1] if kind == LeadActivity.Kind.EMAIL and "@" in sender else ""
+    lead = Lead.objects.create(
+        sheet=sheet, client=client,
+        company_name=(client.company or person or domain or sender or client.code)[:160],
+        contact_person=person[:160],
+        whatsapp=sender[:40] if kind == LeadActivity.Kind.WHATSAPP else "",
+        email=sender[:254] if kind == LeadActivity.Kind.EMAIL else (client.email or ""),
+        source="واتساب وارد" if kind == LeadActivity.Kind.WHATSAPP else "إيميل وارد",
+    )
+    services.log(None, "b2b.auto_lead", f"lead {lead.pk}", f"{owner.username} {kind}")
+    services.notify(
+        owner,
+        title_ar="شركة جديدة كلّمتك",
+        title_en="A new company wrote to you",
+        body_ar=f"اتضافت لوحدها لشيت «{AUTO_SHEET_TITLE}». كمّل بياناتها وحدد المتابعة.",
+        body_en="It was added by itself to your sheet of companies that wrote first. Complete it and set the follow-up.",
+        level="info", url=f"/app/leads/{sheet.pk}",
+    )
+    return lead
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +414,7 @@ def daily_digest(user, now=None):
     if late:
         parts_ar.append(f"{late} متأخرة")
         parts_en.append(f"{late} overdue")
-    return services.notify(
+    note = services.notify(
         user,
         title_ar="متابعات الشركات",
         title_en="Company follow-ups",
@@ -363,15 +423,53 @@ def daily_digest(user, now=None):
         level="warning" if late else "info",
         url=marker,
     )
+    _email_reminder(user, note)
+    return note
+
+
+def _company_addresses(conf):
+    """Every address of the company mailbox: a reminder mailed to one of them would come back in as a client's letter."""
+    found = {a.strip().lower() for a in (conf.imap_user, conf.smtp_user, conf.smtp_from) if a and "@" in a}
+    found |= {a.strip().lower() for a in conf.alias_list}
+    found |= {a.strip().lower() for a in User.objects.exclude(mail_alias="").values_list("mail_alias", flat=True)}
+    return found
+
+
+def _email_reminder(user, note):
+    """The same reminder by e-mail, when the owner turned it on: to the address on the person's account, never to one of
+    the company mailbox's. Counts only, like the notice. A letter that does not leave is logged, never raised."""
+    import logging
+
+    from . import mailer
+    from .models import AppSettings
+
+    conf = AppSettings.load()
+    address = (user.email or "").strip()
+    if note is None or not conf.b2b_reminder_email or not address:
+        return False
+    try:
+        validate_email(address)
+    except ValidationError:
+        return False
+    if address.lower() in _company_addresses(conf):
+        return False
+    body = "\n".join([note.body_ar, "", note.body_en, "", "Eagle"])
+    try:
+        mailer.send_delivery(conf, address, subject="متابعات الشركات · Company follow-ups", body=body, attachments=[])
+    except Exception:  # noqa: BLE001 - the notice is in the app already; a mail that fails is written down, not raised
+        logging.getLogger(__name__).exception("The follow-up reminder e-mail to %s failed", user.pk)
+        return False
+    return True
 
 
 def sweep(now=None):
-    """The day's reminder to every Sales person who has follow-ups (``manage.py sweep``). Returns how many went."""
+    """The day's reminder to every Sales person who has follow-ups, and the targets' alerts (``manage.py sweep``). Returns
+    how many reminders and alerts went."""
     sent = 0
     for person in User.objects.filter(role=Role.SALES, is_active=True, lead_sheets__isnull=False).distinct():
         if daily_digest(person, now=now) is not None:
             sent += 1
-    return sent
+    return sent + check_targets(timezone.localtime(now or timezone.now()).date())
 
 
 # ---------------------------------------------------------------------------
@@ -911,3 +1009,154 @@ def quotation_for_task(code, user):
 def link_task(quote, task):
     """The task the operation made from the quotation. Once: a second task from the same quotation is a task of its own."""
     return Quotation.objects.filter(pk=quote.pk, task__isnull=True).update(task=task) == 1
+
+
+# ---------------------------------------------------------------------------
+# Targets (part 7, the requirements' section 12: "Team-level targets and alerts")
+# ---------------------------------------------------------------------------
+
+#: From this day of the month a Sales person under half of a target is told (once), and so is the manager.
+BEHIND_FROM_DAY = 20
+BEHIND_BELOW = 50
+TARGET_METRICS = ("new_leads", "contacted", "quotations", "won", "revenue")
+METRIC_WORDS = {
+    "new_leads": ("شركات جديدة", "new leads"),
+    "contacted": ("شركات اتواصلنا معاها", "companies contacted"),
+    "quotations": ("عروض اتبعتت", "quotations sent"),
+    "won": ("Won", "won deals"),
+    "revenue": ("قيمة العروض اللي اتقبلت", "accepted quotations' value"),
+}
+
+
+def month_bounds(first):
+    first = first.replace(day=1)
+    return first, (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
+
+def _actuals(person, first, today):
+    """What the person did in the month so far, as ``kpis`` counts it (nothing yet for a month still to come)."""
+    start, end = month_bounds(first)
+    if start > today:
+        return None
+    rows, _total = kpis(person, start, min(end, today), today=today)
+    return rows[0] if rows else None
+
+
+def _progress(target, row):
+    """``{metric: {"target", "done", "percent"}}`` for the figures the target sets; percent ``None`` with no target."""
+    out = {}
+    for metric in TARGET_METRICS:
+        goal = getattr(target, metric) if target is not None else None
+        if metric == "revenue":
+            done = Decimal((row or {}).get("revenue", {}).get(target.revenue_currency if target else "USD", "0") or "0")
+        else:
+            done = (row or {}).get(metric, 0)
+        percent = None if not goal else int(min(Decimal(done) * 100 / Decimal(goal), Decimal(999)))
+        out[metric] = {
+            "target": None if goal is None else (f"{goal:.2f}" if metric == "revenue" else goal),
+            "done": f"{done:.2f}" if metric == "revenue" else done,
+            "percent": percent,
+        }
+    return out
+
+
+def target_people(user, first):
+    """Whose targets this person reads for a month: their own; the manager and the owner every Sales person who takes
+    sheets, and anybody who had a target that month."""
+    if not user.manages_sales:
+        return [user] if user.is_sales else []
+    had = SalesTarget.objects.filter(month=first).values("person_id")
+    return list(
+        User.objects.filter(Q(pk__in=sales_people().values("pk")) | Q(pk__in=had)).distinct().order_by("first_name", "username")
+    )
+
+
+def target_rows(user, first, today=None):
+    today = today or timezone.localdate()
+    first = first.replace(day=1)
+    targets = {t.person_id: t for t in SalesTarget.objects.filter(month=first)}
+    rows = []
+    for person in target_people(user, first):
+        target = targets.get(person.pk)
+        rows.append({
+            "person": {"id": person.pk, "name": person.get_full_name() or person.username},
+            "currency": target.revenue_currency if target else "USD",
+            "progress": _progress(target, _actuals(person, first, today)),
+        })
+    return rows
+
+
+def save_target(actor, person, first, values):
+    """The manager (or the owner) sets a person's target for a month: ``values`` per metric, ``None`` = no target for it."""
+    from . import services
+
+    if not actor.manages_sales:
+        raise Refused("not_manager", "التارجت بيحطه المانجر.", "Targets are set by the Sales manager.")
+    if not sales_people().filter(pk=person.pk).exists():
+        raise Refused("no_sales", "التارجت للـSales اللي شغالين بس.", "Targets are for working Sales people.")
+    if values.get("revenue_currency") not in Quotation.Currency.values:
+        raise Refused("bad_currency", "اختار العملة.", "Choose the currency.")
+    target, _made = SalesTarget.objects.get_or_create(person=person, month=first.replace(day=1))
+    for metric in TARGET_METRICS:
+        setattr(target, metric, values.get(metric))
+    target.revenue_currency = values["revenue_currency"]
+    # New figures: the alerts may go again, for these.
+    target.alerts = []
+    target.set_by = actor
+    target.save()
+    services.log(actor, "b2b.target", person.username, f"{first:%Y-%m} " + " ".join(f"{m}={values.get(m)}" for m in TARGET_METRICS))
+    return target
+
+
+def _managers(except_id=None):
+    rows = User.objects.filter(Q(role=Role.SALES, is_sales_manager=True) | Q(role=Role.ADMIN), is_active=True)
+    return [person for person in rows if person.pk != except_id]
+
+
+def check_targets(today=None):
+    """The month's alerts, each once: a target reached (the person and the managers hear it), and - from
+    ``BEHIND_FROM_DAY`` - a person still under ``BEHIND_BELOW``% of a target. Returns how many alerts went."""
+    from . import services
+
+    today = today or timezone.localdate()
+    first = today.replace(day=1)
+    sent = 0
+    for target in SalesTarget.objects.filter(month=first, person__is_active=True).select_related("person"):
+        progress = _progress(target, _actuals(target.person, first, today))
+        done = set(target.alerts or [])
+        news = []
+        for metric, figure in progress.items():
+            key = f"reached:{metric}"
+            if figure["percent"] is not None and figure["percent"] >= 100 and key not in done:
+                news.append(key)
+                ar, en = METRIC_WORDS[metric]
+                for person in [target.person, *_managers(target.person.pk)]:
+                    services.notify(
+                        person,
+                        title_ar="تارجت اتحقق",
+                        title_en="Target reached",
+                        body_ar=f"{target.person.get_full_name() or target.person.username} وصل للتارجت: {ar} ({figure['done']} من {figure['target']}).",
+                        body_en=f"{target.person.get_full_name() or target.person.username} reached the target: {en} ({figure['done']} of {figure['target']}).",
+                        level="success", url="/app/sales-performance",
+                    )
+                sent += 1
+        behind = [m for m, f in progress.items() if f["percent"] is not None and f["percent"] < BEHIND_BELOW]
+        if today.day >= BEHIND_FROM_DAY and behind and "behind" not in done:
+            news.append("behind")
+            words_ar = "، ".join(METRIC_WORDS[m][0] for m in behind)
+            words_en = ", ".join(METRIC_WORDS[m][1] for m in behind)
+            for person in [target.person, *_managers(target.person.pk)]:
+                services.notify(
+                    person,
+                    title_ar="متأخر عن التارجت",
+                    title_en="Behind the target",
+                    body_ar=f"{target.person.get_full_name() or target.person.username} لسه تحت نص التارجت في: {words_ar}.",
+                    body_en=f"{target.person.get_full_name() or target.person.username} is still under half the target in: {words_en}.",
+                    level="warning", url="/app/sales-performance",
+                )
+            sent += 1
+        if news:
+            target.alerts = sorted(done | set(news))
+            target.save(update_fields=["alerts", "updated_at"])
+    return sent
+

@@ -48,6 +48,10 @@ SECTIONS = (
         ),
     },
     {
+        "key": "b2b", "icon": "building", "ar": "المبيعات (B2B)", "en": "Sales (B2B)",
+        "groups": ({"fields": ("b2b_auto_leads", "b2b_reminder_email")},),
+    },
+    {
         "key": "workflow", "icon": "list-checks", "ar": "قواعد الشغل", "en": "Workflow rules",
         "groups": ({"fields": (
             "response_window_seconds", "deadline_warning_minutes", "penalty_value", "max_rating", "poll_ms",
@@ -102,6 +106,20 @@ TEXTS = {
         "hint": (
             "المساعد (الزرار اللي فوق جنب التنبيهات) بيرد من دليل الخطوات في كل الأحوال. لو فتحت ده ومفتاح Claude موجود، بيبعت سؤال الموظف ودليل دوره بس لـ Claude عشان يفهم السؤال ويرتّب الرد. مابيبعتش أي حاجة من الشغل. وكلام الموظف نفسه بيتبعت بعد ما الإيميلات والأرقام والمفاتيح وأسماء العملاء المعروفة بتتشال منه (اسم العميل بيتحوّل لكوده)، فنبّه الموظفين ما يكتبوش بيانات عملاء في المساعد.",
             "The assistant (the button in the top bar) always answers from the step guides. When this is on and a Claude key is saved, it sends the person's question and the guides of their role to Claude, which understands the question and words the reply. Nothing from the work is sent. What a person types is cleaned first (e-mails, numbers, keys and known clients' names are taken out; a client's name becomes their code), so tell staff not to type client details into the assistant.",
+        ),
+    },
+    "b2b_auto_leads": {
+        "label": ("الشركة اللي تكلّم Sales لأول مرة تتضاف لشيته لوحدها", "A company that writes to a Sales person first is added to their sheet"),
+        "hint": (
+            "لو شركة مش في أي شيت بعتت على رقم Sales أو إيميله، بتتضاف صف في شيت «شركات كلّمتنا» بتاعه ومكتوب عليها إنها ردّت. الرسايل الآلية (no-reply) مابتتضافش، وخط الشركة مابيتأثرش.",
+            "A company on no sheet that writes to a Sales person's own number or address becomes a row on their «Companies that wrote to us» sheet, marked as having answered. Automatic senders (no-reply) are skipped; the company line is not affected.",
+        ),
+    },
+    "b2b_reminder_email": {
+        "label": ("ابعت تذكير المتابعات اليومي بالإيميل كمان", "Also e-mail the daily follow-up reminder"),
+        "hint": (
+            "بيروح على الإيميل المكتوب في حساب الـSales (من صفحة الموظف)، مش على عنوانه على ميل الشركة. اللي مالوش إيميل مابيوصلوش غير التنبيه جوه السيستم.",
+            "It goes to the e-mail on the Sales person's account (the employee page), not their company-mailbox address. Somebody with none gets the in-app notice only.",
         ),
     },
     "response_window_seconds": {"label": ("مهلة تأكيد الاستلام (ثانية)", "Confirmation window (seconds)")},
