@@ -608,17 +608,23 @@ type Open =
   | { kind: "timeline"; id: number }
   | { kind: "quotes"; id: number };
 
-function ContactCell({ value, children, at, reached }: { value: string; children?: ReactNode; at: string; reached: string }) {
+/** One way to reach the company, on its own line in the one contact column: the button (or the plain sign when this
+ * person may not contact from the sheet), the number or address, and when it first reached them. */
+function ContactLine({ value, icon, children, at, reached, title }: { value: string; icon: string; children?: ReactNode; at: string; reached: string; title: string }) {
   return (
-    <td>
+    <div className="lead__reach" title={title}>
       <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
-        <span className="mono" dir="ltr">
+        {children ?? (
+          <span className="lead__reach-sign muted" aria-hidden="true">
+            <Icon name={icon} size="sm" />
+          </span>
+        )}
+        <span className={value ? "mono lead__reach-value" : "muted"} dir="ltr">
           {value || "—"}
         </span>
-        {children}
       </div>
       <Reached at={at} label={reached} />
-    </td>
+    </div>
   );
 }
 
@@ -719,14 +725,12 @@ export function LeadSheetPage() {
         </div>
 
         <div className="table-wrap">
-          <table className="table">
+          <table className="table table--leads">
             <thead>
               <tr>
-                <th>{t("الشركة", "Company")}</th>
-                <th>{t("الشخص", "Contact")}</th>
-                <th>{t("واتساب", "WhatsApp")}</th>
-                <th>{t("الإيميل", "Email")}</th>
-                <th>{t("التليفون", "Phone")}</th>
+                <th className="lead__company">{t("الشركة", "Company")}</th>
+                <th className="lead__person">{t("الشخص", "Contact")}</th>
+                <th className="lead__contact">{t("التواصل", "Reach")}</th>
                 <th>{t("الحالة", "Status")}</th>
                 <th>{t("المتابعة الجاية", "Next follow-up")}</th>
                 <th>{t("آخر تواصل", "Last contact")}</th>
@@ -751,27 +755,29 @@ export function LeadSheetPage() {
                     {lead.contact_person || "—"}
                     {lead.position && <div className="muted">{lead.position}</div>}
                   </td>
-                  <ContactCell value={lead.whatsapp} at={lead.whatsapp_at} reached={t("اتبعت", "sent")}>
-                    {contact && (lead.whatsapp || lead.phone) && (
-                      <button className="icon-btn" type="button" title={t("ابعت واتساب", "Send WhatsApp")} aria-label={t("ابعت واتساب", "Send WhatsApp")} onClick={() => setOpen({ kind: "whatsapp", lead })}>
-                        <Icon name="message" />
-                      </button>
-                    )}
-                  </ContactCell>
-                  <ContactCell value={lead.email} at={lead.email_at} reached={t("اتبعت", "sent")}>
-                    {contact && lead.email && (
-                      <button className="icon-btn" type="button" title={t("ابعت إيميل", "Send e-mail")} aria-label={t("ابعت إيميل", "Send e-mail")} onClick={() => setOpen({ kind: "email", lead })}>
-                        <Icon name="mail" />
-                      </button>
-                    )}
-                  </ContactCell>
-                  <ContactCell value={lead.phone} at={lead.call_at} reached={t("مكالمة", "call")}>
-                    {contact && (
-                      <button className="icon-btn" type="button" title={t("سجّل مكالمة", "Log a call")} aria-label={t("سجّل مكالمة", "Log a call")} onClick={() => setOpen({ kind: "call", lead })}>
-                        <Icon name="phone" />
-                      </button>
-                    )}
-                  </ContactCell>
+                  <td className="lead__contact">
+                    <ContactLine value={lead.whatsapp} icon="message" title={t("واتساب", "WhatsApp")} at={lead.whatsapp_at} reached={t("اتبعت", "sent")}>
+                      {contact && (lead.whatsapp || lead.phone) && (
+                        <button className="icon-btn" type="button" title={t("ابعت واتساب", "Send WhatsApp")} aria-label={t("ابعت واتساب", "Send WhatsApp")} onClick={() => setOpen({ kind: "whatsapp", lead })}>
+                          <Icon name="message" />
+                        </button>
+                      )}
+                    </ContactLine>
+                    <ContactLine value={lead.email} icon="mail" title={t("الإيميل", "Email")} at={lead.email_at} reached={t("اتبعت", "sent")}>
+                      {contact && lead.email && (
+                        <button className="icon-btn" type="button" title={t("ابعت إيميل", "Send e-mail")} aria-label={t("ابعت إيميل", "Send e-mail")} onClick={() => setOpen({ kind: "email", lead })}>
+                          <Icon name="mail" />
+                        </button>
+                      )}
+                    </ContactLine>
+                    <ContactLine value={lead.phone} icon="phone" title={t("التليفون", "Phone")} at={lead.call_at} reached={t("مكالمة", "call")}>
+                      {contact && (
+                        <button className="icon-btn" type="button" title={t("سجّل مكالمة", "Log a call")} aria-label={t("سجّل مكالمة", "Log a call")} onClick={() => setOpen({ kind: "call", lead })}>
+                          <Icon name="phone" />
+                        </button>
+                      )}
+                    </ContactLine>
+                  </td>
                   <td>
                     <span className="chip chip--sm">{status(lead.status)}</span>
                     {lead.quote && (

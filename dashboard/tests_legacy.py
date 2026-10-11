@@ -325,6 +325,13 @@ class NothingClassicIsLeftTests(_Site):
         self.assertFalse((Path(settings.BASE_DIR) / "static" / "js" / "app.js").exists())
         self.assertTrue((Path(settings.BASE_DIR) / "static" / "js" / "pages.js").exists())
 
+    def test_a_shared_link_shows_the_square_logo_and_not_the_tall_icon_cut_in_half(self):
+        # WhatsApp crops a link preview to a square; with no og:image it took the tall favicon and lost the bottom.
+        for path in ("/login/", "/privacy/", "/terms/", "/data-deletion/"):
+            body = DjangoClient().get(path, HTTP_HOST="eagle.test").content.decode()
+            self.assertIn('<meta property="og:image" content="http://eagle.test/static/img/og-image.jpg"', body, path)
+        self.assertTrue((Path(settings.BASE_DIR) / "static" / "img" / "og-image.jpg").exists())
+
 
 class SignInStillWorksTests(_Site):
     def test_a_person_arriving_from_an_old_link_signs_in_and_lands_on_their_own_page(self):

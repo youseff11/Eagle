@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Eagle · Sign in</title>
   <link rel="icon" href="{% static 'img/logo-removebg-preview.png' %}" type="image/png">
+  <meta property="og:title" content="Eagle · Sign in">
+  <meta property="og:site_name" content="Eagle Operation">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'img/og-image.jpg' %}">
+  <meta property="og:image:width" content="600">
+  <meta property="og:image:height" content="600">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet"

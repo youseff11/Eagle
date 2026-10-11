@@ -178,6 +178,24 @@ button.nav-tools__btn { appearance: none; }
 .plan__client > span { display: block; }
 .plan__client > .mono { font-size: .78rem; overflow-wrap: anywhere; }
 
+/* A sheet of companies on a smaller or zoomed screen: WhatsApp, the address and the phone sit one under the other in one
+   column, and the company and the person have a floor, so nothing shrinks to one word a line; only a very narrow
+   screen slides the table sideways. */
+.table--leads td, .table--leads th { padding-inline: 8px; }
+.table--leads .lead__company { min-width: 13rem; }
+.table--leads .lead__person { min-width: 9rem; }
+.table--leads .lead__contact { min-width: 14rem; }
+.lead__reach + .lead__reach { margin-top: 6px; }
+.lead__reach-sign { display: inline-grid; place-items: center; width: 34px; flex: none; }
+/* The address is the widest thing in the row: when room runs out it breaks onto a second line, not letter by letter. */
+.lead__reach-value { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 1400px) {
+  .table--leads .lead__company { min-width: 11rem; }
+  .table--leads .lead__person { min-width: 8rem; }
+  .table--leads .lead__contact { min-width: 12rem; }
+  .table--leads td, .table--leads th { padding-inline: 6px; }
+}
+
 /* The help assistant: a button in the top bar and a small chat that opens under it, on every page. It stays open while the
    person follows the steps on the page, and sits below the dialogs and the check-in screen (z-index 300 and 420). */
 .help { position: relative; display: inline-flex; }
