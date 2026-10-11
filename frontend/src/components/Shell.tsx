@@ -106,6 +106,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     section: "work",
     order: 0,
     extra: [
+      // The whole company for a period: sales, the work, the money and its profit (the B2B requirements' section 21).
+      { path: "/admin/ceo", icon: "chart", label: ["لوحة الـCEO", "CEO board"], order: 1 },
       { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], order: 100 },
       // The B2B sheets the Sales manager hands out: the owner reads and writes all of them.
       { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 105 },

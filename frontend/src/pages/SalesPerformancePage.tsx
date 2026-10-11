@@ -1,26 +1,10 @@
-import { Navigate, useSearchParams } from "react-router";
+import { Navigate } from "react-router";
 import { useB2bKpis, type KpiCounts } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
+import { PeriodPicker, usePeriod } from "../components/PeriodPicker";
 import { usePreferences } from "../i18n/Preferences";
-
-const pad = (value: number) => String(value).padStart(2, "0");
-const iso = (day: Date) => `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** The quick periods: this month so far, last month, the last seven days. */
-function periods(today: Date): { key: string; label: [string, string]; from: string; to: string }[] {
-  const firstThis = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastPrev = new Date(today.getFullYear(), today.getMonth(), 0);
-  const firstPrev = new Date(lastPrev.getFullYear(), lastPrev.getMonth(), 1);
-  const weekAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
-  return [
-    { key: "month", label: ["الشهر ده", "This month"], from: iso(firstThis), to: iso(today) },
-    { key: "last", label: ["الشهر اللي فات", "Last month"], from: iso(firstPrev), to: iso(lastPrev) },
-    { key: "week", label: ["آخر 7 أيام", "Last 7 days"], from: iso(weekAgo), to: iso(today) },
-  ];
-}
 
 /** A percentage, or «مش متقاس» when there was nothing to measure (never a made-up 0%). */
 function Rate({ value }: { value: number | null }) {
@@ -85,16 +69,12 @@ function Cell({ counts, name }: { counts: KpiCounts; name: keyof KpiCounts }) {
 export function SalesPerformancePage() {
   const { t, lang } = usePreferences();
   const me = useMe();
-  const [params, setParams] = useSearchParams();
-  const from = DAY.test(params.get("from") ?? "") ? (params.get("from") as string) : "";
-  const to = DAY.test(params.get("to") ?? "") ? (params.get("to") as string) : "";
+  const [from, to] = usePeriod();
   const allowed = me.data !== undefined && (me.data.user.role === "sales" || me.data.user.is_admin);
   const numbers = useB2bKpis(from, to, allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   const data = numbers.data;
-  const quick = periods(new Date());
-  const set = (next: { from: string; to: string }) => setParams(next.from && next.to ? { from: next.from, to: next.to } : {});
   const shown = data ? { from: data.from, to: data.to } : { from, to };
   const tiles: { key: keyof KpiCounts; ar: string; en: string; tone?: string }[] = [
     { key: "new_leads", ar: "شركات جديدة", en: "New leads" },
@@ -120,29 +100,7 @@ export function SalesPerformancePage() {
         </span>
       </div>
 
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="row">
-          {quick.map((one) => (
-            <button
-              key={one.key}
-              type="button"
-              className={shown.from === one.from && shown.to === one.to ? "btn btn--sm btn--primary" : "btn btn--sm"}
-              onClick={() => set(one.key === "month" ? { from: "", to: "" } : one)}
-            >
-              {t(one.label[0], one.label[1])}
-            </button>
-          ))}
-          <div className="grow" />
-          <label className="row row--tight">
-            <span className="muted">{t("من", "From")}</span>
-            <input className="input" type="date" value={shown.from} aria-label={t("من", "From")} onChange={(event) => set({ from: event.target.value, to: shown.to })} />
-          </label>
-          <label className="row row--tight">
-            <span className="muted">{t("لحد", "To")}</span>
-            <input className="input" type="date" value={shown.to} aria-label={t("لحد", "To")} onChange={(event) => set({ from: shown.from, to: event.target.value })} />
-          </label>
-        </div>
-      </div>
+      <PeriodPicker shown={shown} />
 
       {data ? (
         <>

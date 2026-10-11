@@ -139,4 +139,6 @@ export const qk = {
   finance: ["finance"] as const,
   invoices: (show: string) => ["finance", "invoices", show] as const,
   invoice: (id: number) => ["finance", "invoice", id] as const,
+  /** The owner's CEO board for a period. */
+  ceo: (from: string, to: string) => ["ceo", from, to] as const,
 };

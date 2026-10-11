@@ -1161,6 +1161,30 @@ GUIDES = (
         ),
     ),
     _guide(
+        "ceo-board", (Role.ADMIN,), "/admin/ceo",
+        ("فين أشوف الشركة كلها: المبيعات والشغل والفلوس والربح", "Where do I see the whole company: sales, work, money and profit"),
+        (
+            "لوحة الـCEO، لوحة المدير، داشبورد، أرقام الشركة، الربح، الإيراد، كام كسبنا، المشاريع المتأخرة، ضغط المترجمين، الفواتير المتأخرة",
+            "CEO board, dashboard, company numbers, profit, revenue, how much we made, late projects, translator workload, overdue invoices",
+        ),
+        [
+            "من قسم «الشغل» افتح «لوحة الـCEO».",
+            "اختار الفترة: «الشهر ده» أو «الشهر اللي فات» أو «آخر 7 أيام»، أو حط التاريخين بإيدك.",
+            "فيها المبيعات وأداء كل Sales، والمشاريع الشغالة والمتأخرة والجودة، وضغط كل مترجم، والفلوس: اللي اتفوتر واتحصّل ولسه ماتدفعش، والإيراد والتكلفة والربح بالجنيه.",
+            "تحت الربح حسب العميل وحسب المشروع. اضغط على الفاتورة عشان تفتحها.",
+        ],
+        [
+            "In the «Work» section open «CEO board».",
+            "Choose the period: «This month», «Last month» or «Last 7 days», or type the two dates.",
+            "It holds sales and each Sales person, the running and late projects and quality, each translator's load, and the money: invoiced, collected, still owed, and the revenue, costs and profit in EGP.",
+            "Below, profit by client and by project. Press an invoice to open it.",
+        ],
+        note=(
+            "الفلوس كل عملة لوحدها. الربح بيبان «مش متقاس» لو فاتورة مالهاش سعر صرف أو مترجم مالوش سعر الـ250 كلمة.",
+            "Money is per currency. Profit reads «Not measured» if an invoice has no exchange rate or a translator has no price per 250 words.",
+        ),
+    ),
+    _guide(
         "sales-performance", (Role.SALES, Role.ADMIN), "/sales-performance",
         ("فين أرقام المبيعات وأداء كل Sales", "Where are the Sales numbers and each Sales person's performance"),
         (

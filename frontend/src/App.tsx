@@ -67,6 +67,7 @@ import { LeadSheetsPage } from "./pages/LeadSheetsPage";
 import { SalesPerformancePage } from "./pages/SalesPerformancePage";
 import { AccountsInvoicePage } from "./pages/AccountsInvoicePage";
 import { AccountsInvoicesPage } from "./pages/AccountsInvoicesPage";
+import { CeoBoardPage } from "./pages/CeoBoardPage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
@@ -135,6 +136,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="reviewer/tests/:id" element={<ReviewerTestPage />} />
         <Route path="admin" element={<AdminOverviewPage />} />
         <Route path="admin/audit" element={<AdminAuditPage />} />
+        <Route path="admin/ceo" element={<CeoBoardPage />} />
         <Route path="admin/clients" element={<AdminClientsPage />} />
         <Route path="admin/clients/new" element={<AdminClientFormPage />} />
         <Route path="admin/clients/:code/edit" element={<AdminClientFormPage />} />

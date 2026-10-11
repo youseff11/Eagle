@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_ceo, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -229,6 +229,8 @@ urlpatterns = [
     path("api/v1/sales/line/", api_sales.line, name="v1_sales_line"),
     path("api/v1/sales/line/save/", api_sales.line_save, name="v1_sales_line_save"),
     # B2B: the company sheets the Sales manager hands out, and contacting a company from its row (b2b.py).
+    # The CEO board (ceo.py): the whole company for a period - the owner only.
+    path("api/v1/admin/ceo/", api_ceo.board, name="v1_admin_ceo"),
     # Finance: client invoices, payments and project costs (finance.py) - Accounting and the owner.
     path("api/v1/finance/invoices/", api_finance.invoices, name="v1_finance_invoices"),
     path("api/v1/finance/invoices/<int:invoice_id>/", api_finance.invoice, name="v1_finance_invoice"),
