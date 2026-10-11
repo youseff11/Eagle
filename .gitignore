@@ -65,5 +65,8 @@ repomix-output.xml
 Claude outputs
 .env.example
 CLAUDE.md
-.claude
+# .claude stays off the (public) repo - its notes name the system's weak spots.
+# The gate alone is tracked: checks only, and every worktree needs it.
+/.claude/*
+!/.claude/verify.py
 SPEC.md
