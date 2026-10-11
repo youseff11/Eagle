@@ -172,6 +172,16 @@ class SheetTests(_B2b):
         self.assertEqual(self.post(self.manager, "v1_b2b_sheet_delete", {}, empty.pk).status_code, 200)
         self.assertFalse(LeadSheet.objects.filter(pk=empty.pk).exists())
 
+    def test_a_sheet_nobody_contacted_goes_with_its_companies_and_is_written_down(self):
+        # The list page's own button (11/10/2026) calls this door, for the owner as for the Sales manager.
+        Lead.objects.create(sheet=self.sheet, company_name="Second GmbH")
+        answer = self.post(self.admin, "v1_b2b_sheet_delete", {}, self.sheet.pk)
+        self.assertEqual(answer.status_code, 200)
+        self.assertFalse(LeadSheet.objects.filter(pk=self.sheet.pk).exists())
+        self.assertFalse(Lead.objects.filter(company_name__in=["Lingua GmbH", "Second GmbH"]).exists())
+        self.assertTrue(AuditLog.objects.filter(actor=self.admin, action="b2b.sheet_delete", detail="Germany").exists())
+        self.assertNotIn("Germany", [s["title"] for s in _json(self.get(self.manager, "v1_b2b_sheets"))["sheets"]])
+
 
 class RowTests(_B2b):
     def test_a_pasted_block_adds_its_rows_and_skips_the_empty_ones(self):

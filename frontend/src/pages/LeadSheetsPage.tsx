@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { refusalText, useB2bFollowUps, useB2bSheets, useCreateSheet, type B2bPerson } from "../api/b2b";
+import { refusalText, useB2bFollowUps, useB2bSheets, useCreateSheet, useDeleteAnySheet, type B2bPerson, type B2bSheet } from "../api/b2b";
+import { Confirm } from "../components/Confirm";
+import { useToasts } from "../components/Toasts";
 import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { Icon } from "../components/Icon";
@@ -138,13 +140,32 @@ function FollowUps({ team }: { team: boolean }) {
  * makes a new one. Titles and counts only: the companies are on the sheet's own page.
  */
 export function LeadSheetsPage() {
-  const { t } = usePreferences();
+  const { t, lang } = usePreferences();
   const me = useMe();
   const allowed = me.data !== undefined && (me.data.user.role === "sales" || me.data.user.is_admin);
   const list = useB2bSheets(allowed);
+  const remove = useDeleteAnySheet();
+  const toasts = useToasts();
+  const [doomed, setDoomed] = useState<B2bSheet | null>(null);
+  const [problem, setProblem] = useState("");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   const data = list.data;
+  const close = () => {
+    setDoomed(null);
+    setProblem("");
+  };
+  const deleteNow = () => {
+    if (!doomed || remove.isPending) return;
+    setProblem("");
+    remove.mutate(doomed.id, {
+      onSuccess: () => {
+        toasts.push({ level: "success", title: t("الشيت اتمسح", "The sheet was deleted") });
+        close();
+      },
+      onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أمسح الشيت. جرّب تاني.", "Could not delete the sheet. Try again."))),
+    });
+  };
 
   return (
     <>
@@ -190,9 +211,27 @@ export function LeadSheetsPage() {
                     </td>
                     <td className="mono">{sheet.created_at}</td>
                     <td>
-                      <Link className="btn btn--sm" to={`/leads/${sheet.id}`}>
-                        {t("افتح", "Open")}
-                      </Link>
+                      <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
+                        <Link className="btn btn--sm" to={`/leads/${sheet.id}`}>
+                          {t("افتح", "Open")}
+                        </Link>
+                        {data.can_manage && (
+                          <button
+                            className="btn btn--sm btn--ghost"
+                            type="button"
+                            aria-label={`${t("امسح الشيت", "Delete the sheet")} ${sheet.title}`}
+                            title={
+                              sheet.contacted > 0
+                                ? t("فيه شركات في الشيت ده اتواصلنا معاها، فمش هيتمسح.", "Some companies on this sheet were contacted, so it is kept.")
+                                : t("امسح الشيت", "Delete the sheet")
+                            }
+                            disabled={sheet.contacted > 0}
+                            onClick={() => setDoomed(sheet)}
+                          >
+                            <Icon name="trash" size="sm" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -220,6 +259,23 @@ export function LeadSheetsPage() {
           <Loading className="empty" />
         )}
       </div>
+
+      {doomed && (
+        <Confirm
+          title={`${t("تمسح الشيت", "Delete the sheet")} «${doomed.title}»؟`}
+          body={t(
+            `الشيت ده والـ${doomed.rows} شركة اللي فيه هيتمسحوا ومفيش رجوع. الشيت اللي فيه شركة اتواصلنا معاها مابيتمسحش.`,
+            `This sheet and its ${doomed.rows} companies are deleted for good. A sheet with a contacted company is kept.`,
+          )}
+          yes={t("امسح", "Delete")}
+          danger
+          icon="trash"
+          busy={remove.isPending}
+          problem={problem}
+          onYes={deleteNow}
+          onNo={close}
+        />
+      )}
     </>
   );
 }

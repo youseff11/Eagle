@@ -302,6 +302,11 @@ export function useSaveSheet(id: number) {
   return useWrite((values: SheetValues) => api<{ ok: boolean; sheet: B2bSheet }>(`/api/v1/b2b/sheets/${id}/save/`, { json: values }));
 }
 
+/** Delete any sheet by its id: the list's own button (one hook for every row). */
+export function useDeleteAnySheet() {
+  return useWrite((id: number) => api<{ ok: boolean }>(`/api/v1/b2b/sheets/${id}/delete/`, { json: {} }));
+}
+
 export function useDeleteSheet(id: number) {
   return useWrite(() => api<{ ok: boolean }>(`/api/v1/b2b/sheets/${id}/delete/`, { json: {} }));
 }

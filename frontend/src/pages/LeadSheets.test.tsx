@@ -171,6 +171,63 @@ describe("LeadSheetsPage", () => {
     expect(screen.queryByText("متابعاتك النهارده والمتأخرة")).toBeNull();
   });
 
+  it("lets the manager delete a sheet from the list, after asking", async () => {
+    const user = userEvent.setup();
+    let gone = false;
+    const mocked = serve("sales", {
+      "/api/v1/b2b/sheets/3/delete/": () => {
+        gone = true;
+        return jsonResponse({ ok: true });
+      },
+      "/api/v1/b2b/follow-ups/": () => jsonResponse(noFollowUps),
+      "/api/v1/b2b/sheets/": () =>
+        jsonResponse(list({ can_manage: true, sheets: gone ? [] : [{ ...sheetAnswer().sheet, rows: 2, contacted: 0 }] })),
+    });
+    open("/leads");
+    await user.click(await screen.findByRole("button", { name: "امسح الشيت Germany" }));
+    expect(screen.getByText(/الـ2 شركة اللي فيه هيتمسحوا ومفيش رجوع/)).toBeInTheDocument();
+    expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/delete/")).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "امسح" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/delete/")).toEqual([{}]));
+    await waitFor(() => expect(screen.queryByText("Germany")).toBeNull());
+  });
+
+  it("asks nothing when cancelled, and cannot delete a sheet with a contacted company", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/follow-ups/": () => jsonResponse(noFollowUps),
+      "/api/v1/b2b/sheets/": () =>
+        jsonResponse(list({ can_manage: true, sheets: [{ ...sheetAnswer().sheet, rows: 2, contacted: 0 }, { ...sheetAnswer().sheet, id: 4, title: "Spain", rows: 1, contacted: 1 }] })),
+    });
+    open("/leads");
+    expect(await screen.findByRole("button", { name: "امسح الشيت Spain" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "امسح الشيت Germany" }));
+    await user.click(screen.getByRole("button", { name: "إلغاء" }));
+    expect(screen.queryByText(/ومفيش رجوع/)).toBeNull();
+    expect(mocked.calls.some((call) => call.url.endsWith("/delete/"))).toBe(false);
+  });
+
+  it("shows the server's refusal and keeps the question open", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/delete/": () =>
+        jsonResponse({ ok: false, error: "contacted", message: "فيه شركات في الشيت ده اتواصلنا معاها، فمش هيتمسح.", message_en: "kept" }, 400),
+      "/api/v1/b2b/follow-ups/": () => jsonResponse(noFollowUps),
+      "/api/v1/b2b/sheets/": () => jsonResponse(list({ can_manage: true, sheets: [{ ...sheetAnswer().sheet, rows: 2, contacted: 0 }] })),
+    });
+    open("/leads");
+    await user.click(await screen.findByRole("button", { name: "امسح الشيت Germany" }));
+    await user.click(screen.getByRole("button", { name: "امسح" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("فيه شركات في الشيت ده اتواصلنا معاها");
+  });
+
+  it("gives a Sales person no delete button", async () => {
+    serve("sales", { "/api/v1/b2b/follow-ups/": () => jsonResponse(noFollowUps), "/api/v1/b2b/sheets/": () => jsonResponse(list()) });
+    open("/leads");
+    await screen.findByText("Germany");
+    expect(screen.queryByRole("button", { name: /امسح الشيت/ })).toBeNull();
+  });
+
   it("sends anybody else home", async () => {
     const mocked = serve("operation", {});
     open("/leads");
