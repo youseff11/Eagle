@@ -19,6 +19,13 @@ Sales and Operation). A letter to it is that person's - theirs and the
 admin's. A letter to no one's address is the company line; the setting
 ``AppSettings.mail_unassigned_admin_only`` decides whether the operation room
 still sees those, or only the admin does.
+
+11/10/2026: the same for WhatsApp. The admin gives a number of the company's
+account to an operation person too, on the staff page (``User.wa_phone_number_id``,
+``models.WA_LINE_ROLES``). A client who writes to it is that person's and the
+admin's, exactly like a letter to their address; the rest of the operation
+room keeps the company number. The admin's chats list can be narrowed to one
+line (``view_q``) - a view, never a permission.
 """
 
 import email.utils
@@ -37,9 +44,9 @@ def line_q(user, field="owner"):
     """The rows of the line(s) this person works, as a ``Q`` on ``field``.
 
     The admin sees every line. A Sales person sees their own. Anybody else
-    (the operation room) sees the company's WhatsApp line, the letters sent
-    to their own address, and - unless the admin keeps them - the letters
-    sent to no one's.
+    (the operation room) sees the company's WhatsApp line, their own number
+    and the letters sent to their own address, and - unless the admin keeps
+    them - the letters sent to no one's.
 
     The channel sits next to ``owner`` on every row this is used on
     (``owner`` -> ``channel``, ``messages__owner`` -> ``messages__channel``).
@@ -58,7 +65,7 @@ def line_q(user, field="owner"):
         company = Q(**{f"{field}__isnull": True, f"{channel}__in": not_mail})
     else:
         company = Q(**{f"{field}__isnull": True})
-    return company | Q(**{field: user, channel: Channel.EMAIL})
+    return company | Q(**{field: user})
 
 
 def sees(user, owner_id, channel):
@@ -71,18 +78,57 @@ def sees(user, owner_id, channel):
         return owner_id == user.pk
     if owner_id is None:
         return channel != Channel.EMAIL or not _unassigned_mail_is_admins()
-    return channel == Channel.EMAIL and owner_id == user.pk
+    return owner_id == user.pk
+
+
+#: ``User.line_view`` for the company's own line.
+COMPANY_VIEW = "company"
+
+
+def view_q(user, field="owner"):
+    """The admin's choice on the chats page, as a ``Q`` on ``field``: every line, the company's, or one person's.
+
+    Only the admin has a choice; for anybody else (and for no choice) it is everything ``line_q`` already allows. It narrows a
+    list and nothing else - a chat opened by its address, a notification, a file are still the admin's whole.
+    """
+    view = (getattr(user, "line_view", "") or "").strip()
+    if not user.is_admin_role or not view:
+        return Q()
+    if view == COMPANY_VIEW:
+        return Q(**{f"{field}__isnull": True})
+    if view.isdigit():
+        return Q(**{field: int(view)})
+    return Q()
+
+
+def list_q(user, field="owner"):
+    """What a client list shows this person: their lines (``line_q``), narrowed to the admin's choice (``view_q``)."""
+    return line_q(user, field) & view_q(user, field)
+
+
+def view_choices():
+    """The lines the admin can pick on the chats page: every line, the company's, and each person who holds a number."""
+    from .models import WA_LINE_ROLES, User
+
+    people = User.objects.filter(role__in=WA_LINE_ROLES).exclude(wa_phone_number_id="").order_by("role", "first_name", "username")
+    return [{"key": "", "kind": "all"}, {"key": COMPANY_VIEW, "kind": "company"}] + [
+        {
+            "key": str(person.pk), "kind": "person", "name": person.short_name, "role": person.role,
+            "number": person.wa_display_number or "", "active": person.is_active,
+        }
+        for person in people
+    ]
 
 
 def owner_for_number(phone_number_id):
-    """The active Sales person whose WhatsApp number this is, or ``None``."""
-    from .models import Role, User
+    """The active person (Sales or operation) whose WhatsApp number this is, or ``None``."""
+    from .models import WA_LINE_ROLES, User
 
     phone_number_id = str(phone_number_id or "").strip()
     if not phone_number_id:
         return None
     return User.objects.filter(
-        role=Role.SALES, is_active=True, wa_phone_number_id=phone_number_id
+        role__in=WA_LINE_ROLES, is_active=True, wa_phone_number_id=phone_number_id
     ).first()
 
 
@@ -129,10 +175,10 @@ def reply_line(client, user, channel):
     """Whose line an answer to this client leaves from. ``None`` = the company's.
 
     A Sales person always answers from their own. The operation from the
-    company's - except a letter that came to their own address, answered from
-    that address. The admin answers on whatever line the client last wrote
-    to on that channel - replying to a Sales person's client from the company
-    number would be a stranger answering.
+    company's - except a client who last wrote to their own number or
+    address, answered from it. The admin answers on whatever line the client
+    last wrote to on that channel - replying to a Sales person's client from
+    the company number would be a stranger answering.
     """
     from .models import Channel
 
@@ -141,7 +187,8 @@ def reply_line(client, user, channel):
     if client is None:
         return None
     if not user.is_admin_role:
-        if channel != Channel.EMAIL or not (user.mail_alias or "").strip():
+        own = user.mail_alias if channel == Channel.EMAIL else user.wa_phone_number_id if channel == Channel.WHATSAPP else ""
+        if not (own or "").strip():
             return None
         last = (
             client.messages.filter(channel=channel).filter(line_q(user))
@@ -169,7 +216,7 @@ def number_problem(user, phone_number_id):
         (conf.whatsapp_phone_number_id or "").strip(),
         (conf.recruit_phone_number_id or "").strip(),
     }:
-        return "ده رقم الشركة نفسه — لازم رقم تاني خاص بيك."
+        return "ده رقم الشركة نفسه (أو خط التوظيف) — لازم رقم تاني."
     if User.objects.filter(wa_phone_number_id=value).exclude(pk=user.pk).exists():
         return "الرقم ده متسجّل لحد تاني."
     return ""

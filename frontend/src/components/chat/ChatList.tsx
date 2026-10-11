@@ -1,4 +1,5 @@
 import { Loading } from "../Loading";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
@@ -96,6 +97,7 @@ export function ChatList({
   activeCode,
   unread,
   onNewGroup,
+  filter,
 }: {
   kinds: ChatKind[];
   kind: ChatKind;
@@ -109,6 +111,8 @@ export function ChatList({
   unread?: Partial<Record<ChatKind, number>>;
   /** Open the dialog for a new work group: given only to somebody who may open one, and drawn in the groups list. */
   onNewGroup?: () => void;
+  /** Drawn under the tabs: the admin's choice of line on the clients list (`LinePicker`). */
+  filter?: ReactNode;
 }) {
   const { t } = usePreferences();
   const problems = useOutboxProblems();
@@ -154,6 +158,8 @@ export function ChatList({
           );
         })}
       </div>
+
+      {filter}
 
       {kind === "groups" && onNewGroup && (
         <div className="cchat__new">

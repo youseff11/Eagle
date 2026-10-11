@@ -605,3 +605,49 @@ describe("reading", () => {
     await waitFor(() => expect(posts(calls)).toHaveLength(2));
   });
 });
+
+describe("the admin's choice of line", () => {
+  const lines = {
+    ok: true,
+    current: "",
+    lines: [
+      { key: "", kind: "all" },
+      { key: "company", kind: "company" },
+      { key: "7", kind: "person", name: "Mona", role: "operation", number: "+20 15 15321563", active: true },
+    ],
+  };
+
+  it("lets the admin show one number's chats, keeps the choice on the server, and asks for the list again", async () => {
+    const picked: unknown[] = [];
+    const { calls } = render(
+      "/chats",
+      { role: { role: "admin", is_admin: true }, lists: { clients: [row("CL-0001")] } },
+      {
+        "/api/v1/chats/lines/pick/": (_url, init) => {
+          picked.push(JSON.parse(String(init?.body)));
+          return jsonResponse({ ok: true, current: "7" });
+        },
+        "/api/v1/chats/lines/": () => jsonResponse(lines),
+      },
+    );
+    const box = await screen.findByLabelText("شاتات رقم");
+    expect(Array.from((box as HTMLSelectElement).options).map((option) => option.textContent)).toEqual([
+      "كل الأرقام",
+      "رقم الشركة",
+      "Mona · +20 15 15321563",
+    ]);
+    const listed = () => calls.filter((call) => call.url.startsWith("/api/v1/chats/?") && call.url.includes("type=clients")).length;
+    await waitFor(() => expect(listed()).toBeGreaterThan(0));
+    const before = listed();
+    await userEvent.setup().selectOptions(box, "7");
+    await waitFor(() => expect(picked).toEqual([{ line: "7" }]));
+    await waitFor(() => expect(listed()).toBeGreaterThan(before));
+  });
+
+  it("is not there for anybody else, who is never told the lines", async () => {
+    const { calls } = render("/chats", { lists: { clients: [row("CL-0001")] } }, { "/api/v1/chats/lines/": () => jsonResponse(lines) });
+    await screen.findByText("CL-0001");
+    expect(screen.queryByLabelText("شاتات رقم")).toBeNull();
+    expect(calls.some((call) => call.url.startsWith("/api/v1/chats/lines/"))).toBe(false);
+  });
+});

@@ -43,6 +43,9 @@ IDENTITY_GRANTABLE_ROLES = (Role.SALES, Role.ACCOUNTING)
 #: people who answer clients by mail. The admin sets it for each of them
 #: (29/09/2026); the admin needs none - they read every line.
 MAIL_ALIAS_ROLES = (Role.SALES, Role.OPERATION)
+#: Who may hold a WhatsApp number of their own (``User.wa_phone_number_id``): the same people, by the same rule (11/10/2026:
+#: the operation too, set by the admin on the staff page). A client who writes to it is theirs and the admin's.
+WA_LINE_ROLES = MAIL_ALIAS_ROLES
 #: Who has an agreed price of 250 words (``User.cost_per_250``): the people who translate.
 COST_RATE_ROLES = (Role.TRANSLATOR, Role.TEAM_LEAD)
 
@@ -489,16 +492,19 @@ class User(AbstractUser):
         help_text="Sales / Accounting only: may see the real client name and contacts.",
     )
 
-    # -- a Sales person's own client line (27/09/2026) -----------------------
+    # -- a person's own client line (Sales 27/09/2026, the operation too 11/10/2026) ----
     #: The Phone number ID Meta gave this person's WhatsApp Business number,
     #: on the company's own business account. A client who writes to it lands
     #: in this person's chats only, and the replies leave from it.
     wa_phone_number_id = models.CharField(
         max_length=40, blank=True, db_index=True,
-        help_text="Sales only: Phone number ID of their own WhatsApp Business number.",
+        help_text="Sales / Operation: Phone number ID of their own WhatsApp Business number.",
     )
     #: The number itself, as people dial it - shown, never used to send.
     wa_display_number = models.CharField(max_length=30, blank=True)
+    #: The admin's own choice on the chats page: which line the client list shows (11/10/2026). "" = every line, "company" =
+    #: the company's, a person's id = that person's (``lines.view_q``). The list only: a chat opened by its address is whole.
+    line_view = models.CharField(max_length=20, blank=True, default="")
     #: Their address on the company mailbox (operation1@..., sales1@...). Mail
     #: sent to it is theirs; their replies go out from it. Chosen by the admin
     #: on the staff page, one address per person, one person per address.
@@ -566,12 +572,15 @@ class User(AbstractUser):
         # (ours, Django's admin, a script) made the move.
         if self.client_identity_access and self.role not in IDENTITY_GRANTABLE_ROLES:
             self.client_identity_access = False
-        # Same for a Sales line: whoever leaves Sales stops receiving on it,
+        # Same for a WhatsApp line: whoever stops answering clients stops receiving on it,
         # or clients would keep landing in the chats of someone who moved on.
-        if self.role != Role.SALES:
+        if self.role not in WA_LINE_ROLES:
             self.wa_phone_number_id = ""
             self.wa_display_number = ""
+        if self.role != Role.SALES:
             self.is_sales_manager = False
+        if not self.is_admin_role:
+            self.line_view = ""
         # The price of 250 words is a translator's (a team leader translates too): nobody else is priced by the word.
         if self.role not in COST_RATE_ROLES:
             self.cost_per_250 = None
@@ -2459,6 +2468,17 @@ class AppSettings(models.Model):
     )
     whatsapp_api_version = models.CharField(max_length=10, default="v23.0")
     webhook_shared_secret = models.CharField(max_length=120, blank=True)
+    #: The WhatsApp Business Account the numbers are on (11/10/2026). Only the list of numbers needs it; sending never does.
+    whatsapp_waba_id = models.CharField(
+        max_length=40, blank=True,
+        help_text="WhatsApp Business Account ID - lists the account's numbers.",
+    )
+    #: The two-step PIN a number is registered with (``walines.link``). Made up by the system the first time and kept, so a
+    #: number can be registered again without anybody remembering it. A secret: never in an answer, never in the log.
+    whatsapp_pin = models.CharField(max_length=12, blank=True)
+    #: The account's numbers as Meta last listed them (JSON), so the staff page and the chats page can name them without
+    #: asking Meta every time. Written by ``walines.refresh`` only.
+    wa_numbers = models.TextField(blank=True, default="")
 
     #: The recruitment line. A second number on the same WhatsApp business
     #: account, so the same token and the same webhook serve both - what tells

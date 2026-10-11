@@ -54,8 +54,12 @@ function settings(over: Partial<AdminSettings> = {}): AdminSettings {
     ],
     status: {
       whatsapp_saved: true, email_saved: false, google_configured: true, google_connected: false, google_sync_at: null, google_sync_error: "",
-      webhook_signed: true, webhook_secret_set: true,
+      webhook_signed: true, webhook_secret_set: true, waba_saved: true,
     },
+    wa_numbers: [
+      { id: "111", number: "+20 15 15871599", name: "Eagle Translation", status: "CONNECTED", verified: true, connected: true, use: { kind: "company" } },
+      { id: "222", number: "+20 15 15321563", name: "Eagle Translation", status: "PENDING", verified: false, connected: false, use: { kind: "free" } },
+    ],
     urls: { webhook: "https://eagle.example.com/webhooks/whatsapp/", google_redirect: "https://eagle.example.com/panel/settings/google/callback/", google_connect: "/panel/settings/google/connect/", is_local: false, is_https: true },
     ...over,
   };
@@ -364,6 +368,83 @@ describe("AdminSettingsPage: WhatsApp", () => {
     await user.click(within((await screen.findByText("واتساب")).closest(".card") as HTMLElement).getByRole("button", { name: /احفظ واختبر الاتصال/ }));
     const note = (await screen.findByText("التوكن غلط")).closest(".note");
     expect(note).toHaveClass("note--high");
+  });
+});
+
+describe("AdminSettingsPage: the account's WhatsApp numbers", () => {
+  const numbers = () => document.querySelector("[data-numbers]") as HTMLElement;
+  const posted = (into: unknown[]): Handler => (_url, init) => {
+    into.push(JSON.parse(String(init?.body)));
+    return jsonResponse({ ok: true, number: { ...settings().wa_numbers[1]!, status: "CONNECTED", connected: true }, numbers: [] });
+  };
+
+  it("lists each number, whether it is linked and what it is used for", async () => {
+    serve("admin");
+    open();
+    await screen.findByText("أرقام الواتساب");
+    const company = numbers().querySelector('[data-number="111"]') as HTMLElement;
+    const fresh = numbers().querySelector('[data-number="222"]') as HTMLElement;
+    expect(company).toHaveTextContent("+20 15 15871599");
+    expect(within(company).getByText("متربط")).toBeInTheDocument();
+    expect(within(company).getByText("رقم الشركة")).toBeInTheDocument();
+    expect(within(company).queryByRole("button", { name: "اربط الرقم" })).toBeNull();
+    expect(within(fresh).getByText("مش متربط")).toBeInTheDocument();
+    expect(within(fresh).getByText("مش متحدد لحد")).toBeInTheDocument();
+  });
+
+  it("asks Meta to text the code to the number", async () => {
+    const asked: unknown[] = [];
+    serve("admin", settings, { "/api/v1/admin/settings/whatsapp/send-code/": posted(asked) });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "اربط الرقم" }));
+    await user.click(screen.getByRole("button", { name: /ابعت الكود برسالة/ }));
+    await waitFor(() => expect(asked).toEqual([{ id: "222", method: "SMS" }]));
+    expect(await screen.findByText("الكود اتبعت")).toBeInTheDocument();
+  });
+
+  it("links the number by itself once the six digits are typed, and reads the page again", async () => {
+    const linked: unknown[] = [];
+    const served = serve("admin", settings, { "/api/v1/admin/settings/whatsapp/link/": posted(linked) });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "اربط الرقم" }));
+    await user.type(screen.getByLabelText("الكود"), "123-456");
+    await waitFor(() => expect(linked).toEqual([{ id: "222", code: "123456", pin: "" }]));
+    expect(await screen.findByText(/الرقم اتربط/)).toBeInTheDocument();
+    await waitFor(() => expect(served.calls.filter((call) => call.url === "/api/v1/admin/settings/").length).toBe(2));
+  });
+
+  it("needs no code for a number that is verified already", async () => {
+    const linked: unknown[] = [];
+    serve("admin", () => settings({ wa_numbers: [{ ...settings().wa_numbers[1]!, verified: true }] }), {
+      "/api/v1/admin/settings/whatsapp/link/": posted(linked),
+    });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "اربط الرقم" }));
+    expect(screen.queryByLabelText("الكود")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "اربط" }));
+    await waitFor(() => expect(linked).toEqual([{ id: "222", code: "", pin: "" }]));
+  });
+
+  it("shows Meta's refusal in the page's language and keeps the box open", async () => {
+    serve("admin", settings, {
+      "/api/v1/admin/settings/whatsapp/link/": () => jsonResponse({ ok: false, error_ar: "الكود غلط أو انتهى. اطلب كود جديد.", error_en: "Wrong code", code: 136025 }, 400),
+    });
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "اربط الرقم" }));
+    await user.type(screen.getByLabelText("الكود"), "999999");
+    expect(await screen.findByText("الكود غلط أو انتهى. اطلب كود جديد.")).toBeInTheDocument();
+    expect(screen.getByLabelText("الكود")).toBeInTheDocument();
+  });
+
+  it("asks for the account ID before the list can be refreshed", async () => {
+    serve("admin", () => settings({ status: { ...settings().status, waba_saved: false }, wa_numbers: [] }));
+    open();
+    expect(await screen.findByText("اكتب الـWhatsApp Business Account ID فوق واحفظ الأول.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /حدّث القايمة/ })).toBeDisabled();
   });
 });
 

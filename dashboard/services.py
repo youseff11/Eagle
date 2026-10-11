@@ -3829,14 +3829,14 @@ def client_conversations(user, query=""):
 
     from . import lines
 
-    # Which line(s): the company's for the operation, their own for Sales,
-    # all of them for the admin. In the same filter() as the channel, so it
+    # Which line(s): the company's (and their own number) for the operation, their own for Sales,
+    # all of them for the admin - or the one the admin picked (``lines.view_q``). In the same filter() as the channel, so it
     # is one join and the Max below counts only messages on those lines.
-    on_line = lines.line_q(user, "messages__owner")
+    on_line = lines.list_q(user, "messages__owner")
     # WhatsApp only — this list is the WhatsApp line. A client we have only
     # ever e-mailed belongs on the mail page, not in a chat with no thread.
     if user.is_admin_role:
-        rows = Client.objects.filter(messages__channel=Channel.WHATSAPP)
+        rows = Client.objects.filter(on_line, messages__channel=Channel.WHATSAPP)
     else:
         # One filter, one join: the operation never sees a conversation made
         # only of rate-blocked messages, and the Max below then reflects only
@@ -4062,9 +4062,10 @@ def conversation_preview(client, user):
     """The snippet shown in the conversation list."""
     from . import lines
 
-    last = _visible_inbound(client, user).order_by("-received_at").first()
+    # On the line the list shows: the admin who picked one line reads that line's last word (``lines.view_q``).
+    last = _visible_inbound(client, user).filter(lines.view_q(user)).order_by("-received_at").first()
     out = (
-        client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
+        client.deliveries.filter(channel=Channel.WHATSAPP).filter(lines.list_q(user))
         .prefetch_related("uploads").order_by("-created_at").first()
     )
     return preview_from(last, out)
@@ -6305,7 +6306,7 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     line_missing = ""
     if owner is not None:
         if channel == Channel.WHATSAPP and not from_number:
-            line_missing = "مفيش رقم واتساب متسجّل للـSales ده — ضيفه من صفحة «خطي»."
+            line_missing = "مفيش رقم واتساب متحدد لصاحب المحادثة دي — الأدمن يحدده من صفحة الموظف."
         if channel == Channel.EMAIL and not from_address:
             line_missing = "مفيش إيميل متحدد لصاحب المحادثة دي — الأدمن يحدده من صفحة الموظف."
 

@@ -1351,8 +1351,50 @@ export interface AdminSettings {
     /** Whether the webhook can check Meta's signature (the App secret is saved) and the simple payload's shared secret. */
     webhook_signed: boolean;
     webhook_secret_set: boolean;
+    /** Whether the WhatsApp Business Account ID is saved: the numbers can only be listed with it. */
+    waba_saved: boolean;
   };
+  /** The account's WhatsApp numbers as Meta last listed them (`walines.describe`). */
+  wa_numbers: WaNumber[];
   urls: { webhook: string; google_redirect: string; google_connect: string; is_local: boolean; is_https: boolean };
+}
+
+/** One number on the company's WhatsApp account, and what it is used for. */
+export interface WaNumber {
+  id: string;
+  number: string;
+  name: string;
+  /** Meta's word: CONNECTED once it is on the Cloud API, PENDING after it is added and before it is registered. */
+  status: string;
+  verified: boolean;
+  connected: boolean;
+  use:
+    | { kind: "free" | "company" | "recruit" }
+    | { kind: "person"; id: number; name: string; role: string };
+}
+
+/** A refusal from the number buttons: ours or Meta's, in both languages. */
+export interface WaLineFailure {
+  ok: false;
+  error_ar: string;
+  error_en: string;
+  code: number | null;
+}
+
+/** The admin's line picker on the chats page (`lines.view_choices`). */
+export interface ChatLineChoice {
+  key: string;
+  kind: "all" | "company" | "person";
+  name?: string;
+  role?: string;
+  number?: string;
+  active?: boolean;
+}
+
+export interface ChatLines {
+  ok: true;
+  current: string;
+  lines: ChatLineChoice[];
 }
 
 /** What a "save & test" button gets back (`whatsapp.check_connection`, `mailer.check_connection`). */

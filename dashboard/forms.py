@@ -9,7 +9,7 @@ from django.utils import timezone
 from . import clock
 from .models import (
     COST_RATE_ROLES, IDENTITY_GRANTABLE_ROLES,
-    MAIL_ALIAS_ROLES,
+    MAIL_ALIAS_ROLES, WA_LINE_ROLES,
     AppSettings,
     Candidate,
     CandidateTest,
@@ -518,10 +518,12 @@ class StaffEditForm(forms.ModelForm):
             "translator_level",
             "client_identity_access",
             "mail_alias",
+            "wa_phone_number_id",
             "is_sales_manager",
             "cost_per_250",
         )
         labels = {
+            "wa_phone_number_id": "رقم الواتساب بتاعه",
             "translator_level": "مستوى المترجم",
             "is_sales_manager": "مانجر Sales",
             "cost_per_250": "سعر الـ250 كلمة (جنيه)",
@@ -575,6 +577,37 @@ class StaffEditForm(forms.ModelForm):
             self.fields["attendance_enabled"].disabled = True
             self.fields["attendance_enabled"].help_text = "The owner and technical support do not clock in: attendance is always off."
         self._alias_as_list()
+        self._number_as_list()
+
+    def _number_as_list(self):
+        """The account's WhatsApp numbers to pick from (``walines.staff_choices``), each saying who holds it."""
+        from . import walines
+
+        self.fields["wa_phone_number_id"] = forms.ChoiceField(
+            choices=walines.staff_choices(self.instance), required=False, label="رقم الواتساب بتاعه",
+            help_text=(
+                "الأوبريشن والـSales بس. العميل اللي يكلّم الرقم ده يظهر عنده هو والأدمن بس، وردّه يطلع من نفس الرقم. "
+                "رقم واحد لكل موظف. القايمة دي من «أرقام الواتساب» في الإعدادات، والرقم لازم يبقى متربط هناك."
+            ),
+            widget=forms.Select(attrs={"class": "input mono", "dir": "ltr"}),
+        )
+
+    def clean_wa_phone_number_id(self):
+        return (self.cleaned_data.get("wa_phone_number_id") or "").strip()
+
+    def save(self, commit=True):
+        from . import walines
+
+        person = super().save(commit=False)
+        # The number as people dial it goes with the ID, from Meta's list: nobody types it.
+        if person.wa_phone_number_id and "wa_phone_number_id" in self.changed_data:
+            person.wa_display_number = walines.number_of(person.wa_phone_number_id) or person.wa_display_number
+        elif not person.wa_phone_number_id:
+            person.wa_display_number = ""
+        if commit:
+            person.save()
+            self.save_m2m()
+        return person
 
     def _alias_as_list(self):
         """A list of the mailbox's aliases instead of a box to type in.
@@ -647,6 +680,16 @@ class StaffEditForm(forms.ModelForm):
                 problem = lines.alias_problem(self.instance, alias)
                 if problem:
                     self.add_error("mail_alias", problem)
+        number = data.get("wa_phone_number_id") or ""
+        if number:
+            if data.get("role") not in WA_LINE_ROLES:
+                self.add_error("wa_phone_number_id", "الرقم للأوبريشن والـSales بس — الأدمن بيشوف كل الأرقام.")
+            else:
+                from . import lines
+
+                problem = lines.number_problem(self.instance, number)
+                if problem:
+                    self.add_error("wa_phone_number_id", problem)
         return data
 
 
@@ -877,7 +920,7 @@ class SettingsForm(forms.ModelForm):
             "penalty_value", "max_rating", "rate_keywords",
             "whatsapp_verify_token", "whatsapp_access_token",
             "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_api_version",
-            "webhook_shared_secret",
+            "webhook_shared_secret", "whatsapp_waba_id",
             "recruit_phone_number_id", "recruit_number_display",
             "imap_host", "imap_port", "imap_user", "imap_password", "imap_folder",
             "imap_read_spam",

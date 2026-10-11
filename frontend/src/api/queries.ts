@@ -5,6 +5,7 @@ import { aiNotesPath } from "../lib/chatCode";
 import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
+  ChatLines,
   AccountsLine,
   AccountsOverview,
   AccountsRules,
@@ -1037,6 +1038,28 @@ export function useChatList(kind: ChatKind, query: string, enabled = true) {
     refetchInterval,
     // A role has only some of the lists: asking for another is refused, and every refusal is written to the audit log.
     enabled,
+  });
+}
+
+/** The admin's line picker on the chats page: the lines there are and the one picked. */
+export function useChatLines(enabled = true) {
+  return useQuery({
+    queryKey: ["chat-lines"] as const,
+    queryFn: () => api<ChatLines>("/api/v1/chats/lines/"),
+    refetchOnWindowFocus: false,
+    enabled,
+  });
+}
+
+/** Pick the line the admin's client list shows; the lists are asked again at once. */
+export function usePickChatLine() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (line: string) => api<{ ok: true; current: string }>("/api/v1/chats/lines/pick/", { json: { line } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["chat-lines"] });
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+    },
   });
 }
 

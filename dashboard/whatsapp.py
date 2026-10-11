@@ -37,7 +37,13 @@ ERROR_HINTS = {
     131051: ("نوع الرسالة ده مش مدعوم.", "Unsupported message type."),
     131056: ("بعت رسايل كتير للرقم ده في وقت قصير — استنى شوية.",
              "Too many messages to this number in a short window."),
+    133005: ("الرقم عليه PIN تحقق بخطوتين غير اللي اتبعت. اكتب الـPIN القديم في خانة الـPIN وجرّب تاني.",
+             "The number has a different two-step PIN. Type the old PIN in the PIN box and try again."),
+    136025: ("الكود غلط أو انتهى. اطلب كود جديد.", "The code is wrong or expired. Ask for a new one."),
 }
+
+#: What a phone number is asked for, wherever one is listed or looked up.
+NUMBER_FIELDS = "id,display_phone_number,verified_name,status,code_verification_status"
 
 
 class WhatsAppError(Exception):
@@ -328,6 +334,67 @@ def verify_signature(app_secret, raw_body, header_value):
         return False
     expected = hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header_value[7:])
+
+
+# ---------------------------------------------------------------------------
+# The account's numbers: list them, and bring a new one to life (``walines``)
+# ---------------------------------------------------------------------------
+
+def _form_post(conf, path, fields):
+    import urllib.parse
+
+    return _call(
+        f"{GRAPH_HOST}/{_version(conf)}/{path}",
+        token=conf.whatsapp_access_token,
+        data=urllib.parse.urlencode(fields).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+
+def _token(conf):
+    if not conf.whatsapp_access_token:
+        raise WhatsAppError("مفيش Access token في الإعدادات.", "No access token configured.")
+
+
+def list_numbers(conf=None):
+    """Every number on the business account, as Meta describes it (``NUMBER_FIELDS``)."""
+    conf = conf or _conf()
+    _token(conf)
+    waba = (conf.whatsapp_waba_id or "").strip()
+    if not waba:
+        raise WhatsAppError("اكتب الـWhatsApp Business Account ID في الإعدادات الأول.", "Save the WhatsApp Business Account ID first.")
+    answer = _call(
+        f"{GRAPH_HOST}/{_version(conf)}/{waba}/phone_numbers?fields={NUMBER_FIELDS}&limit=100",
+        token=conf.whatsapp_access_token,
+    )
+    return list(answer.get("data") or [])
+
+
+def number_info(phone_id, conf=None):
+    conf = conf or _conf()
+    _token(conf)
+    return _call(f"{GRAPH_HOST}/{_version(conf)}/{phone_id}?fields={NUMBER_FIELDS}", token=conf.whatsapp_access_token)
+
+
+def request_code(phone_id, method="SMS", language="ar", conf=None):
+    """Ask Meta to text (or call) the number a verification code."""
+    conf = conf or _conf()
+    _token(conf)
+    return _form_post(conf, f"{phone_id}/request_code", {"code_method": method, "language": language})
+
+
+def verify_code(phone_id, code, conf=None):
+    conf = conf or _conf()
+    _token(conf)
+    return _form_post(conf, f"{phone_id}/verify_code", {"code": code})
+
+
+def register_number(phone_id, pin, conf=None):
+    """Put a verified number on the Cloud API ("Pending" -> "Connected"). ``pin`` becomes its two-step PIN if it had none."""
+    conf = conf or _conf()
+    _token(conf)
+    return _form_post(conf, f"{phone_id}/register", {"messaging_product": "whatsapp", "pin": pin})
 
 
 # ---------------------------------------------------------------------------

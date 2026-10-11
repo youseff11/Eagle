@@ -18,7 +18,7 @@ Only the admin is answered. A GET changes nothing.
 from django.http import JsonResponse
 from django.urls import reverse
 
-from . import api_forms, galiases, identity, services
+from . import api_forms, galiases, identity, services, walines
 from .api_v1 import BadBody, _error, _object, _stamp, endpoint
 from .forms import SettingsForm
 from .models import AppSettings, Role
@@ -31,7 +31,7 @@ SECRET_FIELDS = (
     "imap_password", "smtp_password", "google_client_secret",
 )
 #: Stored secrets that are not form fields at all, but must not leave inside a message either.
-HIDDEN_SECRETS = ("google_refresh_token",)
+HIDDEN_SECRETS = ("google_refresh_token", "whatsapp_pin")
 
 #: The settings page in order: sections, and the groups of fields inside them (a title in both languages, or none).
 #: Every field of the form is in exactly one group - a test holds that, so a field added to the form cannot go missing here.
@@ -63,7 +63,7 @@ SECTIONS = (
         "groups": (
             {"fields": (
                 "whatsapp_verify_token", "whatsapp_phone_number_id", "whatsapp_access_token", "whatsapp_app_secret",
-                "whatsapp_api_version", "webhook_shared_secret",
+                "whatsapp_api_version", "webhook_shared_secret", "whatsapp_waba_id",
             )},
             {"ar": "خط التوظيف", "en": "The recruitment line", "fields": ("recruit_phone_number_id", "recruit_number_display")},
         ),
@@ -150,6 +150,13 @@ TEXTS = {
     },
     "whatsapp_api_version": {"label": ("API version", "API version")},
     "webhook_shared_secret": {"label": ("سر الويب هوك (للمحاكاة)", "Webhook secret (simulation)")},
+    "whatsapp_waba_id": {
+        "label": ("WhatsApp Business Account ID", "WhatsApp Business Account ID"),
+        "hint": (
+            "بيظهر في WhatsApp Manager فوق جنب اسم الحساب. محتاجينه عشان نجيب قايمة أرقام الحساب تحت.",
+            "Shown in WhatsApp Manager next to the account's name. Needed to list the account's numbers below.",
+        ),
+    },
     "recruit_phone_number_id": {
         "label": ("Phone number ID للتوظيف", "Recruitment phone number ID"),
         "hint": (
@@ -319,7 +326,9 @@ def settings(request):
             # check); without the shared secret it takes the simple one. The page says so.
             "webhook_signed": bool(conf.whatsapp_app_secret),
             "webhook_secret_set": bool(conf.webhook_shared_secret),
+            "waba_saved": bool((conf.whatsapp_waba_id or "").strip()),
         },
+        "wa_numbers": walines.describe(conf),
         "urls": {
             "webhook": request.build_absolute_uri(reverse("dashboard:wh_whatsapp")),
             "google_redirect": request.build_absolute_uri(reverse("dashboard:google_callback")),
@@ -406,6 +415,83 @@ def test_whatsapp(request):
     # That a test message went out, not to whom: the number is a person's.
     services.log(request.user, "settings.test_send", "whatsapp", "with a target" if target else "credentials only")
     return JsonResponse(_clean(wa.check_connection(target), AppSettings.load()))
+
+
+# ---------------------------------------------------------------------------
+# The account's WhatsApp numbers: list them, send a code, link one (``walines``)
+# ---------------------------------------------------------------------------
+
+def _line_failure(exc, conf):
+    """A refusal - ours or Meta's - as the page shows it, cleaned of any stored secret (the PIN among them)."""
+    return JsonResponse(_clean({
+        "ok": False,
+        "error_ar": getattr(exc, "message_ar", ""),
+        "error_en": getattr(exc, "message_en", ""),
+        "code": getattr(exc, "code", None),
+    }, conf), status=400)
+
+
+def _line_body(request):
+    try:
+        body = _object(request)
+    except BadBody:
+        return None
+    return {key: body.get(key) for key in ("id", "code", "pin", "method") if isinstance(body.get(key), str)}
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def wa_numbers_refresh(request):
+    """Ask Meta for the account's numbers now. A failure keeps the list there was."""
+    from . import whatsapp as wa
+
+    conf = AppSettings.load()
+    try:
+        walines.refresh(conf)
+    except wa.WhatsAppError as exc:
+        return _line_failure(exc, conf)
+    return JsonResponse({"ok": True, "numbers": walines.describe(conf)})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def wa_send_code(request):
+    """``{"id": "<phone number id>", "method": "SMS" | "VOICE"}``: Meta texts (or calls) the number its code."""
+    from . import whatsapp as wa
+
+    body = _line_body(request)
+    if body is None:
+        return _error(400, "bad_body")
+    conf = AppSettings.load()
+    try:
+        walines.send_code(body.get("id"), body.get("method") or "SMS")
+    except (walines.LineError, wa.WhatsAppError) as exc:
+        return _line_failure(exc, conf)
+    services.log(request.user, "whatsapp.send_code", (body.get("id") or "")[:40])
+    return JsonResponse({"ok": True})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def wa_link(request):
+    """``{"id", "code", "pin"?}``: verify the number with the code it was sent and register it, in one step.
+
+    The PIN is only for a number that already has one; without it the system's own is used (``walines.link``). Neither the
+    code nor the PIN is logged or answered.
+    """
+    from . import whatsapp as wa
+
+    body = _line_body(request)
+    if body is None:
+        return _error(400, "bad_body")
+    conf = AppSettings.load()
+    try:
+        row = walines.link(body.get("id"), body.get("code") or "", body.get("pin") or "")
+    except (walines.LineError, wa.WhatsAppError) as exc:
+        services.log(request.user, "whatsapp.link_failed", (body.get("id") or "")[:40], scrub(getattr(exc, "message_en", ""), conf)[:200])
+        return _line_failure(exc, conf)
+    services.log(request.user, "whatsapp.link", row.get("id", ""), row.get("number", ""))
+    return JsonResponse({"ok": True, "number": row, "numbers": walines.describe()})
 
 
 @endpoint("POST")

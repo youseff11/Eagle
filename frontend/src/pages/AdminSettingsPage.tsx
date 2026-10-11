@@ -5,6 +5,7 @@ import { formErrors, useConnectionTest, useGoogleDisconnect, useGoogleSync, useS
 import { useAdminSettings, useMe } from "../api/queries";
 import type { AdminSettings, ConnectionReport, FormErrors, FormField } from "../api/types";
 import { DjangoForm, useFormEdits } from "../components/admin/DjangoForm";
+import { WaNumbers } from "../components/admin/WaNumbers";
 import { Icon } from "../components/Icon";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
@@ -376,6 +377,7 @@ export function AdminSettingsPage() {
               );
             })}
 
+            {section.key === "whatsapp" && <WaNumbers numbers={data.wa_numbers ?? []} wabaSaved={data.status.waba_saved === true} />}
             {section.key === "whatsapp" && (
               <ConnectionTest
                 kind="whatsapp"

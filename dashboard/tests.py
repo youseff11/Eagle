@@ -8047,11 +8047,12 @@ class SalesLineTests(TestCase):
         self.assertEqual(self.sales.wa_phone_number_id, "")
         self.assertEqual(self.sales.mail_alias, "")
 
-    def test_moving_to_operation_keeps_the_address_but_not_the_number(self):
+    def test_moving_to_operation_keeps_the_address_and_the_number(self):
+        # 11/10/2026: the operation may hold a number of their own too (``models.WA_LINE_ROLES``), like an address.
         self.sales.role = Role.OPERATION
         self.sales.save()
         self.sales.refresh_from_db()
-        self.assertEqual(self.sales.wa_phone_number_id, "")
+        self.assertEqual(self.sales.wa_phone_number_id, self.SALES_NUMBER)
         self.assertEqual(self.sales.mail_alias, "sales1@eagle.example")
 
 

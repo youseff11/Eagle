@@ -88,6 +88,7 @@ def user_save(request, pk):
     # Read before the form binds: a ModelForm writes the posted values onto the instance while it validates.
     before = identity.access_snapshot(person)
     alias_before = person.mail_alias
+    number_before = person.wa_phone_number_id
     form, refused = api_forms.filled(request, StaffEditForm, person)
     if refused is not None:
         return refused
@@ -97,6 +98,9 @@ def user_save(request, pk):
     if person.mail_alias != alias_before:
         # Whose inbox a client's letters land in is worth a line of its own.
         services.log(request.user, "user.mail_alias", person.username, f"{alias_before or '-'} -> {person.mail_alias or '-'}")
+    if person.wa_phone_number_id != number_before:
+        # And whose chats a client's WhatsApp messages land in.
+        services.log(request.user, "user.wa_line", person.username, f"{number_before or '-'} -> {person.wa_phone_number_id or '-'}")
     identity.record_access_change(request, request.user, person, before)
     return JsonResponse({"ok": True})
 

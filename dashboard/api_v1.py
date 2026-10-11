@@ -324,6 +324,33 @@ def chats(request):
 
 
 @endpoint("GET")
+@api_role_required(Role.ADMIN)
+def chat_lines(request):
+    """The admin's line picker on the chats page: the lines there are and the one picked (``lines.view_q``)."""
+    from . import lines
+
+    return JsonResponse({"ok": True, "current": request.user.line_view or "", "lines": lines.view_choices()})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def chat_line_pick(request):
+    """``{"line": "" | "company" | "<person id>"}``: which line the admin's client list shows. A view, kept on the account."""
+    from . import lines
+
+    try:
+        body = _object(request)
+    except BadBody:
+        return _error(400, "bad_body")
+    line = body.get("line")
+    if not isinstance(line, str) or line not in {choice["key"] for choice in lines.view_choices()}:
+        return _error(400, "bad_line")
+    request.user.line_view = line
+    request.user.save(update_fields=["line_view"])
+    return JsonResponse({"ok": True, "current": line})
+
+
+@endpoint("GET")
 def room_messages(request, room_id):
     """A task room's messages after ``?after=<id>`` (``api.chat_fetch``)."""
     return api.chat_fetch(request, room_id)

@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useChatList, useMe } from "../api/queries";
 import type { ChatKind } from "../api/types";
 import { ChatList } from "../components/chat/ChatList";
+import { LinePicker } from "../components/chat/LinePicker";
 import { Conversation } from "../components/chat/Conversation";
 import { NewGroupDialog } from "../components/chat/NewGroupDialog";
 import { Icon } from "../components/Icon";
@@ -59,6 +60,7 @@ function Lists({ allowed }: { allowed: ChatKind[] }) {
         activeCode={code}
         unread={account?.unread_chat_tabs}
         onNewGroup={account?.chats.can_create_group ? () => setOpening(true) : undefined}
+        filter={kind === "clients" && account?.user.is_admin ? <LinePicker /> : undefined}
       />
       {opening && account && (
         <NewGroupDialog

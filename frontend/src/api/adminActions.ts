@@ -2,7 +2,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { download } from "../lib/download";
 import { ApiError, api, apiDownload } from "./client";
 import { qk } from "./keys";
-import type { AdminAudit, ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced } from "./types";
+import type {
+  AdminAudit, ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced, WaLineFailure, WaNumber,
+} from "./types";
+
+/** The words of a refusal from the number buttons, or `null` when it was not one (no answer, a server error). */
+export function waFailure(error: unknown): WaLineFailure | null {
+  if (!(error instanceof ApiError)) return null;
+  const payload = error.payload as Partial<WaLineFailure> | null;
+  if (!payload || (!payload.error_ar && !payload.error_en)) return null;
+  return { ok: false, error_ar: payload.error_ar ?? "", error_en: payload.error_en ?? "", code: payload.code ?? null };
+}
 
 /**
  * What the admin does on the panel's pages. Every write is a door of its own (`/api/v1/admin/...`) that gives the
@@ -230,6 +240,33 @@ export function useGoogleDisconnect() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => api<{ ok: true }>("/api/v1/admin/settings/google/disconnect/", { json: {} }),
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.adminSettings }),
+  });
+}
+
+/** Ask Meta for the account's numbers now. */
+export function useRefreshWaNumbers() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ ok: true; numbers: WaNumber[] }>("/api/v1/admin/settings/whatsapp/numbers/", { json: {} }),
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.adminSettings }),
+  });
+}
+
+/** Have Meta text (or call) a number its verification code. */
+export function useSendWaCode() {
+  return useMutation({
+    mutationFn: (body: { id: string; method: "SMS" | "VOICE" }) =>
+      api<{ ok: true }>("/api/v1/admin/settings/whatsapp/send-code/", { json: body }),
+  });
+}
+
+/** Verify a number with its code and register it, in one step. */
+export function useLinkWaNumber() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { id: string; code: string; pin: string }) =>
+      api<{ ok: true; number: WaNumber; numbers: WaNumber[] }>("/api/v1/admin/settings/whatsapp/link/", { json: body }),
     onSettled: () => void client.invalidateQueries({ queryKey: qk.adminSettings }),
   });
 }

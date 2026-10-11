@@ -15,7 +15,7 @@ One difference, harmless and deliberate: two messages with the same timestamp ar
 where the single-row path left the tie to the database.
 """
 
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Q, Subquery
 
 from . import lines, services
 from .models import (
@@ -34,7 +34,12 @@ def _window_messages(user):
     if user.is_sales:
         rows = rows.filter(owner=user)
     elif not user.is_admin_role:
-        rows = rows.filter(owner__isnull=True)
+        # The operation answers from the company number, or from their own to a client whose newest message came to it:
+        # either way the newest message on those two lines is the window's.
+        if (user.wa_phone_number_id or "").strip():
+            rows = rows.filter(Q(owner__isnull=True) | Q(owner=user))
+        else:
+            rows = rows.filter(owner__isnull=True)
     return rows.order_by("-received_at", "-id")
 
 
@@ -56,10 +61,10 @@ def client_facts(user, clients, previews=True):
         ),
     }
     if previews:
-        said = InboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
+        said = InboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.list_q(user))
         if not user.is_admin_role:
             said = said.filter(is_rate_blocked=False)
-        sent = OutboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.line_q(user))
+        sent = OutboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.list_q(user))
         notes["f_in"] = Subquery(said.filter(client=OuterRef("pk")).order_by("-received_at", "-id").values("pk")[:1])
         notes["f_out"] = Subquery(sent.filter(client=OuterRef("pk")).order_by("-created_at", "-id").values("pk")[:1])
 
