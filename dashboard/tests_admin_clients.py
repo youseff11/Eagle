@@ -13,7 +13,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from . import identity, services
-from .models import AuditLog, Channel, Client, InboundMessage, MessageAttachment, OutboundMessage, Task, TaskStatus
+from .models import AuditLog, Channel, Client, ClientRequirement, InboundMessage, MessageAttachment, OutboundMessage, Role, Task, TaskStatus, User
 from .tests_admin_screen import _Admin
 from .tests_api_v1 import CLIENT_EMAIL, CLIENT_NAME, CLIENT_PHONE, _json
 
@@ -90,8 +90,26 @@ class ListTests(_Records):
         self.assertEqual(
             row,
             {"id": self.client_obj.pk, "code": self.client_obj.code, "name": CLIENT_NAME, "company": "", "phone": CLIENT_PHONE,
-             "more_phones": 0, "email": CLIENT_EMAIL, "more_emails": 0, "active": True},
+             "more_phones": 0, "email": CLIENT_EMAIL, "more_emails": 0, "active": True,
+             "tasks": Task.objects.filter(client=self.client_obj).count(), "requirements": 0},
         )
+
+    def test_the_client_codes_columns_count_every_task_and_requirement(self):
+        # The admin's codes page is this one: its counts are the whole client's, whoever leads the task.
+        other_lead = User.objects.create_user("person_leader_two", password="pw", role=Role.TEAM_LEAD)
+        fresh = self.plain()
+        Task.objects.create(client=fresh, title="One", created_by=self.ops, team_lead=self.lead)
+        Task.objects.create(client=fresh, title="Two", created_by=self.ops, team_lead=other_lead)
+        Task.objects.create(client=fresh, title="Three", created_by=self.ops)
+        for index in range(2):
+            ClientRequirement.objects.create(client=fresh, kind="rule", text=f"Rule {index}", author=self.ops)
+        bare = self.plain(name="Bare Buyer", phone="+201112229999")
+        rows = {row["id"]: row for row in _json(self.get(self.admin, LIST))["clients"]}
+        self.assertEqual((rows[fresh.pk]["tasks"], rows[fresh.pk]["requirements"]), (3, 2))
+        self.assertEqual((rows[bare.pk]["tasks"], rows[bare.pk]["requirements"]), (0, 0))
+        # A search carries the counts too.
+        found = _json(self.get(self.admin, LIST, q="Plain"))["clients"]
+        self.assertEqual([(row["id"], row["tasks"], row["requirements"]) for row in found], [(fresh.pk, 3, 2)])
 
     def test_the_other_numbers_and_addresses_are_counted_not_listed(self):
         self.client_obj.extra_phones = "+201555000111\n+201555000222"

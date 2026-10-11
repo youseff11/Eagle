@@ -529,6 +529,7 @@ describe("Shell: the admin's panel", () => {
         <Route element={<Shell />}>
           <Route path="admin" element={<div>overview</div>} />
           <Route path="admin/*" element={<div>a page of the panel</div>} />
+          <Route path="clients/*" element={<div>a client's profile</div>} />
         </Route>
       </Routes>,
       { route },
@@ -563,6 +564,18 @@ describe("Shell: the admin's panel", () => {
     expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toHaveClass("nav__item--danger");
     // The staff panel is the employee files now: it has no line of its own on the panel.
     expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).toBeNull();
+  });
+
+  it("has no client codes line: the codes are in the client records, which a client's profile lights", async () => {
+    const view = at("/clients/CL-0001", ["admin", "operation", "chats"]);
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/clients"]')).not.toBeNull());
+    // The operation's lines are the admin's too, all but the codes.
+    expect(view.container.querySelector('.sidebar a[href="/tasks"]')).not.toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/clients"]')).toBeNull();
+    expect(view.container.textContent).not.toContain("أكواد العملاء");
+    await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("بيانات العملاء"));
+    expect(view.container.querySelector('.sidebar a[href="/admin/clients"]')).toHaveClass("is-active");
+    expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
   });
 
   it("titles every page and lights exactly one line on each", async () => {

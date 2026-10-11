@@ -1241,6 +1241,9 @@ export interface AdminClients {
     email: string;
     more_emails: number;
     active: boolean;
+    /** Every task of the client, and the requirements on file: the client codes' columns, which this page took in. */
+    tasks: number;
+    requirements: number;
   }[];
 }
 

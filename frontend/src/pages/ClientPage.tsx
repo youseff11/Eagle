@@ -112,7 +112,7 @@ export function ClientPage() {
   return (
     <>
       <div className="page-head">
-        <Link className="btn btn--sm" to="/clients" title={t("رجوع للعملاء", "Back to the clients")}>
+        <Link className="btn btn--sm" to={me.data?.user.is_admin ? "/admin/clients" : "/clients"} title={t("رجوع للعملاء", "Back to the clients")}>
           <Icon name="arrow-right" size="sm" />
           <span>{t("العملاء", "Clients")}</span>
         </Link>

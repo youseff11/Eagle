@@ -47,9 +47,12 @@ export function ClientsPage() {
   const query = asked.length <= 200 ? asked : "";
   // The same people the server lets in (`api_role_required`: the operation, the Sales, and the admin).
   const allowed = me.data !== undefined && (["operation", "sales", "team_lead"].includes(me.data.user.role) || me.data.user.is_admin);
-  const list = useClients(query, allowed);
+  // Not asked for the admin: they are sent on to the client records below.
+  const list = useClients(query, allowed && me.data?.user.is_admin !== true);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
+  // The admin's client codes are in the client records, with the names beside them: an old link or a bookmark lands there.
+  if (me.data?.user.is_admin) return <Navigate to={`/admin/clients${query ? `?${new URLSearchParams({ q: query })}` : ""}`} replace />;
 
   const data = list.data;
   const sees = data?.sees_identity ?? false;

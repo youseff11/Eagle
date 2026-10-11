@@ -21,6 +21,7 @@ function shell(route: string, lang: "ar" | "en" = "ar") {
       <Routes>
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/clients/:code" element={<ClientPage />} />
+        <Route path="/admin/clients" element={<div>client records page</div>} />
         <Route path="/tasks/:code" element={<div>one task page</div>} />
         <Route path="/" element={<div>home page</div>} />
       </Routes>
@@ -66,7 +67,7 @@ describe("ClientsPage", () => {
   it("adds the name, the company and the phone for whoever the server says may know", async () => {
     serveList(
       () => jsonResponse(list({ sees_identity: true, clients: [row("CL-0001", { name: "ACME Ltd", company: "ACME Holdings", phone: "+2010" }), row("CL-0002", { name: "", company: "", phone: "" })] })),
-      "admin",
+      "sales",
     );
     const { container } = shell("/clients");
     expect(await screen.findByText("ACME Ltd")).toBeInTheDocument();
@@ -129,6 +130,19 @@ describe("ClientsPage", () => {
       expect(listCalls(mocked.calls), who).toEqual([]);
       unmount();
     }
+  });
+
+  it("sends the admin on to the client records, search and all, without asking for the codes", async () => {
+    const mocked = serveList(() => jsonResponse(list()), "admin");
+    const { unmount } = shell("/clients?q=CL 7");
+    expect(await screen.findByText("client records page")).toBeInTheDocument();
+    expect(screen.getByTestId("where")).toHaveTextContent("/admin/clients?q=CL+7");
+    expect(listCalls(mocked.calls)).toEqual([]);
+    unmount();
+    serveList(() => jsonResponse(list()), "admin");
+    shell("/clients");
+    expect(await screen.findByText("client records page")).toBeInTheDocument();
+    expect(screen.getByTestId("where").textContent).toBe("/admin/clients");
   });
 
   it("is a Sales person's page too: they are given who the clients are, as the classic page gives them", async () => {
@@ -367,6 +381,12 @@ describe("ClientPage", () => {
     serveOne(() => jsonResponse(client()));
     shell("/clients/CL-0001");
     expect((await screen.findByRole("link", { name: /العملاء/ })).getAttribute("href")).toBe("/clients");
+  });
+
+  it("goes back to the client records for the admin, whose codes are there", async () => {
+    serveOne(() => jsonResponse(client()), "admin");
+    shell("/clients/CL-0001");
+    await waitFor(() => expect(screen.getByRole("link", { name: /^العملاء$/ }).getAttribute("href")).toBe("/admin/clients"));
   });
 
   it("sends everybody else home without asking", async () => {

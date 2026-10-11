@@ -24,6 +24,8 @@ const row = (id: number, code: string, over: Partial<AdminClients["clients"][num
   email: `c${id}@example.com`,
   more_emails: 0,
   active: true,
+  tasks: 0,
+  requirements: 0,
   ...over,
 });
 
@@ -35,7 +37,7 @@ function list(over: Partial<AdminClients> = {}): AdminClients {
     shown: 3,
     all_count: 3,
     robots_count: 1,
-    clients: [row(1, "CL-0001", { more_phones: 2, more_emails: 1 }), row(2, "CL-0002", { name: "", company: "", active: false }), row(3, "CL-0003")],
+    clients: [row(1, "CL-0001", { more_phones: 2, more_emails: 1, tasks: 10, requirements: 4 }), row(2, "CL-0002", { name: "", company: "", active: false }), row(3, "CL-0003")],
     ...over,
   };
 }
@@ -141,6 +143,18 @@ describe("AdminClientsPage: the list", () => {
     const second = container.querySelector('[data-client="CL-0002"]') as HTMLElement;
     expect(within(second).getByTitle("موقوف")).toHaveClass("dot--off");
     expect(within(second).getAllByText("—").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("is the client codes page too: every row counts the client's tasks and requirements", async () => {
+    serve("admin");
+    const { container } = open("/admin/clients");
+    await screen.findByText("CL-0001");
+    const headers = Array.from(container.querySelectorAll("th")).map((th) => th.textContent);
+    expect(headers.slice(1)).toEqual(["الكود", "الاسم", "الشركة", "التليفون", "الإيميل", "عدد التاسكات", "المتطلبات", "نشط", ""]);
+    const first = container.querySelector('[data-client="CL-0001"]') as HTMLElement;
+    expect([first.querySelector('[data-col="tasks"]')?.textContent, first.querySelector('[data-col="requirements"]')?.textContent]).toEqual(["10", "4"]);
+    const second = container.querySelector('[data-client="CL-0002"]') as HTMLElement;
+    expect([second.querySelector('[data-col="tasks"]')?.textContent, second.querySelector('[data-col="requirements"]')?.textContent]).toEqual(["0", "0"]);
   });
 
   it("opens the client's codes page and the identity form from the row", async () => {

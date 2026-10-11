@@ -165,6 +165,8 @@ function DeleteDialog({ plan, onClose, onDone }: { plan: ClientDeletePlan; onClo
 /**
  * The client records: every client with the real name, company, numbers and addresses (admin only). A search narrows
  * them, one filter lists the no-reply addresses that are not clients, and ticked clients can be deleted in two steps.
+ * It is the admin's client codes page too (their «أكواد العملاء» line is gone and `/clients` sends them here): each row
+ * carries the tasks and requirements counts, and «ملف» opens the client's profile.
  */
 export function AdminClientsPage() {
   const { t } = usePreferences();
@@ -308,6 +310,8 @@ export function AdminClientsPage() {
                   <th>{t("الشركة", "Company")}</th>
                   <th>{t("التليفون", "Phone")}</th>
                   <th>{t("الإيميل", "Email")}</th>
+                  <th>{t("عدد التاسكات", "Tasks")}</th>
+                  <th>{t("المتطلبات", "Requirements")}</th>
                   <th>{t("نشط", "Active")}</th>
                   <th />
                 </tr>
@@ -336,6 +340,8 @@ export function AdminClientsPage() {
                       {row.email || "—"}
                       {row.more_emails > 0 && <span className="chip chip--sm">+{row.more_emails}</span>}
                     </td>
+                    <td className="mono" data-col="tasks">{row.tasks}</td>
+                    <td className="mono" data-col="requirements">{row.requirements}</td>
                     <td>
                       <span className={`dot dot--${row.active ? "on" : "off"}`} title={row.active ? t("نشط", "Active") : t("موقوف", "Switched off")} />
                     </td>
@@ -353,7 +359,7 @@ export function AdminClientsPage() {
                 ))}
                 {data.clients.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="empty">
+                    <td colSpan={10} className="empty">
                       <Icon name="archive" size="xl" />
                       <span>{t("مفيش عملاء.", "No clients.")}</span>
                     </td>

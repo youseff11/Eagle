@@ -43,7 +43,7 @@ export const KEYWORDS: Record<string, string> = {
   "/lead/translators": "مترجمين متاحين فريقي translators",
   "/translator": "شغلي تاسكاتي مهامي my work tasks",
   "/clients": "عملاء اكواد كود عميل clients codes",
-  "/admin/clients": "بيانات العملاء ارقام اسماء تليفون عميل جديد client records",
+  "/admin/clients": "بيانات العملاء اكواد كود ارقام اسماء تليفون عميل جديد متطلبات تاسكات client records codes",
   "/hr/recruitment": "توظيف تعيين مرشحين لوحة recruitment hiring board",
   "/hr/vacancies": "وظايف وظائف شاغرة اعلان vacancies jobs openings",
   "/hr/candidates": "مرشحين متقدمين cv سيرة ذاتية مقابلة candidates applicants interview",

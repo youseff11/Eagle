@@ -11,6 +11,7 @@ changes nothing, then the yes, which has to carry ``confirm: true``. The blocker
 Only the admin is answered.
 """
 
+from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -41,6 +42,9 @@ def _row(client):
         "email": emails[0] if emails else "",
         "more_emails": max(len(emails) - 1, 0),
         "active": client.is_active,
+        # The client codes' own columns (the codes page is the records page for the admin): every task, not one leader's.
+        "tasks": client.task_count,
+        "requirements": client.requirement_count,
     }
 
 
@@ -55,7 +59,8 @@ def clients(request):
     rows = services.automated_clients() if show else Client.objects.all()
     if query:
         rows = rows.filter(identity.client_search(request.user, query))
-    shown = list(rows[:MAX_CLIENTS])
+    counted = rows.annotate(task_count=Count("tasks", distinct=True), requirement_count=Count("requirements", distinct=True))
+    shown = list(counted[:MAX_CLIENTS])
     identity.record_identity_list(request, [client.code for client in shown], query)
     return JsonResponse({
         "ok": True,

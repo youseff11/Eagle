@@ -65,6 +65,8 @@ export interface ScreenEntry {
     badge?: Badge;
     danger?: boolean;
     adminOnly?: boolean;
+    /** Not drawn for the admin, who has a page of their own that holds all of it (the client codes are in the client records). */
+    notAdmin?: boolean;
     needs?: Need;
     section?: Section;
     order?: number;
@@ -108,7 +110,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       // The whole company for a period: sales, the work, the money and its profit (the B2B requirements' section 21).
       { path: "/admin/ceo", icon: "chart", label: ["لوحة الـCEO", "CEO board"], order: 1 },
-      { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], order: 100 },
+      // The client codes and the real details on one page: a client's profile (`/clients/<code>`) opens from it and lights it.
+      { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], also: ["/clients"], order: 100 },
       // The B2B sheets the Sales manager hands out: the owner reads and writes all of them.
       { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 105 },
       { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 106 },
@@ -198,7 +201,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/tasks", icon: "layers", label: ["التاسكات", "Tasks"], badge: "tasks_new", order: 30 },
       { path: "/team", icon: "users", label: ["حالة الفرق", "Team status"], order: 40 },
-      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], order: 90 },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
     ],
   },
   // The team leader's own: their tasks (the badge is how many are being worked), who of their team is free, and the client
@@ -213,7 +216,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     also: ["/tasks"],
     extra: [
       { path: "/lead/translators", icon: "users", label: ["حالة المترجمين", "Translator status"], order: 15 },
-      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], order: 90 },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
       // A team leader marks the candidate tests assigned to them (and the ones nobody has taken): the reviewer's pages.
       { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"], section: "hiring" },
     ],
@@ -230,7 +233,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 18 },
       { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 19 },
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
-      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], order: 90 },
+      { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
     ],
   },
   // Technical support: the tasks (read as the operation reads them, with every tool left out) and who is free. No attendance, no leave.
@@ -294,7 +297,7 @@ function menuLines(keys: ScreenKey[], isAdmin: boolean, can: { recruit: boolean;
   const out: MenuLine[] = [];
   for (const key of keys) {
     const screen = SCREENS[key];
-    const extras = (screen.extra ?? []).filter((entry) => (!entry.adminOnly || isAdmin) && allowed(entry.needs));
+    const extras = (screen.extra ?? []).filter((entry) => (isAdmin ? !entry.notAdmin : !entry.adminOnly) && allowed(entry.needs));
     if (allowed(screen.needs)) {
       out.push({
         key,
@@ -458,6 +461,7 @@ function Frame() {
   // The longest address wins: `/hr/recruitment/settings` is its own page, not the board's.
   const extraHere = looked
     .flatMap((key) => SCREENS[key].extra ?? [])
+    .filter((entry) => !(isAdmin && entry.notAdmin))
     .filter((entry) => startsWith(entry.path) || (entry.also ?? []).some(startsWith))
     .sort((a, b) => b.path.length - a.path.length)[0];
   const sharedWith = (key: ScreenKey) => (SCREENS[key].also ?? []).some(startsWith) && !screens.some((other) => other !== key && own(other));

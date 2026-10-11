@@ -915,7 +915,7 @@ GUIDES = (
         ),
     ),
     _guide(
-        "ops-client-codes", (Role.OPERATION, Role.TEAM_LEAD, Role.SALES, Role.ADMIN), "/clients",
+        "ops-client-codes", (Role.OPERATION, Role.TEAM_LEAD, Role.SALES), "/clients",
         ("إزاي ألاقي عميل بالكود", "How do I find a client by code"),
         (
             "عميل، كود العميل، أكواد العملاء، دوّر على عميل، ملف العميل، تاسكات العميل، بيانات العميل",
@@ -939,7 +939,7 @@ GUIDES = (
         ),
     ),
     _guide(
-        "ops-requirement", (Role.OPERATION, Role.ADMIN), "/clients",
+        "ops-requirement", (Role.OPERATION,), "/clients",
         ("إزاي أضيف متطلب أو ملاحظة لعميل", "How do I add a requirement or note to a client"),
         (
             "متطلبات العميل، ضيف متطلب، ملاحظة على العميل، شروط العميل، طلبات العميل",
@@ -2152,23 +2152,45 @@ GUIDES = (
         "admin-clients", (Role.ADMIN,), "/admin/clients",
         ("إزاي أشوف أو أعدّل بيانات العملاء الحقيقية", "How do I see or edit the clients' real details"),
         (
-            "بيانات العملاء، اسم العميل الحقيقي، عميل جديد، عدّل عميل، رقم العميل، إيميل العميل",
-            "client records, the client's real name, new client, edit a client, the client's number, the client's e-mail",
+            "بيانات العملاء، أكواد العملاء، كود العميل، دوّر على عميل، اسم العميل الحقيقي، عميل جديد، عدّل عميل، رقم العميل، "
+            "إيميل العميل، ملف العميل، تاسكات العميل",
+            "client records, client codes, client code, find a client, the client's real name, new client, edit a client, "
+            "the client's number, the client's e-mail, client profile, client tasks",
         ),
         [
             "افتح «بيانات العملاء» من قسم «الشغل».",
-            "دوّر بالكود أو الاسم أو التليفون أو الإيميل.",
+            "دوّر بالكود أو الاسم أو التليفون أو الإيميل. جنب كل عميل «عدد التاسكات» و«المتطلبات».",
+            "اضغط «ملف» تفتح ملف العميل («تاسكات العميل» و«المتطلبات والملاحظات»).",
             "اضغط «تعديل» لتعديل عميل، أو «عميل جديد» لإضافة واحد، واحفظ.",
         ],
         [
             "Open «Client records» in the «Work» section.",
-            "Search by code, name, phone or e-mail.",
+            "Search by code, name, phone or e-mail. Each client shows «Tasks» and «Requirements».",
+            "Press «Profile» to open the client's profile («Client tasks» and «Requirements & notes»).",
             "Press «Edit» to change a client, or «New client» to add one, and save.",
         ],
         note=(
             "الصفحة دي للأدمن بس وفيها الأسماء والأرقام الحقيقية. كل فتح للهوية بيتسجل في «سجل النشاط».",
             "This page is the admin's only and holds the real names and numbers. Every opening of an identity is written to the «Audit log».",
         ),
+    ),
+    _guide(
+        "admin-requirement", (Role.ADMIN,), "/admin/clients",
+        ("إزاي أضيف متطلب أو ملاحظة لعميل", "How do I add a requirement or note to a client"),
+        (
+            "متطلبات العميل، ضيف متطلب، ملاحظة على العميل، شروط العميل، طلبات العميل",
+            "client requirements, add a requirement, note on the client, the client's conditions",
+        ),
+        [
+            "افتح «بيانات العملاء» واضغط «ملف» على العميل.",
+            "في «المتطلبات والملاحظات» اختار «النوع» واكتب «المتطلب».",
+            "اضغط «ضيف متطلب». هتظهر للمترجم في صفحة أي تاسك للعميل ده، فاكتب المتطلب نفسه من غير اسم العميل ولا بياناته.",
+        ],
+        [
+            "Open «Client records» and press «Profile» on the client.",
+            "In «Requirements & notes» pick the «Kind» and write the «Requirement».",
+            "Press «Add requirement». The translator sees it on any task of that client, so write the requirement itself, without the client's name or details.",
+        ],
     ),
     _guide(
         "admin-delete-clients", (Role.ADMIN,), "/admin/clients",
