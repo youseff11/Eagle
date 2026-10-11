@@ -95,7 +95,7 @@ export const SECTIONS: { key: Section; label: [string, string] }[] = [
 type Need = "recruit" | "manage";
 
 /** The counters `/me/` carries for the menu. */
-type Badge = "mail_unseen" | "tasks_new" | "tasks_open" | "unread_notifications";
+type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
   // The admin's panel: the overview first (it opens the work), then the records in the work, the people and the settings in
@@ -258,7 +258,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
 
 /** One line of the menu: a screen's first line or one of its other pages, with the section it is drawn in. */
 interface MenuLine {
-  key: ScreenKey | "notifications";
+  key: ScreenKey;
   head: boolean;
   path: string;
   icon: string;
@@ -274,19 +274,6 @@ interface MenuLine {
 
 /** Where a line with no `order` of its own stands: the lines that have one are placed around it, the rest keep their listed order. */
 const UNORDERED = 50;
-
-/** The bell is every person's: the last line of «حسابي», with the count of what they have not read. */
-const NOTIFICATIONS: MenuLine = {
-  key: "notifications",
-  head: false,
-  path: "/notifications",
-  icon: "bell",
-  label: ["التنبيهات", "Notifications"],
-  section: "mine",
-  order: 40,
-  badge: "unread_notifications",
-  end: false,
-};
 
 /**
  * The lines this person has, each address once, in the classic menu's order: by section, and inside it by `order`
@@ -328,7 +315,6 @@ function menuLines(keys: ScreenKey[], isAdmin: boolean, can: { recruit: boolean;
       });
     }
   }
-  out.push(NOTIFICATIONS);
   const seen = new Set<string>();
   const sectionAt = (line: MenuLine) => SECTIONS.findIndex((section) => section.key === line.section);
   return out
@@ -380,7 +366,7 @@ function Frame() {
   const notificationsOpen = /^\/notifications\/?$/.test(location.pathname);
   const [notificationReturnTo, setNotificationReturnTo] = useState("/");
 
-  // Both the bell and the menu return to the last page, including its filters and section.
+  // The bell returns to the last page, including its filters and section.
   useEffect(() => {
     if (!notificationsOpen) {
       setNotificationReturnTo(location.pathname + location.search + location.hash);
@@ -423,7 +409,8 @@ function Frame() {
   );
   // The pages in the person's own menu are asked for in the background, so the first click on each opens on data and
   // not on a loading screen (see `api/prefetch.ts` for which, and why only these).
-  const menuPaths = lines.map((line) => line.path).join(",");
+  // The bell's page is not in the menu, but every person has the bell, so it is warmed with the rest.
+  const menuPaths = lines.length ? [...lines.map((line) => line.path), "/notifications"].join(",") : "";
   const personId = me.data?.user.id;
   useEffect(() => {
     const account = me.data;
@@ -489,7 +476,7 @@ function Frame() {
   // so only one of them is lit), or the one whose screen shares the address with nobody else the person has.
   const lit = (line: MenuLine) =>
     Boolean(matchPath({ path: line.path, end: line.end }, location.pathname)) ||
-    (line.head ? line.key !== "notifications" && sharedWith(line.key) : (line.also ?? []).some(startsWith));
+    (line.head ? sharedWith(line.key) : (line.also ?? []).some(startsWith));
   const groups = SECTIONS.map((section) => ({ ...section, lines: lines.filter((line) => line.section === section.key) })).filter(
     (group) => group.lines.length > 0,
   );
@@ -565,7 +552,7 @@ function Frame() {
                     return (
                       <Link
                         key={line.path}
-                        to={line.key === "notifications" ? notificationTarget : line.path}
+                        to={line.path}
                         aria-current={here ? "page" : undefined}
                         className={`nav__item${here ? " is-active" : ""}${line.danger ? " nav__item--danger" : ""}`}
                       >

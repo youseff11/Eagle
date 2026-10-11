@@ -80,10 +80,10 @@ describe("Shell", () => {
     }
   });
 
-  it("shows the unread count on the bell and in the menu, and hides it at zero", async () => {
+  it("shows the unread count on the bell only, and hides it at zero", async () => {
     const view = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 3)) });
     await waitFor(() => expect(view.container.querySelector(".icon-btn__dot")).toHaveTextContent("3"));
-    expect(view.container.querySelector(".nav__count")).toHaveTextContent("3");
+    expect(view.container.querySelector(".nav__count")).toBeNull();
     view.unmount();
 
     const none = renderShell({ "/api/v1/me/": () => jsonResponse(me({}, 0)) });
@@ -135,10 +135,10 @@ describe("Shell", () => {
     const { container } = renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
     await screen.findByText("Nour");
     await userEvent.click(container.querySelector(".menu-toggle")!);
-    await userEvent.click(container.querySelector('.sidebar a[href="/notifications"]')!);
+    await userEvent.click(container.querySelector('.topbar a[href="/notifications"]')!);
     expect(await screen.findByText("notifications page")).toBeInTheDocument();
     expect(container.querySelector(".sidebar")).not.toHaveClass("is-open");
-    expect(container.querySelector(".nav__item.is-active")).toHaveTextContent("التنبيهات");
+    expect(container.querySelector('.sidebar a[href="/notifications"]')).toBeNull();
   });
 
   it("shows whether the live connection is up", async () => {
@@ -191,7 +191,7 @@ describe("Shell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في عرض الصفحة دي.");
     // The menu is still there, and it still works.
     await screen.findByText("Nour");
-    await userEvent.click(view.container.querySelector('.sidebar a[href="/notifications"]')!);
+    await userEvent.click(view.container.querySelector('.topbar a[href="/notifications"]')!);
     expect(await screen.findByText("notifications page")).toBeInTheDocument();
     vi.restoreAllMocks();
   });
@@ -260,8 +260,8 @@ describe("Shell", () => {
       "/api/v1/me/": () => jsonResponse({ ...me({ role: "translator" }), screens: ["no_such_screen", "constructor", "translator_home"] }),
     });
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/translator"]')).not.toBeNull());
-    // my work, my payroll (the same screen's other page), notifications
-    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(3);
+    // my work and my payroll (the same screen's other page); the notifications are the bell's, not the menu's
+    expect(view.container.querySelectorAll(".nav__item")).toHaveLength(2);
     expect(view.container.querySelector('.sidebar a[href="/payroll"]')).not.toBeNull();
   });
 
@@ -292,7 +292,7 @@ describe("Shell", () => {
     it("lists the mail, the chats, the tasks, the teams and the client codes in the classic menu's order", async () => {
       const view = at("/inbox", () => opsMe());
       await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-      expect(links(view.container)).toEqual(["/inbox", "/chats", "/tasks", "/team", "/clients", "/notifications"]);
+      expect(links(view.container)).toEqual(["/inbox", "/chats", "/tasks", "/team", "/clients"]);
       expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلات واردة")).toBeInTheDocument();
       expect(within(view.container.querySelector('.sidebar a[href="/clients"]') as HTMLElement).getByText("أكواد العملاء")).toBeInTheDocument();
     });
@@ -411,7 +411,7 @@ describe("Shell: the Sales screen", () => {
   it("lists their mail, their company sheets, the chats, their number and mail, and the client codes in order and words", async () => {
     const view = at("/inbox", ["sales", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/inbox", "/leads", "/sales-performance", "/chats", "/line", "/clients", "/notifications"]);
+    expect(links(view.container)).toEqual(["/inbox", "/leads", "/sales-performance", "/chats", "/line", "/clients"]);
     expect(within(view.container.querySelector('.sidebar a[href="/sales-performance"]') as HTMLElement).getByText("أداء المبيعات")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/leads"]') as HTMLElement).getByText("شيتات الشركات")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/inbox"]') as HTMLElement).getByText("ميلاتي")).toBeInTheDocument();
@@ -478,8 +478,8 @@ describe("Shell: the team leader's screen", () => {
   it("lists their tasks, who is free, the chats and the client codes in the classic menu's order, the candidate tests under recruitment", async () => {
     const view = at("/lead", ["lead", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/chats", "/clients", "/reviewer/tests", "/notifications"]);
-    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["الشغل", "التوظيف", "حسابي"]);
+    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/chats", "/clients", "/reviewer/tests"]);
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["الشغل", "التوظيف"]);
     expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
   });
@@ -545,10 +545,10 @@ describe("Shell: the admin's panel", () => {
     expect(links(view.container)).toEqual([
       "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance",
       "/admin/settings", "/admin/simulate", "/admin/audit",
-      "/notifications", "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
+      "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
-      "الشغل", "الإعدادات", "حسابي", "منطقة خطر",
+      "الشغل", "الإعدادات", "منطقة خطر",
     ]);
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
@@ -619,14 +619,14 @@ describe("Shell: the money screens", () => {
   it("gives accounting the sheet and the deductions, and keeps attendance and the rules for the admin", async () => {
     const view = at("/accounts", ["accounts", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/accounts/violations"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/chats", "/accounts", "/accounts/violations", "/accounts/invoices", "/notifications"]);
+    expect(links(view.container)).toEqual(["/chats", "/accounts", "/accounts/violations", "/accounts/invoices"]);
     expect(links(view.container)).not.toContain("/accounts/attendance");
     expect(links(view.container)).not.toContain("/accounts/rules");
     view.unmount();
     const admin = at("/accounts", ["accounts", "chats"], "admin");
     await waitFor(() => expect(admin.container.querySelector('.sidebar a[href="/accounts/rules"]')).not.toBeNull());
     // The rules are a setting: they stand with the places and rules set once, not with the month's sheet.
-    expect(links(admin.container)).toEqual(["/chats", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/invoices", "/accounts/rules", "/notifications"]);
+    expect(links(admin.container)).toEqual(["/chats", "/accounts", "/accounts/attendance", "/accounts/violations", "/accounts/invoices", "/accounts/rules"]);
   });
 
   it("titles every page and lights exactly one line on each", async () => {
@@ -689,11 +689,11 @@ describe("Shell: human resources", () => {
       "/hr/recruitment", "/hr/vacancies", "/hr/candidates",
       "/hr/employees", "/hr/attendance", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/report", "/hr/probation",
       "/hr/performance", "/hr/complaints", "/hr/salary-requests",
-      "/hr/offices", "/hr/devices", "/hr/recruitment/settings", "/hr/questions", "/notifications",
+      "/hr/offices", "/hr/devices", "/hr/recruitment/settings", "/hr/questions",
     ]);
     // Each group has its heading, and the heading comes before the group's first line.
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
-      "الشغل", "التوظيف", "الموظفين", "الإعدادات", "حسابي",
+      "الشغل", "التوظيف", "الموظفين", "الإعدادات",
     ]);
     // The salary plans move money: the admin's line, not HR's.
     expect(links(view.container)).not.toContain("/hr/salary-plans");

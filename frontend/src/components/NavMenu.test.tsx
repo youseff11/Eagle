@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState, type ReactElement } from "react";
-import { Route, Routes, useLocation } from "react-router";
+import { Link, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Lang, ScreenKey } from "../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
@@ -39,7 +39,7 @@ function renderMenu(options: Options = {}) {
   const mocked = mockFetch({
     "/api/prefs/": () => jsonResponse({ ok: true }),
     "/api/v1/me/": () =>
-      jsonResponse({ ...me({ role, is_admin: role === "admin" }, options.unread ?? 0, options.screens ?? ["operation", "chats"]), ...options.extra }),
+      jsonResponse({ ...me({ role, is_admin: role === "admin" }, options.unread ?? 0, options.screens ?? ["operation", "chats", "attendance"]), ...options.extra }),
     "/api/search/tasks/": (url) => jsonResponse({ ok: true, items: options.tasks?.(url.searchParams.get("q") ?? "") ?? [] }),
   });
   vi.stubGlobal("fetch", mocked.fn);
@@ -74,19 +74,12 @@ describe("the menu's sections", () => {
     }
   });
 
-  it("also closes notifications opened from the phone's menu", async () => {
-    const { container } = renderMenu({ route: "/tasks" });
-    await waitFor(() => expect(group(container, "mine")).not.toBeNull());
-    const sidebar = container.querySelector(".sidebar")!;
-    await userEvent.click(screen.getByRole("button", { name: "القايمة" }));
-    await userEvent.click(head(container, "mine"));
-    await userEvent.click(within(sidebar as HTMLElement).getByRole("link", { name: "التنبيهات" }));
-    expect(screen.getByTestId("where")).toHaveTextContent(/^\/notifications$/);
-    expect(sidebar).not.toHaveClass("is-open");
-    await userEvent.click(screen.getByRole("button", { name: "القايمة" }));
-    await userEvent.click(within(sidebar as HTMLElement).getByRole("link", { name: "التنبيهات" }));
-    expect(screen.getByTestId("where")).toHaveTextContent(/^\/tasks$/);
-    expect(sidebar).not.toHaveClass("is-open");
+  it("has no notifications line in the menu: the bell at the top is the only way in", async () => {
+    const { container } = renderMenu({ role: "admin", screens: ["admin"], route: "/admin" });
+    await waitFor(() => expect(group(container, "work")).not.toBeNull());
+    expect(container.querySelector('.sidebar a[href="/notifications"]')).toBeNull();
+    expect(group(container, "mine")).toBeNull();
+    expect(container.querySelector('.topbar a[href="/notifications"]')).not.toBeNull();
   });
 
   it("returns home when notifications were opened directly", async () => {
@@ -99,7 +92,7 @@ describe("the menu's sections", () => {
     const { container } = renderMenu({ role: "support", screens: ["support", "chats"], route: "/tasks" });
     await screen.findByRole("link", { name: "التاسكات" });
     const links = Array.from(container.querySelectorAll(".nav__item")).map((link) => link.textContent);
-    expect(links).toEqual(expect.arrayContaining(["التاسكات", "حالة الفرق", "الشات", "التنبيهات"]));
+    expect(links).toEqual(expect.arrayContaining(["التاسكات", "حالة الفرق", "الشات"]));
     for (const absent of ["حضوري", "إجازاتي", "مستحقاتي", "ميلات واردة", "أكواد العملاء"]) {
       expect(links.some((text) => text?.includes(absent)), absent).toBe(false);
     }
@@ -115,7 +108,7 @@ describe("the menu's sections", () => {
     expect(items(container, "work")).not.toHaveAttribute("hidden");
     expect(items(container, "mine")).toHaveAttribute("hidden");
     // A shut section still has its lines in the page (the search and the title read them), it is only out of sight.
-    expect(items(container, "mine").querySelector('a[href="/notifications"]')).not.toBeNull();
+    expect(items(container, "mine").querySelector('a[href="/attendance"]')).not.toBeNull();
   });
 
   it("draws no menu, not even the bell, until the server has said who this is, and then settles on the whole of it", async () => {
@@ -136,7 +129,7 @@ describe("the menu's sections", () => {
     expect(container.querySelector(".nav__group")).toBeNull();
     expect(container.querySelector("#navFoldAll")).toBeNull();
     // A menu that settled on its first look with only the bell in it would have opened «حسابي» and kept it open.
-    act(() => answer(jsonResponse(me({}, 0, ["operation", "chats"]))));
+    act(() => answer(jsonResponse(me({}, 0, ["operation", "chats", "attendance"]))));
     await waitFor(() => expect(group(container, "work")).not.toBeNull());
     expect(isOpen(container, "work")).toBe(true);
     expect(isOpen(container, "mine")).toBe(false);
@@ -161,7 +154,7 @@ describe("the menu's sections", () => {
     first.unmount();
 
     // Another visit: the person's own choices are kept (the section they are standing in is open anyway).
-    const again = renderMenu({ route: "/notifications" });
+    const again = renderMenu({ route: "/attendance" });
     await waitFor(() => expect(group(again.container, "mine")).not.toBeNull());
     expect(isOpen(again.container, "mine")).toBe(true);
     expect(isOpen(again.container, "work")).toBe(false);
@@ -178,10 +171,10 @@ describe("the menu's sections", () => {
   });
 
   it("opens a section when the person goes to a page in it, without writing that down as their choice", async () => {
-    const { container } = renderMenu({ route: "/tasks" });
+    const { container } = renderMenu({ route: "/tasks", page: <Link to="/attendance">go</Link> });
     await waitFor(() => expect(group(container, "mine")).not.toBeNull());
     expect(isOpen(container, "mine")).toBe(false);
-    await userEvent.click(container.querySelector('.topbar a[href="/notifications"]') as HTMLElement);
+    await userEvent.click(within(container.querySelector(".content") as HTMLElement).getByText("go"));
     await waitFor(() => expect(isOpen(container, "mine")).toBe(true));
     expect(saved()).toEqual({});
     // ...and the one they left is not shut behind them.
@@ -235,18 +228,18 @@ describe("the menu's sections", () => {
       extra: { mail_unseen: 4, tasks_new: 2, unread_chats: 3 },
     });
     await waitFor(() => expect(group(container, "mine")).not.toBeNull());
-    // The work is open and counts on its own lines; the shut one carries the bell's number on its heading.
+    // The work is open and counts on its own lines; shut, its heading carries the sum. The bell's number is the bell's alone.
     expect(head(container, "work").querySelector(".nav__roll")).toBeNull();
-    expect(head(container, "mine").querySelector(".nav__roll")).toHaveTextContent("5");
+    expect(head(container, "mine").querySelector(".nav__roll")).toBeNull();
     await userEvent.click(head(container, "work"));
     // mail 4 + tasks 2 + the chats 3
     expect(head(container, "work").querySelector(".nav__roll")).toHaveTextContent("9");
-    await userEvent.click(head(container, "mine"));
-    expect(head(container, "mine").querySelector(".nav__roll")).toBeNull();
+    await userEvent.click(head(container, "work"));
+    expect(head(container, "work").querySelector(".nav__roll")).toBeNull();
   });
 
   it("counts a message that did not go among what is waiting in the work", async () => {
-    const { container, client } = renderMenu({ route: "/notifications" });
+    const { container, client } = renderMenu({ route: "/attendance" });
     await waitFor(() => expect(group(container, "mine")).not.toBeNull());
     expect(head(container, "work").querySelector(".nav__roll")).toBeNull();
     act(() =>
@@ -309,7 +302,7 @@ describe("the menu's search", () => {
 
   it("goes to the first answer on Enter, and to the next after the arrow", async () => {
     const { container } = renderMenu({ role: "admin", screens: ["admin", "accounts"], route: "/admin" });
-    await waitFor(() => expect(group(container, "mine")).not.toBeNull());
+    await waitFor(() => expect(group(container, "work")).not.toBeNull());
     await userEvent.type(box(container), "المخالفات");
     await waitFor(() => expect(rows(container).length).toBeGreaterThan(0));
     expect(rows(container)[0]).toHaveClass("is-active");
@@ -353,7 +346,7 @@ describe("the menu's search", () => {
 
   it("finds a section inside a page and lands on it", async () => {
     const { container } = renderMenu({ role: "admin", screens: ["admin"], route: "/admin" });
-    await waitFor(() => expect(group(container, "mine")).not.toBeNull());
+    await waitFor(() => expect(group(container, "work")).not.toBeNull());
     await userEvent.type(box(container), "كلمات الحظر");
     const row = await screen.findByRole("option", { name: /كلمات الحظر/ });
     // It says which page it is in, the way the classic menu did.
@@ -495,7 +488,7 @@ describe("landing on a part of a page", () => {
 
   it("does nothing, and keeps nothing waiting, for a part that never comes", async () => {
     const { container } = renderMenu({ route: "/admin/settings#nowhere", role: "admin", screens: ["admin"] });
-    await waitFor(() => expect(group(container, "mine")).not.toBeNull());
+    await waitFor(() => expect(group(container, "work")).not.toBeNull());
     expect(container.querySelector(".is-found")).toBeNull();
   });
 });

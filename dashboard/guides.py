@@ -264,12 +264,12 @@ GUIDES = (
             "notifications, the bell, alerts, mark as read, mark all read",
         ),
         [
-            "الجرس في الشريط اللي فوق عليه رقم التنبيهات اللي لسه ماتقراتش. اضغط عليه (أو افتح «التنبيهات» من قسم «حسابي»).",
+            "الجرس في الشريط اللي فوق عليه رقم التنبيهات اللي لسه ماتقراتش. اضغط عليه.",
             "اضغط «افتح» على أي تنبيه يوديك للصفحة المعنية.",
             "زرار «مقروء» جمب أي تنبيه لسه ماتقراش بيعلّمه هو بس. «علّم الكل مقروء» بيصفّر العداد. «المزيد» بيجيب الأقدم.",
         ],
         [
-            "The bell in the bar at the top shows how many notifications are unread. Press it (or open «Notifications» in the «My account» section).",
+            "The bell in the bar at the top shows how many notifications are unread. Press it.",
             "Press «Open» on a notification to go to the page it is about.",
             "The «Read» button beside an unread notification marks just that one. «Mark all read» clears the counter. «Load more» brings the older ones.",
         ],
