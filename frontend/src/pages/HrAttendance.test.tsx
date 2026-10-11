@@ -173,7 +173,7 @@ describe("HrAttendancePage", () => {
   it("shows the four numbers and every person's day with its times", async () => {
     serve("hr");
     const { container } = open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     expect(Array.from(container.querySelectorAll(".kpi")).map((one) => one.textContent)).toEqual(["حاضر2", "تأخير1", "بره النطاق1", "ساعات15:00"]);
     const first = container.querySelector('[data-day="1"]') as HTMLElement;
     expect(within(first).getByText("9:05 AM")).toBeInTheDocument();
@@ -185,7 +185,7 @@ describe("HrAttendancePage", () => {
   it("marks lateness, an early leave, a shortfall, overtime, a punch from outside, extra time, an open day and one that was voided", async () => {
     serve("hr");
     const { container } = open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     const nada = container.querySelector('[data-day="2"]') as HTMLElement;
     expect(within(nada).getByText("تأخير 20د")).toHaveClass("badge--wait");
     expect(within(nada).getByText("مبكر 5د")).toBeInTheDocument();
@@ -204,7 +204,7 @@ describe("HrAttendancePage", () => {
   it("names who was rostered and has no row today", async () => {
     serve("hr");
     const { container } = open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     const note = container.querySelector('[data-note="missing"]') as HTMLElement;
     expect(note).toHaveTextContent("Hala");
     expect(note).toHaveTextContent("Morning");
@@ -217,23 +217,32 @@ describe("HrAttendancePage", () => {
     expect(container.querySelector('[data-note="truncated"]')).not.toBeNull();
   });
 
-  it("changes the view through the address and asks the door for that one", async () => {
+  it("is one day only: no day, week or month tabs, and the address cannot ask for a range", async () => {
     const served = serve("hr");
+    open("/hr/attendance?view=month");
+    await screen.findByRole("heading", { name: "الحضور" });
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByText("أسبوعي")).toBeNull();
+    expect(reads(served, "/api/v1/hr/attendance/")[0]).toBe("/api/v1/hr/attendance/");
+  });
+
+  it("opens each person's whole month from «السجل» at the end of the row, in the month of the day shown", async () => {
+    serve("hr", { "/api/v1/hr/attendance/": () => jsonResponse(board({ date: "2026-09-16" })) });
     const user = userEvent.setup();
-    open("/hr/attendance");
-    await screen.findByText("السجل");
-    await user.click(screen.getByRole("tab", { name: "أسبوعي" }));
-    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/hr/attendance?view=week"));
-    await waitFor(() => expect(reads(served, "/api/v1/hr/attendance/")).toContain("/api/v1/hr/attendance/?view=week"));
-    await user.click(screen.getByRole("tab", { name: "يومي" }));
-    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/hr\/attendance$/));
+    const { container } = open("/hr/attendance");
+    await screen.findByRole("heading", { name: "الحضور" });
+    const cells = (container.querySelector('[data-day="2"]') as HTMLElement).querySelectorAll("td");
+    const link = within(cells[cells.length - 1] as HTMLElement).getByRole("link", { name: /السجل/ });
+    expect(link).toHaveAttribute("href", "/hr/report?period=2026-9&user=102");
+    await user.click(link);
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/hr/report?period=2026-9&user=102"));
   });
 
   it("filters by person, role, mode, shift and status, each in the address", async () => {
     const served = serve("hr");
     const user = userEvent.setup();
     open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     await user.selectOptions(screen.getByLabelText("الموظف"), "102");
     await user.selectOptions(screen.getByLabelText("الدور"), "translator");
     await user.selectOptions(screen.getByLabelText("النظام"), "remote");
@@ -249,7 +258,7 @@ describe("HrAttendancePage", () => {
   it("picks a date", async () => {
     const served = serve("hr");
     open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     const date = screen.getByLabelText("اليوم");
     expect(date).toHaveValue("2026-10-03");
     fireEvent.change(date, { target: { value: "2026-09-16" } });
@@ -272,16 +281,16 @@ describe("HrAttendancePage", () => {
   it("has no review button when nothing is flagged", async () => {
     serve("hr", { "/api/v1/hr/attendance/": () => jsonResponse(board({ flagged_count: 0 })) });
     open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     expect(screen.queryByRole("button", { name: /محتاج مراجعة/ })).toBeNull();
   });
 
   it("forwards only the filters it knows to the door", async () => {
     const served = serve("hr");
     open("/hr/attendance?view=week&evil=1&date=2026-09-16");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     const asked = reads(served, "/api/v1/hr/attendance/");
-    expect(asked[0]).toBe("/api/v1/hr/attendance/?view=week&date=2026-09-16");
+    expect(asked[0]).toBe("/api/v1/hr/attendance/?date=2026-09-16");
   });
 
   it("speaks English when asked", async () => {
@@ -292,7 +301,7 @@ describe("HrAttendancePage", () => {
       </ToastProvider>,
       { route: "/hr/attendance", lang: "en" },
     );
-    await screen.findByText("The record");
+    await screen.findByRole("heading", { name: "Attendance" });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Attendance board");
     expect(within(container.querySelector('[data-day="1"]') as HTMLElement).getByText("9:05 AM")).toBeInTheDocument();
   });
@@ -300,7 +309,7 @@ describe("HrAttendancePage", () => {
   it("does not ask again when the window is focused", async () => {
     const served = serve("hr");
     open("/hr/attendance");
-    await screen.findByText("السجل");
+    await screen.findByRole("heading", { name: "الحضور" });
     window.dispatchEvent(new Event("focus"));
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(reads(served, "/api/v1/hr/attendance/")).toHaveLength(1);
@@ -316,7 +325,7 @@ describe("HrAttendancePage", () => {
     }
     serve("admin");
     open("/hr/attendance");
-    expect(await screen.findByText("السجل")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "الحضور" })).toBeInTheDocument();
   });
 
   it("says so when the board cannot be read", async () => {

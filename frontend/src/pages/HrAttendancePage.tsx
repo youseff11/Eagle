@@ -7,11 +7,12 @@ import { usePreferences } from "../i18n/Preferences";
 import { minutesHm } from "../lib/payroll";
 
 /** The filters the board understands: anything else in the address is not forwarded to the door. */
-const FILTERS = ["view", "date", "user", "role", "day_mode", "shift", "status", "flagged"] as const;
+const FILTERS = ["date", "user", "role", "day_mode", "shift", "status", "flagged"] as const;
 
 /**
- * Everybody's attendance for a day, a week or a month. The filters live in the address, so a view is a link that can be sent. The
- * day view also names who was rostered and has no row at all: the people a table of rows would otherwise draw invisible.
+ * Everybody's attendance for one day. The filters live in the address, so a view is a link that can be sent. It also names who was
+ * rostered and has no row at all: the people a table of rows would otherwise draw invisible. A person's whole month is «السجل» on the
+ * row, which opens the monthly report for that person and the month of the day shown.
  */
 export function HrAttendancePage() {
   const { t, lang } = usePreferences();
@@ -37,16 +38,15 @@ export function HrAttendancePage() {
     setParams(next);
   };
   const words = (value: { ar: string; en: string }) => (lang === "ar" ? value.ar : value.en);
-  const view = data.view;
+  const [year, month] = data.date.split("-");
+  const period = `${year}-${Number(month)}`;
   const flagged = kept.get("flagged") === "1";
 
   return (
     <>
       <div className="page-head">
         <h1>{t("لوحة الحضور", "Attendance board")}</h1>
-        <div className="page-head__sub mono">
-          {data.first_day} → {data.last_day}
-        </div>
+        <div className="page-head__sub mono">{data.date}</div>
         <div className="grow" />
         {(data.flagged_count > 0 || flagged) && (
           <button className={`btn btn--sm${flagged ? " btn--primary" : ""}`} type="button" onClick={() => set("flagged", flagged ? "" : "1")}>
@@ -79,26 +79,6 @@ export function HrAttendancePage() {
       <div className="card card--flat">
         <div className="picker">
           <div className="picker__row">
-            <div className="tabs" role="tablist">
-              {(
-                [
-                  ["day", "يومي", "Day"],
-                  ["week", "أسبوعي", "Week"],
-                  ["month", "شهري", "Month"],
-                ] as const
-              ).map(([value, ar, en]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === value}
-                  className={`tab${view === value ? " is-active" : ""}`}
-                  onClick={() => set("view", value === "day" ? "" : value)}
-                >
-                  {t(ar, en)}
-                </button>
-              ))}
-            </div>
             <input className="input" type="date" aria-label={t("اليوم", "Date")} value={kept.get("date") ?? data.date} onChange={(event) => set("date", event.target.value)} />
             <select className="input" aria-label={t("الموظف", "Employee")} value={kept.get("user") ?? ""} onChange={(event) => set("user", event.target.value)}>
               <option value="">{t("كل الموظفين", "Everyone")}</option>
@@ -163,7 +143,7 @@ export function HrAttendancePage() {
       <div className="card">
         <div className="card__head">
           <Icon name="users" />
-          <h3>{t("السجل", "The record")}</h3>
+          <h3>{t("الحضور", "Attendance")}</h3>
         </div>
         <div className="table-wrap">
           <table className="table" data-table="board">
@@ -177,6 +157,7 @@ export function HrAttendancePage() {
                 <th>{t("انصراف", "Out")}</th>
                 <th>{t("ساعات", "Hours")}</th>
                 <th>{t("الحالة", "Status")}</th>
+                <th />
                 <th />
               </tr>
             </thead>
@@ -204,11 +185,17 @@ export function HrAttendancePage() {
                       <span>{t("عدّل", "Edit")}</span>
                     </Link>
                   </td>
+                  <td>
+                    <Link className="btn btn--sm btn--ghost" data-link="month" to={`/hr/report?period=${period}&user=${row.user.id}`}>
+                      <Icon name="calendar" size="sm" />
+                      <span>{t("السجل", "Record")}</span>
+                    </Link>
+                  </td>
                 </tr>
               ))}
               {data.rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="empty">
+                  <td colSpan={10} className="empty">
                     {t("مفيش سجلات في المدى ده.", "Nothing recorded in this range.")}
                   </td>
                 </tr>
