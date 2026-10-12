@@ -181,7 +181,17 @@ button.nav-tools__btn { appearance: none; }
 /* The company sheet in the shape of the Sales team's own Google Sheet (12/10/2026): the green header in bold, the black
    band under it, peach rows with thin dark lines, the text in the middle - the sheet's own colours in the dark theme too
    (the owner's choice: the team sees the page it knows). A cell is a field that looks like a cell until it is clicked. */
-.sheet-wrap { overflow-x: auto; border: 1px solid #000; border-radius: 6px; }
+.sheet-wrap { overflow-x: auto; border: 1px solid #000; border-radius: 6px; --sheet-bar: #f1f3f4; --sheet-bar-hover: #fff; --sheet-bar-track: #3c4043; }
+/* The sideways scrollbar under the sheet is how the far columns are reached: white on grey in the dark theme (the owner
+   could not see the dark one), grey on light grey in the light theme, and thicker than the page's own. */
+[data-theme="light"] .sheet-wrap { --sheet-bar: #9aa0a6; --sheet-bar-hover: #5f6368; --sheet-bar-track: #e8eaed; }
+.sheet-wrap::-webkit-scrollbar { height: 14px; }
+.sheet-wrap::-webkit-scrollbar-track { background: var(--sheet-bar-track); }
+.sheet-wrap::-webkit-scrollbar-thumb { background: var(--sheet-bar); border-radius: 7px; border: 3px solid var(--sheet-bar-track); }
+.sheet-wrap::-webkit-scrollbar-thumb:hover { background: var(--sheet-bar-hover); }
+@supports not selector(::-webkit-scrollbar) {
+  .sheet-wrap { scrollbar-color: var(--sheet-bar) var(--sheet-bar-track); }
+}
 .sheet {
   --sheet-head: #d9ead3; --sheet-head-ink: #000; --sheet-band: #000;
   --sheet-row: #fce5cd; --sheet-row-hover: #f9d9b7; --sheet-ink: #000; --sheet-soft: #5f6368;
