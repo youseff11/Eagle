@@ -451,12 +451,14 @@ export interface ReadRowsResponse {
 /** Read an Excel / CSV file, or pasted cells, into rows - nothing is written (`/sheets/<id>/read/`). */
 export function useReadRows(sheetId: number) {
   return useMutation({
-    mutationFn: (source: { file: File } | { text: string }) => {
+    mutationFn: (source: { file: File } | { text: string } | { link: string }) => {
       if ("file" in source) {
         const form = new FormData();
         form.append("file", source.file);
         return api<ReadRowsResponse>(`/api/v1/b2b/sheets/${sheetId}/read/`, { multipart: form });
       }
+      // A Google Sheets link: the server reads that sheet itself (it must be open to anyone with the link).
+      if ("link" in source) return api<ReadRowsResponse>(`/api/v1/b2b/sheets/${sheetId}/read/`, { json: { link: source.link } });
       return api<ReadRowsResponse>(`/api/v1/b2b/sheets/${sheetId}/read/`, { json: { text: source.text } });
     },
   });

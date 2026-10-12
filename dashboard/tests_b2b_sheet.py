@@ -3,6 +3,7 @@ a cell edited on the sheet that saves that cell alone, and their sheet uploaded 
 
 import importlib
 from datetime import timedelta
+from unittest import mock
 from decimal import Decimal
 
 from django.apps import apps
@@ -351,3 +352,100 @@ class SendTests(_B2b):
         self.lead.refresh_from_db()
         self.assertIsNotNone(self.lead.email_at)
         self.assertEqual(self.lead.status, "contacted")
+
+
+class _Answer:
+    """What ``urllib`` hands back: headers, and the body read in one go."""
+
+    def __init__(self, body, kind="text/csv; charset=utf-8"):
+        self.body, self.headers = body, {"Content-Type": kind}
+
+    def read(self, limit=-1):
+        return self.body if limit < 0 else self.body[:limit]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class LinkTests(_B2b):
+    """A Google Sheets link instead of a file (12/10/2026): the server reads the sheet itself, when it is open to a link."""
+
+    LINK = "https://docs.google.com/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit?usp=sharing"
+
+    def read(self, link):
+        return self.post(self.sales, "v1_b2b_rows_read", {"link": link}, self.sheet.pk)
+
+    def test_the_export_address_is_built_from_the_id_and_the_tab_only(self):
+        sheet_id = "1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ"
+        self.assertEqual(b2b_import.export_url(self.LINK), f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv")
+        self.assertEqual(
+            b2b_import.export_url(f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid=12345"),
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=12345",
+        )
+        self.assertEqual(
+            b2b_import.export_url("https://docs.google.com/spreadsheets/d/e/2PACX-1vQabcdefghijklmnopqrstuv/pubhtml"),
+            "https://docs.google.com/spreadsheets/d/e/2PACX-1vQabcdefghijklmnopqrstuv/pub?output=csv",
+        )
+        for bad in (
+            "http://docs.google.com/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit",
+            "https://docs.google.com.evil.test/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit",
+            "https://evil.test/?https://docs.google.com/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ",
+            "https://docs.google.com/document/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit",
+            "https://docs.google.com/spreadsheets/d/short/edit",
+            "file:///etc/passwd",
+        ):
+            with self.assertRaises(b2b_import.Unreadable, msg=bad):
+                b2b_import.export_url(bad)
+
+    def test_a_shared_sheet_is_read_into_rows_and_nothing_is_written(self):
+        csv = TEAM_SHEET.encode("utf-8")
+        with mock.patch("dashboard.b2b_import._open", return_value=_Answer(csv)) as opened:
+            answer = self.read(self.LINK)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertTrue(opened.call_args.args[0].startswith("https://docs.google.com/spreadsheets/d/1ApFC"))
+        body = _json(answer)
+        self.assertEqual([row["company_name"] for row in body["rows"]][:2], ["BASH", "Tathkarah travels"])
+        self.assertEqual(body["rows"][0]["status"], "contacted")
+        self.assertEqual(Lead.objects.count(), 1)
+        self.assertTrue(AuditLog.objects.filter(action="b2b.read_link").exists())
+
+    def test_a_closed_sheet_says_how_to_open_it(self):
+        sign_in = _Answer(b"<!DOCTYPE html><html>Sign in</html>", kind="text/html")
+        with mock.patch("dashboard.b2b_import._open", return_value=sign_in):
+            body = _json(self.read(self.LINK))
+        self.assertEqual(body["error"], "unreadable")
+        self.assertIn("Anyone with the link", body["message_en"])
+
+    def test_a_redirect_off_google_is_never_followed(self):
+        handler = b2b_import._StayOnGoogle()
+        for away in ("https://accounts.google.com/ServiceLogin?continue=x", "https://evil.test/x", "http://doc-0s.googleusercontent.com/x"):
+            with self.assertRaises(b2b_import.Unreadable, msg=away):
+                handler.redirect_request(None, None, 302, "Found", {}, away)
+        self.assertTrue(b2b_import._google_host("https://doc-0s-1c-sheets.googleusercontent.com/export/abc"))
+        self.assertFalse(b2b_import._google_host("https://googleusercontent.com.evil.test/x"))
+
+    def test_google_unreachable_or_missing_or_too_big_says_why(self):
+        import urllib.error
+
+        cases = (
+            (urllib.error.HTTPError(self.LINK, 404, "Not Found", {}, None), "does not exist"),
+            (urllib.error.HTTPError(self.LINK, 403, "Forbidden", {}, None), "Anyone with the link"),
+            (urllib.error.URLError("down"), "Could not reach Google"),
+            (TimeoutError(), "Could not reach Google"),
+        )
+        for failure, words in cases:
+            with mock.patch("dashboard.b2b_import._open", side_effect=failure):
+                self.assertIn(words, _json(self.read(self.LINK))["message_en"])
+        huge = _Answer(b"a,b\n" * (b2b_import.MAX_FILE_BYTES // 4 + 10))
+        with mock.patch("dashboard.b2b_import._open", return_value=huge):
+            self.assertIn("over 5 MB", _json(self.read(self.LINK))["message_en"])
+
+    def test_a_link_that_is_not_a_sheet_opens_nothing(self):
+        with mock.patch("dashboard.b2b_import._open") as opened:
+            body = _json(self.read("http://127.0.0.1:8000/admin/"))
+            self.assertEqual(self.read(5).status_code, 400)
+        self.assertEqual(body["error"], "unreadable")
+        opened.assert_not_called()

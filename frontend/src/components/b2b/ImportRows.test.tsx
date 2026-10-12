@@ -92,6 +92,39 @@ describe("ImportRows", () => {
     expect(screen.getByText("2 شركة جاهزة تتضاف")).toBeInTheDocument();
   });
 
+  it("reads a Google Sheets link, keeps the status that came with it, and adds the rows", async () => {
+    const user = userEvent.setup();
+    const mocked = serve(() =>
+      jsonResponse({
+        ok: true,
+        rows: [{ ...row({ company_name: "BASH", phone: "96522213775" }), status: "contacted", priority: "medium" }],
+        mapped: { company_name: "الشركة", status: "الحالة" },
+        more: false,
+      }),
+    );
+    open();
+    const link = "https://docs.google.com/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit?usp=sharing";
+    await user.type(screen.getByLabelText("أو حط لينك الشيت من Google Sheets"), link);
+    await user.click(screen.getByRole("button", { name: "اقرا الشيت" }));
+    expect(JSON.parse(String(posts(mocked.calls, "/api/v1/b2b/sheets/3/read/")[0]?.init?.body))).toEqual({ link });
+    expect(await screen.findByText(/الحالة → الحالة/)).toBeInTheDocument();
+    await screen.findByDisplayValue("BASH");
+    await user.click(screen.getByRole("button", { name: "ضيفهم" }));
+    await waitFor(() => expect(posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/")).toHaveLength(1));
+    const body = JSON.parse(String(posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/")[0]?.init?.body));
+    expect(body.rows[0]).toMatchObject({ company_name: "BASH", status: "contacted", priority: "medium" });
+  });
+
+  it("says how to open a sheet that is not shared", async () => {
+    const user = userEvent.setup();
+    serve(() => jsonResponse({ ok: false, error: "unreadable", message: "الشيت مقفول. افتحه في Google Sheets واضغط Share", message_en: "x" }, 400));
+    open();
+    expect(screen.getByRole("button", { name: "اقرا الشيت" })).toBeDisabled();
+    await user.type(screen.getByLabelText("أو حط لينك الشيت من Google Sheets"), "https://docs.google.com/spreadsheets/d/1ApFC-DzCnxbIANj_AFZpWmAvaqleT74NYP0eU2xjsGQ/edit");
+    await user.click(screen.getByRole("button", { name: "اقرا الشيت" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("الشيت مقفول");
+  });
+
   it("says why a file could not be read", async () => {
     const user = userEvent.setup();
     serve(() => jsonResponse({ ok: false, error: "unreadable", message: "الملف ده مش Excel سليم. احفظه .xlsx أو CSV.", message_en: "x" }, 400));

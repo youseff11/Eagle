@@ -21,16 +21,17 @@ def proxy_url():
     return ""
 
 
-def opener():
-    """A urllib opener that honours the configured proxy, if any."""
+def opener(*handlers):
+    """A urllib opener that honours the configured proxy, if any. ``handlers`` are added to it (a redirect handler that
+    keeps a request on one site, for one)."""
     proxy = proxy_url()
     if proxy:
         return urllib.request.build_opener(
-            urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy}), *handlers
         )
     # ProxyHandler({}) disables urllib's implicit environment lookup so the
     # behaviour is identical whether or not the host exports proxy variables.
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), *handlers)
 
 
 def urlopen(request, timeout=60):

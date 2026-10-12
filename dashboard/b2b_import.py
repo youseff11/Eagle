@@ -14,10 +14,13 @@ refused (the entity tricks live there).
 import csv
 import io
 import re
+import urllib.error
+import urllib.request
 import zipfile
+from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-from . import b2b
+from . import b2b, net
 
 #: The largest file read, what its parts may unpack to all together, and the most rows a file brings.
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -295,6 +298,91 @@ def read_text(text):
         if len(table) > MAX_ROWS + 1:
             break
     return table
+
+
+# ---------------------------------------------------------------------------
+# A Google Sheets link (12/10/2026): read the sheet itself instead of a file downloaded from it
+# ---------------------------------------------------------------------------
+
+#: A Google Sheets link as the Share button or the address bar gives it: the sheet's id (or, for a sheet published to the
+#: web, its "e/..." id), and anything after it. Nothing but this is ever opened: the server never fetches an address a
+#: person typed, only the export address it builds from the id.
+SHEET_LINK = re.compile(r"^https://docs\.google\.com/spreadsheets/d/(e/)?([A-Za-z0-9_-]{20,200})(?:[/?#].*)?$")
+GID = re.compile(r"[#?&]gid=(\d{1,15})")
+#: How long Google is waited for.
+LINK_TIMEOUT = 20
+
+def _not_shared():
+    return Unreadable(
+        "الشيت مقفول. افتحه في Google Sheets واضغط Share ← General access ← Anyone with the link (Viewer)، وبعدين حط اللينك تاني.",
+        "The sheet is not shared. In Google Sheets press Share → General access → Anyone with the link (Viewer), then paste the link again.",
+    )
+
+
+def export_url(link):
+    """The address Google gives the sheet's tab as CSV, built from the link's id and tab. ``Unreadable`` for anything that
+    is not a Google Sheets link."""
+    link = (link or "").strip()
+    found = SHEET_LINK.match(link) if len(link) <= 2000 else None
+    if found is None:
+        raise Unreadable(
+            "ده مش لينك Google Sheet. انسخ اللينك من زرار Share في الشيت (بيبدأ بـ https://docs.google.com/spreadsheets/).",
+            "That is not a Google Sheets link. Copy it from the sheet's Share button (it starts with https://docs.google.com/spreadsheets/).",
+        )
+    published, sheet_id = found.group(1), found.group(2)
+    tab = GID.search(link)
+    tab = f"&gid={tab.group(1)}" if tab else ""
+    if published:
+        return f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv{tab}"
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv{tab}"
+
+
+def _google_host(url):
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and (host == "docs.google.com" or host.endswith(".googleusercontent.com"))
+
+
+class _StayOnGoogle(urllib.request.HTTPRedirectHandler):
+    """Google answers the export with a redirect to its file server; a sheet that is not shared sends it to the sign-in
+    page instead. Anything that leaves Google's sheet and file hosts is the sheet not being open to a link - and is never
+    followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _google_host(newurl):
+            raise _not_shared()
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "Eagle/1.0", "Accept": "text/csv"})
+    return net.opener(_StayOnGoogle()).open(request, timeout=LINK_TIMEOUT)
+
+
+def read_link(link):
+    """``(rows, mapped)`` from a Google Sheets link, read as CSV. The sheet must be open to anyone with the link: a closed
+    one, one that is not there, Google out of reach, or an answer over ``MAX_FILE_BYTES`` is ``Unreadable`` with why."""
+    url = export_url(link)
+    try:
+        with _open(url) as response:
+            kind = (response.headers.get("Content-Type") or "").lower()
+            data = response.read(MAX_FILE_BYTES + 1)
+    except Unreadable:
+        raise
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise _not_shared() from None
+        if exc.code == 404:
+            raise Unreadable("الشيت ده مش موجود. اتأكد من اللينك.", "That sheet does not exist. Check the link.") from None
+        raise Unreadable("جوجل مارضيش يدّي الشيت دلوقتي. جرّب تاني بعد شوية.", "Google did not give the sheet now. Try again in a while.") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise Unreadable("مقدرتش أوصل لجوجل دلوقتي. جرّب تاني بعد شوية.", "Could not reach Google now. Try again in a while.") from None
+    if len(data) > MAX_FILE_BYTES:
+        raise Unreadable("الشيت أكبر من 5 ميجا. قسّمه على أكتر من شيت.", "The sheet is over 5 MB. Split it into smaller ones.")
+    # A sign-in or error page instead of the cells: the sheet is not open to a link.
+    if "html" in kind or data[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
+        raise _not_shared()
+    return to_rows(read_text(_decode(data)))
 
 
 def read(name, data):

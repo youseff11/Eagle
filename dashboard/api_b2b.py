@@ -432,7 +432,8 @@ MAX_PASTED_TEXT = 2 * 1024 * 1024
 @endpoint("POST")
 @api_gate(b2b.has_door)
 def rows_read(request, sheet_id):
-    """Read a block of companies, and write nothing: an Excel or CSV file (``file``, multipart) or pasted cells (``{"text"}``).
+    """Read a block of companies, and write nothing: an Excel or CSV file (``file``, multipart), pasted cells (``{"text"}``),
+    or a Google Sheets link open to anyone with it (``{"link"}``: the server reads that sheet itself, 12/10/2026).
     The rows come back for the page to show and correct; adding them is ``rows_add``. The columns are found by their names
     (``b2b_import``), and ``mapped`` says which header each came from."""
     from . import b2b_import
@@ -450,10 +451,17 @@ def rows_read(request, sheet_id):
             if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_PASTED_TEXT:
                 return _error(400, "too_big")
             body = json.loads(request.body or b"{}")
-            text = body.get("text") if isinstance(body, dict) else None
-            if not isinstance(text, str) or "\x00" in text:
-                return _error(400, "bad_request")
-            rows, mapped = b2b_import.to_rows(b2b_import.read_text(text))
+            link = body.get("link") if isinstance(body, dict) else None
+            if link is not None:
+                if not isinstance(link, str) or len(link) > 2000:
+                    return _error(400, "bad_request")
+                rows, mapped = b2b_import.read_link(link)
+                services.log(request.user, "b2b.read_link", f"sheet {sheet_id}", f"{len(rows)} row(s)")
+            else:
+                text = body.get("text") if isinstance(body, dict) else None
+                if not isinstance(text, str) or "\x00" in text:
+                    return _error(400, "bad_request")
+                rows, mapped = b2b_import.to_rows(b2b_import.read_text(text))
     except b2b_import.Unreadable as problem:
         return JsonResponse({"ok": False, "error": "unreadable", "message": problem.ar, "message_en": problem.en}, status=400)
     except (ValueError, RecursionError, UnicodeDecodeError):

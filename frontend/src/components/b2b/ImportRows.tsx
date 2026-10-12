@@ -38,6 +38,7 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
   const read = useReadRows(sheetId);
   const add = useAddRows(sheetId);
   const [text, setText] = useState("");
+  const [link, setLink] = useState("");
   const [rows, setRows] = useState<B2bRow[] | null>(null);
   const [mapped, setMapped] = useState<string[]>([]);
   const [more, setMore] = useState(false);
@@ -45,7 +46,7 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
   const busy = read.isPending || add.isPending;
   const ready = (rows ?? []).filter((row) => row.company_name.trim() !== "");
 
-  const take = (source: { file: File } | { text: string }) => {
+  const take = (source: { file: File } | { text: string } | { link: string }) => {
     setProblem("");
     read.mutate(source, {
       onSuccess: (answer) => {
@@ -100,6 +101,30 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
             {read.isPending ? t("بيتقري...", "Reading...") : t("اختار الملف", "Choose the file")}
             <input type="file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" style={{ display: "none" }} aria-label={t("ملف Excel أو CSV", "Excel or CSV file")} disabled={busy} onChange={pick} />
           </label>
+          <div className="field">
+            <label htmlFor="import-link">{t("أو حط لينك الشيت من Google Sheets", "Or paste the Google Sheets link")}</label>
+            <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
+              <input
+                className="input grow"
+                id="import-link"
+                dir="ltr"
+                maxLength={2000}
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                value={link}
+                onChange={(event) => setLink(event.target.value)}
+              />
+              <button className="btn" type="button" disabled={busy || !link.trim()} onClick={() => take({ link: link.trim() })}>
+                <Icon name="globe" />
+                {t("اقرا الشيت", "Read the sheet")}
+              </button>
+            </div>
+            <small className="muted">
+              {t(
+                "لازم الشيت يبقى مفتوح للّينك: في Google Sheets اضغط Share ← General access ← Anyone with the link.",
+                "The sheet must be open to the link: in Google Sheets press Share → General access → Anyone with the link.",
+              )}
+            </small>
+          </div>
           <div className="field">
             <label htmlFor="import-text">{t("أو الزق الصفوف هنا (منسوخة من الشيت)", "Or paste the rows here (copied from the sheet)")}</label>
             <textarea className="input mono" id="import-text" rows={6} dir="ltr" value={text} onChange={(event) => setText(event.target.value)} />
