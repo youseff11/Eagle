@@ -178,27 +178,18 @@ button.nav-tools__btn { appearance: none; }
 .plan__client > span { display: block; }
 .plan__client > .mono { font-size: .78rem; overflow-wrap: anywhere; }
 
-/* The company sheet in the shape of the Sales team's own Google Sheet (12/10/2026): a green header in bold, a dark band
-   under it, warm rows with thin lines, the text in the middle. The light theme has the sheet's own colours (green #d9ead3,
-   peach #fce5cd, black ink); the dark theme the same layout in calm dark shades - a muted green header and a dark warm
-   brown row - so a long day on the sheet is easy on the eyes. A cell is a field that looks like a cell until it is clicked. */
-.sheet-wrap { overflow-x: auto; border: 1px solid var(--sheet-edge, var(--border)); border-radius: 6px; }
+/* The company sheet in the shape of the Sales team's own Google Sheet (12/10/2026): the green header in bold, the black
+   band under it, peach rows with thin dark lines, the text in the middle - the sheet's own colours in the dark theme too
+   (the owner's choice: the team sees the page it knows). A cell is a field that looks like a cell until it is clicked. */
+.sheet-wrap { overflow-x: auto; border: 1px solid #000; border-radius: 6px; }
 .sheet {
-  --sheet-head: #1f3329; --sheet-head-ink: #cfe6d6; --sheet-band: #0e1a14;
-  --sheet-row: #241e19; --sheet-row-hover: #2c241e; --sheet-ink: #ece3d9; --sheet-soft: #a59a8e;
-  --sheet-line: #3a332c; --sheet-focus: #6e8bff; --sheet-focus-bg: #171b21;
-  --sheet-high: #f28b82; --sheet-low: #9aa0a6; --sheet-done: #6fcf97;
-  border-collapse: collapse; table-layout: fixed; min-width: 100%; width: max-content;
-  color: var(--sheet-ink); font-family: Arial, var(--font, sans-serif);
-}
-[data-theme="light"] .sheet {
   --sheet-head: #d9ead3; --sheet-head-ink: #000; --sheet-band: #000;
   --sheet-row: #fce5cd; --sheet-row-hover: #f9d9b7; --sheet-ink: #000; --sheet-soft: #5f6368;
   --sheet-line: #5f6368; --sheet-focus: #1a73e8; --sheet-focus-bg: #fff;
   --sheet-high: #a50e0e; --sheet-low: #3c4043; --sheet-done: #188038;
-  color-scheme: light;
+  border-collapse: collapse; table-layout: fixed; min-width: 100%; width: max-content;
+  color: var(--sheet-ink); font-family: Arial, var(--font, sans-serif); color-scheme: light;
 }
-[data-theme="light"] .sheet-wrap { --sheet-edge: #000; }
 .sheet th, .sheet td { border: 1px solid var(--sheet-line); padding: 0; vertical-align: middle; }
 .sheet thead th {
   background: var(--sheet-head); color: var(--sheet-head-ink); font-weight: 700; font-size: 15px; text-align: center;
@@ -220,7 +211,23 @@ button.nav-tools__btn { appearance: none; }
 .sheet__td--company_name .sheet__cell { font-size: 16px; }
 .sheet__cell--choice { cursor: pointer; appearance: none; -webkit-appearance: none; text-align-last: center; }
 .sheet__cell--status { font-weight: 700; font-size: 15px; }
-.sheet__cell--choice option { background: var(--surface); color: var(--text); font-weight: 400; }
+.sheet__cell--choice option { background: #fff; color: #000; font-weight: 400; }
+/* The notes: each on its own line with its day before it, and a line under them to write the next one. */
+.sheet__notes { display: flex; flex-direction: column; }
+.sheet__note {
+  display: flex; gap: 8px; align-items: baseline; padding: 5px 8px; font-size: 13.5px; line-height: 1.45;
+  border-bottom: 1px dashed color-mix(in srgb, var(--sheet-line) 45%, transparent); text-align: start;
+}
+.sheet__note-day { flex: none; font-size: 11.5px; color: var(--sheet-soft); }
+.sheet__note-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sheet__note-x {
+  flex: none; border: 0; background: transparent; color: var(--sheet-soft); cursor: pointer; font-size: 15px;
+  padding: 0 4px; border-radius: 4px; line-height: 1.2; opacity: .55;
+}
+.sheet__note:hover .sheet__note-x, .sheet__note-x:focus-visible { opacity: 1; }
+.sheet__note-x.is-sure { opacity: 1; color: #fff; background: #c5221f; font-size: 12px; padding: 1px 6px; }
+.sheet__note-new { min-height: 32px; font-size: 13px; text-align: start; }
+.sheet__note-new::placeholder { color: var(--sheet-soft); opacity: .8; }
 /* High priority reads red, low reads grey, as a glance down the column should find the ones that matter. */
 .sheet__td--priority .sheet__cell[data-value="high"] { color: var(--sheet-high); }
 .sheet__td--priority .sheet__cell[data-value="low"] { color: var(--sheet-low); }

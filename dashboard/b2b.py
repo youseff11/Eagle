@@ -36,7 +36,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
-    Channel, Client, Lead, LeadActivity, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, SalesTarget, User,
+    Channel, Client, Lead, LeadActivity, LeadNote, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, SalesTarget, User,
 )
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ COLUMNS = (
     ("position", 120, "المنصب", "Position"),
     ("email", 254, "الإيميل", "Email"),
     ("phone", 250, "التليفون", "Phone"),
-    ("whatsapp", 40, "واتساب", "WhatsApp"),
+    ("whatsapp", 250, "واتساب", "WhatsApp"),
     ("linkedin", 250, "لينكدإن", "LinkedIn"),
     ("languages", 250, "اللغات", "Language pairs"),
     ("services", 250, "الخدمات المطلوبة", "Services required"),
@@ -375,7 +375,7 @@ MAX_FOLLOW_UPS = 300
 def follow_ups_for(user, today=None):
     """The follow-ups due today or late on the sheets this person reads: their own, or the team's for the manager."""
     today = today or timezone.localdate()
-    rows = Lead.objects.filter(sheet__in=sheets_for(user)).select_related("sheet", "sheet__assigned_to")
+    rows = Lead.objects.filter(sheet__in=sheets_for(user)).select_related("sheet", "sheet__assigned_to").prefetch_related("quotations", "note_items__by")
     return _open_follow_ups(rows.order_by("next_follow_up", "id"), today)[:MAX_FOLLOW_UPS]
 
 
@@ -758,6 +758,77 @@ def send_email(lead, user, subject, body):
     if not ok:
         raise Refused("send_failed", error or "الإيميل ماتبعتش.", "The e-mail was not sent.")
     services.log(user, "b2b.email", client.code, f"lead {lead.pk}")
+    return client, outbound
+
+
+def add_note(lead, user, text, at=None):
+    """A note on the company, dated now and signed by who wrote it. ``Refused`` for an empty or too long one."""
+    from . import services
+
+    text = (text or "").strip()
+    if not text:
+        raise Refused("empty", "اكتب الملاحظة.", "Write the note.")
+    if len(text) > MAX_NOTES:
+        raise Refused("too_long", f"الملاحظة أطول من {MAX_NOTES} حرف.", f"The note is longer than {MAX_NOTES} characters.")
+    note = LeadNote.objects.create(lead=lead, text=text, by=user, at=at or timezone.now())
+    services.log(user, "b2b.note", f"lead {lead.pk}", f"note {note.pk}")
+    return note
+
+
+def may_delete_note(user, note):
+    """A note is taken off by whoever wrote it, or by the manager and the owner."""
+    return user.manages_sales or (note.by_id is not None and note.by_id == user.pk)
+
+
+def delete_note(note, user):
+    from . import services
+
+    if not may_delete_note(user, note):
+        raise Refused("not_yours", "دي مش ملاحظتك.", "That note is not yours.")
+    services.log(user, "b2b.note_delete", f"lead {note.lead_id}", f"note {note.pk}")
+    note.delete()
+
+
+def send_whatsapp_text(lead, user, number, body):
+    """A message written on the sheet, by WhatsApp to one of the company's numbers, from this person's own number.
+
+    WhatsApp carries a written message only inside the 24 hours after the company wrote to this person, and only to the
+    number they wrote from: anything else is ``Refused("window_closed")``, and the page offers the approved opening message
+    instead (``start_whatsapp``). The row is marked by ``note_outbound`` when the message has left, like any other."""
+    from . import services
+
+    if not may_contact(user, lead.sheet):
+        raise Refused("not_yours", "الشيت ده مش بتاعك: صاحبه بس هو اللي بيتواصل منه.", "Only the sheet's own Sales person contacts from it.")
+    body = (body or "").strip()
+    if not body:
+        raise Refused("empty", "اكتب الرسالة.", "Write the message.")
+    if len(body) > MAX_LETTER:
+        raise Refused("too_long", "الرسالة طويلة أوي.", "The message is too long.")
+    chosen = next((one for one in lead.all_phones if Client.phone_key(one) == Client.phone_key(number)), None)
+    if chosen is None:
+        raise Refused("not_its_number", "الرقم ده مش من أرقام الشركة دي.", "That number is not one of this company's.")
+    if not (user.wa_phone_number_id or "").strip():
+        raise Refused("no_line", "مفيش رقم واتساب متسجّل ليك. ضيفه من «رقمي وإيميلي» الأول.", "You have no WhatsApp number yet. Add it on «My number & mail» first.")
+    closed = Refused(
+        "window_closed",
+        "الرقم ده ماكلّمكش في آخر 24 ساعة، فواتساب مش هيوصّل غير الرسالة الافتتاحية المتوافق عليها.",
+        "This number has not written to you in the last 24 hours, so WhatsApp carries only the approved opening message.",
+    )
+    with transaction.atomic():
+        Lead.objects.select_for_update().filter(pk=lead.pk).first()
+        lead.refresh_from_db()
+        client = _client_for(lead, Channel.WHATSAPP, chosen)
+        if lead.client_id != client.pk:
+            lead.client = client
+            lead.save(update_fields=["client", "updated_at"])
+    window_open, _left = Client.window_from(client.last_inbound_on(user))
+    # The answer goes to the number they wrote from (``Client.reply_target``): that number's window is the open one.
+    if not window_open or Client.phone_key(client.reply_target(Channel.WHATSAPP)) != Client.phone_key(chosen):
+        raise closed
+    ok, outbound, error = services.send_client_message(client, user, body, force_channel=Channel.WHATSAPP, line_owner=user)
+    if not ok:
+        raise Refused("send_failed", error or "الرسالة ماتبعتتش.", "The message was not sent.")
+    services.log(user, "b2b.whatsapp_text", client.code, f"lead {lead.pk}")
     return client, outbound
 
 

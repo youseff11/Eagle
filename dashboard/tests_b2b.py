@@ -200,7 +200,7 @@ class RowTests(_B2b):
 
     def test_a_row_is_corrected_and_its_status_change_is_written_down(self):
         values = {name: getattr(self.lead, name) for name, *_r in b2b.COLUMNS}
-        values.update(status="visit", next_follow_up="2026-10-20", notes="call Tuesday", whatsapp="+44 7700 900999")
+        values.update(status="visit", next_follow_up="2026-10-20", whatsapp="+44 7700 900999")
         answer = self.post(self.sales, "v1_b2b_lead_save", values, self.lead.pk)
         self.assertEqual(answer.status_code, 200)
         self.lead.refresh_from_db()
@@ -723,7 +723,7 @@ class KpiTests(_B2b):
 
     def save_status(self, lead, status):
         values = {name: getattr(lead, name) for name, *_r in b2b.COLUMNS}
-        values.update(status=status, notes="", next_follow_up="")
+        values.update(status=status, next_follow_up="")
         self.assertEqual(self.post(self.manager, "v1_b2b_lead_save", values, lead.pk).status_code, 200)
 
     def test_the_door_is_under_api_v1_and_closed_to_other_roles(self):

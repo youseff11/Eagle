@@ -48,7 +48,7 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     deal_value: "",
     phones: ["+49 151 0000", "+49 30 1234"],
     next_follow_up: "",
-    notes: "",
+    notes: [],
     client_code: "",
     whatsapp_at: "",
     email_at: "",
@@ -249,12 +249,11 @@ describe("LeadSheetsPage", () => {
 });
 
 describe("LeadSheetPage", () => {
-  it("puts a WhatsApp, an e-mail and a call button beside the company for the sheet's own Sales person", async () => {
+  it("puts a send and a call button beside the company for the sheet's own Sales person", async () => {
     serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
     open("/leads/3");
     const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
-    expect(within(row).getByRole("button", { name: "ابعت واتساب" })).toBeInTheDocument();
-    expect(within(row).getByRole("button", { name: "ابعت إيميل" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "ابعت رسالة" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "سجّل مكالمة" })).toBeInTheDocument();
   });
 
@@ -262,37 +261,78 @@ describe("LeadSheetPage", () => {
     serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({ can_contact: false, can_manage: true })) });
     open("/leads/3");
     const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
-    expect(within(row).queryByRole("button", { name: "ابعت واتساب" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "ابعت رسالة" })).toBeNull();
     expect(within(row).queryByRole("button", { name: "سجّل مكالمة" })).toBeNull();
     expect(screen.getByText(/التواصل من الشيت ده لصاحبه بس/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعدادات الشيت" })).toBeInTheDocument();
   });
 
-  it("asks before the opening message goes, then opens the chat the server names", async () => {
+  it("sends a written WhatsApp to the number chosen, and the row is marked by the server", async () => {
     const user = userEvent.setup();
     const mocked = serve("sales", {
-      "/api/v1/b2b/leads/5/whatsapp/": () => jsonResponse({ ok: true, sent: true, chat: "CL-0042", lead: lead({ whatsapp_at: "10/10/2026 1:00 PM" }) }),
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: true, chat: "CL-0042", lead: lead({ whatsapp_at: "10/10/2026 1:00 PM" }) }),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
     });
     open("/leads/3");
-    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    expect(screen.getByRole("radio", { name: "+49 151 0000" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "anna@lingua.test" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "+49 30 1234" }));
+    await user.type(screen.getByLabelText("الرسالة"), "Here are our rates");
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    await waitFor(() =>
+      expect(posted(mocked.calls, "/api/v1/b2b/leads/5/send/")).toEqual([{ channel: "whatsapp", to: "+49 30 1234", subject: "", body: "Here are our rates" }]),
+    );
+    expect(await screen.findByText("الرسالة اتبعتت واتسجلت في الصف")).toBeInTheDocument();
+  });
+
+  it("offers the opening message when the number has not written in the last day, and then opens the chat", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: false, error: "window_closed", message: "x", message_en: "x" }, 400),
+      "/api/v1/b2b/leads/5/whatsapp/": () => jsonResponse({ ok: true, sent: true, chat: "CL-0042", lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    await user.type(screen.getByLabelText("الرسالة"), "hello");
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    expect(await screen.findByText(/ماكلّمكش في آخر 24 ساعة/)).toBeInTheDocument();
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: "ابعت وافتح الشات" }));
+    await user.click(screen.getByRole("button", { name: "ابعت الرسالة الافتتاحية" }));
     expect(await screen.findByText("chat page")).toBeInTheDocument();
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toEqual([{ number: "+49 151 0000" }]);
+  });
+
+  it("sends an e-mail to the address with its subject", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: true, chat: "CL-0042", lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    await user.click(screen.getByRole("radio", { name: "anna@lingua.test" }));
+    await user.clear(screen.getByLabelText("العنوان"));
+    await user.type(screen.getByLabelText("العنوان"), "Rates");
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/send/")).toHaveLength(1));
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/send/")[0]).toMatchObject({ channel: "email", to: "anna@lingua.test", subject: "Rates" });
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/send/")[0].body).toContain("Dear Anna");
   });
 
   it("shows the server's reason when the send is refused, and stays", async () => {
     const user = userEvent.setup();
     serve("sales", {
-      "/api/v1/b2b/leads/5/whatsapp/": () => jsonResponse({ ok: false, error: "no_line", message: "مفيش رقم واتساب متسجّل ليك.", message_en: "x" }, 400),
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: false, error: "no_line", message: "مفيش رقم واتساب متسجّل ليك.", message_en: "x" }, 400),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
     });
     open("/leads/3");
-    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
-    await user.click(screen.getByRole("button", { name: "ابعت وافتح الشات" }));
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    await user.type(screen.getByLabelText("الرسالة"), "hello");
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("مفيش رقم واتساب متسجّل ليك.");
-    expect(screen.queryByText("chat page")).toBeNull();
+    expect(screen.getByRole("button", { name: "ابعت الرسالة الافتتاحية" })).toBeInTheDocument();
   });
 
   it("marks what reached the company, with when", async () => {
@@ -303,9 +343,8 @@ describe("LeadSheetPage", () => {
     const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
     expect(within(row).getByText("10/10/2026 1:00 PM")).toBeInTheDocument();
     expect(row.querySelector(".chip--replied")).toHaveTextContent("واتساب");
-    // The button of the way that reached them is marked; the others are not.
-    expect(within(row).getByRole("button", { name: "ابعت واتساب" })).toHaveClass("is-done");
-    expect(within(row).getByRole("button", { name: "ابعت إيميل" })).not.toHaveClass("is-done");
+    expect(within(row).getByRole("button", { name: "ابعت رسالة" })).toHaveClass("is-done");
+    expect(within(row).getByRole("button", { name: "سجّل مكالمة" })).not.toHaveClass("is-done");
   });
 
   it("logs a call with its outcome", async () => {
@@ -378,18 +417,27 @@ describe("LeadSheetPage", () => {
   it("draws the team's sheet: its columns in its order, the band under the header, the cells as written", async () => {
     serve("sales", {
       "/api/v1/b2b/sheets/3/": () =>
-        jsonResponse(sheetAnswer({}, [lead({ status: "contacted", priority: "medium", deal_value: "1500", notes: "call back", industry: "Tourism", country: "الكويت" })])),
+        jsonResponse(
+          sheetAnswer({}, [
+            lead({
+              status: "contacted", priority: "medium", deal_value: "1500", industry: "Tourism", country: "الكويت",
+              notes: [{ id: 1, text: "call back", at: "10/10/2026 1:00 PM", day: "10/10/2026", by: { id: 7, name: "Seller" } }],
+            }),
+          ]),
+        ),
     });
     const { container } = open("/leads/3");
     const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
     const heads = [...container.querySelectorAll(".sheet thead tr:first-child th")].map((th) => th.textContent);
-    expect(heads).toEqual(["الشركة", "الشخص المسؤول", "رقم الهاتف", "البريد الإلكتروني", "الحالة", "الأولوية", "قيمة الصفقة", "النشاط", "ملاحظات", "الدوله", "التواصل"]);
+    expect(heads).toEqual(["الشركة", "الشخص المسؤول", "رقم الهاتف", "واتساب", "البريد الإلكتروني", "الحالة", "الأولوية", "قيمة الصفقة", "النشاط", "ملاحظات", "الدوله", "التواصل"]);
     expect(container.querySelector(".sheet .sheet__band")).not.toBeNull();
     expect(within(row).getByLabelText("الحالة · Lingua GmbH")).toHaveValue("contacted");
     expect(within(row).getByRole("option", { name: "تم التواصل" })).toBeInTheDocument();
     expect(within(row).getByLabelText("الأولوية · Lingua GmbH")).toHaveValue("medium");
     expect(within(row).getByLabelText("قيمة الصفقة · Lingua GmbH")).toHaveValue("1500");
-    expect(within(row).getByLabelText("ملاحظات · Lingua GmbH")).toHaveValue("call back");
+    expect(row.querySelector('[data-note="1"]')).toHaveTextContent("10/10/2026");
+    expect(row.querySelector('[data-note="1"]')).toHaveTextContent("call back");
+    expect(within(row).getByLabelText("واتساب · Lingua GmbH")).toHaveValue("+49 151 0000");
     expect(within(row).getByLabelText("الدوله · Lingua GmbH")).toHaveValue("الكويت");
   });
 
@@ -446,45 +494,54 @@ describe("LeadSheetPage", () => {
     await waitFor(() => expect(company).toHaveValue("Lingua GmbH"));
   });
 
-  it("asks which number when the company has more than one, and sends the one chosen", async () => {
-    const user = userEvent.setup();
-    const mocked = serve("sales", {
-      "/api/v1/b2b/leads/5/whatsapp/": () => jsonResponse({ ok: true, sent: true, chat: "CL-0042", lead: lead() }),
-      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
-    });
-    open("/leads/3");
-    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
-    expect(screen.getByRole("radio", { name: "+49 151 0000" })).toBeChecked();
-    await user.click(screen.getByRole("radio", { name: "+49 30 1234" }));
-    await user.click(screen.getByRole("button", { name: "ابعت وافتح الشات" }));
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toEqual([{ number: "+49 30 1234" }]));
-  });
-
-  it("asks nothing about the number when the company has one", async () => {
-    const user = userEvent.setup();
-    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ phones: ["+49 151 0000"] })])) });
-    open("/leads/3");
-    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
-    expect(screen.queryByRole("radio")).toBeNull();
-  });
-
-  it("takes Enter as a new line in the notes and the phone numbers, and saves the lines when the cursor leaves", async () => {
+  it("takes Enter as a new line in the phone and WhatsApp numbers, and saves the lines when the cursor leaves", async () => {
     const user = userEvent.setup();
     const mocked = serve("sales", {
       "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead() }),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
     });
     open("/leads/3");
-    const notes = await screen.findByLabelText("ملاحظات · Lingua GmbH");
-    await user.type(notes, "first note{Enter}{Enter}second note ");
+    const whatsapp = await screen.findByLabelText("واتساب · Lingua GmbH");
+    await user.type(whatsapp, "{Enter}{Enter}+49 151 2222 ");
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
-    const phone = screen.getByLabelText("رقم الهاتف · Lingua GmbH");
-    await user.click(phone);
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ notes: "first note\nsecond note" }]));
-    await user.type(phone, "{Enter}+49 30 9999");
     await user.tab();
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toHaveLength(2));
-    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")[1]).toEqual({ phone: "+49 30 1234\n+49 30 9999" });
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ whatsapp: "+49 151 0000\n+49 151 2222" }]));
+  });
+
+  it("adds a note on Enter, dated by the server, and keeps the ones before", async () => {
+    const user = userEvent.setup();
+    const before = { id: 1, text: "first call", at: "10/10/2026 1:00 PM", day: "10/10/2026", by: { id: 7, name: "Seller" } };
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/notes/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ notes: [before] })])),
+    });
+    const { container } = open("/leads/3");
+    const input = await screen.findByLabelText("ملاحظات · Lingua GmbH");
+    await user.type(input, "   {Enter}");
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/notes/")).toEqual([]);
+    await user.type(input, "sent the rate sheet{Enter}");
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/notes/")).toEqual([{ text: "sent the rate sheet" }]));
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(container.querySelector('[data-note="1"]')).toHaveTextContent("first call");
+  });
+
+  it("lets the writer take a note off after asking twice, and nobody else's", async () => {
+    const user = userEvent.setup();
+    const mine = { id: 1, text: "mine", at: "10/10/2026 1:00 PM", day: "10/10/2026", by: { id: 7, name: "Seller" } };
+    const theirs = { id: 2, text: "theirs", at: "10/10/2026 2:00 PM", day: "10/10/2026", by: { id: 99, name: "Manager" } };
+    const mocked = serve("sales", {
+      "/api/v1/b2b/notes/1/delete/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ notes: [mine, theirs] })])),
+    });
+    const { container } = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(container.querySelector('[data-note="2"] button')).toBeNull();
+    const x = container.querySelector('[data-note="1"] button') as HTMLButtonElement;
+    expect(x).not.toBeNull();
+    await user.click(x);
+    expect(posted(mocked.calls, "/api/v1/b2b/notes/1/delete/")).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "أكيد امسحها" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/notes/1/delete/")).toHaveLength(1));
   });
 
   it("opens the upload window from the sheet", async () => {

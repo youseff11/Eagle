@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { refusalText, useSaveCell, type B2bChoice, type B2bLead, type LeadValues } from "../../api/b2b";
+import { refusalText, useAddNote, useDeleteNote, useSaveCell, type B2bChoice, type B2bLead, type B2bNote, type LeadValues } from "../../api/b2b";
 import { usePreferences } from "../../i18n/Preferences";
 import { useToasts } from "../Toasts";
 
@@ -29,17 +29,18 @@ export const PRIORITY_AR: Record<string, string> = {
 };
 
 /** The columns of the team's sheet, in its order, with the widths it gives them. */
-export type GridColumn = "company_name" | "contact_person" | "phone" | "email" | "status" | "priority" | "deal_value" | "industry" | "notes" | "country";
+export type GridColumn = "company_name" | "contact_person" | "phone" | "whatsapp" | "email" | "status" | "priority" | "deal_value" | "industry" | "notes" | "country";
 export const GRID_COLUMNS: { name: GridColumn; ar: string; en: string; width: number; max: number; ltr?: boolean; multiline?: boolean }[] = [
   { name: "company_name", ar: "الشركة", en: "Company", width: 290, max: 160 },
   { name: "contact_person", ar: "الشخص المسؤول", en: "Contact person", width: 150, max: 160 },
   { name: "phone", ar: "رقم الهاتف", en: "Phone", width: 160, max: 250, ltr: true, multiline: true },
+  { name: "whatsapp", ar: "واتساب", en: "WhatsApp", width: 160, max: 250, ltr: true, multiline: true },
   { name: "email", ar: "البريد الإلكتروني", en: "Email", width: 170, max: 254, ltr: true },
   { name: "status", ar: "الحالة", en: "Status", width: 150, max: 20 },
   { name: "priority", ar: "الأولوية", en: "Priority", width: 115, max: 10 },
   { name: "deal_value", ar: "قيمة الصفقة", en: "Deal value", width: 110, max: 20, ltr: true },
   { name: "industry", ar: "النشاط", en: "Activity", width: 110, max: 120 },
-  { name: "notes", ar: "ملاحظات", en: "Notes", width: 320, max: 4000, multiline: true },
+  { name: "notes", ar: "ملاحظات", en: "Notes", width: 340, max: 4000 },
   { name: "country", ar: "الدوله", en: "Country", width: 100, max: 80 },
 ];
 
@@ -75,7 +76,7 @@ function tidyLines(value: string): string {
  */
 export function TextCell({ lead, name, label, max, ltr, multiline }: {
   lead: B2bLead;
-  name: Exclude<GridColumn, "status" | "priority">;
+  name: Exclude<GridColumn, "status" | "priority" | "notes">;
   label: string;
   max: number;
   ltr?: boolean;
@@ -140,6 +141,97 @@ export function TextCell({ lead, name, label, max, ltr, multiline }: {
     );
   }
   return <input {...common} className="sheet__cell" inputMode={name === "deal_value" ? "decimal" : undefined} onChange={(event) => setValue(event.target.value)} />;
+}
+
+/** One note: its day, its words, and (for its writer, the manager and the owner) a way to take it off, asked twice. */
+function NoteLine({ note, lead, mayDelete }: { note: B2bNote; lead: B2bLead; mayDelete: boolean }) {
+  const { t, lang } = usePreferences();
+  const toasts = useToasts();
+  const remove = useDeleteNote();
+  const [sure, setSure] = useState(false);
+  const who = note.by?.name ?? t("قبل التحديث", "From before");
+
+  return (
+    <div className="sheet__note" data-note={note.id}>
+      <span className="sheet__note-day mono" title={`${note.at} · ${who}`}>
+        {note.day}
+      </span>
+      <span className="sheet__note-text" dir="auto">
+        {note.text}
+      </span>
+      {mayDelete && (
+        <button
+          className={`sheet__note-x${sure ? " is-sure" : ""}`}
+          type="button"
+          disabled={remove.isPending}
+          aria-label={sure ? t("أكيد امسحها", "Yes, delete it") : t("امسح الملاحظة", "Delete the note") + ` · ${lead.company_name}`}
+          title={sure ? t("أكيد امسحها", "Yes, delete it") : t("امسح الملاحظة", "Delete the note")}
+          onBlur={() => setSure(false)}
+          onClick={() => {
+            if (!sure) {
+              setSure(true);
+              return;
+            }
+            remove.mutate(note.id, {
+              onError: (failure) => {
+                setSure(false);
+                toasts.push({ level: "danger", title: refusalText(failure, lang, t("الملاحظة ماتمسحتش.", "The note was not deleted.")) });
+              },
+            });
+          }}
+        >
+          {sure ? t("امسح؟", "Delete?") : "×"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The notes cell: every note on its own line with the day it was written, and a line at the bottom to write a new one
+ * (Enter adds it). A note is never written over: it is added, or taken off. */
+export function NotesCell({ lead, label, meId, manages }: { lead: B2bLead; label: string; meId: number; manages: boolean }) {
+  const { t, lang } = usePreferences();
+  const toasts = useToasts();
+  const add = useAddNote();
+  const [text, setText] = useState("");
+
+  const submit = () => {
+    const words = text.trim();
+    if (!words || add.isPending) return;
+    add.mutate(
+      { id: lead.id, text: words },
+      {
+        onSuccess: () => setText(""),
+        onError: (failure) =>
+          toasts.push({ level: "danger", title: refusalText(failure, lang, t("الملاحظة ماتسجلتش. جرّب تاني.", "The note was not saved. Try again.")) }),
+      },
+    );
+  };
+
+  return (
+    <div className="sheet__notes">
+      {lead.notes.map((note) => (
+        <NoteLine key={note.id} note={note} lead={lead} mayDelete={manages || note.by?.id === meId} />
+      ))}
+      <input
+        className="sheet__cell sheet__note-new"
+        value={text}
+        maxLength={4000}
+        dir="auto"
+        placeholder={t("+ ملاحظة جديدة", "+ New note")}
+        aria-label={`${label} · ${lead.company_name}`}
+        disabled={add.isPending}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submit();
+          }
+          if (event.key === "Escape") setText("");
+        }}
+      />
+    </div>
+  );
 }
 
 /** A list in the cell: the status or the priority, saved as soon as it is picked. */

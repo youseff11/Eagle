@@ -52,10 +52,11 @@ export interface B2bLead extends B2bRow {
   priority: string;
   /** What the deal is worth, as the Sales person guesses it ("1500", "1500.5"), "" when none: no currency, as on the team's sheet. */
   deal_value: string;
-  /** Every number the company has (the WhatsApp one first, then the phone cell's, one a line): what the WhatsApp button offers. */
+  /** Every number the company has (the WhatsApp ones first, then the phone cell's, one a line): what a message may go to. */
   phones: string[];
   next_follow_up: string;
-  notes: string;
+  /** Every note, the oldest first, each with the day it was written and who wrote it. */
+  notes: B2bNote[];
   client_code: string;
   whatsapp_at: string;
   email_at: string;
@@ -70,6 +71,15 @@ export interface B2bLead extends B2bRow {
   overdue: boolean;
   /** The row's newest quotation, in a word. */
   quote: { code: string; status: QuotationStatus; total: string; currency: string } | null;
+}
+
+export interface B2bNote {
+  id: number;
+  text: string;
+  /** When it was written ("12/10/2026 5:20 PM"), and the day alone ("12/10/2026"). */
+  at: string;
+  day: string;
+  by: B2bPerson | null;
 }
 
 export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected";
@@ -318,12 +328,12 @@ export function useDeleteSheet(id: number) {
 }
 
 export function useAddRows(sheetId: number) {
-  return useWrite((rows: Partial<LeadValues>[]) =>
+  return useWrite((rows: (Partial<LeadValues> & { notes?: string })[]) =>
     api<{ ok: boolean; added: number; leads: B2bLead[] }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }),
   );
 }
 
-export type LeadValues = B2bRow & { status: string; priority: string; deal_value: string; next_follow_up: string; notes: string };
+export type LeadValues = B2bRow & { status: string; priority: string; deal_value: string; next_follow_up: string };
 
 export function useSaveLead() {
   return useWrite(({ id, values }: { id: number; values: LeadValues }) =>
@@ -336,6 +346,34 @@ export function useSaveCell() {
   return useWrite(({ id, values }: { id: number; values: Partial<LeadValues> }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
   );
+}
+
+/** A note on the company, dated now and signed by the server. */
+export function useAddNote() {
+  return useWrite(({ id, text }: { id: number; text: string }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/notes/`, { json: { text } }),
+  );
+}
+
+export function useDeleteNote() {
+  return useWrite((id: number) => api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/notes/${id}/delete/`, { json: {} }));
+}
+
+/** A message written on the sheet, by WhatsApp to one of the company's numbers or by e-mail; the row is marked by itself. */
+export function useSendMessage() {
+  return useWrite((values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string }) => {
+    const { id, ...rest } = values;
+    return api<{ ok: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/send/`, { json: rest });
+  });
+}
+
+/** The short code of a refusal (`window_closed`, `not_yours`...), or "". */
+export function refusalCode(failure: unknown): string {
+  if (failure instanceof ApiError && failure.payload && typeof failure.payload === "object") {
+    const { error } = failure.payload as { error?: unknown };
+    if (typeof error === "string") return error;
+  }
+  return "";
 }
 
 export function useMoveLead() {

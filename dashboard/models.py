@@ -4701,7 +4701,8 @@ class Lead(models.Model):
     email = models.CharField(max_length=254, blank=True)
     #: One number or several, one a line (12/10/2026: a company has more than one): ``all_phones`` reads them.
     phone = models.CharField(max_length=250, blank=True)
-    whatsapp = models.CharField(max_length=40, blank=True)
+    #: One WhatsApp number or several, one a line, like ``phone``.
+    whatsapp = models.CharField(max_length=250, blank=True)
     linkedin = models.CharField(max_length=250, blank=True)
     languages = models.CharField(max_length=250, blank=True, help_text="Languages / language pairs.")
     services = models.CharField(max_length=250, blank=True, help_text="Services required.")
@@ -4711,7 +4712,6 @@ class Lead(models.Model):
     #: What the deal with the company is worth, as the Sales person guesses it; no currency, as on the team's sheet.
     deal_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     next_follow_up = models.DateField(null=True, blank=True)
-    notes = models.TextField(blank=True)
     #: The client this company became the first time it was contacted from the row: the conversation lives on it.
     client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="leads")
     #: What a message to the company is matched on: the last nine digits of its WhatsApp (or phone) number, and its address
@@ -4772,6 +4772,22 @@ class Lead(models.Model):
     @property
     def contacted(self):
         return bool(self.whatsapp_at or self.email_at or self.call_at)
+
+
+class LeadNote(models.Model):
+    """A note on a company, with the day it was written and who wrote it (12/10/2026): a row keeps as many as are written,
+    each one dated, instead of one block of text."""
+
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="note_items")
+    text = models.TextField()
+    by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("at", "id")
+
+    def __str__(self):
+        return self.text[:60]
 
 
 class LeadActivity(models.Model):

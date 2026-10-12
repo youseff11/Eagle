@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
+  refusalCode,
   refusalText,
   useAddRows,
   useB2bLead,
@@ -8,11 +9,11 @@ import {
   useDeleteLead,
   useDeleteSheet,
   useLeadCall,
-  useLeadEmail,
   useLeadWhatsapp,
   useMoveLead,
   useSaveLead,
   useSaveSheet,
+  useSendMessage,
   type B2bChoice,
   type B2bColumn,
   type B2bLead,
@@ -23,7 +24,7 @@ import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
-import { ChoiceCell, GRID_COLUMNS, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
+import { ChoiceCell, GRID_COLUMNS, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { Modal } from "../components/Modal";
@@ -84,10 +85,10 @@ const EMPTY_ROW: LeadValues = {
   priority: "",
   deal_value: "",
   next_follow_up: "",
-  notes: "",
 };
 
-/** A row typed in, or one corrected: every column, the status, the next follow-up and the notes. */
+/** A row typed in, or one corrected: every column, the status, the priority, the deal value and the next follow-up. A new
+ * company may come with its first note; the notes of a company on the sheet are added in their cell. */
 function LeadForm({
   data,
   lead,
@@ -106,10 +107,11 @@ function LeadForm({
     if (!lead) return { ...EMPTY_ROW };
     const {
       id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o,
-      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, phones: _p, ...rest
+      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, phones: _p, notes: _n, ...rest
     } = lead;
     return rest;
   });
+  const [note, setNote] = useState("");
   const [problem, setProblem] = useState("");
   const busy = add.isPending || save.isPending || remove.isPending;
   const fallback = t("مقدرتش أحفظ. جرّب تاني.", "Could not save. Try again.");
@@ -127,7 +129,7 @@ function LeadForm({
     if (lead) {
       save.mutate({ id: lead.id, values }, { onSuccess: onClose, onError });
     } else {
-      add.mutate([values], { onSuccess: onClose, onError });
+      add.mutate([{ ...values, notes: note.trim() }], { onSuccess: onClose, onError });
     }
   };
 
@@ -144,24 +146,24 @@ function LeadForm({
           {data.columns.map((column) => (
             <div className="field" key={column.name}>
               <label htmlFor={`lead-${column.name}`}>{lang === "ar" ? column.ar : column.en}</label>
-              {column.name === "phone" ? (
+              {column.name === "phone" || column.name === "whatsapp" ? (
                 // A company has more than one number: one a line.
                 <textarea
                   className="input"
-                  id="lead-phone"
+                  id={`lead-${column.name}`}
                   rows={2}
                   dir="ltr"
                   maxLength={column.max}
                   placeholder={t("كل رقم في سطر", "One number a line")}
-                  value={values.phone}
-                  onChange={(event) => set("phone", event.target.value)}
+                  value={values[column.name]}
+                  onChange={(event) => set(column.name, event.target.value)}
                 />
               ) : (
                 <input
                   className="input"
                   id={`lead-${column.name}`}
                   maxLength={column.max}
-                  dir={["email", "whatsapp", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
+                  dir={["email", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
                   value={values[column.name]}
                   onChange={(event) => set(column.name, event.target.value)}
                 />
@@ -198,20 +200,14 @@ function LeadForm({
             <input className="input" id="lead-follow" type="date" value={values.next_follow_up} onChange={(event) => set("next_follow_up", event.target.value)} />
           </div>
         </div>
-        <div className="field">
-          <label htmlFor="lead-notes">{t("ملاحظات", "Notes")}</label>
-          <textarea
-            className="input"
-            id="lead-notes"
-            rows={3}
-            maxLength={4000}
-            placeholder={t("كل ملاحظة في سطر", "One note a line")}
-            value={values.notes}
-            onChange={(event) => set("notes", event.target.value)}
-          />
-        </div>
+        {!lead && (
+          <div className="field">
+            <label htmlFor="lead-notes">{t("ملاحظة", "Note")}</label>
+            <textarea className="input" id="lead-notes" rows={2} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
+          </div>
+        )}
         <small className="muted">
-          {t("رقم الواتساب بكود الدولة (+44…): ده اللي الزرار بيبعت عليه.", "Write the WhatsApp number with its country code (+44…): the button sends to it.")}
+          {t("أرقام الواتساب بكود الدولة (+44…)، كل رقم في سطر: دي اللي الرسايل بتروح عليها.", "Write the WhatsApp numbers with their country code (+44…), one a line: messages go to them.")}
         </small>
         <Problem text={problem} />
         {lead && data.sheets.length > 0 && <MoveLead lead={lead} sheets={data.sheets} onMoved={onClose} />}
@@ -344,68 +340,6 @@ function SheetSettings({ data, onClose }: { data: B2bSheetResponse; onClose: () 
   );
 }
 
-/** The WhatsApp button's question: the opening message goes from the person's own number, then the chat opens. */
-function StartWhatsapp({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
-  const { t, lang } = usePreferences();
-  const navigate = useNavigate();
-  const toasts = useToasts();
-  const start = useLeadWhatsapp();
-  const [number, setNumber] = useState(lead.phones[0] ?? "");
-  const [problem, setProblem] = useState("");
-
-  const go = () => {
-    if (start.isPending) return;
-    setProblem("");
-    start.mutate({ id: lead.id, number }, {
-      onSuccess: (answer) => {
-        if (answer.sent) toasts.push({ level: "success", title: t("الرسالة الافتتاحية اتبعتت", "The opening message was sent") });
-        navigate(`/chats/${encodeURIComponent(answer.chat)}`);
-      },
-      onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أبعت. جرّب تاني.", "Could not send. Try again."))),
-    });
-  };
-
-  return (
-    <Modal title={t("واتساب", "WhatsApp")} icon="message" busy={start.isPending} onClose={onClose}>
-      <p>
-        {t(
-          `الشركة دي عمرها ما كلمتنا، فواتساب مش هيوصّلها غير الرسالة الافتتاحية المتوافق عليها (بالإنجليزي، من رقمك). هتتبعت لـ${lead.contact_person || lead.company_name} وبعدين الشات هيتفتح. أول ما يردّوا تكلمهم عادي.`,
-          `This company has never written to us, so WhatsApp carries only the approved opening message (in English, from your number). It goes to ${lead.contact_person || lead.company_name}, then the chat opens. Once they answer you write to them as usual.`,
-        )}
-      </p>
-      {lead.phones.length > 1 && (
-        <fieldset className="field" style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
-          <legend>{t("ابعت على أنهي رقم؟", "Which number?")}</legend>
-          {lead.phones.map((one) => (
-            <label key={one} className="row row--tight" style={{ cursor: "pointer" }}>
-              <input type="radio" name="wa-number" value={one} checked={number === one} onChange={() => setNumber(one)} />
-              <span className="mono" dir="ltr">
-                {one}
-              </span>
-            </label>
-          ))}
-        </fieldset>
-      )}
-      <p className="muted">
-        {t(
-          "لو كلّموك في آخر 24 ساعة، أو الرسالة الافتتاحية اتبعتت النهارده ومردّوش، مفيش حاجة هتتبعت: الشات هيتفتح بس.",
-          "If they wrote to you in the last 24 hours, or the opening message already went today without an answer, nothing is sent: the chat just opens.",
-        )}
-      </p>
-      <Problem text={problem} />
-      <div className="row">
-        <button className="btn btn--primary" type="button" onClick={go} disabled={start.isPending}>
-          <Icon name="send" />
-          {t("ابعت وافتح الشات", "Send and open the chat")}
-        </button>
-        <button className="btn btn--ghost" type="button" onClick={onClose} disabled={start.isPending}>
-          {t("لأ", "Cancel")}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
 function letterFor(lead: B2bLead, sender: string): string {
   const name = lead.contact_person.trim().split(" ")[0] || "there";
   const pairs = lead.languages.trim();
@@ -421,51 +355,150 @@ function letterFor(lead: B2bLead, sender: string): string {
   ].join("\n");
 }
 
-/** The e-mail button: a letter written here, from the person's own address. */
-function SendEmail({ lead, sender, onClose }: { lead: B2bLead; sender: string; onClose: () => void }) {
+/**
+ * The send button: a message to one of the company's WhatsApp numbers or to its address, from the person's own line, and
+ * the row marked by itself once it has left. WhatsApp carries a written message only to a number that wrote to this
+ * person in the last 24 hours (the server checks it): otherwise the approved opening message goes instead, and the chat
+ * opens.
+ */
+function SendMessage({ lead, sender, onClose }: { lead: B2bLead; sender: string; onClose: () => void }) {
   const { t, lang } = usePreferences();
+  const navigate = useNavigate();
   const toasts = useToasts();
-  const send = useLeadEmail();
+  const send = useSendMessage();
+  const intro = useLeadWhatsapp();
+  const targets = [
+    ...lead.phones.map((number) => ({ key: `wa:${number}`, channel: "whatsapp" as const, to: number })),
+    ...(lead.email ? [{ key: "mail", channel: "email" as const, to: lead.email }] : []),
+  ];
+  const [key, setKey] = useState(targets[0]?.key ?? "");
+  const target = targets.find((one) => one.key === key) ?? targets[0];
+  const [words, setWords] = useState("");
   const [subject, setSubject] = useState("Translation partnership with EagleLingua");
-  const [body, setBody] = useState(() => letterFor(lead, sender));
+  const [letter, setLetter] = useState(() => letterFor(lead, sender));
+  const [closed, setClosed] = useState(false);
   const [problem, setProblem] = useState("");
+  const busy = send.isPending || intro.isPending;
+  const fallback = t("مقدرتش أبعت. جرّب تاني.", "Could not send. Try again.");
+
+  const pick = (next: string) => {
+    setKey(next);
+    setClosed(false);
+    setProblem("");
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (send.isPending) return;
+    if (busy || !target) return;
     setProblem("");
+    const mail = target.channel === "email";
     send.mutate(
-      { id: lead.id, subject: subject.trim(), body: body.trim() },
+      { id: lead.id, channel: target.channel, to: target.to, subject: mail ? subject.trim() : "", body: (mail ? letter : words).trim() },
       {
         onSuccess: () => {
-          toasts.push({ level: "success", title: t("الإيميل اتبعت", "The e-mail was sent") });
+          toasts.push({ level: "success", title: t("الرسالة اتبعتت واتسجلت في الصف", "The message was sent and marked on the row") });
           onClose();
         },
-        onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أبعت. جرّب تاني.", "Could not send. Try again."))),
+        onError: (failure) => {
+          if (refusalCode(failure) === "window_closed") setClosed(true);
+          else setProblem(refusalText(failure, lang, fallback));
+        },
       },
     );
   };
 
+  const opening = () => {
+    if (busy || !target) return;
+    setProblem("");
+    intro.mutate(
+      { id: lead.id, number: target.to },
+      {
+        onSuccess: (answer) => {
+          if (answer.sent) toasts.push({ level: "success", title: t("الرسالة الافتتاحية اتبعتت", "The opening message was sent") });
+          navigate(`/chats/${encodeURIComponent(answer.chat)}`);
+        },
+        onError: (failure) => setProblem(refusalText(failure, lang, fallback)),
+      },
+    );
+  };
+
+  if (!target) {
+    return (
+      <Modal title={t("ابعت رسالة", "Send a message")} icon="send" onClose={onClose}>
+        <p>{t("مفيش رقم ولا إيميل للشركة دي. ضيفهم في الصف الأول.", "This company has no number and no address. Add them on the row first.")}</p>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal title={t("إيميل", "E-mail")} icon="mail" busy={send.isPending} wide onClose={onClose}>
+    <Modal title={t("ابعت رسالة", "Send a message")} icon="send" busy={busy} wide onClose={onClose}>
       <form onSubmit={submit}>
-        <div className="muted mono" dir="ltr" style={{ marginBottom: 8 }}>
-          {lead.email}
-        </div>
-        <div className="field">
-          <label htmlFor="mailSubject">{t("العنوان", "Subject")}</label>
-          <input className="input" id="mailSubject" dir="ltr" maxLength={250} value={subject} onChange={(event) => setSubject(event.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="mailBody">{t("الرسالة", "Message")}</label>
-          <textarea className="input" id="mailBody" dir="ltr" rows={10} maxLength={20000} value={body} onChange={(event) => setBody(event.target.value)} />
-        </div>
-        <small className="muted">{t("بتطلع من إيميلك، وردّهم بيوصل لـ«ميلاتي».", "It leaves from your address; their answer arrives in «My mail».")}</small>
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
+          <legend>{t("ابعت على", "Send to")}</legend>
+          {targets.map((one) => (
+            <label key={one.key} className="row row--tight" style={{ cursor: "pointer" }}>
+              <input type="radio" name="send-to" value={one.key} checked={target.key === one.key} onChange={() => pick(one.key)} />
+              <Icon name={one.channel === "email" ? "mail" : "message"} size="sm" />
+              <span className="mono" dir="ltr">
+                {one.to}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {target.channel === "whatsapp" ? (
+          <>
+            <div className="field">
+              <label htmlFor="sendWords">{t("الرسالة", "Message")}</label>
+              <textarea className="input" id="sendWords" dir="auto" rows={5} maxLength={20000} value={words} onChange={(event) => setWords(event.target.value)} />
+            </div>
+            {closed ? (
+              <div className="note note--info" role="status" style={{ marginBottom: 10 }}>
+                <Icon name="info" />
+                <div>
+                  {t(
+                    "الرقم ده ماكلّمكش في آخر 24 ساعة، فواتساب مش هيوصّل الرسالة دي. ابعت الرسالة الافتتاحية المتوافق عليها (بالإنجليزي، من رقمك)، وأول ما يردّوا تكلمهم عادي.",
+                    "This number has not written to you in the last 24 hours, so WhatsApp will not carry this message. Send the approved opening message (in English, from your number); once they answer you write to them as usual.",
+                  )}
+                </div>
+              </div>
+            ) : (
+              <small className="muted">
+                {t(
+                  "واتساب بيوصّل رسالتك بس لو الرقم ده كلّمك في آخر 24 ساعة. شركة لسه ماكلّمتناش: ابعتلها الرسالة الافتتاحية.",
+                  "WhatsApp carries your message only if this number wrote to you in the last 24 hours. A company that has not written yet: send it the opening message.",
+                )}
+              </small>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="field">
+              <label htmlFor="mailSubject">{t("العنوان", "Subject")}</label>
+              <input className="input" id="mailSubject" dir="ltr" maxLength={250} value={subject} onChange={(event) => setSubject(event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="mailBody">{t("الرسالة", "Message")}</label>
+              <textarea className="input" id="mailBody" dir="ltr" rows={10} maxLength={20000} value={letter} onChange={(event) => setLetter(event.target.value)} />
+            </div>
+            <small className="muted">{t("بتطلع من إيميلك، وردّهم بيوصل لـ«ميلاتي».", "It leaves from your address; their answer arrives in «My mail».")}</small>
+          </>
+        )}
         <Problem text={problem} />
-        <button className="btn btn--primary" type="submit" disabled={send.isPending} style={{ marginTop: 10 }}>
-          <Icon name="send" />
-          {t("ابعت", "Send")}
-        </button>
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn btn--primary" type="submit" disabled={busy}>
+            <Icon name="send" />
+            {t("ابعت", "Send")}
+          </button>
+          {target.channel === "whatsapp" && (
+            <button className={closed ? "btn btn--primary" : "btn"} type="button" onClick={opening} disabled={busy}>
+              <Icon name="message" />
+              {t("ابعت الرسالة الافتتاحية", "Send the opening message")}
+            </button>
+          )}
+          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={busy}>
+            {t("لأ", "Cancel")}
+          </button>
+        </div>
       </form>
     </Modal>
   );
@@ -640,7 +673,7 @@ type Open =
   | { kind: "new" }
   | { kind: "paste" }
   | { kind: "settings" }
-  | { kind: "edit" | "whatsapp" | "email" | "call"; lead: B2bLead }
+  | { kind: "edit" | "send" | "call"; lead: B2bLead }
   | { kind: "timeline"; id: number }
   | { kind: "quotes"; id: number };
 
@@ -773,6 +806,8 @@ export function LeadSheetPage() {
                           </ChoiceCell>
                         ) : column.name === "priority" ? (
                           <ChoiceCell lead={lead} name="priority" label={name} choices={data.priorities} words={PRIORITY_AR} empty />
+                        ) : column.name === "notes" ? (
+                          <NotesCell lead={lead} label={name} meId={me.data?.user.id ?? 0} manages={data.sheet.can_manage} />
                         ) : (
                           <TextCell lead={lead} name={column.name} label={name} max={column.max} ltr={column.ltr} multiline={column.multiline} />
                         )}
@@ -781,26 +816,15 @@ export function LeadSheetPage() {
                   })}
                   <td className="sheet__tools">
                     <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
-                      {contact && (lead.whatsapp || lead.phone) && (
+                      {contact && (lead.phones.length > 0 || lead.email) && (
                         <button
-                          className={`icon-btn${lead.whatsapp_at ? " is-done" : ""}`}
+                          className={`icon-btn${lead.whatsapp_at || lead.email_at ? " is-done" : ""}`}
                           type="button"
-                          title={t("ابعت واتساب", "Send WhatsApp")}
-                          aria-label={t("ابعت واتساب", "Send WhatsApp")}
-                          onClick={() => setOpen({ kind: "whatsapp", lead })}
+                          title={t("ابعت رسالة", "Send a message")}
+                          aria-label={t("ابعت رسالة", "Send a message")}
+                          onClick={() => setOpen({ kind: "send", lead })}
                         >
-                          <Icon name="message" />
-                        </button>
-                      )}
-                      {contact && lead.email && (
-                        <button
-                          className={`icon-btn${lead.email_at ? " is-done" : ""}`}
-                          type="button"
-                          title={t("ابعت إيميل", "Send e-mail")}
-                          aria-label={t("ابعت إيميل", "Send e-mail")}
-                          onClick={() => setOpen({ kind: "email", lead })}
-                        >
-                          <Icon name="mail" />
+                          <Icon name="send" />
                         </button>
                       )}
                       {contact && (
@@ -862,8 +886,7 @@ export function LeadSheetPage() {
       {open?.kind === "edit" && <LeadForm data={data} lead={open.lead} onClose={close} />}
       {open?.kind === "paste" && <ImportRows sheetId={data.sheet.id} columns={data.columns} onClose={close} />}
       {open?.kind === "settings" && <SheetSettings data={data} onClose={close} />}
-      {open?.kind === "whatsapp" && <StartWhatsapp lead={open.lead} onClose={close} />}
-      {open?.kind === "email" && <SendEmail lead={open.lead} sender={sender} onClose={close} />}
+      {open?.kind === "send" && <SendMessage lead={open.lead} sender={sender} onClose={close} />}
       {open?.kind === "call" && <LogCall lead={open.lead} outcomes={data.outcomes} onClose={close} />}
       {open?.kind === "timeline" && <Timeline leadId={open.id} outcomes={data.outcomes} onClose={close} />}
       {open?.kind === "quotes" && <QuotesModal leadId={open.id} onClose={close} />}

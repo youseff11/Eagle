@@ -2,15 +2,20 @@
 a cell edited on the sheet that saves that cell alone, and their sheet uploaded as it is."""
 
 import importlib
+from datetime import timedelta
 from decimal import Decimal
 
 from django.apps import apps
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from . import b2b_import
 from . import services
-from .models import Channel, Client, Lead, LeadActivity
-from .tests_b2b import _B2b, _json
+from .models import AuditLog, Channel, Client, Lead, LeadActivity, LeadNote, OutboundMessage
+from .tests_b2b import PHONE, _B2b, _json
+
+#: The test company's WhatsApp number as WhatsApp sends it.
+PHONE_DIGITS = "447700900123"
 
 #: The Sales team's Google Sheet as a CSV, its own headers and words (the NAME column is empty there).
 TEAM_SHEET = (
@@ -48,13 +53,13 @@ class CellTests(_B2b):
         return self.post(user or self.sales, "v1_b2b_lead_save", body, self.lead.pk)
 
     def test_one_cell_saves_that_cell_and_nothing_else(self):
-        Lead.objects.filter(pk=self.lead.pk).update(notes="keep me", priority="low")
+        Lead.objects.filter(pk=self.lead.pk).update(deal_value=Decimal("9"), priority="low")
         answer = self.save({"phone": "+965 2221 3775"})
         self.assertEqual(answer.status_code, 200, answer.content)
         self.lead.refresh_from_db()
         self.assertEqual(
-            (self.lead.phone, self.lead.notes, self.lead.priority, self.lead.company_name, self.lead.email, self.lead.status),
-            ("+965 2221 3775", "keep me", "low", "Lingua GmbH", "anna@lingua.test", "new"),
+            (self.lead.phone, self.lead.deal_value, self.lead.priority, self.lead.company_name, self.lead.email, self.lead.status),
+            ("+965 2221 3775", Decimal("9"), "low", "Lingua GmbH", "anna@lingua.test", "new"),
         )
         self.assertFalse(self.lead.activities.exists())
 
@@ -90,9 +95,15 @@ class CellTests(_B2b):
         self.assertEqual(self.lead.company_name, "Lingua GmbH")
 
     def test_a_cell_on_a_sheet_that_is_not_ones_own_is_a_404(self):
-        self.assertEqual(self.save({"notes": "x"}, user=self.other).status_code, 404)
+        self.assertEqual(self.save({"priority": "high"}, user=self.other).status_code, 404)
         self.lead.refresh_from_db()
-        self.assertEqual(self.lead.notes, "")
+        self.assertEqual(self.lead.priority, "")
+
+    def test_a_save_that_carries_notes_writes_nothing(self):
+        # A note is added on its own door, never written over by a save from a page out of date.
+        self.assertEqual(self.save({"priority": "high", "notes": "old block"}).status_code, 400)
+        self.lead.refresh_from_db()
+        self.assertEqual((self.lead.priority, self.lead.note_items.count()), ("", 0))
 
     def test_the_sheet_says_the_priorities_and_its_rows_carry_them(self):
         Lead.objects.filter(pk=self.lead.pk).update(priority="medium", deal_value=Decimal("250.00"))
@@ -115,8 +126,10 @@ class UploadTests(_B2b):
         answer = self.post(self.sales, "v1_b2b_rows_add", {"rows": rows}, self.sheet.pk)
         self.assertEqual(answer.status_code, 200, answer.content)
         bash, plain = Lead.objects.get(company_name="BASH"), Lead.objects.get(company_name="Plain")
-        self.assertEqual((bash.status, bash.priority, bash.deal_value, bash.notes), ("contacted", "medium", Decimal("1500"), "call back"))
-        self.assertEqual((plain.status, plain.priority, plain.deal_value, plain.notes), ("new", "", None, ""))
+        self.assertEqual((bash.status, bash.priority, bash.deal_value), ("contacted", "medium", Decimal("1500")))
+        note = bash.note_items.get()
+        self.assertEqual((note.text, note.by), ("call back", self.sales))
+        self.assertEqual((plain.status, plain.priority, plain.deal_value, plain.note_items.count()), ("new", "", None, 0))
 
     def test_an_uploaded_row_with_a_wrong_value_adds_nothing(self):
         for bad in ({"status": "meeting"}, {"priority": "top"}, {"deal_value": "-1"}):
@@ -198,3 +211,143 @@ class SeveralPhonesTests(_B2b):
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.phone_keys, " 700900123 522213775 599887766 24737021 ")
         self.assertEqual(self.lead.phone_key, "700900123")
+
+
+class NoteTests(_B2b):
+    """Each note on its own, with the day it was written and who wrote it (12/10/2026)."""
+
+    def add(self, text, user=None):
+        return self.post(user or self.sales, "v1_b2b_lead_note_add", {"text": text}, self.lead.pk)
+
+    def test_the_doors_are_under_api_v1(self):
+        from django.urls import reverse
+
+        self.assertEqual(reverse("dashboard:v1_b2b_lead_note_add", args=[5]), "/api/v1/b2b/leads/5/notes/")
+        self.assertEqual(reverse("dashboard:v1_b2b_lead_note_delete", args=[9]), "/api/v1/b2b/notes/9/delete/")
+        self.assertEqual(reverse("dashboard:v1_b2b_lead_send", args=[5]), "/api/v1/b2b/leads/5/send/")
+
+    def test_notes_are_added_one_by_one_each_dated_and_signed(self):
+        self.assertEqual(self.add("  first call, no answer ").status_code, 200)
+        body = _json(self.add("sent the rate sheet", user=self.manager))
+        notes = body["lead"]["notes"]
+        self.assertEqual([n["text"] for n in notes], ["first call, no answer", "sent the rate sheet"])
+        self.assertEqual([n["by"]["name"] for n in notes], ["Seller", "Manager"])
+        today = timezone.localtime().strftime("%d/%m/%Y")
+        self.assertEqual({n["day"] for n in notes}, {today})
+        self.assertTrue(AuditLog.objects.filter(action="b2b.note", detail__startswith="note ").exists())
+        # The sheet answers the notes too.
+        sheet = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))
+        self.assertEqual(len(sheet["leads"][0]["notes"]), 2)
+
+    def test_an_empty_or_too_long_note_or_a_stranger_writes_nothing(self):
+        self.assertEqual(_json(self.add("   "))["error"], "empty")
+        self.assertEqual(self.add("x" * 4001).status_code, 400)
+        self.assertEqual(self.add("hello", user=self.other).status_code, 404)
+        self.assertEqual(self.add("hello", user=self.ops).status_code, 403)
+        self.assertFalse(LeadNote.objects.exists())
+
+    def test_a_note_is_taken_off_by_its_writer_or_the_manager_only(self):
+        mine = LeadNote.objects.create(lead=self.lead, text="mine", by=self.sales)
+        theirs = LeadNote.objects.create(lead=self.lead, text="the manager's", by=self.manager)
+        answer = self.post(self.sales, "v1_b2b_lead_note_delete", {}, theirs.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (403, "not_yours"))
+        self.assertEqual(self.post(self.other, "v1_b2b_lead_note_delete", {}, mine.pk).status_code, 404)
+        self.assertEqual(self.post(self.sales, "v1_b2b_lead_note_delete", {}, mine.pk).status_code, 200)
+        self.assertEqual(self.post(self.manager, "v1_b2b_lead_note_delete", {}, theirs.pk).status_code, 200)
+        self.assertFalse(LeadNote.objects.exists())
+
+    def test_the_old_block_of_notes_becomes_dated_notes(self):
+        from django.db import connection
+
+        migration = importlib.import_module("dashboard.migrations.0072_lead_notes_dated")
+
+        class OldLead:
+            def __init__(self, pk, notes, updated_at):
+                self.pk, self.notes, self.updated_at = pk, notes, updated_at
+
+        class OldLeads:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def exclude(self, **kw):
+                return self
+
+            def only(self, *names):
+                return self.rows
+
+        class FakeApps:
+            def get_model(self, app, name):
+                if name == "LeadNote":
+                    return LeadNote
+                fake = type("Lead", (), {})
+                fake.objects = OldLeads([OldLead(self_lead.pk, "first\n\n  second  ", stamp)])
+                return fake
+
+        self_lead, stamp = self.lead, timezone.now() - timedelta(days=3)
+        migration.notes_to_rows(FakeApps(), connection.schema_editor)
+        notes = list(self.lead.note_items.all())
+        self.assertEqual([n.text for n in notes], ["first", "second"])
+        self.assertEqual({n.at for n in notes}, {stamp})
+        self.assertEqual({n.by for n in notes}, {None})
+
+
+class SeveralWhatsappTests(_B2b):
+    def test_the_whatsapp_cell_takes_several_numbers_and_they_come_first(self):
+        answer = self.post(self.sales, "v1_b2b_lead_save", {"whatsapp": "+44 7700 900123\n+44 7700 900456", "phone": "+44 20 1234 5678"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(_json(answer)["lead"]["phones"], ["+447700900123", "+447700900456", "+442012345678"])
+
+
+class SendTests(_B2b):
+    """A message written on the sheet to a number or the address, marked on the row by itself (12/10/2026)."""
+
+    def send(self, body, user=None):
+        return self.post(user or self.sales, "v1_b2b_lead_send", body, self.lead.pk)
+
+    def their_message(self, sender=PHONE_DIGITS):
+        services.ingest_message(channel=Channel.WHATSAPP, body="hi", sender_identity=sender, external_id="wamid.in.s", owner=self.sales)
+
+    def test_a_written_whatsapp_goes_when_they_wrote_in_the_last_day_and_marks_the_row(self):
+        self.their_message()
+        answer = self.send({"channel": "whatsapp", "to": PHONE, "body": "Thanks, here are our rates"})
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.text.assert_called_once()
+        self.assertEqual(self.text.call_args.kwargs.get("from_id"), "900002")
+        sent = OutboundMessage.objects.get(channel=Channel.WHATSAPP)
+        self.assertEqual((sent.owner, sent.body, sent.status), (self.sales, "Thanks, here are our rates", "sent"))
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.whatsapp_at)
+        self.assertEqual(self.lead.activities.filter(kind="whatsapp", incoming=False).count(), 1)
+        self.assertEqual(_json(answer)["lead"]["whatsapp_at"] != "", True)
+
+    def test_without_their_message_whatsapp_carries_only_the_opening_one(self):
+        answer = self.send({"channel": "whatsapp", "to": PHONE, "body": "hello"})
+        self.assertEqual(_json(answer)["error"], "window_closed")
+        self.text.assert_not_called()
+        self.template.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+
+    def test_the_window_is_the_number_they_wrote_from(self):
+        Lead.objects.filter(pk=self.lead.pk).update(phone="+44 7700 900456")
+        self.lead.refresh_from_db()
+        self.lead.save()
+        self.their_message()
+        answer = self.send({"channel": "whatsapp", "to": "+44 7700 900456", "body": "hello"})
+        self.assertEqual(_json(answer)["error"], "window_closed")
+        self.text.assert_not_called()
+
+    def test_a_stranger_number_an_empty_message_and_another_persons_sheet_are_refused(self):
+        self.their_message()
+        self.assertEqual(_json(self.send({"channel": "whatsapp", "to": "+20 100 000 0000", "body": "x"}))["error"], "not_its_number")
+        self.assertEqual(_json(self.send({"channel": "whatsapp", "to": PHONE, "body": "  "}))["error"], "empty")
+        self.assertEqual(_json(self.send({"channel": "whatsapp", "to": PHONE, "body": "x"}, user=self.manager))["error"], "not_yours")
+        self.assertEqual(self.send({"channel": "fax", "body": "x"}).status_code, 400)
+        self.text.assert_not_called()
+
+    def test_an_email_goes_from_the_persons_address_and_marks_the_row(self):
+        answer = self.send({"channel": "email", "subject": "Rates", "body": "Dear Anna"})
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(self.mail.call_args.kwargs["from_email"], "seller@eagle.test")
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.email_at)
+        self.assertEqual(self.lead.status, "contacted")

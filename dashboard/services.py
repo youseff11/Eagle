@@ -5262,7 +5262,7 @@ def reset_all_staff(admin, password):
     from django.db.models.functions import Concat
 
     from .models import (
-        Lead, LeadActivity, LeadSheet, LeaveRequest, MessageAttachment, OutboundAttachment, OvertimeClaim, PayrollLine,
+        Lead, LeadActivity, LeadNote, LeadSheet, LeaveRequest, MessageAttachment, OutboundAttachment, OvertimeClaim, PayrollLine,
         ProbationReview, RatingEvent, SalaryChangeRequest, SalaryRecord, ScheduleOverride, Shift, Violation, WorkDay,
     )
 
@@ -5302,6 +5302,7 @@ def reset_all_staff(admin, password):
             # A Sales person's B2B sheets go with them (CASCADE): the companies on them are in the file.
             *LeadSheet.objects.filter(assigned_to_id__in=ids), *Lead.objects.filter(sheet__assigned_to_id__in=ids),
             *LeadActivity.objects.filter(lead__sheet__assigned_to_id__in=ids),
+            *LeadNote.objects.filter(lead__sheet__assigned_to_id__in=ids),
             *rooms, *room_messages, *chat_files, *letters, *letter_files, *sent, *sent_files,
         ]))
         backup = json.dumps(rows, indent=1, ensure_ascii=False)

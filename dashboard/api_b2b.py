@@ -23,7 +23,7 @@ from django.utils import timezone
 
 from . import b2b, clock, identity, services
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import Lead, LeadActivity, LeadPriority, LeadSheet, LeadStatus, Quotation
+from .models import Lead, LeadActivity, LeadNote, LeadPriority, LeadSheet, LeadStatus, Quotation
 from .permissions import api_gate
 
 #: The longest title and note of a sheet.
@@ -93,7 +93,8 @@ def _lead_json(lead, today=None):
         "priority": lead.priority,
         "deal_value": _deal_text(lead.deal_value),
         "next_follow_up": lead.next_follow_up.isoformat() if lead.next_follow_up else "",
-        "notes": lead.notes,
+        # Every note, the oldest first, each with its day: a list (12/10/2026), not one block of text.
+        "notes": [_note_json(note) for note in lead.note_items.all()],
         "client_code": lead.client.code if lead.client_id else "",
         "whatsapp_at": _stamp(lead.whatsapp_at),
         "email_at": _stamp(lead.email_at),
@@ -106,6 +107,10 @@ def _lead_json(lead, today=None):
         "overdue": state == b2b.FOLLOW_UP_OVERDUE,
         "quote": _quote_brief(lead),
     }
+
+
+def _note_json(note):
+    return {"id": note.pk, "text": note.text, "at": _stamp(note.at), "day": clock.local(note.at).strftime("%d/%m/%Y"), "by": _person(note.by)}
 
 
 def _deal_text(value):
@@ -259,7 +264,7 @@ def sheet_delete(request, sheet_id):
 def sheet(request, sheet_id):
     """One sheet and all of its rows."""
     sheet = _sheet_or_404(request, sheet_id)
-    leads = list(sheet.leads.select_related("client").prefetch_related("quotations"))
+    leads = list(sheet.leads.select_related("client").prefetch_related("quotations", "note_items__by"))
     contacted = sum(1 for lead in leads if lead.contacted)
     # The companies and their people are drawn here: one row in the log for the sheet, as for a page of client names.
     if leads:
@@ -335,13 +340,15 @@ def _parse_deal(value):
 
 #: The row's own fields besides its columns: what a corrected row may change, and what a pasted or uploaded row may carry.
 SHEET_FIELDS = ("status", "priority", "deal_value", "notes", "next_follow_up")
+#: What a corrected row may change besides its columns: a note is added (``lead_note_add``), never written over.
+SAVED_FIELDS = ("status", "priority", "deal_value", "next_follow_up")
 
 
 def _sheet_values(body, present_only):
     """The status, priority, deal value, notes and next follow-up from the body, checked. ``present_only``: only the ones
     the body names (a cell edited on the sheet changes that cell and nothing else)."""
     out = {}
-    for name in SHEET_FIELDS:
+    for name in SAVED_FIELDS if present_only else SHEET_FIELDS:
         if present_only and name not in body:
             continue
         if name == "status":
@@ -405,9 +412,15 @@ def rows_add(request, sheet_id):
                 "sheet_full", f"الشيت مايشيلش أكتر من {b2b.MAX_SHEET_ROWS} شركة. اعمل شيت تاني.",
                 f"A sheet holds at most {b2b.MAX_SHEET_ROWS} companies. Make another sheet.",
             ))
-        made = [Lead(sheet=sheet, created_by=request.user, **values) for values in rows]
-        for lead in made:
+        made = []
+        for values in rows:
+            note = values.pop("notes", "")
+            lead = Lead(sheet=sheet, created_by=request.user, **values)
             lead.save()
+            # A pasted or uploaded notes cell is the row's first note, dated the day it came in.
+            if note:
+                LeadNote.objects.create(lead=lead, text=note, by=request.user)
+            made.append(lead)
     services.log(request.user, "b2b.rows_add", f"sheet {sheet.pk}", f"{len(made)} row(s)")
     return JsonResponse({"ok": True, "added": len(made), "leads": [_lead_json(lead) for lead in made]})
 
@@ -471,6 +484,9 @@ def lead_save(request, lead_id):
     lead = _lead_or_404(request, lead_id)
     try:
         body = _object(request)
+        # A note is added on its own door and never written over: a save that carries one is a page out of date.
+        if "notes" in body:
+            raise BadBody
         values = {name: _text(body, name, limit) for name, limit in b2b.COLUMN_LIMITS.items() if name in body}
         extra = _sheet_values(body, present_only=True)
     except BadBody:
@@ -575,6 +591,64 @@ def lead_whatsapp(request, lead_id):
         return _refused(refusal)
     lead.refresh_from_db()
     return JsonResponse({"ok": True, "sent": sent, "chat": client.code, "lead": _lead_json(lead)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def lead_send(request, lead_id):
+    """``{"channel": "whatsapp", "to", "body"}`` or ``{"channel": "email", "subject", "body"}`` - a message written on the
+    sheet to one of the company's numbers or to its address, from this person's own line. It is marked on the row by itself
+    once it has left (``b2b.note_outbound``)."""
+    lead = _lead_or_404(request, lead_id)
+    try:
+        body = _object(request)
+        channel = _text(body, "channel", 10)
+        to = _text(body, "to", 40)
+        subject = _text(body, "subject", b2b.MAX_SUBJECT)
+        words = _text(body, "body", b2b.MAX_LETTER)
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        if channel == "whatsapp":
+            client, _sent = b2b.send_whatsapp_text(lead, request.user, to, words)
+        elif channel == "email":
+            client, _sent = b2b.send_email(lead, request.user, subject, words)
+        else:
+            return _error(400, "bad_request")
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    lead.refresh_from_db()
+    return JsonResponse({"ok": True, "chat": client.code, "lead": _lead_json(lead)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def lead_note_add(request, lead_id):
+    """``{"text"}`` - a note on the company, dated now and signed."""
+    lead = _lead_or_404(request, lead_id)
+    try:
+        text = _text(_object(request), "text", b2b.MAX_NOTES)
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        b2b.add_note(lead, request.user, text)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def lead_note_delete(request, note_id):
+    """Take a note off: its writer, the manager or the owner."""
+    note = get_object_or_404(LeadNote.objects.select_related("lead__sheet"), pk=note_id)
+    if not b2b.may_read(request.user, note.lead.sheet):
+        identity.hidden(request, "lead note")
+    try:
+        b2b.delete_note(note, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal, status=403)
+    return JsonResponse({"ok": True, "lead": _lead_json(note.lead)})
 
 
 @endpoint("POST")
