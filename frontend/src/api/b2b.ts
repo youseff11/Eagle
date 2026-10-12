@@ -48,6 +48,10 @@ export type B2bRow = Record<B2bColumn, string>;
 export interface B2bLead extends B2bRow {
   id: number;
   status: string;
+  /** "high", "medium", "low" or "" (none marked). */
+  priority: string;
+  /** What the deal is worth, as the Sales person guesses it ("1500", "1500.5"), "" when none: no currency, as on the team's sheet. */
+  deal_value: string;
   next_follow_up: string;
   notes: string;
   client_code: string;
@@ -172,6 +176,7 @@ export interface B2bSheetResponse {
   leads: B2bLead[];
   columns: { name: B2bColumn; ar: string; en: string; max: number }[];
   statuses: B2bChoice[];
+  priorities: B2bChoice[];
   outcomes: B2bChoice[];
 }
 
@@ -233,8 +238,7 @@ export interface KpiCounts {
   emails: number;
   calls: number;
   replies: number;
-  meetings: number;
-  proposals: number;
+  visits: number;
   won: number;
   lost: number;
   follow_ups_on_time: number;
@@ -312,15 +316,22 @@ export function useDeleteSheet(id: number) {
 }
 
 export function useAddRows(sheetId: number) {
-  return useWrite((rows: Partial<B2bRow>[]) =>
+  return useWrite((rows: Partial<LeadValues>[]) =>
     api<{ ok: boolean; added: number; leads: B2bLead[] }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }),
   );
 }
 
-export type LeadValues = B2bRow & { status: string; next_follow_up: string; notes: string };
+export type LeadValues = B2bRow & { status: string; priority: string; deal_value: string; next_follow_up: string; notes: string };
 
 export function useSaveLead() {
   return useWrite(({ id, values }: { id: number; values: LeadValues }) =>
+    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
+  );
+}
+
+/** One cell edited on the sheet: only what is sent changes, so two people on one sheet do not write over each other. */
+export function useSaveCell() {
+  return useWrite(({ id, values }: { id: number; values: Partial<LeadValues> }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
   );
 }

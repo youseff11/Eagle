@@ -11,6 +11,7 @@ the list of sheets carries titles and counts only.
 """
 
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -22,7 +23,7 @@ from django.utils import timezone
 
 from . import b2b, clock, identity, services
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import Lead, LeadActivity, LeadSheet, LeadStatus, Quotation
+from .models import Lead, LeadActivity, LeadPriority, LeadSheet, LeadStatus, Quotation
 from .permissions import api_gate
 
 #: The longest title and note of a sheet.
@@ -32,6 +33,8 @@ MAX_SHEET_NOTE = 2000
 MAX_PASTE_BODY = 2 * 1024 * 1024
 #: The most activities a row's timeline answers with.
 MAX_TIMELINE = 200
+#: The largest deal value a row takes (the field holds 14 digits, two of them after the point).
+MAX_DEAL_VALUE = Decimal("999999999999.99")
 
 
 def _refused(refusal, status=400):
@@ -85,6 +88,8 @@ def _lead_json(lead, today=None):
         "id": lead.pk,
         **{name: getattr(lead, name) for name, *_rest in b2b.COLUMNS},
         "status": lead.status,
+        "priority": lead.priority,
+        "deal_value": _deal_text(lead.deal_value),
         "next_follow_up": lead.next_follow_up.isoformat() if lead.next_follow_up else "",
         "notes": lead.notes,
         "client_code": lead.client.code if lead.client_id else "",
@@ -99,6 +104,14 @@ def _lead_json(lead, today=None):
         "overdue": state == b2b.FOLLOW_UP_OVERDUE,
         "quote": _quote_brief(lead),
     }
+
+
+def _deal_text(value):
+    """A deal value as the sheet shows it: no trailing zeros after the point ("1500", "1500.5"), "" when none."""
+    if value is None:
+        return ""
+    text = f"{value:.2f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def _quote_brief(lead):
@@ -129,6 +142,7 @@ def _choices():
     return {
         "columns": [{"name": name, "ar": ar, "en": en, "max": limit} for name, limit, ar, en in b2b.COLUMNS],
         "statuses": [{"value": value, "label": label} for value, label in LeadStatus.choices],
+        "priorities": [{"value": value, "label": label} for value, label in LeadPriority.choices],
         "outcomes": [{"value": value, "label": label} for value, label in LeadActivity.Outcome.choices],
     }
 
@@ -298,6 +312,56 @@ def _row_values(item):
     return {name: _text(item, name, limit) for name, limit in b2b.COLUMN_LIMITS.items()}
 
 
+def _parse_deal(value):
+    """A deal value from the body: a number or a numeric string ("1,500" and "1500 $" too), at most two places after the
+    point, never negative; ``None`` for nothing. ``BadBody`` for anything else."""
+    if value in ("", None):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise BadBody
+    text = str(value).strip().replace(",", "").replace("$", "").replace("٬", "").strip()
+    if not re.fullmatch(r"\d{1,12}(\.\d{1,2})?", text):
+        raise BadBody
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        raise BadBody from None
+    if not number.is_finite() or number < 0 or number > MAX_DEAL_VALUE or number != number.quantize(Decimal("0.01")):
+        raise BadBody
+    return number
+
+
+#: The row's own fields besides its columns: what a corrected row may change, and what a pasted or uploaded row may carry.
+SHEET_FIELDS = ("status", "priority", "deal_value", "notes", "next_follow_up")
+
+
+def _sheet_values(body, present_only):
+    """The status, priority, deal value, notes and next follow-up from the body, checked. ``present_only``: only the ones
+    the body names (a cell edited on the sheet changes that cell and nothing else)."""
+    out = {}
+    for name in SHEET_FIELDS:
+        if present_only and name not in body:
+            continue
+        if name == "status":
+            value = _text(body, name, 20)
+            if present_only or value:
+                if value not in LeadStatus.values:
+                    raise BadBody
+                out[name] = value
+        elif name == "priority":
+            value = _text(body, name, 10)
+            if value not in ("", *LeadPriority.values):
+                raise BadBody
+            out[name] = value
+        elif name == "deal_value":
+            out[name] = _parse_deal(body.get(name))
+        elif name == "notes":
+            out[name] = _text(body, name, b2b.MAX_NOTES)
+        else:
+            out[name] = _parse_date(body.get(name, ""))
+    return out
+
+
 def _parse_date(value):
     if value in ("", None):
         return None
@@ -326,7 +390,7 @@ def rows_add(request, sheet_id):
         raw = body.get("rows")
         if not isinstance(raw, list) or not 0 < len(raw) <= b2b.MAX_PASTE_ROWS:
             raise BadBody
-        rows = [_row_values(item) for item in raw]
+        rows = [{**_row_values(item), **_sheet_values(item, present_only=False)} for item in raw]
     except (BadBody, ValueError, RecursionError, UnicodeDecodeError):
         return _error(400, "bad_request")
     rows = [values for values in rows if values["company_name"]]
@@ -399,28 +463,24 @@ def lead(request, lead_id):
 @endpoint("POST")
 @api_gate(b2b.has_door)
 def lead_save(request, lead_id):
-    """The row's columns, its status, its next follow-up and its notes. What the system stamps (the contact times) is not
-    a field here."""
+    """The row's columns, its status, priority, deal value, next follow-up and notes. Only what the body names changes: a
+    cell edited on the sheet sends that cell alone, so two people on one sheet do not write over each other's cells. What
+    the system stamps (the contact times) is not a field here."""
     lead = _lead_or_404(request, lead_id)
     try:
         body = _object(request)
-        values = _row_values(body)
-        status = _text(body, "status", 20) or LeadStatus.NEW
-        notes = _text(body, "notes", b2b.MAX_NOTES)
-        follow_up = _parse_date(body.get("next_follow_up", ""))
+        values = {name: _text(body, name, limit) for name, limit in b2b.COLUMN_LIMITS.items() if name in body}
+        extra = _sheet_values(body, present_only=True)
     except BadBody:
         return _error(400, "bad_request")
-    if status not in LeadStatus.values:
-        return _error(400, "bad_request")
-    if not values["company_name"]:
+    if "company_name" in values and not values["company_name"]:
         return _refused(b2b.Refused("no_company", "اكتب اسم الشركة.", "Write the company name."))
     before = lead.status
-    for name, value in values.items():
+    for name, value in {**values, **extra}.items():
         setattr(lead, name, value)
-    lead.status, lead.notes, lead.next_follow_up = status, notes, follow_up
     lead.save()
-    # On the timeline and in the log: what the Sales numbers count meetings, proposals, won and lost by.
-    b2b.note_status(lead, before, status, request.user)
+    # On the timeline and in the log: what the Sales numbers count visits, won and lost by.
+    b2b.note_status(lead, before, lead.status, request.user)
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
 
 

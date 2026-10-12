@@ -4647,17 +4647,26 @@ class SalaryChangeRequest(models.Model):
 # ---------------------------------------------------------------------------
 
 class LeadStatus(models.TextChoices):
-    """Where a company stands with us: the B2B pipeline."""
+    """Where a company stands with us: the Sales sheet's own list (12/10/2026), the words of the Sales team's Google Sheet,
+    in its order. Won, lost and visit are what the Sales numbers count."""
 
-    NEW = "new", "New lead"
-    EMAIL_SENT = "email_sent", "Email sent"
-    FOLLOW_UP_1 = "follow_up_1", "Follow-up 1"
-    FOLLOW_UP_2 = "follow_up_2", "Follow-up 2"
-    MEETING = "meeting", "Meeting scheduled"
-    PROPOSAL = "proposal", "Proposal / rate sheet sent"
-    NEGOTIATION = "negotiation", "Negotiation"
-    WON = "won", "Won"
-    LOST = "lost", "Lost"
+    NEW = "new", "New client"
+    CONTACTED = "contacted", "Contacted"
+    FOLLOW_UP = "follow_up", "Follow-up"
+    WON = "won", "Contracted"
+    LOST = "lost", "Refused"
+    WHATSAPP = "whatsapp", "WhatsApp"
+    VISIT = "visit", "Visit"
+    NO_ANSWER = "no_answer", "No answer"
+    CALL = "call", "Call"
+
+
+class LeadPriority(models.TextChoices):
+    """How much a company matters, as the Sales person marks it on the sheet."""
+
+    HIGH = "high", "High"
+    MEDIUM = "medium", "Medium"
+    LOW = "low", "Low"
 
 
 class LeadSheet(models.Model):
@@ -4697,6 +4706,9 @@ class Lead(models.Model):
     services = models.CharField(max_length=250, blank=True, help_text="Services required.")
     source = models.CharField(max_length=120, blank=True)
     status = models.CharField(max_length=12, choices=LeadStatus.choices, default=LeadStatus.NEW, db_index=True)
+    priority = models.CharField(max_length=8, choices=LeadPriority.choices, blank=True)
+    #: What the deal with the company is worth, as the Sales person guesses it; no currency, as on the team's sheet.
+    deal_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     next_follow_up = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
     #: The client this company became the first time it was contacted from the row: the conversation lives on it.
@@ -4741,7 +4753,7 @@ class LeadActivity(models.Model):
         WHATSAPP = "whatsapp", "WhatsApp"
         EMAIL = "email", "Email"
         CALL = "call", "Call"
-        #: The company moved on the pipeline (part 3): what the Sales numbers count meetings, proposals, won and lost by.
+        #: The company moved on the sheet (part 3): what the Sales numbers count visits, won and lost by.
         STATUS = "status", "Stage changed"
         #: A quotation was made, sent, accepted or turned down (part 4); ``notes`` says which, ``quotation`` which one.
         QUOTATION = "quotation", "Quotation"

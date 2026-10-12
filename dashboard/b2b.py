@@ -199,14 +199,14 @@ def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, i
     if client_id and lead.client_id is None:
         lead.client_id = client_id
         fields.append("client")
-    # The pipeline's first step moves by itself: the first letter to a new company is «Email sent».
-    if kind == LeadActivity.Kind.EMAIL and not incoming and lead.status == LeadStatus.NEW:
-        lead.status = LeadStatus.EMAIL_SENT
+    # The sheet's first step moves by itself: the first letter or WhatsApp to a new company makes it «Contacted».
+    if kind in (LeadActivity.Kind.EMAIL, LeadActivity.Kind.WHATSAPP) and not incoming and lead.status == LeadStatus.NEW:
+        lead.status = LeadStatus.CONTACTED
         fields.append("status")
     if fields:
         lead.save(update_fields=fields + ["updated_at"])
     if "status" in fields:
-        note_status(lead, LeadStatus.NEW, LeadStatus.EMAIL_SENT, by, automatic=True, at=at)
+        note_status(lead, LeadStatus.NEW, LeadStatus.CONTACTED, by, automatic=True, at=at)
     owner_id = lead.sheet.assigned_to_id
     if automatic and follow_up_for is None:
         day = timezone.localtime(at).date()
@@ -481,7 +481,7 @@ MAX_KPI_DAYS = 366
 #: The counts a person's row carries (zero is a real zero: nothing was done), and the two rates (``None`` when there is
 #: nothing to divide by: "not measured", never 0%).
 KPI_COUNTS = (
-    "new_leads", "contacted", "whatsapp", "emails", "calls", "replies", "meetings", "proposals", "won", "lost",
+    "new_leads", "contacted", "whatsapp", "emails", "calls", "replies", "visits", "won", "lost",
     "follow_ups_on_time", "follow_ups_late", "follow_ups_missed", "overdue_now", "holding", "untouched",
     "quotations", "quotes_accepted",
 )
@@ -525,7 +525,7 @@ def kpis(user, start, end, today=None):
     * contacted - companies they reached out to (a message or a call); whatsapp / emails - the messages themselves that left
       their line to a company on their sheets; calls - the calls they logged;
     * replies - companies that answered them for the first time in the period;
-    * meetings / proposals / won / lost - companies moved to that stage in the period (each company once);
+    * visits / won / lost - companies moved to «Visit», «Contracted» or «Refused» in the period (each company once);
     * follow-ups that fell due in the period: done on the day, done later, or still not done;
     * overdue_now, holding, untouched - today, whatever the period: late follow-ups, companies on their sheets, and of those
       the ones nobody contacted yet;
@@ -567,8 +567,7 @@ def kpis(user, start, end, today=None):
             "replies": Lead.objects.filter(
                 activities__owner=person, activities__incoming=True, replied_at__gte=start_at, replied_at__lt=end_at,
             ).distinct().count(),
-            "meetings": stage.filter(status=LeadStatus.MEETING).values("lead").distinct().count(),
-            "proposals": stage.filter(status=LeadStatus.PROPOSAL).values("lead").distinct().count(),
+            "visits": stage.filter(status=LeadStatus.VISIT).values("lead").distinct().count(),
             "won": stage.filter(status=LeadStatus.WON).values("lead").distinct().count(),
             "lost": stage.filter(status=LeadStatus.LOST).values("lead").distinct().count(),
             "follow_ups_on_time": sum(1 for day, due in done if day == due),
@@ -780,10 +779,6 @@ def log_call(lead, user, *, outcome, notes="", duration=None, at=None, next_foll
 # Quotations (part 4, the requirements' section 13)
 # ---------------------------------------------------------------------------
 
-#: The stages a company is still before the proposal at: a quotation sent moves it on to «Proposal / rate sheet sent».
-BEFORE_PROPOSAL = (
-    LeadStatus.NEW, LeadStatus.EMAIL_SENT, LeadStatus.FOLLOW_UP_1, LeadStatus.FOLLOW_UP_2, LeadStatus.MEETING,
-)
 #: The largest figures a quotation takes: a quantity, a unit price, and the discount in percent.
 MAX_QUANTITY = 10_000_000
 MAX_RATE = Decimal("1000000")
@@ -920,12 +915,6 @@ def send_quotation(quote, user):
     quote.outbound = outbound
     quote.save(update_fields=["outbound", "updated_at"])
     _quote_line(quote, "sent", user, at=quote.sent_at)
-    lead.refresh_from_db()
-    if lead.status in BEFORE_PROPOSAL:
-        before = lead.status
-        lead.status = LeadStatus.PROPOSAL
-        lead.save(update_fields=["status", "updated_at"])
-        note_status(lead, before, LeadStatus.PROPOSAL, user, automatic=True)
     return quote
 
 

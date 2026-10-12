@@ -10,6 +10,15 @@ type Columns = B2bSheetResponse["columns"];
 /** The widths the grid gives the columns that are usually long. */
 const WIDE: Partial<Record<B2bColumn, number>> = { company_name: 200, email: 200, website: 180, linkedin: 180, services: 180, languages: 150 };
 
+/** The sheet's own fields a file may carry besides the columns (status, priority, deal value, notes): they come in as they
+ * were read, and are named here for the list of columns found. */
+const SHEET_FIELDS: Record<string, [string, string]> = {
+  status: ["الحالة", "Status"],
+  priority: ["الأولوية", "Priority"],
+  deal_value: ["قيمة الصفقة", "Deal value"],
+  notes: ["ملاحظات", "Notes"],
+};
+
 function emptyRow(columns: Columns): B2bRow {
   return Object.fromEntries(columns.map((column) => [column.name, ""])) as B2bRow;
 }
@@ -19,6 +28,10 @@ function emptyRow(columns: Columns): B2bRow {
  * The server reads it (`b2b_import`: the columns are found by their names, in Arabic or English) and writes nothing; the
  * rows come back into a grid where every cell can be corrected, a row taken out or one added, and only then are they added.
  */
+function answerHas(rows: B2bRow[], name: string): boolean {
+  return rows.some((row) => Boolean((row as Record<string, string>)[name]));
+}
+
 export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; columns: Columns; onClose: () => void }) {
   const { t, lang } = usePreferences();
   const toasts = useToasts();
@@ -41,7 +54,9 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
         setMapped(
           Object.entries(answer.mapped).map(([name, header]) => {
             const column = columns.find((one) => one.name === name);
-            return `${header} → ${column ? (lang === "ar" ? column.ar : column.en) : name}`;
+            const field = SHEET_FIELDS[name];
+            const shown = column ? (lang === "ar" ? column.ar : column.en) : field ? t(...field) : name;
+            return `${header} → ${shown}`;
           }),
         );
       },
@@ -110,7 +125,11 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
               <div>{t("الملف فيه أكتر من 500 صف: اتقرا أول 500. ارفع الباقي في ملف تاني.", "The file has more than 500 rows: the first 500 were read. Upload the rest in another file.")}</div>
             </div>
           )}
-          <p className="muted">{t("عدّل أي خانة قبل ما تضيف. الصف من غير اسم شركة مش هيتضاف.", "Correct any cell before adding. A row with no company name is not added.")}</p>
+          <p className="muted">
+            {t("عدّل أي خانة قبل ما تضيف. الصف من غير اسم شركة مش هيتضاف.", "Correct any cell before adding. A row with no company name is not added.")}
+            {Object.keys(SHEET_FIELDS).some((name) => answerHas(rows, name)) &&
+              t(" الحالة والأولوية وقيمة الصفقة والملاحظات بتدخل زي ما اتقرت، وتعدّلها بعدين في الشيت.", " The status, priority, deal value and notes come in as read; change them later on the sheet.")}
+          </p>
           <div className="table-wrap" style={{ maxHeight: "55vh", overflow: "auto" }}>
             <table className="table" data-import-grid>
               <thead>

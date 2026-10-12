@@ -178,23 +178,50 @@ button.nav-tools__btn { appearance: none; }
 .plan__client > span { display: block; }
 .plan__client > .mono { font-size: .78rem; overflow-wrap: anywhere; }
 
-/* A sheet of companies on a smaller or zoomed screen: WhatsApp, the address and the phone sit one under the other in one
-   column, and the company and the person have a floor, so nothing shrinks to one word a line; only a very narrow
-   screen slides the table sideways. */
-.table--leads td, .table--leads th { padding-inline: 8px; }
-.table--leads .lead__company { min-width: 13rem; }
-.table--leads .lead__person { min-width: 9rem; }
-.table--leads .lead__contact { min-width: 14rem; }
-.lead__reach + .lead__reach { margin-top: 6px; }
-.lead__reach-sign { display: inline-grid; place-items: center; width: 34px; flex: none; }
-/* The address is the widest thing in the row: when room runs out it breaks onto a second line, not letter by letter. */
-.lead__reach-value { min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 1400px) {
-  .table--leads .lead__company { min-width: 11rem; }
-  .table--leads .lead__person { min-width: 8rem; }
-  .table--leads .lead__contact { min-width: 12rem; }
-  .table--leads td, .table--leads th { padding-inline: 6px; }
+/* The company sheet as the Sales team's own Google Sheet (12/10/2026): the green header in bold, the black band under it,
+   peach rows with thin dark lines, the text in the middle. It keeps the sheet's own light colours in the dark theme too, as
+   Google Sheets does, so the team sees the page it knows. A cell is a field that looks like a cell until it is clicked. */
+.sheet-wrap { overflow-x: auto; border: 1px solid #000; border-radius: 4px; }
+.sheet {
+  --sheet-head: #d9ead3; --sheet-row: #fce5cd; --sheet-line: #5f6368; --sheet-ink: #000; --sheet-focus: #1a73e8;
+  border-collapse: collapse; table-layout: fixed; min-width: 100%; width: max-content;
+  color: var(--sheet-ink); font-family: Arial, var(--font, sans-serif); color-scheme: light;
 }
+.sheet th, .sheet td { border: 1px solid var(--sheet-line); padding: 0; vertical-align: middle; }
+.sheet thead th {
+  background: var(--sheet-head); color: var(--sheet-ink); font-weight: 700; font-size: 15px; text-align: center;
+  padding: 6px 8px; white-space: nowrap; position: sticky; top: 0;
+}
+.sheet__band td { background: #000; height: 16px; border-color: #000; }
+.sheet tbody td { background: var(--sheet-row); }
+.sheet tbody tr:hover td { background: #f9d9b7; }
+.sheet__cell {
+  display: block; width: 100%; min-height: 34px; padding: 6px 8px; border: 2px solid transparent; border-radius: 0;
+  background: transparent; color: var(--sheet-ink); font: inherit; font-size: 14px; text-align: center;
+  text-overflow: ellipsis;
+}
+.sheet__cell:hover { border-color: rgba(0, 0, 0, .12); }
+.sheet__cell:focus { outline: none; border-color: var(--sheet-focus); background: #fff; text-overflow: clip; }
+.sheet__td--company_name .sheet__cell { font-size: 16px; }
+.sheet__td--notes .sheet__cell { text-align: start; }
+.sheet__cell--choice { cursor: pointer; appearance: none; -webkit-appearance: none; text-align-last: center; }
+.sheet__cell--status { font-weight: 700; font-size: 15px; }
+.sheet__cell--choice option { background: #fff; color: #000; font-weight: 400; }
+/* High priority reads red, low reads grey, as a glance down the column should find the ones that matter. */
+.sheet__td--priority .sheet__cell[data-value="high"] { color: #a50e0e; }
+.sheet__td--priority .sheet__cell[data-value="low"] { color: #3c4043; }
+.sheet__under { font-size: 12px; text-align: center; padding: 0 6px 6px; display: flex; gap: 4px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.sheet__under [data-follow-up] { display: inline-flex; gap: 4px; align-items: center; }
+.sheet__tools { padding: 4px 6px !important; color: var(--sheet-ink); }
+.sheet__tools .icon-btn { color: #3c4043; }
+.sheet__tools .icon-btn:hover { background: rgba(0, 0, 0, .08); color: #000; }
+/* A way to reach the company that already reached it: green, and its time under the buttons. */
+.sheet__tools .icon-btn.is-done { color: #188038; }
+.sheet__tools .muted, .sheet__under .muted { color: #5f6368; }
+.sheet .chip { color: #3c4043; background: rgba(255, 255, 255, .55); border-color: rgba(0, 0, 0, .15); }
+.sheet .chip--replied { color: #188038; }
+.sheet .deadline--late { color: #c5221f; }
+.sheet .empty { color: #3c4043; padding: 24px; }
 
 /* The help assistant: a button in the top bar and a small chat that opens under it, on every page. It stays open while the
    person follows the steps on the page, and sits below the dialogs and the check-in screen (z-index 300 and 420). */

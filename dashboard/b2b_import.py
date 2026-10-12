@@ -64,6 +64,33 @@ SYNONYMS = {
 }
 
 
+#: The sheet's own fields a file may carry besides the columns (the Sales team's Google Sheet has them): found by their
+#: header only, never by their place, and read into the sheet's values (``_sheet_value``).
+EXTRA_SYNONYMS = {
+    "status": ("status", "stage", "الحالة", "الحاله", "المرحلة"),
+    "priority": ("priority", "الأولوية", "الاولوية", "الأولويه"),
+    "deal_value": ("deal value", "deal", "value", "amount", "قيمة الصفقة", "قيمة الصفقه", "القيمة"),
+    "notes": ("notes", "note", "comments", "remarks", "ملاحظات", "الملاحظات", "ملاحظة"),
+}
+#: The words a status or a priority cell may hold, as the sheet's values. A word not here leaves the row «New client».
+STATUS_WORDS = {
+    "new": ("new", "new client", "new lead", "عميل جديد", "جديد"),
+    "contacted": ("contacted", "تم التواصل"),
+    "follow_up": ("follow up", "follow-up", "followup", "متابعة", "متابعه"),
+    "won": ("won", "contracted", "تم التعاقد"),
+    "lost": ("lost", "refused", "rejected", "مرفوض"),
+    "whatsapp": ("whatsapp", "whats app", "واتساب"),
+    "visit": ("visit", "meeting", "زيارة", "زياره"),
+    "no_answer": ("no answer", "لم يتم الرد"),
+    "call": ("call", "مكالمة", "مكالمه"),
+}
+PRIORITY_WORDS = {
+    "high": ("high", "عالية", "عاليه"),
+    "medium": ("medium", "متوسطة", "متوسطه"),
+    "low": ("low", "منخفضة", "منخفضه"),
+}
+
+
 def _fold(text):
     """A header as compared: lower case, Arabic letter shapes folded, spaces and punctuation squeezed."""
     text = str(text or "").strip().lower()
@@ -77,7 +104,34 @@ def _header_index():
     for name, _limit, ar, en in b2b.COLUMNS:
         for word in (name, ar, en, *SYNONYMS.get(name, ())):
             index.setdefault(_fold(word), name)
+    for name, words in EXTRA_SYNONYMS.items():
+        for word in (name, *words):
+            index.setdefault(_fold(word), name)
     return index
+
+
+def _word_value(cell, words):
+    folded = _fold(cell)
+    for value, names in words.items():
+        if folded in {_fold(name) for name in names}:
+            return value
+    return ""
+
+
+def _deal_value(cell):
+    """A deal value as a number the sheet takes ("1,500 $" -> "1500"), or "" for anything that is not one."""
+    text = re.sub(r"[\s,$٬]", "", cell)
+    return text if re.fullmatch(r"\d{1,12}(\.\d{1,2})?", text) else ""
+
+
+def _sheet_value(name, cell):
+    if name == "status":
+        return _word_value(cell, STATUS_WORDS)
+    if name == "priority":
+        return _word_value(cell, PRIORITY_WORDS)
+    if name == "deal_value":
+        return _deal_value(cell)
+    return cell[: b2b.MAX_NOTES]
 
 
 def map_header(cells):
@@ -112,9 +166,15 @@ def to_rows(table):
     for line in body[:MAX_ROWS]:
         row = {name: "" for name in order}
         for position, column in header.items():
-            if position < len(line):
+            if position >= len(line):
+                continue
+            if column in EXTRA_SYNONYMS:
+                value = _sheet_value(column, line[position])
+                if value:
+                    row[column] = value
+            else:
                 row[column] = line[position][: b2b.COLUMN_LIMITS[column]]
-        if any(row.values()):
+        if any(row.get(name) for name in order):
             rows.append(row)
     return rows, mapped
 

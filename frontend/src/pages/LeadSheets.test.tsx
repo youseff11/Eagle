@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type B2bFollowUpsResponse, type B2bLead, type B2bSheetResponse, type B2bSheetsResponse } from "../api/b2b";
 import type { Role } from "../api/types";
+import { ToastProvider } from "../components/Toasts";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { LeadSheetPage } from "./LeadSheetPage";
 import { LeadSheetsPage } from "./LeadSheetsPage";
@@ -43,6 +44,8 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     services: "",
     source: "",
     status: "new",
+    priority: "",
+    deal_value: "",
     next_follow_up: "",
     notes: "",
     client_code: "",
@@ -80,8 +83,14 @@ function sheetAnswer(over: Partial<B2bSheetResponse["sheet"]> = {}, leads: B2bLe
     leads,
     columns: COLUMNS,
     statuses: [
-      { value: "new", label: "New lead" },
-      { value: "won", label: "Won" },
+      { value: "new", label: "New client" },
+      { value: "contacted", label: "Contacted" },
+      { value: "won", label: "Contracted" },
+    ],
+    priorities: [
+      { value: "high", label: "High" },
+      { value: "medium", label: "Medium" },
+      { value: "low", label: "Low" },
     ],
     outcomes: [{ value: "no_answer", label: "No answer" }],
   };
@@ -98,12 +107,14 @@ function serve(who: Role, routes: Record<string, (url: URL, init?: RequestInit) 
 
 function open(route: string) {
   return renderWithProviders(
-    <Routes>
-      <Route path="/leads" element={<LeadSheetsPage />} />
-      <Route path="/leads/:id" element={<LeadSheetPage />} />
-      <Route path="/chats/:code" element={<div>chat page</div>} />
-      <Route path="/" element={<div>home page</div>} />
-    </Routes>,
+    <ToastProvider>
+      <Routes>
+        <Route path="/leads" element={<LeadSheetsPage />} />
+        <Route path="/leads/:id" element={<LeadSheetPage />} />
+        <Route path="/chats/:code" element={<div>chat page</div>} />
+        <Route path="/" element={<div>home page</div>} />
+      </Routes>
+    </ToastProvider>,
     { route },
   );
 }
@@ -240,7 +251,7 @@ describe("LeadSheetPage", () => {
   it("puts a WhatsApp, an e-mail and a call button beside the company for the sheet's own Sales person", async () => {
     serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
     open("/leads/3");
-    const row = (await screen.findByText("Lingua GmbH")).closest("tr") as HTMLElement;
+    const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
     expect(within(row).getByRole("button", { name: "ابعت واتساب" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "ابعت إيميل" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "سجّل مكالمة" })).toBeInTheDocument();
@@ -249,7 +260,7 @@ describe("LeadSheetPage", () => {
   it("draws no contact button for the manager reading someone else's sheet, and says why", async () => {
     serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({ can_contact: false, can_manage: true })) });
     open("/leads/3");
-    const row = (await screen.findByText("Lingua GmbH")).closest("tr") as HTMLElement;
+    const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
     expect(within(row).queryByRole("button", { name: "ابعت واتساب" })).toBeNull();
     expect(within(row).queryByRole("button", { name: "سجّل مكالمة" })).toBeNull();
     expect(screen.getByText(/التواصل من الشيت ده لصاحبه بس/)).toBeInTheDocument();
@@ -288,9 +299,12 @@ describe("LeadSheetPage", () => {
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ whatsapp_at: "10/10/2026 1:00 PM", last_contact_at: "10/10/2026 1:00 PM" })])),
     });
     open("/leads/3");
-    const row = (await screen.findByText("Lingua GmbH")).closest("tr") as HTMLElement;
-    expect(within(row).getAllByText("10/10/2026 1:00 PM").length).toBeGreaterThanOrEqual(2);
-    expect(row.querySelector(".chip--replied")).not.toBeNull();
+    const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("10/10/2026 1:00 PM")).toBeInTheDocument();
+    expect(row.querySelector(".chip--replied")).toHaveTextContent("واتساب");
+    // The button of the way that reached them is marked; the others are not.
+    expect(within(row).getByRole("button", { name: "ابعت واتساب" })).toHaveClass("is-done");
+    expect(within(row).getByRole("button", { name: "ابعت إيميل" })).not.toHaveClass("is-done");
   });
 
   it("logs a call with its outcome", async () => {
@@ -317,14 +331,14 @@ describe("LeadSheetPage", () => {
         jsonResponse(sheetAnswer({}, [lead({ replied_at: "10/10/2026 3:00 PM" }), lead({ id: 6, company_name: "Silent Ltd" })])),
     });
     open("/leads/3");
-    const row = (await screen.findByText("Lingua GmbH")).closest("tr") as HTMLElement;
+    const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
     expect(within(row).getByText("ردّوا")).toBeInTheDocument();
-    expect(screen.getByText("Silent Ltd")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Silent Ltd")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("اعرض"), "replied");
-    expect(screen.queryByText("Silent Ltd")).toBeNull();
-    expect(screen.getByText("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
+    expect(screen.getByDisplayValue("Lingua GmbH")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("اعرض"), "untouched");
-    expect(screen.getByText("Silent Ltd")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Silent Ltd")).toBeInTheDocument();
   });
 
   it("says where a row's follow-up stands", async () => {
@@ -333,7 +347,7 @@ describe("LeadSheetPage", () => {
         jsonResponse(sheetAnswer({}, [lead({ next_follow_up: "2026-10-01", follow_up: "overdue", overdue: true }), lead({ id: 6, company_name: "Done Ltd", next_follow_up: "2026-10-02", follow_up: "done" })])),
     });
     const { container } = open("/leads/3");
-    await screen.findByText("Lingua GmbH");
+    await screen.findByDisplayValue("Lingua GmbH");
     expect(container.querySelector('[data-lead="5"] [data-follow-up="overdue"]')).toHaveTextContent("متأخرة");
     expect(container.querySelector('[data-lead="6"] [data-follow-up="done"]')).toHaveTextContent("اتعملت");
   });
@@ -358,6 +372,76 @@ describe("LeadSheetPage", () => {
     open("/leads/3");
     await user.click(await screen.findByRole("button", { name: "تعديل" }));
     expect(screen.queryByLabelText("انقلها لشيت تاني")).toBeNull();
+  });
+
+  it("draws the team's sheet: its columns in its order, the band under the header, the cells as written", async () => {
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [lead({ status: "contacted", priority: "medium", deal_value: "1500", notes: "call back", industry: "Tourism", country: "الكويت" })])),
+    });
+    const { container } = open("/leads/3");
+    const row = (await screen.findByDisplayValue("Lingua GmbH")).closest("tr") as HTMLElement;
+    const heads = [...container.querySelectorAll(".sheet thead tr:first-child th")].map((th) => th.textContent);
+    expect(heads).toEqual(["الشركة", "الشخص المسؤول", "رقم الهاتف", "البريد الإلكتروني", "الحالة", "الأولوية", "قيمة الصفقة", "النشاط", "ملاحظات", "الدوله", "التواصل"]);
+    expect(container.querySelector(".sheet .sheet__band")).not.toBeNull();
+    expect(within(row).getByLabelText("الحالة · Lingua GmbH")).toHaveValue("contacted");
+    expect(within(row).getByRole("option", { name: "تم التواصل" })).toBeInTheDocument();
+    expect(within(row).getByLabelText("الأولوية · Lingua GmbH")).toHaveValue("medium");
+    expect(within(row).getByLabelText("قيمة الصفقة · Lingua GmbH")).toHaveValue("1500");
+    expect(within(row).getByLabelText("ملاحظات · Lingua GmbH")).toHaveValue("call back");
+    expect(within(row).getByLabelText("الدوله · Lingua GmbH")).toHaveValue("الكويت");
+  });
+
+  it("saves a typed cell alone when the cursor leaves it, and nothing when it did not change", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ notes: "call Sunday" }) }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    const notes = await screen.findByLabelText("ملاحظات · Lingua GmbH");
+    await user.click(notes);
+    await user.tab();
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
+    await user.type(notes, "call Sunday{Enter}");
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ notes: "call Sunday" }]));
+  });
+
+  it("puts a cell back on Escape and sends nothing", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
+    open("/leads/3");
+    const phone = await screen.findByLabelText("رقم الهاتف · Lingua GmbH");
+    await user.clear(phone);
+    await user.type(phone, "123{Escape}");
+    expect(phone).toHaveValue("+49 30 1234");
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
+  });
+
+  it("saves the status and the priority as soon as they are picked", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.selectOptions(await screen.findByLabelText("الحالة · Lingua GmbH"), "won");
+    await user.selectOptions(screen.getByLabelText("الأولوية · Lingua GmbH"), "high");
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ status: "won" }, { priority: "high" }]));
+  });
+
+  it("puts a refused cell back and says why", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: false, error: "no_company", message: "اكتب اسم الشركة.", message_en: "x" }, 400),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    const company = await screen.findByLabelText("الشركة · Lingua GmbH");
+    await user.clear(company);
+    await user.type(company, "x{Enter}");
+    expect(await screen.findByText("اكتب اسم الشركة.")).toBeInTheDocument();
+    await waitFor(() => expect(company).toHaveValue("Lingua GmbH"));
   });
 
   it("opens the upload window from the sheet", async () => {

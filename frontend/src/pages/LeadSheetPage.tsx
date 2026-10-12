@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
   refusalText,
@@ -23,6 +23,7 @@ import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
+import { ChoiceCell, GRID_COLUMNS, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { Modal } from "../components/Modal";
@@ -30,18 +31,7 @@ import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 
 
-/** The Arabic words for the pipeline and the call outcomes (the server's labels are the English ones). */
-const STATUS_AR: Record<string, string> = {
-  new: "جديد",
-  email_sent: "اتبعت إيميل",
-  follow_up_1: "متابعة 1",
-  follow_up_2: "متابعة 2",
-  meeting: "اجتماع متحدد",
-  proposal: "اتبعت عرض / Rate sheet",
-  negotiation: "تفاوض",
-  won: "اتقفلت (Won)",
-  lost: "خسرناها (Lost)",
-};
+/** The Arabic words for the call outcomes (the server's labels are the English ones); the status list is the sheet's own. */
 const OUTCOME_AR: Record<string, string> = {
   interested: "مهتم",
   follow_up: "نتابع معاه",
@@ -91,6 +81,8 @@ const EMPTY_ROW: LeadValues = {
   services: "",
   source: "",
   status: "new",
+  priority: "",
+  deal_value: "",
   next_follow_up: "",
   notes: "",
 };
@@ -114,7 +106,7 @@ function LeadForm({
     if (!lead) return { ...EMPTY_ROW };
     const {
       id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o,
-      replied_at: _r, last_outreach_at: _lo, follow_up: _f, ...rest
+      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, ...rest
     } = lead;
     return rest;
   });
@@ -135,8 +127,7 @@ function LeadForm({
     if (lead) {
       save.mutate({ id: lead.id, values }, { onSuccess: onClose, onError });
     } else {
-      const { status: _s, next_follow_up: _n, notes: _x, ...row } = values;
-      add.mutate([row], { onSuccess: onClose, onError });
+      add.mutate([values], { onSuccess: onClose, onError });
     }
   };
 
@@ -163,31 +154,40 @@ function LeadForm({
               />
             </div>
           ))}
-          {lead && (
-            <>
-              <div className="field">
-                <label htmlFor="lead-status">{t("الحالة", "Status")}</label>
-                <select className="input" id="lead-status" value={values.status} onChange={(event) => set("status", event.target.value)}>
-                  {data.statuses.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {label(choice, STATUS_AR)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="lead-follow">{t("المتابعة الجاية", "Next follow-up")}</label>
-                <input className="input" id="lead-follow" type="date" value={values.next_follow_up} onChange={(event) => set("next_follow_up", event.target.value)} />
-              </div>
-            </>
-          )}
-        </div>
-        {lead && (
           <div className="field">
-            <label htmlFor="lead-notes">{t("ملاحظات", "Notes")}</label>
-            <textarea className="input" id="lead-notes" rows={3} maxLength={4000} value={values.notes} onChange={(event) => set("notes", event.target.value)} />
+            <label htmlFor="lead-status">{t("الحالة", "Status")}</label>
+            <select className="input" id="lead-status" value={values.status} onChange={(event) => set("status", event.target.value)}>
+              {data.statuses.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {label(choice, STATUS_AR)}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
+          <div className="field">
+            <label htmlFor="lead-priority">{t("الأولوية", "Priority")}</label>
+            <select className="input" id="lead-priority" value={values.priority} onChange={(event) => set("priority", event.target.value)}>
+              <option value="">—</option>
+              {data.priorities.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {label(choice, PRIORITY_AR)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="lead-deal">{t("قيمة الصفقة", "Deal value")}</label>
+            <input className="input" id="lead-deal" dir="ltr" inputMode="decimal" maxLength={20} value={values.deal_value} onChange={(event) => set("deal_value", event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="lead-follow">{t("المتابعة الجاية", "Next follow-up")}</label>
+            <input className="input" id="lead-follow" type="date" value={values.next_follow_up} onChange={(event) => set("next_follow_up", event.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="lead-notes">{t("ملاحظات", "Notes")}</label>
+          <textarea className="input" id="lead-notes" rows={3} maxLength={4000} value={values.notes} onChange={(event) => set("notes", event.target.value)} />
+        </div>
         <small className="muted">
           {t("رقم الواتساب بكود الدولة (+44…): ده اللي الزرار بيبعت عليه.", "Write the WhatsApp number with its country code (+44…): the button sends to it.")}
         </small>
@@ -608,30 +608,9 @@ type Open =
   | { kind: "timeline"; id: number }
   | { kind: "quotes"; id: number };
 
-/** One way to reach the company, on its own line in the one contact column: the button (or the plain sign when this
- * person may not contact from the sheet), the number or address, and when it first reached them. */
-function ContactLine({ value, icon, children, at, reached, title }: { value: string; icon: string; children?: ReactNode; at: string; reached: string; title: string }) {
-  return (
-    <div className="lead__reach" title={title}>
-      <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
-        {children ?? (
-          <span className="lead__reach-sign muted" aria-hidden="true">
-            <Icon name={icon} size="sm" />
-          </span>
-        )}
-        <span className={value ? "mono lead__reach-value" : "muted"} dir="ltr">
-          {value || "—"}
-        </span>
-      </div>
-      <Reached at={at} label={reached} />
-    </div>
-  );
-}
-
 /** One sheet: its companies, the three ways to reach each one, and (for the manager) the sheet's own settings. */
 export function LeadSheetPage() {
-  const { t } = usePreferences();
-  const label = useChoiceLabel();
+  const { t, lang } = usePreferences();
   const me = useMe();
   const { id } = useParams();
   const sheetId = /^\d{1,9}$/.test(id ?? "") ? Number(id) : 0;
@@ -668,10 +647,6 @@ export function LeadSheetPage() {
   const contact = data.sheet.can_contact;
   const sender = me.data ? `${me.data.user.name}` : "";
   const close = () => setOpen(null);
-  const status = (value: string) => {
-    const choice = data.statuses.find((one) => one.value === value);
-    return choice ? label(choice, STATUS_AR) : value;
-  };
 
   return (
     <>
@@ -724,75 +699,85 @@ export function LeadSheetPage() {
           </div>
         </div>
 
-        <div className="table-wrap">
-          <table className="table table--leads">
+        <div className="sheet-wrap">
+          <table className="sheet">
+            <colgroup>
+              {GRID_COLUMNS.map((column) => (
+                <col key={column.name} style={{ width: column.width }} />
+              ))}
+              <col style={{ width: 250 }} />
+            </colgroup>
             <thead>
               <tr>
-                <th className="lead__company">{t("الشركة", "Company")}</th>
-                <th className="lead__person">{t("الشخص", "Contact")}</th>
-                <th className="lead__contact">{t("التواصل", "Reach")}</th>
-                <th>{t("الحالة", "Status")}</th>
-                <th>{t("المتابعة الجاية", "Next follow-up")}</th>
-                <th>{t("آخر تواصل", "Last contact")}</th>
-                <th />
+                {GRID_COLUMNS.map((column) => (
+                  <th key={column.name} data-column={column.name}>
+                    {lang === "ar" ? column.ar : column.en}
+                  </th>
+                ))}
+                <th>{t("التواصل", "Reach")}</th>
+              </tr>
+              <tr className="sheet__band" aria-hidden="true">
+                <td colSpan={GRID_COLUMNS.length + 1} />
               </tr>
             </thead>
             <tbody>
               {leads.map((lead) => (
                 <tr key={lead.id} data-lead={lead.id}>
-                  <td>
-                    <strong>{lead.company_name}</strong>
-                    <div className="muted">{[lead.country, lead.industry].filter(Boolean).join(" · ")}</div>
-                    {lead.languages && <div className="muted">{lead.languages}</div>}
-                    {lead.replied_at && (
-                      <div className="chip chip--sm chip--replied" title={lead.replied_at} style={{ marginTop: 4 }}>
-                        <Icon name="reply" size="sm" />
-                        {t("ردّوا", "They answered")} <span className="mono">{lead.replied_at}</span>
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    {lead.contact_person || "—"}
-                    {lead.position && <div className="muted">{lead.position}</div>}
-                  </td>
-                  <td className="lead__contact">
-                    <ContactLine value={lead.whatsapp} icon="message" title={t("واتساب", "WhatsApp")} at={lead.whatsapp_at} reached={t("اتبعت", "sent")}>
+                  {GRID_COLUMNS.map((column) => {
+                    const name = lang === "ar" ? column.ar : column.en;
+                    return (
+                      <td key={column.name} className={`sheet__td sheet__td--${column.name}`}>
+                        {column.name === "status" ? (
+                          <ChoiceCell lead={lead} name="status" label={name} choices={data.statuses} words={STATUS_AR}>
+                            {lead.quote && (
+                              <div className="sheet__under" data-lead-quote={lead.quote.code}>
+                                <span className="mono">{lead.quote.code}</span> <QuoteStatus status={lead.quote.status} />
+                              </div>
+                            )}
+                          </ChoiceCell>
+                        ) : column.name === "priority" ? (
+                          <ChoiceCell lead={lead} name="priority" label={name} choices={data.priorities} words={PRIORITY_AR} empty />
+                        ) : (
+                          <TextCell lead={lead} name={column.name} label={name} max={column.max} ltr={column.ltr} />
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="sheet__tools">
+                    <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
                       {contact && (lead.whatsapp || lead.phone) && (
-                        <button className="icon-btn" type="button" title={t("ابعت واتساب", "Send WhatsApp")} aria-label={t("ابعت واتساب", "Send WhatsApp")} onClick={() => setOpen({ kind: "whatsapp", lead })}>
+                        <button
+                          className={`icon-btn${lead.whatsapp_at ? " is-done" : ""}`}
+                          type="button"
+                          title={t("ابعت واتساب", "Send WhatsApp")}
+                          aria-label={t("ابعت واتساب", "Send WhatsApp")}
+                          onClick={() => setOpen({ kind: "whatsapp", lead })}
+                        >
                           <Icon name="message" />
                         </button>
                       )}
-                    </ContactLine>
-                    <ContactLine value={lead.email} icon="mail" title={t("الإيميل", "Email")} at={lead.email_at} reached={t("اتبعت", "sent")}>
                       {contact && lead.email && (
-                        <button className="icon-btn" type="button" title={t("ابعت إيميل", "Send e-mail")} aria-label={t("ابعت إيميل", "Send e-mail")} onClick={() => setOpen({ kind: "email", lead })}>
+                        <button
+                          className={`icon-btn${lead.email_at ? " is-done" : ""}`}
+                          type="button"
+                          title={t("ابعت إيميل", "Send e-mail")}
+                          aria-label={t("ابعت إيميل", "Send e-mail")}
+                          onClick={() => setOpen({ kind: "email", lead })}
+                        >
                           <Icon name="mail" />
                         </button>
                       )}
-                    </ContactLine>
-                    <ContactLine value={lead.phone} icon="phone" title={t("التليفون", "Phone")} at={lead.call_at} reached={t("مكالمة", "call")}>
                       {contact && (
-                        <button className="icon-btn" type="button" title={t("سجّل مكالمة", "Log a call")} aria-label={t("سجّل مكالمة", "Log a call")} onClick={() => setOpen({ kind: "call", lead })}>
+                        <button
+                          className={`icon-btn${lead.call_at ? " is-done" : ""}`}
+                          type="button"
+                          title={t("سجّل مكالمة", "Log a call")}
+                          aria-label={t("سجّل مكالمة", "Log a call")}
+                          onClick={() => setOpen({ kind: "call", lead })}
+                        >
                           <Icon name="phone" />
                         </button>
                       )}
-                    </ContactLine>
-                  </td>
-                  <td>
-                    <span className="chip chip--sm">{status(lead.status)}</span>
-                    {lead.quote && (
-                      <div className="row row--tight" style={{ marginTop: 4, flexWrap: "nowrap" }} data-lead-quote={lead.quote.code}>
-                        <span className="mono muted">{lead.quote.code}</span>
-                        <QuoteStatus status={lead.quote.status} />
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <FollowUpBadge date={lead.next_follow_up} state={lead.follow_up} />
-                  </td>
-                  <td className="mono">{lead.last_contact_at || "—"}</td>
-                  <td>
-                    <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
                       <button className="icon-btn" type="button" title={t("عروض الأسعار", "Quotations")} aria-label={t("عروض الأسعار", "Quotations")} onClick={() => setOpen({ kind: "quotes", id: lead.id })}>
                         <Icon name="file" />
                       </button>
@@ -803,12 +788,26 @@ export function LeadSheetPage() {
                         <Icon name="pen" />
                       </button>
                     </div>
+                    <Reached at={lead.whatsapp_at} label={t("واتساب", "WhatsApp")} />
+                    <Reached at={lead.email_at} label={t("إيميل", "E-mail")} />
+                    <Reached at={lead.call_at} label={t("مكالمة", "Call")} />
+                    {lead.replied_at && (
+                      <div className="chip chip--sm chip--replied" title={lead.replied_at} style={{ marginTop: 4 }}>
+                        <Icon name="reply" size="sm" />
+                        {t("ردّوا", "They answered")} <span className="mono">{lead.replied_at}</span>
+                      </div>
+                    )}
+                    {lead.next_follow_up && (
+                      <div className="sheet__under">
+                        <span className="muted">{t("المتابعة الجاية", "Next follow-up")}</span> <FollowUpBadge date={lead.next_follow_up} state={lead.follow_up} />
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
               {leads.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="empty">
+                  <td colSpan={GRID_COLUMNS.length + 1} className="empty">
                     <Icon name="building" size="xl" />
                     <span>
                       {data.leads.length

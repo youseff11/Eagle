@@ -200,13 +200,16 @@ class RowTests(_B2b):
 
     def test_a_row_is_corrected_and_its_status_change_is_written_down(self):
         values = {name: getattr(self.lead, name) for name, *_r in b2b.COLUMNS}
-        values.update(status="meeting", next_follow_up="2026-10-20", notes="call Tuesday", whatsapp="+44 7700 900999")
+        values.update(status="visit", next_follow_up="2026-10-20", notes="call Tuesday", whatsapp="+44 7700 900999")
         answer = self.post(self.sales, "v1_b2b_lead_save", values, self.lead.pk)
         self.assertEqual(answer.status_code, 200)
         self.lead.refresh_from_db()
-        self.assertEqual((self.lead.status, str(self.lead.next_follow_up)), ("meeting", "2026-10-20"))
+        self.assertEqual((self.lead.status, str(self.lead.next_follow_up)), ("visit", "2026-10-20"))
         self.assertEqual(self.lead.phone_key, Client.phone_key("+447700900999"))
-        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_status", detail="new -> meeting").exists())
+        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_status", detail="new -> visit").exists())
+        for old in ("meeting", "proposal", "negotiation", "email_sent"):
+            values["status"] = old
+            self.assertEqual(self.post(self.sales, "v1_b2b_lead_save", values, self.lead.pk).status_code, 400, old)
         values["status"] = "made_up"
         self.assertEqual(self.post(self.sales, "v1_b2b_lead_save", values, self.lead.pk).status_code, 400)
 
@@ -248,8 +251,11 @@ class WhatsappTests(_B2b):
         self.assertEqual(self.lead.client, client)
         self.assertIsNotNone(self.lead.whatsapp_at)
         self.assertEqual(self.lead.last_contact_at, self.lead.whatsapp_at)
-        activity = self.lead.activities.get()
+        activity = self.lead.activities.get(kind="whatsapp")
         self.assertEqual((activity.kind, activity.automatic, activity.outbound), ("whatsapp", True, sent))
+        # The first WhatsApp made the new company «Contacted» (12/10/2026), and that is on the timeline too.
+        self.assertEqual(self.lead.status, "contacted")
+        self.assertEqual(self.lead.activities.get(kind="status").status, "contacted")
         self.assertEqual(body["lead"]["whatsapp_at"] != "", True)
 
     def test_a_second_press_sends_nothing_until_a_day_has_passed(self):
@@ -345,7 +351,7 @@ class MarkedByItselfTests(_B2b):
         self.assertIsNotNone(self.lead.whatsapp_at)
         # A second message the same day moves the last contact, not the timeline.
         services.send_client_message(self.client_obj, self.sales, "One more", force_channel=Channel.WHATSAPP)
-        self.assertEqual(self.lead.activities.count(), 1)
+        self.assertEqual(self.lead.activities.filter(kind="whatsapp").count(), 1)
 
     def test_the_company_line_and_another_sales_person_do_not_count(self):
         InboundMessage.objects.create(client=self.client_obj, channel=Channel.WHATSAPP, body="hi", external_id="wamid.in.2")
@@ -382,9 +388,9 @@ class EmailTests(_B2b):
         self.assertIsNotNone(self.lead.email_at)
         self.assertEqual(self.lead.client.email, "anna@lingua.test")
         self.assertEqual(self.lead.activities.get(kind="email").owner, self.sales)
-        # The first letter moved it to «Email sent», and that is on the timeline too.
+        # The first letter moved it to «Contacted», and that is on the timeline too.
         stage = self.lead.activities.get(kind="status")
-        self.assertEqual((stage.status, stage.automatic, stage.owner), ("email_sent", True, self.sales))
+        self.assertEqual((stage.status, stage.automatic, stage.owner), ("contacted", True, self.sales))
 
     def test_a_letter_needs_an_address_a_subject_and_words(self):
         self.assertEqual(_json(self.post(self.sales, "v1_b2b_lead_email", {"subject": "", "body": "x"}, self.lead.pk))["error"], "empty")
@@ -422,7 +428,7 @@ class CallTests(_B2b):
         self.post(self.sales, "v1_b2b_lead_call", {"outcome": "no_answer"}, self.lead.pk)
         self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
         body = _json(self.get(self.manager, "v1_b2b_lead", self.lead.pk))
-        self.assertEqual({a["kind"] for a in body["activities"]}, {"call", "whatsapp"})
+        self.assertEqual({a["kind"] for a in body["activities"]}, {"call", "whatsapp", "status"})
         self.assertFalse(body["can_contact"])
 
 
@@ -509,19 +515,25 @@ class InboundTests(_B2b):
             message = self.ingest(owner=self.sales)
         self.assertTrue(InboundMessage.objects.filter(pk=message.pk).exists())
 
-    def test_the_first_letter_moves_a_new_company_to_email_sent(self):
+    def test_the_first_letter_moves_a_new_company_to_contacted(self):
         self.post(self.sales, "v1_b2b_lead_email", {"subject": "s", "body": "b"}, self.lead.pk)
         self.lead.refresh_from_db()
-        self.assertEqual(self.lead.status, "email_sent")
-        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_status", detail__contains="automatic").exists())
+        self.assertEqual(self.lead.status, "contacted")
+        self.assertTrue(AuditLog.objects.filter(action="b2b.lead_status", detail="new -> contacted (automatic)").exists())
         # A company further on the way stays where it is.
-        Lead.objects.filter(pk=self.lead.pk).update(status="negotiation")
+        Lead.objects.filter(pk=self.lead.pk).update(status="visit")
         self.post(self.sales, "v1_b2b_lead_email", {"subject": "s2", "body": "b2"}, self.lead.pk)
         self.lead.refresh_from_db()
-        self.assertEqual(self.lead.status, "negotiation")
+        self.assertEqual(self.lead.status, "visit")
 
-    def test_a_whatsapp_does_not_move_the_status(self):
-        self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
+    def test_their_answer_does_not_move_the_status(self):
+        # Their writing is not us contacting them: the first WhatsApp or letter of ours does it (WhatsappTests, above).
+        self.ingest(owner=self.sales)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "new")
+
+    def test_a_call_does_not_move_the_status(self):
+        self.post(self.sales, "v1_b2b_lead_call", {"outcome": "interested"}, self.lead.pk)
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.status, "new")
 
@@ -730,14 +742,15 @@ class KpiTests(_B2b):
         self.assertEqual({name: row[name] for name in expected}, expected)
 
     def test_stages_are_counted_once_per_company_and_the_conversion_rate(self):
-        self.save_status(self.lead, "meeting")
-        self.save_status(self.lead, "proposal")
-        self.save_status(self.lead, "meeting")
+        self.save_status(self.lead, "visit")
+        self.save_status(self.lead, "follow_up")
+        self.save_status(self.lead, "visit")
         self.save_status(self.lead, "won")
         theirs = Lead.objects.create(sheet=LeadSheet.objects.create(title="Spain", assigned_to=self.other), company_name="Iberia")
         self.save_status(theirs, "lost")
         mine = self.row(self.manager, self.sales)
-        self.assertEqual((mine["meetings"], mine["proposals"], mine["won"], mine["lost"], mine["conversion_rate"]), (1, 1, 1, 0, 100))
+        self.assertEqual((mine["visits"], mine["won"], mine["lost"], mine["conversion_rate"]), (1, 1, 0, 100))
+        self.assertNotIn("proposals", mine)
         theirs_row = self.row(self.manager, self.other)
         # Measured, and nothing won: 0%, not "not measured".
         self.assertEqual((theirs_row["lost"], theirs_row["conversion_rate"]), (1, 0))
@@ -810,10 +823,10 @@ class KpiTests(_B2b):
             self.assertNotIn(word, text)
 
     def test_a_stage_change_is_on_the_timeline_for_who_holds_the_company(self):
-        self.save_status(self.lead, "negotiation")
+        self.save_status(self.lead, "no_answer")
         stage = self.lead.activities.get(kind="status")
-        self.assertEqual((stage.status, stage.owner, stage.by), ("negotiation", self.sales, self.manager))
-        self.save_status(self.lead, "negotiation")
+        self.assertEqual((stage.status, stage.owner, stage.by), ("no_answer", self.sales, self.manager))
+        self.save_status(self.lead, "no_answer")
         self.assertEqual(self.lead.activities.filter(kind="status").count(), 1)
 
 
@@ -874,7 +887,7 @@ class QuotationTests(_Quotes):
             self.assertEqual(self.make(**over).status_code, 400, over)
         self.assertFalse(Quotation.objects.exists())
 
-    def test_sending_mails_it_from_the_persons_address_and_moves_the_company_to_proposal(self):
+    def test_sending_mails_it_from_the_persons_address_and_the_company_is_contacted(self):
         quote = self.made()
         answer = self.send(quote)
         self.assertEqual(answer.status_code, 200, answer.content)
@@ -887,7 +900,8 @@ class QuotationTests(_Quotes):
         self.assertIn("Total: 72.00 USD", kwargs["body"])
         self.assertIn("Dear Anna", kwargs["body"])
         self.lead.refresh_from_db()
-        self.assertEqual(self.lead.status, "proposal")
+        # The letter is the first contact, so the company is «Contacted»; the sheet has no stage for a quotation.
+        self.assertEqual(self.lead.status, "contacted")
         self.assertIsNotNone(self.lead.email_at)
         self.assertEqual(set(self.lead.activities.filter(kind="quotation").values_list("notes", flat=True)), {"created", "sent"})
 
@@ -910,10 +924,10 @@ class QuotationTests(_Quotes):
         self.assertEqual((quote.status, quote.sent_at), ("draft", None))
 
     def test_a_company_further_on_keeps_its_stage(self):
-        Lead.objects.filter(pk=self.lead.pk).update(status="negotiation")
+        Lead.objects.filter(pk=self.lead.pk).update(status="visit")
         self.send(self.made())
         self.lead.refresh_from_db()
-        self.assertEqual(self.lead.status, "negotiation")
+        self.assertEqual(self.lead.status, "visit")
 
     def test_a_copy_is_a_new_draft_and_the_sent_one_stays(self):
         quote = self.made()
@@ -971,7 +985,7 @@ class QuotationAnswerTests(_Quotes):
         self.decide(self.quote, False)
         self.quote.refresh_from_db()
         self.lead.refresh_from_db()
-        self.assertEqual((self.quote.status, self.lead.status), ("rejected", "proposal"))
+        self.assertEqual((self.quote.status, self.lead.status), ("rejected", "contacted"))
         self.assertFalse(self.ops.notifications.exists())
 
     def test_the_manager_may_record_the_answer_and_nobody_answers_twice_or_a_draft(self):
