@@ -8,7 +8,8 @@ from django.apps import apps
 from django.test import SimpleTestCase
 
 from . import b2b_import
-from .models import Lead, LeadActivity
+from . import services
+from .models import Channel, Client, Lead, LeadActivity
 from .tests_b2b import _B2b, _json
 
 #: The Sales team's Google Sheet as a CSV, its own headers and words (the NAME column is empty there).
@@ -140,3 +141,60 @@ class OldStagesTests(_B2b):
         for stage, (lead_id, activity_id) in made.items():
             self.assertEqual(Lead.objects.get(pk=lead_id).status, old[stage], stage)
             self.assertEqual(LeadActivity.objects.get(pk=activity_id).status, old[stage], stage)
+
+
+class SeveralPhonesTests(_B2b):
+    """A company with more than one number (12/10/2026): one a line in the phone cell."""
+
+    def setUp(self):
+        super().setUp()
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="")
+        self.lead.refresh_from_db()
+        self.lead.phone = "+965 2221 3775\n+965 9988 7766 / 24737021"
+        self.lead.save()
+
+    def test_every_number_is_read_and_kept_as_a_key(self):
+        self.assertEqual(self.lead.all_phones, ["+96522213775", "+96599887766", "24737021"])
+        self.assertEqual(self.lead.phone_key, "522213775")
+        self.assertIn(" 599887766 ", self.lead.phone_keys)
+        body = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))
+        self.assertEqual(body["leads"][0]["phones"], ["+96522213775", "+96599887766", "24737021"])
+
+    def test_the_cell_takes_several_numbers(self):
+        answer = self.post(self.sales, "v1_b2b_lead_save", {"phone": "0100 111 2222\n0122 333 4444"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.all_phones, ["01001112222", "01223334444"])
+        self.assertEqual(self.post(self.sales, "v1_b2b_lead_save", {"phone": "1" * 251}, self.lead.pk).status_code, 400)
+
+    def test_whatsapp_goes_to_the_number_chosen_and_the_client_keeps_the_others(self):
+        answer = self.post(self.sales, "v1_b2b_lead_whatsapp", {"number": "+965 9988 7766"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(self.template.call_args.args[0], "96599887766")
+        client = Client.objects.get(code=_json(answer)["chat"])
+        self.assertEqual(client.phone, "96599887766")
+        self.assertEqual(client.extra_phones.split("\n"), ["+96522213775", "24737021"])
+
+    def test_without_a_choice_the_first_number_and_a_stranger_number_is_refused(self):
+        self.assertEqual(self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk).status_code, 200)
+        self.assertEqual(self.template.call_args.args[0], "96522213775")
+        answer = self.post(self.sales, "v1_b2b_lead_whatsapp", {"number": "+20 100 000 0000"}, self.lead.pk)
+        self.assertEqual(_json(answer)["error"], "not_its_number")
+        self.assertEqual(self.template.call_count, 1)
+
+    def test_an_answer_from_the_second_number_marks_the_row(self):
+        services.ingest_message(
+            channel=Channel.WHATSAPP, body="hello", sender_identity="96599887766", external_id="wamid.two", owner=self.sales,
+        )
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.replied_at)
+        # And it is the company already on the sheet: no row of its own on the sheet of companies that wrote first.
+        self.assertEqual(Lead.objects.count(), 1)
+
+    def test_old_rows_get_the_keys_of_every_number(self):
+        migration = importlib.import_module("dashboard.migrations.0071_lead_several_phones")
+        Lead.objects.filter(pk=self.lead.pk).update(phone_keys="", phone_key="", whatsapp="+44 7700 900123")
+        migration.keys_for_every_number(apps, None)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.phone_keys, " 700900123 522213775 599887766 24737021 ")
+        self.assertEqual(self.lead.phone_key, "700900123")

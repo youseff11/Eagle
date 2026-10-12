@@ -4699,7 +4699,8 @@ class Lead(models.Model):
     contact_person = models.CharField(max_length=160, blank=True)
     position = models.CharField(max_length=120, blank=True)
     email = models.CharField(max_length=254, blank=True)
-    phone = models.CharField(max_length=40, blank=True)
+    #: One number or several, one a line (12/10/2026: a company has more than one): ``all_phones`` reads them.
+    phone = models.CharField(max_length=250, blank=True)
     whatsapp = models.CharField(max_length=40, blank=True)
     linkedin = models.CharField(max_length=250, blank=True)
     languages = models.CharField(max_length=250, blank=True, help_text="Languages / language pairs.")
@@ -4716,6 +4717,9 @@ class Lead(models.Model):
     #: What a message to the company is matched on: the last nine digits of its WhatsApp (or phone) number, and its address
     #: lower-cased. Kept by ``save``.
     phone_key = models.CharField(max_length=12, blank=True, db_index=True)
+    #: Every number's key, the WhatsApp first, each between spaces (" 512345678 598765432 "): a message from or to any of the
+    #: company's numbers is the company (``phone_q``). Kept by ``save``.
+    phone_keys = models.CharField(max_length=400, blank=True)
     email_key = models.CharField(max_length=254, blank=True, db_index=True)
     #: The first time each channel reached the company, and the last time anything did. Written by ``b2b``, never by a form.
     whatsapp_at = models.DateTimeField(null=True, blank=True)
@@ -4734,12 +4738,36 @@ class Lead(models.Model):
         ordering = ("id",)
 
     def save(self, *args, **kwargs):
-        self.phone_key = Client.phone_key(self.whatsapp or self.phone)
+        keys = [Client.phone_key(number) for number in self.all_phones]
+        self.phone_key = keys[0] if keys else ""
+        self.phone_keys = f" {' '.join(keys)} " if keys else ""
         self.email_key = (self.email or "").strip().lower()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.company_name
+
+    @staticmethod
+    def split_numbers(value):
+        """The numbers in a cell: one a line, or split by a comma, a semicolon, a slash or an Arabic comma, as a sheet holds
+        them; spaces and dashes inside a number stay out of the way (``Client.split_phones``)."""
+        return Client.split_phones("\n".join(re.split(r"[/،]+", value or "")))
+
+    @property
+    def all_phones(self):
+        """The WhatsApp number first, then every phone number, without repeats."""
+        out, seen = [], set()
+        for number in self.split_numbers(self.whatsapp) + self.split_numbers(self.phone):
+            key = Client.phone_key(number)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(number)
+        return out
+
+    @staticmethod
+    def phone_q(key):
+        """The rows that have this number among theirs."""
+        return models.Q(phone_keys__contains=f" {key} ")
 
     @property
     def contacted(self):

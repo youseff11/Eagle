@@ -106,7 +106,7 @@ function LeadForm({
     if (!lead) return { ...EMPTY_ROW };
     const {
       id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o,
-      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, ...rest
+      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, phones: _p, ...rest
     } = lead;
     return rest;
   });
@@ -144,14 +144,28 @@ function LeadForm({
           {data.columns.map((column) => (
             <div className="field" key={column.name}>
               <label htmlFor={`lead-${column.name}`}>{lang === "ar" ? column.ar : column.en}</label>
-              <input
-                className="input"
-                id={`lead-${column.name}`}
-                maxLength={column.max}
-                dir={["email", "phone", "whatsapp", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
-                value={values[column.name]}
-                onChange={(event) => set(column.name, event.target.value)}
-              />
+              {column.name === "phone" ? (
+                // A company has more than one number: one a line.
+                <textarea
+                  className="input"
+                  id="lead-phone"
+                  rows={2}
+                  dir="ltr"
+                  maxLength={column.max}
+                  placeholder={t("كل رقم في سطر", "One number a line")}
+                  value={values.phone}
+                  onChange={(event) => set("phone", event.target.value)}
+                />
+              ) : (
+                <input
+                  className="input"
+                  id={`lead-${column.name}`}
+                  maxLength={column.max}
+                  dir={["email", "whatsapp", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
+                  value={values[column.name]}
+                  onChange={(event) => set(column.name, event.target.value)}
+                />
+              )}
             </div>
           ))}
           <div className="field">
@@ -186,7 +200,15 @@ function LeadForm({
         </div>
         <div className="field">
           <label htmlFor="lead-notes">{t("ملاحظات", "Notes")}</label>
-          <textarea className="input" id="lead-notes" rows={3} maxLength={4000} value={values.notes} onChange={(event) => set("notes", event.target.value)} />
+          <textarea
+            className="input"
+            id="lead-notes"
+            rows={3}
+            maxLength={4000}
+            placeholder={t("كل ملاحظة في سطر", "One note a line")}
+            value={values.notes}
+            onChange={(event) => set("notes", event.target.value)}
+          />
         </div>
         <small className="muted">
           {t("رقم الواتساب بكود الدولة (+44…): ده اللي الزرار بيبعت عليه.", "Write the WhatsApp number with its country code (+44…): the button sends to it.")}
@@ -328,12 +350,13 @@ function StartWhatsapp({ lead, onClose }: { lead: B2bLead; onClose: () => void }
   const navigate = useNavigate();
   const toasts = useToasts();
   const start = useLeadWhatsapp();
+  const [number, setNumber] = useState(lead.phones[0] ?? "");
   const [problem, setProblem] = useState("");
 
   const go = () => {
     if (start.isPending) return;
     setProblem("");
-    start.mutate(lead.id, {
+    start.mutate({ id: lead.id, number }, {
       onSuccess: (answer) => {
         if (answer.sent) toasts.push({ level: "success", title: t("الرسالة الافتتاحية اتبعتت", "The opening message was sent") });
         navigate(`/chats/${encodeURIComponent(answer.chat)}`);
@@ -350,6 +373,19 @@ function StartWhatsapp({ lead, onClose }: { lead: B2bLead; onClose: () => void }
           `This company has never written to us, so WhatsApp carries only the approved opening message (in English, from your number). It goes to ${lead.contact_person || lead.company_name}, then the chat opens. Once they answer you write to them as usual.`,
         )}
       </p>
+      {lead.phones.length > 1 && (
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
+          <legend>{t("ابعت على أنهي رقم؟", "Which number?")}</legend>
+          {lead.phones.map((one) => (
+            <label key={one} className="row row--tight" style={{ cursor: "pointer" }}>
+              <input type="radio" name="wa-number" value={one} checked={number === one} onChange={() => setNumber(one)} />
+              <span className="mono" dir="ltr">
+                {one}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <p className="muted">
         {t(
           "لو كلّموك في آخر 24 ساعة، أو الرسالة الافتتاحية اتبعتت النهارده ومردّوش، مفيش حاجة هتتبعت: الشات هيتفتح بس.",
@@ -738,7 +774,7 @@ export function LeadSheetPage() {
                         ) : column.name === "priority" ? (
                           <ChoiceCell lead={lead} name="priority" label={name} choices={data.priorities} words={PRIORITY_AR} empty />
                         ) : (
-                          <TextCell lead={lead} name={column.name} label={name} max={column.max} ltr={column.ltr} />
+                          <TextCell lead={lead} name={column.name} label={name} max={column.max} ltr={column.ltr} multiline={column.multiline} />
                         )}
                       </td>
                     );

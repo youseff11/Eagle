@@ -19,7 +19,7 @@ const COLUMNS: B2bSheetResponse["columns"] = [
   { name: "contact_person", ar: "الشخص المسؤول", en: "Contact person", max: 160 },
   { name: "position", ar: "المنصب", en: "Position", max: 120 },
   { name: "email", ar: "الإيميل", en: "Email", max: 254 },
-  { name: "phone", ar: "التليفون", en: "Phone", max: 40 },
+  { name: "phone", ar: "التليفون", en: "Phone", max: 250 },
   { name: "whatsapp", ar: "واتساب", en: "WhatsApp", max: 40 },
   { name: "linkedin", ar: "لينكدإن", en: "LinkedIn", max: 250 },
   { name: "languages", ar: "اللغات", en: "Language pairs", max: 250 },
@@ -46,6 +46,7 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     status: "new",
     priority: "",
     deal_value: "",
+    phones: ["+49 151 0000", "+49 30 1234"],
     next_follow_up: "",
     notes: "",
     client_code: "",
@@ -278,7 +279,7 @@ describe("LeadSheetPage", () => {
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "ابعت وافتح الشات" }));
     expect(await screen.findByText("chat page")).toBeInTheDocument();
-    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toHaveLength(1);
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toEqual([{ number: "+49 151 0000" }]);
   });
 
   it("shows the server's reason when the send is refused, and stays", async () => {
@@ -395,16 +396,17 @@ describe("LeadSheetPage", () => {
   it("saves a typed cell alone when the cursor leaves it, and nothing when it did not change", async () => {
     const user = userEvent.setup();
     const mocked = serve("sales", {
-      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ notes: "call Sunday" }) }),
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ contact_person: "Anna Weber" }) }),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
     });
     open("/leads/3");
-    const notes = await screen.findByLabelText("ملاحظات · Lingua GmbH");
-    await user.click(notes);
+    const person = await screen.findByLabelText("الشخص المسؤول · Lingua GmbH");
+    await user.click(person);
     await user.tab();
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
-    await user.type(notes, "call Sunday{Enter}");
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ notes: "call Sunday" }]));
+    await user.clear(person);
+    await user.type(person, "Anna Weber{Enter}");
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ contact_person: "Anna Weber" }]));
   });
 
   it("puts a cell back on Escape and sends nothing", async () => {
@@ -442,6 +444,47 @@ describe("LeadSheetPage", () => {
     await user.type(company, "x{Enter}");
     expect(await screen.findByText("اكتب اسم الشركة.")).toBeInTheDocument();
     await waitFor(() => expect(company).toHaveValue("Lingua GmbH"));
+  });
+
+  it("asks which number when the company has more than one, and sends the one chosen", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/whatsapp/": () => jsonResponse({ ok: true, sent: true, chat: "CL-0042", lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
+    expect(screen.getByRole("radio", { name: "+49 151 0000" })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "+49 30 1234" }));
+    await user.click(screen.getByRole("button", { name: "ابعت وافتح الشات" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/whatsapp/")).toEqual([{ number: "+49 30 1234" }]));
+  });
+
+  it("asks nothing about the number when the company has one", async () => {
+    const user = userEvent.setup();
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ phones: ["+49 151 0000"] })])) });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت واتساب" }));
+    expect(screen.queryByRole("radio")).toBeNull();
+  });
+
+  it("takes Enter as a new line in the notes and the phone numbers, and saves the lines when the cursor leaves", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    const notes = await screen.findByLabelText("ملاحظات · Lingua GmbH");
+    await user.type(notes, "first note{Enter}{Enter}second note ");
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
+    const phone = screen.getByLabelText("رقم الهاتف · Lingua GmbH");
+    await user.click(phone);
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ notes: "first note\nsecond note" }]));
+    await user.type(phone, "{Enter}+49 30 9999");
+    await user.tab();
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toHaveLength(2));
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")[1]).toEqual({ phone: "+49 30 1234\n+49 30 9999" });
   });
 
   it("opens the upload window from the sheet", async () => {

@@ -52,6 +52,8 @@ export interface B2bLead extends B2bRow {
   priority: string;
   /** What the deal is worth, as the Sales person guesses it ("1500", "1500.5"), "" when none: no currency, as on the team's sheet. */
   deal_value: string;
+  /** Every number the company has (the WhatsApp one first, then the phone cell's, one a line): what the WhatsApp button offers. */
+  phones: string[];
   next_follow_up: string;
   notes: string;
   client_code: string;
@@ -374,8 +376,8 @@ export function useDeleteLead() {
 }
 
 export function useLeadWhatsapp() {
-  return useWrite((id: number) =>
-    api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: {} }),
+  return useWrite(({ id, number }: { id: number; number: string }) =>
+    api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: { number } }),
   );
 }
 

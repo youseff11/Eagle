@@ -92,7 +92,7 @@ COLUMNS = (
     ("contact_person", 160, "الشخص المسؤول", "Contact person"),
     ("position", 120, "المنصب", "Position"),
     ("email", 254, "الإيميل", "Email"),
-    ("phone", 40, "التليفون", "Phone"),
+    ("phone", 250, "التليفون", "Phone"),
     ("whatsapp", 40, "واتساب", "WhatsApp"),
     ("linkedin", 250, "لينكدإن", "LinkedIn"),
     ("languages", 250, "اللغات", "Language pairs"),
@@ -250,7 +250,7 @@ def note_outbound(outbound):
     if kind == LeadActivity.Kind.WHATSAPP:
         key = Client.phone_key(target)
         if key:
-            same |= Q(client__isnull=True, phone_key=key)
+            same |= Q(client__isnull=True) & Lead.phone_q(key)
     elif target:
         same |= Q(client__isnull=True, email_key=target.lower())
     for lead in Lead.objects.filter(same, sheet__assigned_to_id=outbound.owner_id):
@@ -274,7 +274,7 @@ def note_inbound(message):
     if kind == LeadActivity.Kind.WHATSAPP:
         key = Client.phone_key(sender)
         if key:
-            same |= Q(client__isnull=True, phone_key=key)
+            same |= Q(client__isnull=True) & Lead.phone_q(key)
     elif sender:
         same |= Q(client__isnull=True, email_key=sender.lower())
     leads = list(Lead.objects.filter(same, sheet__assigned_to_id=message.owner_id))
@@ -309,7 +309,7 @@ def auto_lead(message, kind):
     known = Q(client=client)
     phone_key = Client.phone_key(sender) if kind == LeadActivity.Kind.WHATSAPP else ""
     if phone_key:
-        known |= Q(phone_key=phone_key)
+        known |= Lead.phone_q(phone_key)
     if kind == LeadActivity.Kind.EMAIL:
         known |= Q(email_key=sender.lower())
     if Lead.objects.filter(known).exists():
@@ -636,7 +636,9 @@ def _client_for(lead, channel, value):
     found = Client.find_by_phone(value) if channel == Channel.WHATSAPP else Client.find_by_email(value)
     if found is not None:
         return found
-    phone = value if channel == Channel.WHATSAPP else (lead.whatsapp or lead.phone)
+    numbers = lead.all_phones
+    phone = value if channel == Channel.WHATSAPP else (numbers[0] if numbers else "")
+    others = [number for number in numbers if Client.phone_key(number) != Client.phone_key(phone)]
     email = value if channel == Channel.EMAIL else lead.email
     try:
         validate_email(email or "")
@@ -644,7 +646,7 @@ def _client_for(lead, channel, value):
         email = ""
     return Client.objects.create(
         name=lead.contact_person[:160], company=lead.company_name[:160], phone=(phone or "")[:40],
-        email=email or "", country=lead.country[:80],
+        extra_phones="\n".join(others), email=email or "", country=lead.country[:80],
     )
 
 
@@ -652,8 +654,9 @@ def _client_for(lead, channel, value):
 INTRO_REPEAT = timedelta(hours=24)
 
 
-def start_whatsapp(lead, user):
-    """The WhatsApp button: ``(client, sent)``, or ``Refused``.
+def start_whatsapp(lead, user, number=""):
+    """The WhatsApp button: ``(client, sent)``, or ``Refused``. ``number``: which of the company's numbers to write to (it
+    has more than one); the WhatsApp number, or the first one, when not given.
 
     ``sent`` is False when nothing had to go: the company's window on this person's number is open (they wrote within 24
     hours) and the conversation just opens, or the template already went within ``INTRO_REPEAT`` and they have not answered.
@@ -663,7 +666,14 @@ def start_whatsapp(lead, user):
 
     if not may_contact(user, lead.sheet):
         raise Refused("not_yours", "الشيت ده مش بتاعك: صاحبه بس هو اللي بيتواصل منه.", "Only the sheet's own Sales person contacts from it.")
-    number = wa.normalize_number(lead.whatsapp or lead.phone)
+    numbers = lead.all_phones
+    if number:
+        chosen = next((one for one in numbers if Client.phone_key(one) == Client.phone_key(number)), None)
+        if chosen is None:
+            raise Refused("not_its_number", "الرقم ده مش من أرقام الشركة دي.", "That number is not one of this company's.")
+    else:
+        chosen = numbers[0] if numbers else ""
+    number = wa.normalize_number(chosen)
     if len(number) < 8:
         raise Refused("no_number", "مفيش رقم واتساب مظبوط للشركة دي. اكتبه بكود الدولة (+44...).", "This company has no usable WhatsApp number. Write it with the country code (+44...).")
     from_id = (user.wa_phone_number_id or "").strip()

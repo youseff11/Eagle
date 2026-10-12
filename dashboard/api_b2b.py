@@ -87,6 +87,8 @@ def _lead_json(lead, today=None):
     return {
         "id": lead.pk,
         **{name: getattr(lead, name) for name, *_rest in b2b.COLUMNS},
+        # Every number the company has, the WhatsApp one first: what the WhatsApp button offers to write to.
+        "phones": lead.all_phones,
         "status": lead.status,
         "priority": lead.priority,
         "deal_value": _deal_text(lead.deal_value),
@@ -564,7 +566,11 @@ def lead_whatsapp(request, lead_id):
     """The WhatsApp button: send the opening template when one is needed, and say which conversation to open."""
     lead = _lead_or_404(request, lead_id)
     try:
-        client, sent = b2b.start_whatsapp(lead, request.user)
+        number = _text(_object(request), "number", 40)
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        client, sent = b2b.start_whatsapp(lead, request.user, number)
     except b2b.Refused as refusal:
         return _refused(refusal)
     lead.refresh_from_db()
