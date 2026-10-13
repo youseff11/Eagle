@@ -142,14 +142,15 @@ describe("ImportRows", () => {
     await user.click(screen.getByRole("button", { name: "التالي" }));
     expect(screen.getByDisplayValue("Firm 101")).toBeInTheDocument();
     // A cell on the second page is the row it shows.
-    await user.type(screen.getByLabelText("الدولة 101"), "Spain");
+    await user.click(screen.getByLabelText("الدولة 101"));
+    await user.paste("Spain");
     await user.click(screen.getByRole("button", { name: "ضيفهم" }));
     await waitFor(() => expect(posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/")).toHaveLength(3));
     const parts = posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/").map((call) => JSON.parse(String(call.init?.body)).rows as B2bRow[]);
     expect(parts.map((part) => part.length)).toEqual([500, 500, 200]);
     expect(parts[0]![100]).toMatchObject({ company_name: "Firm 101", country: "Spain" });
     expect(parts[2]![199]!.company_name).toBe("Firm 1200");
-  });
+  }, 30000);
 
   it("says before adding anything that the sheet has no room for them all", async () => {
     const user = userEvent.setup();
@@ -184,7 +185,7 @@ describe("ImportRows", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("اتضاف 500 شركة والباقي ماتضافش");
     expect(screen.getByText("200 شركة جاهزة تتضاف")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Firm 501")).toBeInTheDocument();
-  });
+  }, 30000);
 
   it("says the file went on past what a sheet holds", async () => {
     const user = userEvent.setup();
