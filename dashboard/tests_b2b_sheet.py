@@ -449,3 +449,14 @@ class LinkTests(_B2b):
             self.assertEqual(self.read(5).status_code, 400)
         self.assertEqual(body["error"], "unreadable")
         opened.assert_not_called()
+
+
+class NotACompanyListTests(SimpleTestCase):
+    def test_a_sheet_whose_header_names_no_company_says_so(self):
+        report = "مكالمات ,واتساب ,الايميلات ,عدد الشركات ,التاريخ ,الدوله \n,,67 ايميل ,87,8-9,السعوديه \n"
+        with self.assertRaises(b2b_import.Unreadable) as caught:
+            b2b_import.to_rows(b2b_import.read_text(report))
+        self.assertIn("company column", caught.exception.en)
+        # A paste with no header at all is still read in the sheet's own order.
+        rows, mapped = b2b_import.to_rows(b2b_import.read_text("Alpha Ltd\tGermany\n"))
+        self.assertEqual((rows[0]["company_name"], rows[0]["country"], mapped), ("Alpha Ltd", "Germany", {}))

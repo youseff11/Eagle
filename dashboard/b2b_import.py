@@ -159,6 +159,13 @@ def to_rows(table):
     header = map_header(table[0])
     order = [name for name, *_rest in b2b.COLUMNS]
     if header is not None:
+        # A first row that names columns but no company: a sheet of something else (a daily report, payments...), not a
+        # list of companies. Said plainly, instead of a grid of rows with no name that adds nothing.
+        if "company_name" not in header.values():
+            raise Unreadable(
+                "مالقيتش عمود اسم الشركة في أول صف. الشيت ده شكله مش قايمة شركات: لازم يبقى فيه عمود اسمه «الشركة» أو «Company».",
+                "No company column in the first row. This sheet does not look like a list of companies: it needs a column named «الشركة» or «Company».",
+            )
         mapped = {column: table[0][position] for position, column in header.items()}
         body = table[1:]
     else:
