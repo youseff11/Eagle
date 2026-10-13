@@ -171,7 +171,7 @@ def sheets(request):
     return JsonResponse({
         "ok": True,
         "can_manage": user.manages_sales,
-        "sales": [_person(p) for p in b2b.sales_people()] if user.manages_sales else [],
+        "sales": [_person(p) for p in b2b.sheet_holders()] if user.manages_sales else [],
         "sheets": [_sheet_json(s, user, s.row_count, s.contacted_count) for s in rows],
     })
 
@@ -185,7 +185,7 @@ def _sheet_fields(body):
         raise b2b.Refused("no_title", "اكتب اسم للشيت.", "Give the sheet a name.")
     if not isinstance(raw, int) or isinstance(raw, bool):
         raise b2b.Refused("no_sales", "اختار الـSales اللي هياخد الشيت.", "Choose the Sales person who gets the sheet.")
-    person = b2b.sales_people().filter(pk=raw).first()
+    person = b2b.sheet_holders().filter(pk=raw).first()
     if person is None:
         raise b2b.Refused("no_sales", "اختار الـSales اللي هياخد الشيت.", "Choose the Sales person who gets the sheet.")
     return title, note, person
@@ -207,7 +207,7 @@ def _notify_assigned(sheet, actor):
 @endpoint("POST")
 @api_gate(lambda user: user.manages_sales)
 def sheet_create(request):
-    """``{"title", "note", "assigned_to": <id>}`` - the manager makes a sheet for one Sales person."""
+    """``{"title", "note", "assigned_to": <id>}`` - the manager makes a sheet for one Sales person, or for themselves."""
     try:
         title, note, person = _sheet_fields(_object(request))
     except BadBody:
@@ -274,11 +274,11 @@ def sheet(request, sheet_id):
     return JsonResponse({
         "ok": True,
         "sheet": _sheet_json(sheet, request.user, len(leads), contacted),
-        "sales": [_person(p) for p in b2b.sales_people()] if manager else [],
+        "sales": [_person(p) for p in b2b.sheet_holders()] if manager else [],
         # Where the manager may move a company to: the other sheets.
         "sheets": [
             {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
-            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk).filter(assigned_to__in=b2b.sales_people())
+            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk).filter(assigned_to__in=b2b.sheet_holders())
         ] if manager else [],
         "leads": [_lead_json(lead, today) for lead in leads],
         **_choices(),

@@ -94,8 +94,8 @@ class DoorTests(_B2b):
             body = _json(self.get(user, "v1_b2b_sheets"))
             self.assertEqual({s["title"] for s in body["sheets"]}, {"Germany", "Spain"}, user.username)
             self.assertTrue(body["can_manage"])
-            # The manager hands the sheets out and holds none: not on the list.
-            self.assertEqual({p["id"] for p in body["sales"]}, {self.sales.pk, self.other.pk})
+            # The manager hands the sheets out and may keep one (13/10/2026): on the list; the owner never.
+            self.assertEqual({p["id"] for p in body["sales"]}, {self.sales.pk, self.other.pk, self.manager.pk})
 
     def test_another_sales_persons_sheet_is_a_written_404(self):
         for name, args in (("v1_b2b_sheet", [self.sheet.pk]), ("v1_b2b_lead", [self.lead.pk])):
@@ -142,19 +142,28 @@ class SheetTests(_B2b):
         self.assertEqual(_json(answer)["error"], "no_title")
         self.assertFalse(LeadSheet.objects.filter(title="X").exists())
 
-    def test_a_sheet_never_goes_to_a_sales_manager(self):
+    def test_the_manager_makes_a_sheet_for_themselves(self):
+        # The owner's rule of 13/10/2026: the Sales manager may hold a sheet (it was "never" from 10/10).
+        listed = {p["id"] for p in _json(self.get(self.manager, "v1_b2b_sheets"))["sales"]}
+        self.assertIn(self.manager.pk, listed)
+        answer = self.post(self.manager, "v1_b2b_sheet_create", {"title": "Mine", "assigned_to": self.manager.pk})
+        self.assertEqual(answer.status_code, 200, answer.content)
+        mine = LeadSheet.objects.get(title="Mine")
+        self.assertEqual((mine.assigned_to, mine.created_by), (self.manager, self.manager))
+        # Nobody is told of a sheet they made for themselves.
+        self.assertFalse(self.manager.notifications.filter(url=f"/app/leads/{mine.pk}").exists())
+        self.assertTrue(_json(self.get(self.manager, "v1_b2b_sheet", mine.pk))["sheet"]["can_contact"])
+        # The owner may hand one to another manager too.
         second = User.objects.create_user("manager2", password="pw", role=Role.SALES, is_sales_manager=True)
-        for person in (self.manager, second):
-            answer = self.post(self.manager, "v1_b2b_sheet_create", {"title": "Mine", "assigned_to": person.pk})
-            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"), person.username)
-            answer = self.post(self.admin, "v1_b2b_sheet_save", {"title": "Germany", "assigned_to": person.pk}, self.sheet.pk)
-            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"), person.username)
-        self.assertFalse(LeadSheet.objects.filter(title="Mine").exists())
+        answer = self.post(self.admin, "v1_b2b_sheet_save", {"title": "Germany", "assigned_to": second.pk}, self.sheet.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
         self.sheet.refresh_from_db()
-        self.assertEqual(self.sheet.assigned_to, self.sales)
-        listed = {p["id"] for p in _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sales"]}
-        self.assertNotIn(self.manager.pk, listed)
-        self.assertNotIn(second.pk, listed)
+        self.assertEqual(self.sheet.assigned_to, second)
+
+    def test_the_owner_never_holds_a_sheet(self):
+        answer = self.post(self.admin, "v1_b2b_sheet_create", {"title": "Mine", "assigned_to": self.admin.pk})
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"))
+        self.assertNotIn(self.admin.pk, {p["id"] for p in _json(self.get(self.admin, "v1_b2b_sheets"))["sales"]})
 
     def test_handing_a_sheet_over_moves_who_contacts_from_it(self):
         answer = self.post(self.manager, "v1_b2b_sheet_save", {"title": "Germany", "note": "", "assigned_to": self.other.pk}, self.sheet.pk)
@@ -280,6 +289,14 @@ class WhatsappTests(_B2b):
         self.lead.refresh_from_db()
         # Nothing reached them yet: the row is linked, not marked.
         self.assertEqual((self.lead.client, self.lead.whatsapp_at), (client, None))
+
+    def test_the_manager_sends_from_their_own_sheet_on_their_own_number(self):
+        mine = LeadSheet.objects.create(title="Mine", assigned_to=self.manager, created_by=self.manager)
+        Lead.objects.filter(pk=self.lead.pk).update(sheet=mine)
+        self.assertTrue(_json(self.press(self.manager))["sent"])
+        self.assertEqual(self.template.call_args.kwargs, {"from_id": "900001"})
+        # The plain Sales person it used to belong to no longer writes to it.
+        self.assertEqual(self.press(self.sales).status_code, 404)
 
     def test_a_window_open_on_another_line_is_not_this_persons(self):
         client = Client.objects.create(name="Anna", phone="+447700900123")
@@ -710,15 +727,20 @@ class MoveTests(_B2b):
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.sheet, self.sheet)
 
-    def test_no_company_is_moved_to_a_sheet_a_manager_holds(self):
-        # A sheet from before the rule, held by the manager: not offered, and refused when named by hand.
+    def test_a_company_moves_to_the_managers_own_sheet_and_never_to_a_closed_account(self):
         held = LeadSheet.objects.create(title="Held", assigned_to=self.manager)
         offered = [s["title"] for s in _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]]
-        self.assertNotIn("Held", offered)
-        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": held.pk}, self.lead.pk)
+        self.assertIn("Held", offered)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertNotIn("Spain", [s["title"] for s in _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]])
+        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": self.spain.pk}, self.lead.pk)
         self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_sales"))
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.sheet, self.sheet)
+        answer = self.post(self.manager, "v1_b2b_lead_move", {"sheet": held.pk}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.sheet, held)
 
     def test_the_manager_is_offered_the_other_sheets_and_a_sales_person_none(self):
         offered = _json(self.get(self.manager, "v1_b2b_sheet", self.sheet.pk))["sheets"]

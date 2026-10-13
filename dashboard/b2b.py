@@ -1,7 +1,7 @@
 """B2B: the company sheets, and contacting a company from its row (10/10/2026).
 
 The Sales manager (a Sales person the owner marked, ``User.is_sales_manager``) makes a sheet and gives it to one Sales
-person. That person fills it with the companies they research and contacts each one from its row:
+person, or keeps it (13/10/2026). That person fills it with the companies they research and contacts each one from its row:
 
 * WhatsApp: the company has never written to us, so Meta carries nothing to it but an approved template. The button sends
   the opening template (``INTRO_TEMPLATE``, or ``INTRO_TEMPLATE_AR`` to an Arab number) from the Sales person's own number and opens the conversation in the chats; once
@@ -170,10 +170,16 @@ def may_contact(user, sheet):
 
 
 def sales_people():
-    """Who a sheet may be given to: the Sales people still working - never a Sales manager (the owner's rule, 10/10/2026):
-    the manager hands the sheets out and watches them, and does not hold one. The list the page draws and the check of what
-    is posted are both this, so a manager typed into the request by hand is refused like anybody else not on it."""
+    """The Sales people a target is set for: the ones still working, without the Sales manager."""
     return User.objects.filter(role=Role.SALES, is_active=True, is_sales_manager=False).order_by("first_name", "username")
+
+
+def sheet_holders():
+    """Who a sheet may be given to: every Sales person still working, the Sales manager too - who may make one for
+    themselves and contact its companies from their own number (the owner's rule, 13/10/2026; it was "never a manager"
+    from 10/10). The list the page draws and the check of what is posted are both this, so anybody else typed into the
+    request by hand is refused."""
+    return User.objects.filter(role=Role.SALES, is_active=True).order_by("first_name", "username")
 
 
 # ---------------------------------------------------------------------------
@@ -629,8 +635,8 @@ def move_lead(lead, sheet, actor):
         raise Refused("not_manager", "نقل الشركات للمانجر بس.", "Only the Sales manager moves companies.")
     if sheet.pk == lead.sheet_id:
         raise Refused("same_sheet", "الشركة في الشيت ده أصلًا.", "The company is on that sheet already.")
-    if not sales_people().filter(pk=sheet.assigned_to_id).exists():
-        raise Refused("no_sales", "الشيت ده مع حد مايستلمش شركات (مانجر أو حساب مقفول).", "That sheet is with someone who takes no companies (a manager, or a closed account).")
+    if not sheet_holders().filter(pk=sheet.assigned_to_id).exists():
+        raise Refused("no_sales", "الشيت ده مع حد مايستلمش شركات (حساب مقفول).", "That sheet is with someone who takes no companies (a closed account).")
     if sheet.leads.count() >= MAX_SHEET_ROWS:
         raise Refused("sheet_full", f"الشيت مايشيلش أكتر من {MAX_SHEET_ROWS} شركة.", f"A sheet holds at most {MAX_SHEET_ROWS} companies.")
     before = lead.sheet

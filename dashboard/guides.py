@@ -1079,6 +1079,7 @@ GUIDES = (
         [
             "من قسم «الشغل» افتح «شيتات الشركات».",
             "في «شيت جديد» اكتب «اسم الشيت»، واختار «الـSales اللي هياخده»، واضغط «اعمل الشيت». الـSales بيوصله تنبيه.",
+            "مانجر السيلز يقدر يختار اسمه هو من «الـSales اللي هياخده» ويعمل شيت لنفسه، ويتواصل مع شركاته من رقمه وإيميله.",
             "تقدر تفتح أي شيت وتشوف مين اتواصلنا معاه وإمتى. التواصل نفسه من رقم وإيميل صاحب الشيت بس.",
             "عشان تغيّر الاسم أو الـSales أو تمسح الشيت: افتحه واضغط «إعدادات الشيت». شيت فيه شركة اتواصلنا معاها مابيتمسحش.",
             "عشان تنقل شركة واحدة لـSales تاني: اضغط «تعديل» على صفها، واختار الشيت من «انقلها لشيت تاني» واضغط «انقل».",
@@ -1086,6 +1087,7 @@ GUIDES = (
         [
             "In the «Work» section open «Company sheets».",
             "Under «New sheet» type the «Sheet name», choose the «Sales person» and press «Make the sheet». The Sales person is notified.",
+            "The Sales manager may choose their own name under «Sales person» to make a sheet for themselves, and contact its companies from their own number and address.",
             "You can open any sheet and see who was contacted and when. The contacting itself is from the sheet owner's number and address only.",
             "To rename it, give it to another Sales person or delete it: open it and press «Sheet settings». A sheet with a contacted company is not deleted.",
             "To move one company to another Sales person: press «Edit» on its row, choose the sheet under «Move it to another sheet» and press «Move».",
@@ -1114,8 +1116,8 @@ GUIDES = (
             "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered» or «Not contacted yet».",
         ],
         note=(
-            "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة. والمانجر عمره ما بياخد شيت: الشيتات للـSales بس.",
-            "The Sales manager sees the whole team's follow-ups, and whose each one is. The manager never holds a sheet: sheets are for Sales people only.",
+            "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة، ومتابعات شيته هو لو عمل شيت لنفسه.",
+            "The Sales manager sees the whole team's follow-ups, and whose each one is, and those of their own sheet if they made one for themselves.",
         ),
     ),
     _guide(
