@@ -1,6 +1,6 @@
 """Blocking a client (``/api/v1/clients/<code>/block/``, ``services.set_client_blocked``).
 
-The admin's alone. A blocked client is not heard: a WhatsApp message or a letter from them is dropped on arrival (nothing
+The admin, the operation and Sales, each on a client of a line they work (the rule a reply is held to). A blocked client is not heard: a WhatsApp message or a letter from them is dropped on arrival (nothing
 stored, nobody rung, the webhook still answers 200), and nothing is sent to them from the chat, a forward, a group's relay
 or the mail page. Unblocking lets the next message in. Both are written to the audit log.
 """
@@ -50,8 +50,29 @@ class BlockDoorTests(_Block):
             ["client.block", "client.unblock"],
         )
 
+    def test_the_operation_blocks_a_company_line_client_and_sales_their_own(self):
+        self.assertEqual(self.block(self.ops).status_code, 200)
+        self.assertTrue(self.blocked())
+        self.assertEqual(self.block(self.ops, blocked=False).status_code, 200)
+        self.assertFalse(self.blocked())
+        answer = self.block(self.sales, code=self.sales_client.code)
+        self.assertEqual((answer.status_code, _json(answer)["blocked"]), (200, True))
+        self.sales_client.refresh_from_db()
+        self.assertEqual(self.sales_client.blocked_by_id, self.sales.pk)
+        self.assertTrue(AuditLog.objects.filter(actor=self.sales, action="client.block", target=self.sales_client.code).exists())
+
+    def test_a_client_off_this_persons_line_answers_like_an_unknown_one(self):
+        # The company line's client is not this Sales person's, a Sales line's client is not the operation's,
+        # and another Sales person's client is not theirs either.
+        self.assertEqual(self.block(self.sales).status_code, 404)
+        self.assertEqual(self.block(self.ops, code=self.sales_client.code).status_code, 404)
+        self.assertEqual(self.block(self.sales2, code=self.sales_client.code).status_code, 404)
+        self.assertFalse(self.blocked())
+        self.sales_client.refresh_from_db()
+        self.assertFalse(self.sales_client.is_blocked)
+
     def test_nobody_else_may_block(self):
-        for user in (self.ops, self.sales, self.lead, self.tr, self.hr):
+        for user in (self.lead, self.tr, self.hr):
             self.assertEqual(self.block(user).status_code, 403, user.role)
         self.assertEqual(self.block(None).status_code, 401)
         self.assertFalse(self.blocked())

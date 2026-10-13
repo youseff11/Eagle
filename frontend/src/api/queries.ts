@@ -1181,7 +1181,7 @@ export function useMuteChat(code: string) {
 }
 
 /**
- * Block a client or unblock them (`/api/v1/clients/<code>/block/`, the admin's alone). The lists and the open thread say
+ * Block a client or unblock them (`/api/v1/clients/<code>/block/`: the admin, the operation, Sales). The lists and the open thread say
  * so, and the box under it turns off or back on.
  */
 export function useBlockClient(code: string) {

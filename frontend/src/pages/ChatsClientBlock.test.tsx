@@ -59,12 +59,22 @@ describe("blocking a client", () => {
     expect(screen.getByRole("button", { name: /^حظر$/ })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("is the admin's: the operation sees a blocked client's note and no button", async () => {
+  it("is offered to the operation and Sales too", async () => {
+    for (const role of ["operation", "sales"] as const) {
+      const { routes } = client(true);
+      const { unmount } = render("/chats/CL-0001?type=clients", { role: { role } }, routes);
+      expect(await screen.findByText("العميل ده محظور")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /فك الحظر/ })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("العميل ده محظور: مينفعش تبعت له.")).toBeDisabled();
+      unmount();
+    }
+  });
+
+  it("is not offered to anyone else who opens a client's thread", async () => {
     const { routes } = client(true);
-    render("/chats/CL-0001?type=clients", {}, routes);
-    expect(await screen.findByText("العميل ده محظور")).toBeInTheDocument();
+    render("/chats/CL-0001?type=clients", { role: { role: "team_lead" } }, routes);
+    await screen.findByText("hello");
     expect(screen.queryByRole("button", { name: /حظر/ })).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("العميل ده محظور: مينفعش تبعت له.")).toBeDisabled();
   });
 
   it("marks a blocked client in the list with a lock", async () => {

@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type ClipboardEvent, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
   refusalCode,
   refusalText,
+  useAddNote,
   useAddRows,
   useB2bLead,
   useB2bSheet,
@@ -11,6 +12,8 @@ import {
   useLeadCall,
   useLeadWhatsapp,
   useMoveLead,
+  useReadRows,
+  useSaveCell,
   useSaveLead,
   useSaveSheet,
   useSendMessage,
@@ -19,10 +22,12 @@ import {
   type B2bLead,
   type B2bSheetResponse,
   type LeadValues,
+  type ReadRowsResponse,
 } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
+import { filledValues, isCopiedRow } from "../components/b2b/pastedRow";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { ChoiceCell, GRID_COLUMNS, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
 import { Icon } from "../components/Icon";
@@ -103,6 +108,7 @@ function LeadForm({
   const add = useAddRows(data.sheet.id);
   const save = useSaveLead();
   const remove = useDeleteLead();
+  const readRows = useReadRows(data.sheet.id);
   const [values, setValues] = useState<LeadValues>(() => {
     if (!lead) return { ...EMPTY_ROW };
     const {
@@ -133,6 +139,37 @@ function LeadForm({
     }
   };
 
+  // A row copied from the team's Google Sheet pasted into any box (13/10/2026: it all went into the company name): read on
+  // the server the way an upload is, and each cell put in its own box, to check before saving.
+  const pasteRow = (event: ClipboardEvent<HTMLFormElement>) => {
+    const text = event.clipboardData.getData("text/plain");
+    if (!isCopiedRow(text)) return;
+    event.preventDefault();
+    setProblem("");
+    readRows.mutate(
+      { text },
+      {
+        onSuccess: (answer) => {
+          const [row, ...more] = answer.rows;
+          if (!row) return;
+          const { values: filled, note: words } = filledValues(row);
+          setValues((before) => ({ ...before, ...filled }));
+          if (words && !lead) setNote((before) => (before ? `${before}
+${words}` : words));
+          if (more.length > 0) {
+            setProblem(
+              t(
+                "لزقت أكتر من صف: اتاخد أول واحد بس. للباقي استخدم «ارفع Excel أو Google Sheet».",
+                "More than one row was pasted: only the first was taken. For the rest use «Upload Excel or Google Sheets».",
+              ),
+            );
+          }
+        },
+        onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أقرا الصف.", "Could not read the row."))),
+      },
+    );
+  };
+
   const drop = () => {
     if (!lead || busy) return;
     setProblem("");
@@ -141,7 +178,7 @@ function LeadForm({
 
   return (
     <Modal title={lead ? lead.company_name : t("شركة جديدة", "New company")} icon="building" busy={busy} wide onClose={onClose}>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} onPaste={pasteRow}>
         <div className="grid grid--main">
           {data.columns.map((column) => (
             <div className="field" key={column.name}>
@@ -671,7 +708,7 @@ const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
 
 type Open =
   | { kind: "new" }
-  | { kind: "paste" }
+  | { kind: "paste"; pasted?: { text: string; answer: ReadRowsResponse } }
   | { kind: "settings" }
   | { kind: "edit" | "send" | "call"; lead: B2bLead }
   | { kind: "timeline"; id: number }
@@ -688,6 +725,10 @@ export function LeadSheetPage() {
   const [open, setOpen] = useState<Open | null>(null);
   const [search, setSearch] = useState("");
   const [only, setOnly] = useState<Only>("all");
+  const toasts = useToasts();
+  const readRows = useReadRows(sheetId);
+  const saveCell = useSaveCell();
+  const addNote = useAddNote();
 
   const data = sheet.data;
   const leads = useMemo(() => {
@@ -716,6 +757,38 @@ export function LeadSheetPage() {
   const contact = data.sheet.can_contact;
   const sender = me.data ? `${me.data.user.name}` : "";
   const close = () => setOpen(null);
+
+  // A row copied from the team's Google Sheet and pasted into one cell (13/10/2026: the whole row landed in the company
+  // name): the server reads it the way it reads an upload, each cell by what it holds, and each one goes to its own column
+  // of that row. Several rows pasted are new companies: they open the upload with the rows in it.
+  const pasteRow = (event: ClipboardEvent<HTMLTableSectionElement>) => {
+    const text = event.clipboardData.getData("text/plain");
+    const id = Number((event.target as HTMLElement).closest<HTMLElement>("tr[data-lead]")?.dataset.lead);
+    if (!isCopiedRow(text) || !id) return;
+    event.preventDefault();
+    // The cell typed in lets go first, so its blur does not write what it held back over what the row brings.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    const failed = (failure: unknown) =>
+      toasts.push({ level: "danger", title: refusalText(failure, lang, t("الصف ماتحفظش. جرّب تاني.", "The row was not saved. Try again.")) });
+    readRows.mutate(
+      { text },
+      {
+        onSuccess: (answer) => {
+          if (answer.rows.length > 1) {
+            setOpen({ kind: "paste", pasted: { text, answer } });
+            return;
+          }
+          if (answer.rows.length === 0) return;
+          const { values, note } = filledValues(answer.rows[0]);
+          saveCell.mutate(
+            { id, values },
+            { onSuccess: () => void (note && addNote.mutate({ id, text: note }, { onError: failed })), onError: failed },
+          );
+        },
+        onError: failed,
+      },
+    );
+  };
 
   return (
     <>
@@ -789,7 +862,7 @@ export function LeadSheetPage() {
                 <td colSpan={GRID_COLUMNS.length + 1} />
               </tr>
             </thead>
-            <tbody>
+            <tbody onPaste={pasteRow}>
               {leads.map((lead) => (
                 <tr key={lead.id} data-lead={lead.id}>
                   {GRID_COLUMNS.map((column) => {
@@ -884,7 +957,7 @@ export function LeadSheetPage() {
 
       {open?.kind === "new" && <LeadForm data={data} lead={null} onClose={close} />}
       {open?.kind === "edit" && <LeadForm data={data} lead={open.lead} onClose={close} />}
-      {open?.kind === "paste" && <ImportRows sheetId={data.sheet.id} columns={data.columns} onClose={close} />}
+      {open?.kind === "paste" && <ImportRows sheetId={data.sheet.id} columns={data.columns} pasted={open.pasted} onClose={close} />}
       {open?.kind === "settings" && <SheetSettings data={data} onClose={close} />}
       {open?.kind === "send" && <SendMessage lead={open.lead} sender={sender} onClose={close} />}
       {open?.kind === "call" && <LogCall lead={open.lead} outcomes={data.outcomes} onClose={close} />}

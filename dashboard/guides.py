@@ -443,7 +443,7 @@ GUIDES = (
         ),
     ),
     _guide(
-        "client-block", (Role.ADMIN,), "/chats",
+        "client-block", CLIENT_DESK, "/chats",
         ("إزاي أحظر عميل (بلوك)", "How do I block a client"),
         (
             "حظر، بلوك، احظر عميل، اعمل بلوك، فك الحظر، فك البلوك، عميل مزعج، سبام، امنع عميل",
@@ -1048,7 +1048,7 @@ GUIDES = (
         ),
         [
             "من قسم «الشغل» افتح «شيتات الشركات» واضغط «افتح» على الشيت اللي المانجر بعتهولك.",
-            "ضيف الشركات بـ«شركة جديدة»، أو اضغط «ارفع Excel أو Google Sheet» وارفع ملف Excel أو CSV، أو حط لينك الشيت واضغط «اقرا الشيت» (لازم يبقى مفتوح Anyone with the link)، أو الزق الصفوف، وعدّل أي خانة في الجدول قبل «ضيفهم». الأعمدة بتتعرف بأسمائها.",
+            "ضيف الشركات بـ«شركة جديدة»، أو اضغط «ارفع Excel أو Google Sheet» وارفع ملف Excel أو CSV، أو حط لينك الشيت واضغط «اقرا الشيت» (لازم يبقى مفتوح Anyone with the link)، أو الزق الصفوف، وعدّل أي خانة في الجدول قبل «ضيفهم». الأعمدة بتتعرف بأسمائها، والصف المنسوخ من غير عناوين كل خانة بتتعرف من اللي فيها (الإيميل والرقم واللينك والدولة). صف منسوخ تلزقه في خانة صف موجود بيتوزّع على خاناته.",
             "الشيت شكله زي شيت جوجل بتاع الفريق: دوس على أي خانة واكتب، وبتتحفظ لوحدها أول ما تخرج منها (أو Enter، وEsc يرجّعها). الحالة والأولوية بتختارهم من القايمة اللي في الخانة.",
             "في خانة رقم الهاتف وخانة الواتساب اكتب كل رقم في سطر (Enter). وفي الملاحظات اكتب في «+ ملاحظة جديدة» واضغط Enter: كل ملاحظة بتتسجل لوحدها بتاريخها.",
             "في آخر الصف زرار «ابعت رسالة»: اختار الرقم أو الإيميل، اكتب الرسالة واضغط «ابعت»، والرسالة بتتسجل في الصف لوحدها.",
@@ -1057,7 +1057,7 @@ GUIDES = (
         ],
         [
             "In the «Work» section open «Company sheets» and press «Open» on the sheet your manager sent you.",
-            "Add companies with «New company», or press «Upload Excel or Google Sheets» and upload an Excel or CSV file, or paste the sheet's link and press «Read the sheet» (it must be open to anyone with the link), or paste the rows, correcting any cell in the grid before «Add them». Columns are found by their names.",
+            "Add companies with «New company», or press «Upload Excel or Google Sheets» and upload an Excel or CSV file, or paste the sheet's link and press «Read the sheet» (it must be open to anyone with the link), or paste the rows, correcting any cell in the grid before «Add them». Columns are found by their names, and a row copied without its headers has each cell placed by what it holds (the email, the number, the link, the country). A copied row pasted into a cell of an existing row is spread over its cells.",
             "The sheet looks like the team's Google Sheet: click any cell and type; it saves by itself when you leave it (or on Enter; Esc puts it back). Pick the status and the priority from the list in the cell.",
             "In the phone and WhatsApp cells write each number on its own line (Enter). In the notes write in «+ New note» and press Enter: each note is kept on its own with its date.",
             "At the end of the row is «Send a message»: pick the number or the address, write the message and press «Send»; it is marked on the row by itself.",

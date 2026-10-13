@@ -544,6 +544,89 @@ describe("LeadSheetPage", () => {
     await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/notes/1/delete/")).toHaveLength(1));
   });
 
+  // 13/10/2026: a row copied from the team's Google Sheet and pasted into the company cell all landed in that one cell.
+  const COPIED = "A2Z Traducciones\t\t34637563743\tinfo@a2z.es\t\t\t\t22-9";
+  const readOne = () =>
+    jsonResponse({
+      ok: true,
+      rows: [{ ...lead({ company_name: "A2Z Traducciones", phone: "34637563743", email: "info@a2z.es", country: "", industry: "", contact_person: "", position: "", whatsapp: "", languages: "" }), notes: "22-9" }].map(
+        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, ...row }) => row,
+      ),
+      mapped: {},
+      more: false,
+    });
+
+  it("spreads a row pasted into a cell over that row's columns, its leftovers as a note", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/sheets/3/read/": readOne,
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/leads/5/notes/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    const company = await screen.findByLabelText("الشركة · Lingua GmbH");
+    await user.click(company);
+    await user.paste(COPIED);
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toHaveLength(1));
+    expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/read/")).toEqual([{ text: COPIED }]);
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([
+      { company_name: "A2Z Traducciones", phone: "34637563743", email: "info@a2z.es" },
+    ]);
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/notes/")).toEqual([{ text: "22-9" }]));
+    // The cell never held the tabs: the blur saved nothing of its own.
+    expect(company).not.toHaveValue(expect.stringContaining("\t"));
+  });
+
+  it("leaves a paste with no tab to the cell itself", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
+    open("/leads/3");
+    const person = await screen.findByLabelText("الشخص المسؤول · Lingua GmbH");
+    await user.clear(person);
+    await user.paste("Anna Weber");
+    expect(person).toHaveValue("Anna Weber");
+    expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/read/")).toEqual([]);
+  });
+
+  it("opens the upload window with the rows read when several rows are pasted into a cell", async () => {
+    const user = userEvent.setup();
+    const two = `${COPIED}\nABCTranslink\t\t34636442091\tinfo@abctranslink.com`;
+    const mocked = serve("sales", {
+      "/api/v1/b2b/sheets/3/read/": () =>
+        jsonResponse({
+          ok: true,
+          rows: [
+            { company_name: "A2Z Traducciones", country: "", website: "", industry: "", contact_person: "", position: "", email: "info@a2z.es", phone: "34637563743", whatsapp: "", linkedin: "", languages: "", services: "", source: "" },
+            { company_name: "ABCTranslink", country: "", website: "", industry: "", contact_person: "", position: "", email: "info@abctranslink.com", phone: "34636442091", whatsapp: "", linkedin: "", languages: "", services: "", source: "" },
+          ],
+          mapped: {},
+          more: false,
+        }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByLabelText("الشركة · Lingua GmbH"));
+    await user.paste(two);
+    expect(await screen.findByText("2 شركة جاهزة تتضاف")).toBeInTheDocument();
+    expect(screen.getByLabelText("التليفون 2")).toHaveValue("34636442091");
+    expect(posted(mocked.calls, "/api/v1/b2b/sheets/3/read/")).toHaveLength(1);
+    expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([]);
+  });
+
+  it("fills the new company's boxes from a pasted row", async () => {
+    const user = userEvent.setup();
+    serve("sales", { "/api/v1/b2b/sheets/3/read/": readOne, "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "شركة جديدة" }));
+    await user.click(screen.getByLabelText("اسم الشركة"));
+    await user.paste(COPIED);
+    await waitFor(() => expect(screen.getByLabelText("اسم الشركة")).toHaveValue("A2Z Traducciones"));
+    expect(screen.getByLabelText("التليفون")).toHaveValue("34637563743");
+    expect(screen.getByLabelText("الإيميل")).toHaveValue("info@a2z.es");
+    expect(screen.getByLabelText("ملاحظة")).toHaveValue("22-9");
+  });
+
   it("opens the upload window from the sheet", async () => {
     const user = userEvent.setup();
     serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });

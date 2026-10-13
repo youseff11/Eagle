@@ -193,12 +193,13 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True,
 
 
 #: What a send to a blocked client answers. The same words on the chat page's note.
-BLOCKED_AR = "العميل ده محظور: مفيش رسايل بتروح له ولا بتيجي منه. الأدمن يفك الحظر من الشات."
+BLOCKED_AR = "العميل ده محظور: مفيش رسايل بتروح له ولا بتيجي منه. افتح الشات واضغط «فك الحظر»."
 
 
 def set_client_blocked(user, client, blocked):
-    """Block or unblock a client. The admin's alone; written to the audit log either way. Returns whether it changed."""
-    if not user.is_admin_role:
+    """Block or unblock a client. Whoever answers clients (the admin, the operation, Sales); which clients is the door's
+    rule (``api.may_answer``, the one a reply is held to). Written to the audit log either way. Returns whether it changed."""
+    if not user.handles_clients:
         raise PermissionDenied
     if blocked == client.is_blocked:
         return False

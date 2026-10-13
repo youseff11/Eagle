@@ -4,7 +4,7 @@ Nothing here writes anything: it reads, and answers the rows it found (``read``)
 before they are added (``api_b2b.rows_add``, the same door a typed row goes through).
 
 The columns are found by their names, in Arabic or English ("Company", "اسم الشركة", "Phone", "Mobile", "واتساب"...), so a file
-does not have to be in the sheet's order; a first row that names none of them is data, read in the sheet's own order.
+does not have to be in the sheet's order; a first row that names none of them is data, each cell read by what it holds (``_guess_row``).
 
 Only the standard library, as the project keeps it (CLAUDE.md): an ``.xlsx`` is a zip of XML read with ``zipfile`` and
 ``xml.etree``. A file is untrusted: its size, its unpacked size and its rows are bounded, and an XML that declares a DTD is
@@ -94,6 +94,29 @@ PRIORITY_WORDS = {
 }
 
 
+#: Where each column stands in the team's Google Sheet (the Spain and Turkey tabs, 13/10/2026), for a row pasted without
+#: its header whose cell does not say by itself what it is. ``None``: the sheet's NAME column, kept nowhere.
+TEAM_ORDER = ("company_name", "contact_person", "phone", "email", "website", "status", "priority", "deal_value",
+              "industry", "notes", None, "country")
+#: The cells of a row with no header placed by their place only when their content says nothing: the rest by content.
+PLACED_ONLY = ("contact_person", "industry", "notes")
+#: Country names a cell may hold (the team's tabs and the markets around them), compared folded.
+COUNTRY_WORDS = (
+    "السعوديه", "المملكه العربيه السعوديه", "استراليا", "الامارات", "النمسا", "بلجيكا", "كندا", "اسبانيا", "فرنسا", "تركيا",
+    "امريكا", "الولايات المتحده", "المانيا", "ايرلندا", "ايرلاندا", "ايطاليا", "اليابان", "هولندا", "البرتغال", "الكويت",
+    "قطر", "البحرين", "عمان", "مصر", "الاردن", "لبنان", "المغرب", "تونس", "الجزائر", "العراق", "بريطانيا", "انجلترا",
+    "المملكه المتحده", "سويسرا", "السويد", "الدنمارك", "النرويج", "فنلندا", "بولندا", "اليونان", "الصين", "الهند", "روسيا",
+    "saudi arabia", "ksa", "australia", "uae", "united arab emirates", "austria", "belgium", "canada", "spain", "france",
+    "turkey", "türkiye", "turkiye", "usa", "united states", "america", "germany", "ireland", "italy", "japan",
+    "netherlands", "holland", "portugal", "kuwait", "qatar", "bahrain", "oman", "egypt", "jordan", "lebanon", "morocco",
+    "tunisia", "algeria", "iraq", "uk", "united kingdom", "england", "britain", "switzerland", "sweden", "denmark",
+    "norway", "finland", "poland", "greece", "china", "india", "russia",
+)
+EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+LINK = re.compile(r"(?:https?://|www\.)\S+|[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:/\S*)?", re.IGNORECASE)
+PHONE = re.compile(r"\+?[\d\s()./-]+")
+
+
 def _fold(text):
     """A header as compared: lower case, Arabic letter shapes folded, spaces and punctuation squeezed."""
     text = str(text or "").strip().lower()
@@ -137,9 +160,64 @@ def _sheet_value(name, cell):
     return cell[: b2b.MAX_NOTES]
 
 
+def _kind(cell):
+    """What a cell is by its content alone (an email, a link, a phone number, a status, a priority, a country), or ``None``
+    when its content does not say."""
+    if EMAIL.fullmatch(cell):
+        return "email"
+    if LINK.fullmatch(cell):
+        return "linkedin" if "linkedin.com" in cell.lower() else "website"
+    if PHONE.fullmatch(cell) and sum(ch.isdigit() for ch in cell) >= 7:
+        return "phone"
+    if _word_value(cell, STATUS_WORDS):
+        return "status"
+    if _word_value(cell, PRIORITY_WORDS):
+        return "priority"
+    if _fold(cell) in {_fold(word) for word in COUNTRY_WORDS}:
+        return "country"
+    return None
+
+
+def _guess_row(line):
+    """A row pasted without its header (13/10/2026: a row copied from the team's sheet had its phone read as the website
+    and its email as the activity, read in this sheet's own order): the first cell is the company (unless its content says
+    otherwise: cells copied from the phone onwards), every other cell goes where its content says (``_kind``), the cells
+    whose content says nothing go by their place in the team's sheet (``TEAM_ORDER``, for ``PLACED_ONLY``), and what is
+    left over becomes the row's note, so nothing copied is lost."""
+    row = {}
+    phones, left = [], []
+    for position, cell in enumerate(line):
+        if not cell:
+            continue
+        kind = _kind(cell)
+        # The first cell is the company unless it says it is something else: cells copied from the phone onwards.
+        if position == 0 and kind in (None, "country"):
+            row["company_name"] = cell
+            continue
+        if kind == "phone":
+            phones.append(cell)
+        elif kind in ("status", "priority"):
+            row.setdefault(kind, _sheet_value(kind, cell))
+        elif kind and kind not in row:
+            row[kind] = cell
+        else:
+            place = TEAM_ORDER[position] if position < len(TEAM_ORDER) else None
+            if not kind and place in PLACED_ONLY and place not in row:
+                row[place] = cell
+            elif not kind and place == "deal_value" and _deal_value(cell):
+                row["deal_value"] = _deal_value(cell)
+            else:
+                left.append(cell)
+    if phones:
+        row["phone"] = "\n".join(phones)
+    if left:
+        row["notes"] = " · ".join([row["notes"], *left] if row.get("notes") else left)
+    return row
+
+
 def map_header(cells):
     """``{position: column}`` for a first row that names the sheet's columns, or ``None`` when it names fewer than two
-    of them (a first row of data, read in the sheet's order). A column named twice keeps its first place."""
+    of them (a first row of data, read by its cells' content: ``_guess_row``). A column named twice keeps its first place."""
     index = _header_index()
     found = {}
     for position, cell in enumerate(cells):
@@ -167,26 +245,51 @@ def to_rows(table):
                 "No company column in the first row. This sheet does not look like a list of companies: it needs a column named «الشركة» or «Company».",
             )
         mapped = {column: table[0][position] for position, column in header.items()}
-        body = table[1:]
+        found = []
+        for line in table[1:]:
+            row = {}
+            for position, column in header.items():
+                if position >= len(line) or not line[position]:
+                    continue
+                if column in EXTRA_SYNONYMS:
+                    value = _sheet_value(column, line[position])
+                    if value:
+                        row[column] = value
+                else:
+                    row[column] = line[position]
+            found.append(row)
     else:
-        header = dict(enumerate(order))
         mapped = {}
-        body = table
+        found = [_guess_row(line) for line in table]
     rows = []
-    for line in body[:MAX_ROWS]:
-        row = {name: "" for name in order}
-        for position, column in header.items():
-            if position >= len(line):
-                continue
-            if column in EXTRA_SYNONYMS:
-                value = _sheet_value(column, line[position])
-                if value:
-                    row[column] = value
-            else:
-                row[column] = line[position][: b2b.COLUMN_LIMITS[column]]
-        if any(row.get(name) for name in order):
-            rows.append(row)
+    for row in _join_continued(found)[:MAX_ROWS]:
+        if not any(row.get(name) for name in order):
+            continue
+        whole = {name: "" for name in order}
+        for column, value in row.items():
+            whole[column] = value[: b2b.COLUMN_LIMITS[column]] if column in b2b.COLUMN_LIMITS else value[: b2b.MAX_NOTES]
+        rows.append(whole)
     return rows, mapped
+
+
+def _join_continued(found):
+    """The team's sheet writes a company's second email or number on the line under it, its company cell empty (the Spain
+    tab, 13/10/2026): such a line is joined to the company above instead of becoming a row with no name, which is not
+    added. A second number joins the phones; anything else the row already has goes into its note."""
+    rows = []
+    for row in found:
+        if row.get("company_name") or not rows:
+            rows.append(dict(row))
+            continue
+        above = rows[-1]
+        for column, value in row.items():
+            if not above.get(column):
+                above[column] = value
+            elif column == "phone":
+                above["phone"] += "\n" + value
+            elif value != above[column]:
+                above["notes"] = " · ".join(filter(None, (above.get("notes"), value)))
+    return rows
 
 
 # ---------------------------------------------------------------------------

@@ -756,9 +756,13 @@ def chat_unsend(request):
 
 
 @endpoint("POST")
-@api_role_required(Role.ADMIN)
+@api_role_required(Role.OPERATION, Role.SALES)
 def client_block(request, client_code):
-    """Block a client or unblock them: ``{"blocked": true}``. The admin's alone (``services.set_client_blocked``)."""
+    """Block a client or unblock them: ``{"blocked": true}`` (``services.set_client_blocked``).
+
+    The admin, the operation and Sales, each on the clients of a line they work: a code off this person's line answers
+    like an unknown one (``may_answer``, as for a reply), and the refusal is written down.
+    """
     try:
         blocked = _object(request).get("blocked")
         if not isinstance(blocked, bool):
@@ -766,6 +770,8 @@ def client_block(request, client_code):
     except BadBody:
         return _error(400, "bad_request")
     client = api._client_or_404(request, client_code)
+    if not api.may_answer(client, request.user):
+        identity.hidden(request, "client")
     services.set_client_blocked(request.user, client, blocked)
     return JsonResponse({"ok": True, "code": client.code, "blocked": client.is_blocked})
 

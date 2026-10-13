@@ -92,6 +92,65 @@ class ReadTests(SimpleTestCase):
                 b2b_import.read(name, data)
 
 
+class RowWithoutHeaderTests(SimpleTestCase):
+    """A row copied from the team's Google Sheet without its header (13/10/2026): read in this sheet's own order it put the
+    phone in the website and the email in the activity. Each cell now goes where its content says."""
+
+    def read(self, text, header=False):
+        rows, mapped = b2b_import.to_rows(b2b_import.read_text(text))
+        self.assertEqual(bool(mapped), header)
+        return [{name: value for name, value in row.items() if value} for row in rows]
+
+    def test_the_spain_row_puts_the_phone_and_the_email_in_their_columns(self):
+        (row,) = self.read("A2Z Traducciones\t\t34637563743\tinfo@a2z.es\t\t\t\t\t\t\n")
+        self.assertEqual(row, {"company_name": "A2Z Traducciones", "phone": "34637563743", "email": "info@a2z.es"})
+
+    def test_a_full_turkey_row_with_its_activity_and_country(self):
+        (row,) = self.read("Talent IPARK23\t\t905455043609\tinfo@tercumix.com\tE\t\t\t22-9\tشركه ترجمه\t\t\tتركيا\n")
+        self.assertEqual(
+            (row["phone"], row["email"], row["industry"], row["country"]),
+            ("905455043609", "info@tercumix.com", "شركه ترجمه", "تركيا"),
+        )
+        # What says nothing and has no place is kept in the note, not lost.
+        self.assertEqual(row["notes"], "E · 22-9")
+        self.assertNotIn("website", row)
+
+    def test_every_kind_of_cell_by_its_content(self):
+        (row,) = self.read("Delta\tJohn Smith\t+34 600 65 86 73\tx@y.es\twww.delta.es\tمتابعة\tعالية\t1,500 $\tTranslation\tcalled once\t\tاسبانيا\n")
+        self.assertEqual(row, {
+            "company_name": "Delta", "contact_person": "John Smith", "phone": "+34 600 65 86 73", "email": "x@y.es",
+            "website": "www.delta.es", "status": "follow_up", "priority": "high", "deal_value": "1500",
+            "industry": "Translation", "notes": "called once", "country": "اسبانيا",
+        })
+
+    def test_a_tab_in_another_order_still_finds_the_link_and_the_linkedin(self):
+        (row,) = self.read("Alafranga\t905327646700\thttps://www.linkedin.com/company/alafranga\talafranga.com\n")
+        self.assertEqual((row["phone"], row["linkedin"], row["website"]), ("905327646700", "https://www.linkedin.com/company/alafranga", "alafranga.com"))
+
+    def test_cells_copied_from_the_phone_onwards_name_no_company(self):
+        (row,) = self.read("34637563743\tinfo@a2z.es\n")
+        self.assertEqual(row, {"phone": "34637563743", "email": "info@a2z.es"})
+
+    def test_the_line_under_a_company_with_no_name_joins_it(self):
+        rows = self.read(
+            "A2Z Traducciones\t\t34637563743\tinfo@a2z.es\n"
+            "\t\t34600000000\tinfo@a2ztraducciones.com\n"
+            "ABCTranslink\t\t34636442091\tinfo@abctranslink.com\n"
+        )
+        self.assertEqual([row["company_name"] for row in rows], ["A2Z Traducciones", "ABCTranslink"])
+        self.assertEqual((rows[0]["phone"], rows[0]["notes"]), ("34637563743\n34600000000", "info@a2ztraducciones.com"))
+
+    def test_the_spain_tab_with_its_header_joins_the_second_email_too(self):
+        rows = self.read(
+            "الشركة\tالشخص المسؤول\tرقم الهاتف\tالبريد الالكتروني\tالويب سايت\tالحالة\tالأولوية\tقيمة الصفقة\tالنشاط\tملاحظات\tNAME\tالدوله\n"
+            "\t\t\t\t\t\t\t\t\t\t\t\n"
+            "A2Z Traducciones\t\t34637563743\tinfo@a2z.es\n"
+            "\t\t\tinfo@a2ztraducciones.com\n",
+            header=True,
+        )
+        self.assertEqual(rows, [{"company_name": "A2Z Traducciones", "phone": "34637563743", "email": "info@a2z.es", "notes": "info@a2ztraducciones.com"}])
+
+
 class DoorTests(_B2b):
     def read(self, user, **payload):
         browser = self.browser(user)
@@ -116,6 +175,11 @@ class DoorTests(_B2b):
     def test_pasted_cells_are_read_the_same_way(self):
         body = _json(self.read(self.sales, text="Company\tPhone\nKappa\t+20100"))
         self.assertEqual((body["rows"][0]["company_name"], body["rows"][0]["phone"]), ("Kappa", "+20100"))
+
+    def test_a_pasted_row_without_header_reaches_the_door_and_is_read_by_content(self):
+        body = _json(self.read(self.sales, text="A2Z Traducciones\t\t34637563743\tinfo@a2z.es\t\t\t\t\t\t"))
+        row = body["rows"][0]
+        self.assertEqual((row["phone"], row["email"], row["website"], row["industry"]), ("34637563743", "info@a2z.es", "", ""))
 
     def test_an_unreadable_file_says_why(self):
         answer = self.read(self.sales, file=SimpleUploadedFile("old.xls", b"\xd0\xcf\x11\xe0"))

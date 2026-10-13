@@ -75,8 +75,8 @@ function Notes({ row }: { row: ChatRow }) {
             <strong>{t("العميل ده محظور", "This client is blocked")}</strong>
             <div>
               {t(
-                "رسايله مش بتوصل ولا بتتسجل، ومفيش حاجة بتتبعت له. الأدمن يفك الحظر من زرار «فك الحظر».",
-                "Their messages are dropped on arrival and nothing is sent to them. The admin lifts it with «Unblock».",
+                "رسايله مش بتوصل ولا بتتسجل، ومفيش حاجة بتتبعت له. أي حد بيرد على العملاء يقدر يفك الحظر من زرار «فك الحظر».",
+                "Their messages are dropped on arrival and nothing is sent to them. Anyone who answers clients can lift it with «Unblock».",
               )}
             </div>
           </div>
@@ -386,11 +386,13 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   };
   // Muting is this person's own: a client's chat only where this person has the client chats (the operation, the admin).
   const mute = useMuteChat(code);
-  // Blocking a client is the admin's: asked first, since what the client sends meanwhile is lost.
+  // Blocking a client is for whoever answers clients (the server holds each to their own line): asked first, since what
+  // the client sends meanwhile is lost.
   const block = useBlockClient(code);
   const [blocking, setBlocking] = useState(false);
   const [blockProblem, setBlockProblem] = useState("");
-  const mayBlock = kindOfCode(code) === "clients" && account?.user.is_admin === true;
+  const mayBlock =
+    kindOfCode(code) === "clients" && (account?.user.is_admin === true || account?.user.role === "operation" || account?.user.role === "sales");
   const mayMute = (kindOfCode(code) !== "clients" || mayAnswerClients) && !(row?.staff && !row?.room);
 
   // Forwarding: the bubbles become a list to tap, the bar underneath says how many, and "Forward" asks where to.

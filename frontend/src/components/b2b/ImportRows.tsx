@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent } from "react";
-import { refusalText, useAddRows, useReadRows, type B2bColumn, type B2bRow, type B2bSheetResponse } from "../../api/b2b";
+import { refusalText, useAddRows, useReadRows, type B2bColumn, type B2bRow, type B2bSheetResponse, type ReadRowsResponse } from "../../api/b2b";
 import { usePreferences } from "../../i18n/Preferences";
 import { Icon } from "../Icon";
 import { Modal } from "../Modal";
@@ -32,16 +32,30 @@ function answerHas(rows: B2bRow[], name: string): boolean {
   return rows.some((row) => Boolean((row as Record<string, string>)[name]));
 }
 
-export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; columns: Columns; onClose: () => void }) {
+export function ImportRows({ sheetId, columns, pasted, onClose }: {
+  sheetId: number;
+  columns: Columns;
+  /** Rows pasted on the sheet itself, already read there (`LeadSheetPage.pasteRow`): shown at once. */
+  pasted?: { text: string; answer: ReadRowsResponse };
+  onClose: () => void;
+}) {
   const { t, lang } = usePreferences();
   const toasts = useToasts();
   const read = useReadRows(sheetId);
   const add = useAddRows(sheetId);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(pasted?.text ?? "");
   const [link, setLink] = useState("");
-  const [rows, setRows] = useState<B2bRow[] | null>(null);
-  const [mapped, setMapped] = useState<string[]>([]);
-  const [more, setMore] = useState(false);
+  const named = (answer: ReadRowsResponse) =>
+    Object.entries(answer.mapped).map(([name, header]) => {
+      const column = columns.find((one) => one.name === name);
+      const field = SHEET_FIELDS[name];
+      const shown = column ? (lang === "ar" ? column.ar : column.en) : field ? t(...field) : name;
+      return `${header} → ${shown}`;
+    });
+  const listed = (answer: ReadRowsResponse) => (answer.rows.length ? answer.rows : [emptyRow(columns)]);
+  const [rows, setRows] = useState<B2bRow[] | null>(pasted ? listed(pasted.answer) : null);
+  const [mapped, setMapped] = useState<string[]>(pasted ? named(pasted.answer) : []);
+  const [more, setMore] = useState(pasted?.answer.more ?? false);
   const [problem, setProblem] = useState("");
   const busy = read.isPending || add.isPending;
   const ready = (rows ?? []).filter((row) => row.company_name.trim() !== "");
@@ -50,16 +64,9 @@ export function ImportRows({ sheetId, columns, onClose }: { sheetId: number; col
     setProblem("");
     read.mutate(source, {
       onSuccess: (answer) => {
-        setRows(answer.rows.length ? answer.rows : [emptyRow(columns)]);
+        setRows(listed(answer));
         setMore(answer.more);
-        setMapped(
-          Object.entries(answer.mapped).map(([name, header]) => {
-            const column = columns.find((one) => one.name === name);
-            const field = SHEET_FIELDS[name];
-            const shown = column ? (lang === "ar" ? column.ar : column.en) : field ? t(...field) : name;
-            return `${header} → ${shown}`;
-          }),
-        );
+        setMapped(named(answer));
       },
       onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أقرا الملف.", "Could not read the file."))),
     });
