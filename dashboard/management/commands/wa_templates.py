@@ -81,6 +81,7 @@ TEMPLATES = {
         "purpose": "Sent on delivery, and it reopens the 24h window for revisions.",
     },
     b2b.INTRO_TEMPLATE: b2b.INTRO_SPEC,
+    b2b.INTRO_TEMPLATE_AR: b2b.INTRO_SPEC_AR,
 }
 
 

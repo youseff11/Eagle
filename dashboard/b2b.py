@@ -4,7 +4,7 @@ The Sales manager (a Sales person the owner marked, ``User.is_sales_manager``) m
 person. That person fills it with the companies they research and contacts each one from its row:
 
 * WhatsApp: the company has never written to us, so Meta carries nothing to it but an approved template. The button sends
-  the opening template (``INTRO_TEMPLATE``) from the Sales person's own number and opens the conversation in the chats; once
+  the opening template (``INTRO_TEMPLATE``, or ``INTRO_TEMPLATE_AR`` to an Arab number) from the Sales person's own number and opens the conversation in the chats; once
   the company answers it is an ordinary chat. A company whose 24-hour window on that number is still open gets no template:
   the conversation just opens.
 * E-mail: a letter written on the row leaves from the Sales person's own address, dressed like their other letters.
@@ -52,27 +52,53 @@ INTRO_LANGUAGE = "en"
 INTRO_SPEC = {
     "category": "MARKETING",
     "language": INTRO_LANGUAGE,
-    "body": "Hello {{1}}, this is {{2}} from EagleLingua, a translation company based in Egypt. "
-            "We work with translation agencies worldwide on {{3}} projects and would be glad to support your team. "
+    "body": "Hello {{1}}, this is {{2}} from EagleLingua, a certified translation company based in Egypt. "
+            "We work with translation agencies worldwide on projects in all languages and would be glad to support your team. "
             "Would you be open to a short chat this week?",
     "footer": "EagleLingua",
-    "example": ["Anna", "Yousef", "English to Arabic"],
+    "example": ["Anna", "Yousef"],
     "purpose": "The first message to a company on a B2B sheet, sent from the Sales person's own number.",
 }
-#: What fills ``{{1}}`` and ``{{3}}`` when the row has nothing there.
-NO_CONTACT_NAME = "there"
-NO_LANGUAGES = "Arabic"
+#: The same letter in Egyptian Arabic (the owner's choice, 13/10/2026), for a company whose number is Arab.
+INTRO_TEMPLATE_AR = "b2b_intro_ar"
+INTRO_SPEC_AR = {
+    "category": "MARKETING",
+    "language": "ar",
+    "body": "أهلًا {{1}}، معاك {{2}} من EagleLingua، شركة ترجمة معتمدة في مصر. "
+            "بنشتغل مع شركات الترجمة في كل حتة في العالم على مشاريع بكل اللغات، ويسعدنا نساعد فريقكم. "
+            "يناسبك نتكلم شوية الأسبوع ده؟",
+    "footer": "EagleLingua",
+    "example": ["أحمد", "يوسف"],
+    "purpose": "The Arabic first message to a company on a B2B sheet whose number is from an Arab country.",
+}
+#: language -> (template name, its words at Meta).
+INTRO_TEMPLATES = {INTRO_LANGUAGE: (INTRO_TEMPLATE, INTRO_SPEC), "ar": (INTRO_TEMPLATE_AR, INTRO_SPEC_AR)}
+#: What fills ``{{1}}`` when the row has no contact person.
+NO_CONTACT_NAME = {INTRO_LANGUAGE: "there", "ar": "حضرتك"}
+#: Dialling codes of the Arab League countries: a number starting with one gets the Arabic letter. Israel (972) is not one.
+ARAB_DIAL_CODES = (
+    "20", "212", "213", "216", "218", "222", "249", "252", "253", "269",
+    "961", "962", "963", "964", "965", "966", "967", "968", "970", "971", "973", "974",
+)
 
 
-def intro_params(lead, user):
-    first = (lead.contact_person or "").strip().split(" ")[0] or NO_CONTACT_NAME
+def intro_language(number):
+    """``"ar"`` for a number from an Arab country, else the English letter's language."""
+    digits = "".join(ch for ch in str(number or "") if ch.isdigit())
+    if digits.startswith("00"):
+        digits = digits[2:]
+    return "ar" if digits.startswith(ARAB_DIAL_CODES) else INTRO_LANGUAGE
+
+
+def intro_params(lead, user, language=INTRO_LANGUAGE):
+    first = (lead.contact_person or "").strip().split(" ")[0] or NO_CONTACT_NAME[language]
     sender = (user.get_full_name() or user.username).strip()
-    return [first, sender, (lead.languages or "").strip() or NO_LANGUAGES]
+    return [first, sender]
 
 
-def intro_text(params):
+def intro_text(params, language=INTRO_LANGUAGE):
     """The template's words as the company reads them, for the conversation on our side."""
-    text = INTRO_SPEC["body"]
+    text = INTRO_TEMPLATES[language][1]["body"]
     for index, value in enumerate(params, start=1):
         text = text.replace("{{%d}}" % index, value)
     return text
@@ -698,15 +724,17 @@ def start_whatsapp(lead, user, number=""):
         )
         if recent.exists():
             return client, False
-        params = intro_params(lead, user)
+        language = intro_language(number)
+        template = INTRO_TEMPLATES[language][0]
+        params = intro_params(lead, user, language)
         outbound = OutboundMessage.objects.create(
             client=client, kind=OutboundMessage.Kind.CHAT, created_by=user, owner=user,
-            channel=Channel.WHATSAPP, to_identity=number, body=intro_text(params),
+            channel=Channel.WHATSAPP, to_identity=number, body=intro_text(params, language),
             status=OutboundMessage.Status.SENDING,
         )
 
     try:
-        outbound.provider_id = wa.send_template(number, INTRO_TEMPLATE, INTRO_LANGUAGE, params, from_id=from_id)[:190]
+        outbound.provider_id = wa.send_template(number, template, language, params, from_id=from_id)[:190]
     except wa.WhatsAppError as exc:
         outbound.status = OutboundMessage.Status.FAILED
         outbound.error_message = scrub_contacts(exc.message_ar)
@@ -721,7 +749,7 @@ def start_whatsapp(lead, user, number=""):
         raise Refused("send_failed", services.SEND_UNSURE_AR, "Not sure the message went. Check the chat before sending again.") from None
     outbound.status = OutboundMessage.Status.SENT
     outbound.save(update_fields=["status", "provider_id"])
-    services.log(user, "b2b.whatsapp", client.code, f"lead {lead.pk} template {INTRO_TEMPLATE}")
+    services.log(user, "b2b.whatsapp", client.code, f"lead {lead.pk} template {template}")
     note_outbound(outbound)
     return client, True
 

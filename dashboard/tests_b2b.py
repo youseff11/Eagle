@@ -240,13 +240,17 @@ class WhatsappTests(_B2b):
         body = _json(answer)
         self.assertTrue(body["sent"])
         self.template.assert_called_once_with(
-            "447700900123", b2b.INTRO_TEMPLATE, "en", ["Anna", "Seller", "German to Arabic"], from_id="900002",
+            "447700900123", b2b.INTRO_TEMPLATE, "en", ["Anna", "Seller"], from_id="900002",
         )
         client = Client.objects.get(code=body["chat"])
         self.assertEqual((client.company, client.name, client.email), ("Lingua GmbH", "Anna Schmidt", "anna@lingua.test"))
         sent = OutboundMessage.objects.get(client=client)
         self.assertEqual((sent.status, sent.owner, sent.channel, sent.provider_id), ("sent", self.sales, "whatsapp", "wamid.intro.1"))
         self.assertIn("this is Seller from EagleLingua", sent.body)
+        # The row's own pair ("German to Arabic") is not named: the letter offers every language.
+        self.assertIn("a certified translation company", sent.body)
+        self.assertIn("projects in all languages", sent.body)
+        self.assertNotIn("German", sent.body)
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.client, client)
         self.assertIsNotNone(self.lead.whatsapp_at)
@@ -309,15 +313,35 @@ class WhatsappTests(_B2b):
         self.assertFalse(LeadActivity.objects.exists())
 
     def test_the_opening_template_follows_the_three_rules(self):
-        spec = b2b.INTRO_SPEC
-        count = spec["body"].count("{{")
-        self.assertEqual(len(spec["example"]), count)
-        self.assertEqual(len(b2b.intro_params(self.lead, self.sales)), count)
-        self.assertFalse(spec["body"].lstrip().startswith("{{"))
-        self.assertFalse(spec["body"].rstrip().rstrip(".?!").endswith("}}"))
         from .management.commands.wa_templates import TEMPLATES
 
-        self.assertIs(TEMPLATES[b2b.INTRO_TEMPLATE], spec)
+        self.assertEqual(set(b2b.INTRO_TEMPLATES), {"en", "ar"})
+        for language, (name, spec) in b2b.INTRO_TEMPLATES.items():
+            self.assertEqual(spec["language"], language)
+            count = spec["body"].count("{{")
+            self.assertEqual(len(spec["example"]), count, name)
+            self.assertEqual(len(b2b.intro_params(self.lead, self.sales, language)), count, name)
+            self.assertFalse(spec["body"].lstrip().startswith("{{"), name)
+            self.assertFalse(spec["body"].rstrip().rstrip(".?!؟").endswith("}}"), name)
+            self.assertIs(TEMPLATES[name], spec)
+
+    def test_an_arab_number_gets_the_arabic_letter(self):
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="+20 100 123 4567", contact_person="")
+        self.assertTrue(_json(self.press())["sent"])
+        self.template.assert_called_once_with(
+            "201001234567", b2b.INTRO_TEMPLATE_AR, "ar", ["حضرتك", "Seller"], from_id="900002",
+        )
+        sent = OutboundMessage.objects.get()
+        self.assertTrue(sent.body.startswith("أهلًا حضرتك، معاك Seller من EagleLingua"))
+        self.assertNotIn("{{", sent.body)
+        self.assertTrue(AuditLog.objects.filter(action="b2b.whatsapp", detail__endswith=b2b.INTRO_TEMPLATE_AR).exists())
+
+    def test_the_letter_language_follows_the_dialling_code(self):
+        for number, language in (
+            ("+20 100 123 4567", "ar"), ("00966 50 123 4567", "ar"), ("+971501234567", "ar"), ("+212 6 12 34 56 78", "ar"),
+            ("+44 7700 900123", "en"), ("+49 151 2345678", "en"), ("+972 50 123 4567", "en"), ("+1 202 555 0100", "en"), ("", "en"),
+        ):
+            self.assertEqual(b2b.intro_language(number), language, number)
 
 
 
