@@ -181,11 +181,17 @@ button.nav-tools__btn { appearance: none; }
 /* The company sheet in the shape of the Sales team's own Google Sheet (12/10/2026): the green header in bold, the black
    band under it, peach rows with thin dark lines, the text in the middle - the sheet's own colours in the dark theme too
    (the owner's choice: the team sees the page it knows). A cell is a field that looks like a cell until it is clicked. */
-.sheet-wrap { overflow-x: auto; border: 1px solid #000; border-radius: 6px; --sheet-bar: #f1f3f4; --sheet-bar-hover: #fff; --sheet-bar-track: #3c4043; }
-/* The sideways scrollbar under the sheet is how the far columns are reached: white on grey in the dark theme (the owner
-   could not see the dark one), grey on light grey in the light theme, and thicker than the page's own. */
+/* The sheet scrolls inside its own frame, sideways and down, as tall as the screen: with hundreds of rows the sideways
+   bar under the last row was out of reach (13/10/2026). The green header stays on top while the rows move under it. */
+.sheet-wrap {
+  overflow: auto; max-height: calc(100dvh - 120px); min-height: 320px;
+  border: 1px solid #000; border-radius: 6px; --sheet-bar: #f1f3f4; --sheet-bar-hover: #fff; --sheet-bar-track: #3c4043;
+}
+/* The scrollbars are how the far columns and rows are reached: white on grey in the dark theme (the owner could not see
+   the dark one), grey on light grey in the light theme, and thicker than the page's own. */
 [data-theme="light"] .sheet-wrap { --sheet-bar: #9aa0a6; --sheet-bar-hover: #5f6368; --sheet-bar-track: #e8eaed; }
-.sheet-wrap::-webkit-scrollbar { height: 14px; }
+.sheet-wrap::-webkit-scrollbar { width: 14px; height: 14px; }
+.sheet-wrap::-webkit-scrollbar-corner { background: var(--sheet-bar-track); }
 .sheet-wrap::-webkit-scrollbar-track { background: var(--sheet-bar-track); }
 .sheet-wrap::-webkit-scrollbar-thumb { background: var(--sheet-bar); border-radius: 7px; border: 3px solid var(--sheet-bar-track); }
 .sheet-wrap::-webkit-scrollbar-thumb:hover { background: var(--sheet-bar-hover); }
@@ -203,7 +209,8 @@ button.nav-tools__btn { appearance: none; }
 .sheet th, .sheet td { border: 1px solid var(--sheet-line); padding: 0; vertical-align: middle; }
 .sheet thead th {
   background: var(--sheet-head); color: var(--sheet-head-ink); font-weight: 700; font-size: 15px; text-align: center;
-  padding: 8px; white-space: nowrap; position: sticky; top: 0;
+  padding: 8px; white-space: nowrap; position: sticky; top: 0; z-index: 2;
+  box-shadow: inset 0 -1px 0 var(--sheet-line);
 }
 .sheet__band td { background: var(--sheet-band); height: 12px; border-color: var(--sheet-band); }
 .sheet tbody td { background: var(--sheet-row); }
