@@ -617,6 +617,9 @@ def client_send(request, client_code):
     # ``send_to_client`` asks it again: it is the rule of the send, whoever calls it.
     if not api.may_answer(client, request.user):
         identity.hidden(request, "client")
+    # Said before anything is stored: ``send_client_message`` refuses it too, but a refusal there is "nothing to send".
+    if client.is_blocked:
+        return _error(409, "blocked")
     if not _wrote_something(request):
         return _error(400, "empty")
     if _too_long(request, "client"):
@@ -750,6 +753,21 @@ def chat_unsend(request):
     if not done:
         return _error(404 if error == "not_found" else 403, error)
     return JsonResponse({"ok": True, "uid": uid})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def client_block(request, client_code):
+    """Block a client or unblock them: ``{"blocked": true}``. The admin's alone (``services.set_client_blocked``)."""
+    try:
+        blocked = _object(request).get("blocked")
+        if not isinstance(blocked, bool):
+            raise BadBody
+    except BadBody:
+        return _error(400, "bad_request")
+    client = api._client_or_404(request, client_code)
+    services.set_client_blocked(request.user, client, blocked)
+    return JsonResponse({"ok": True, "code": client.code, "blocked": client.is_blocked})
 
 
 @endpoint("POST")

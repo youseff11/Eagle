@@ -2,7 +2,7 @@ import { Loading } from "../Loading";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
-import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useMuteChat, useReact, useThread, useUnsend } from "../../api/queries";
+import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useMuteChat, useBlockClient, useReact, useThread, useUnsend } from "../../api/queries";
 import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { useFilePick } from "../../hooks/useFilePick";
@@ -63,11 +63,25 @@ export function windowClosed(row: ChatRow): boolean {
   return !row.staff && !row.team && row.channel === "whatsapp" && !row.window_open;
 }
 
-/** The notes above the messages: what a group reaches, and the WhatsApp 24-hour rule. */
+/** The notes above the messages: a blocked client, what a group reaches, and the WhatsApp 24-hour rule. */
 function Notes({ row }: { row: ChatRow }) {
   const { t } = usePreferences();
   return (
     <>
+      {row.blocked && (
+        <div className="note note--warn cchat__window" id="blockedNote">
+          <Icon name="lock" />
+          <div>
+            <strong>{t("العميل ده محظور", "This client is blocked")}</strong>
+            <div>
+              {t(
+                "رسايله مش بتوصل ولا بتتسجل، ومفيش حاجة بتتبعت له. الأدمن يفك الحظر من زرار «فك الحظر».",
+                "Their messages are dropped on arrival and nothing is sent to them. The admin lifts it with «Unblock».",
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {row.reaches_client && (
         <div className="note note--warn cchat__window">
           <Icon name="users" />
@@ -82,7 +96,7 @@ function Notes({ row }: { row: ChatRow }) {
           </div>
         </div>
       )}
-      {windowClosed(row) && (
+      {windowClosed(row) && !row.blocked && (
         <div className="note note--warn cchat__window">
           <Icon name="clock" />
           <div>
@@ -372,6 +386,11 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   };
   // Muting is this person's own: a client's chat only where this person has the client chats (the operation, the admin).
   const mute = useMuteChat(code);
+  // Blocking a client is the admin's: asked first, since what the client sends meanwhile is lost.
+  const block = useBlockClient(code);
+  const [blocking, setBlocking] = useState(false);
+  const [blockProblem, setBlockProblem] = useState("");
+  const mayBlock = kindOfCode(code) === "clients" && account?.user.is_admin === true;
   const mayMute = (kindOfCode(code) !== "clients" || mayAnswerClients) && !(row?.staff && !row?.room);
 
   // Forwarding: the bubbles become a list to tap, the bar underneath says how many, and "Forward" asks where to.
@@ -517,6 +536,23 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
           >
             <Icon name={row.muted ? "bell-off" : "bell"} size="sm" />
             <span>{row.muted ? t("مكتوم", "Muted") : t("كتم", "Mute")}</span>
+          </button>
+        )}
+        {thread.data && row && mayBlock && (
+          <button
+            type="button"
+            className={`btn btn--ghost${row.blocked ? " is-on" : ""}`}
+            id="blockToggle"
+            aria-pressed={row.blocked === true}
+            disabled={block.isPending}
+            title={row.blocked ? t("فك حظر العميل ده", "Unblock this client") : t("احظر العميل ده", "Block this client")}
+            onClick={() => {
+              setBlockProblem("");
+              setBlocking(true);
+            }}
+          >
+            <Icon name="lock" size="sm" />
+            <span>{row.blocked ? t("فك الحظر", "Unblock") : t("حظر", "Block")}</span>
           </button>
         )}
         {thread.data && mayPick && (
@@ -670,7 +706,8 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               limit={row.staff || row.team ? limits.inside : row.reaches_client ? limits.to_client_group : limits.to_client}
               reply={replyTo}
               onClearReply={() => setReplyTo(null)}
-              closed={windowClosed(row)}
+              closed={windowClosed(row) || row.blocked === true}
+              blocked={row.blocked === true}
               busy={queued.some((item) => item.state === "sending")}
               onSend={write}
             />
@@ -714,6 +751,31 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
                   onSuccess: () => setUnsending(null),
                   onError: () =>
                     setUnsendProblem(t("مقدرتش أمسح الرسالة. ممكن تكون اتبعتت لعميل أو تبع تاسك.", "The message could not be deleted. It may have gone to a client or belong to a task.")),
+                })
+              }
+            />
+          )}
+          {blocking && (
+            <Confirm
+              title={row.blocked ? t("تفك حظر العميل ده؟", "Unblock this client?") : t("تحظر العميل ده؟", "Block this client?")}
+              body={
+                row.blocked
+                  ? t("رسايله هتبتدي توصل تاني من دلوقتي، وتقدر ترد عليه. اللي بعته وهو محظور مش هيرجع.", "Their messages arrive again from now on and you can answer them. What they sent while blocked does not come back.")
+                  : t(
+                      "أي رسالة أو ميل يبعته هيتشال من غير ما يتسجل ولا حد يتنبّه، ومحدش هيقدر يبعت له من الشات أو الميل لحد ما تفك الحظر.",
+                      "Any message or e-mail they send is dropped unrecorded and nobody is notified, and nobody can send to them from the chat or the mail page until you unblock them.",
+                    )
+              }
+              yes={row.blocked ? t("فك الحظر", "Unblock") : t("احظر", "Block")}
+              icon="lock"
+              danger={!row.blocked}
+              busy={block.isPending}
+              problem={blockProblem}
+              onNo={() => setBlocking(false)}
+              onYes={() =>
+                block.mutate(row.blocked !== true, {
+                  onSuccess: () => setBlocking(false),
+                  onError: () => setBlockProblem(t("الحظر ماتغيّرش. جرّب تاني.", "The block did not change. Try again.")),
                 })
               }
             />

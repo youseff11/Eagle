@@ -443,6 +443,30 @@ GUIDES = (
         ),
     ),
     _guide(
+        "client-block", (Role.ADMIN,), "/chats",
+        ("إزاي أحظر عميل (بلوك)", "How do I block a client"),
+        (
+            "حظر، بلوك، احظر عميل، اعمل بلوك، فك الحظر، فك البلوك، عميل مزعج، سبام، امنع عميل",
+            "block, block a client, unblock, ban, spam client, stop a client messaging",
+        ),
+        [
+            "افتح شات العميل من «الشات» (تبويب «العملاء»).",
+            "اضغط زرار «حظر» فوق، وأكّد بـ«احظر».",
+            "من دلوقتي أي رسالة أو ميل منه بيتشال من غير ما يتسجل ولا حد يتنبّه، وصندوق الكتابة بيتقفل للكل.",
+            "عشان ترجّعه افتح نفس الشات واضغط «فك الحظر».",
+        ],
+        [
+            "Open the client's chat from «Chats» (the «Clients» tab).",
+            "Press the «Block» button at the top, and confirm with «Block».",
+            "From then on any message or e-mail from them is dropped unrecorded and nobody is notified, and the message box is off for everyone.",
+            "To lift it, open the same chat and press «Unblock».",
+        ],
+        note=(
+            "اللي العميل بيبعته وهو محظور مابيرجعش بعد فك الحظر.",
+            "What the client sends while blocked does not come back after unblocking.",
+        ),
+    ),
+    _guide(
         "contact-support", (Role.ADMIN, *STAFF), "/chats",
         ("إزاي أتواصل مع الدعم الفني", "How do I contact technical support"),
         (

@@ -87,6 +87,11 @@ def simulate_send(request):
         sender_identity=form.cleaned_data["sender_identity"],
         attachments=[{"file": upload, "name": upload.name, "size": upload.size} for upload in uploads],
     )
+    if message is None:
+        return JsonResponse({
+            "ok": False, "error": "client_blocked",
+            "message": "العميل ده محظور: رسالته ماتسجلتش.", "message_en": "This client is blocked: the message was dropped.",
+        }, status=409)
     # The code and the channel, never the words: the log is read by people who may not know the client.
     services.log(request.user, "admin.simulate", message.client_code or "", form.cleaned_data["channel"])
     return JsonResponse({"ok": True, "id": message.pk, "code": message.client_code, "blocked": message.is_rate_blocked})

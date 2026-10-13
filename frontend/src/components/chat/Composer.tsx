@@ -92,6 +92,7 @@ export function Composer({
   reply,
   onClearReply,
   closed,
+  blocked = false,
   busy,
   onSend,
 }: {
@@ -109,6 +110,8 @@ export function Composer({
   reply: ReplyTarget | null;
   onClearReply: () => void;
   closed: boolean;
+  /** The client is blocked: the box is off (`closed` is set with it) and says that instead of the 24-hour rule. */
+  blocked?: boolean;
   busy: boolean;
   onSend: (written: Written) => void;
 }) {
@@ -298,7 +301,9 @@ export function Composer({
     }
   };
 
-  const placeholder = closed
+  const placeholder = blocked
+    ? t("العميل ده محظور: مينفعش تبعت له.", "This client is blocked: you cannot send to them.")
+    : closed
     ? t("نافذة الـ24 ساعة قفلت: مينفعش تبعت دلوقتي.", "The 24-hour window is closed: you cannot send now.")
     : toClient
       ? t("اكتب رسالتك للعميل...", "Write your reply to the client...")

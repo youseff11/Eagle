@@ -307,8 +307,9 @@ def _read_selected(box, name, state, limit, keep_unread, ours, services):
                 elif external and InboundMessage.objects.filter(external_id=external).exists():
                     pass          # already recorded (the page's button got there first)
                 else:
-                    services.ingest_message(**parsed)
-                    created += 1
+                    # None: a blocked client's letter, dropped.
+                    if services.ingest_message(**parsed) is not None:
+                        created += 1
             except Exception:  # noqa: BLE001 - one bad letter must not hold up the ones behind it
                 logger.exception("mail: could not record letter uid %s of %s", uid, name)
         last = max(last, uid)

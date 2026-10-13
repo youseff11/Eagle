@@ -10,6 +10,7 @@ import re
 from collections import namedtuple
 from datetime import timedelta
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -191,6 +192,23 @@ def resolve_client(*, phone="", email="", channel="whatsapp", auto_create=True,
     return client
 
 
+#: What a send to a blocked client answers. The same words on the chat page's note.
+BLOCKED_AR = "العميل ده محظور: مفيش رسايل بتروح له ولا بتيجي منه. الأدمن يفك الحظر من الشات."
+
+
+def set_client_blocked(user, client, blocked):
+    """Block or unblock a client. The admin's alone; written to the audit log either way. Returns whether it changed."""
+    if not user.is_admin_role:
+        raise PermissionDenied
+    if blocked == client.is_blocked:
+        return False
+    client.blocked_at = timezone.now() if blocked else None
+    client.blocked_by = user if blocked else None
+    client.save(update_fields=["blocked_at", "blocked_by"])
+    log(user, "client.block" if blocked else "client.unblock", client.code)
+    return True
+
+
 @transaction.atomic
 def ingest_message(*, channel, body="", subject="", sender_identity="",
                    sender_display="", external_id="", received_at=None,
@@ -225,6 +243,11 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         # The sender's own profile name, straight off the WhatsApp payload.
         display_name=sender_display,
     )
+    # A blocked client is not heard: nothing is stored and nobody is rung (``set_client_blocked``). The caller still answers
+    # the webhook 200, or Meta would send it again forever.
+    if client is not None and client.is_blocked:
+        logger.info("Dropped a %s message from blocked client %s", channel, client.code)
+        return None
     keyword = detect_rate_keyword(f"{subject} {body}")
 
     thread_key = ""
@@ -6288,6 +6311,9 @@ def send_client_message(client, user, body="", uploads=None, voice=None,
     body = (body or "").strip()
     if not body and not uploads and not reuse_files and not extra_files and voice is None:
         return False, None, "مفيش حاجة تتبعت."
+    # Nothing leaves for a blocked client, whatever door it came through (a chat, a forward, a group's relay, the mail page).
+    if client.is_blocked:
+        return False, None, BLOCKED_AR
 
     from . import lines
 

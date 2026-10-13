@@ -669,6 +669,8 @@ export interface ChatRow {
   unread: number;
   /** This person muted it: no notification and no sound for it, and its unread messages are not in the badge. */
   muted?: boolean;
+  /** A client the admin blocked: what they send is dropped, and nothing is sent to them. A client's row only. */
+  blocked?: boolean;
 }
 
 export interface ChatListResponse {

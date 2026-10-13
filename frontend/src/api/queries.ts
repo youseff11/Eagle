@@ -1181,6 +1181,22 @@ export function useMuteChat(code: string) {
 }
 
 /**
+ * Block a client or unblock them (`/api/v1/clients/<code>/block/`, the admin's alone). The lists and the open thread say
+ * so, and the box under it turns off or back on.
+ */
+export function useBlockClient(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (blocked: boolean) =>
+      api<{ ok: true; code: string; blocked: boolean }>(`/api/v1/clients/${encodeURIComponent(code)}/block/`, { json: { blocked } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+    },
+  });
+}
+
+/**
  * Take back a message you sent (`/api/v1/chats/unsend/`). Whatever the answer, the thread and the lists are asked for
  * again: a refusal changed nothing, but a dropped connection may have done either.
  */

@@ -1082,6 +1082,8 @@ def _conversation_json(client, viewer, unread=0, facts=None, muted=None):
         "minutes_left": minutes_left,
         "unread": unread,
         "muted": muted,
+        # The admin blocked this client: nothing comes in from them, nothing goes out (``services.set_client_blocked``).
+        "blocked": client.is_blocked,
     }
 
 

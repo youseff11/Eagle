@@ -982,10 +982,20 @@ class Client(models.Model):
     country = models.CharField(max_length=80, blank=True)
     admin_notes = models.TextField(blank=True, help_text="Visible to the admin only.")
     is_active = models.BooleanField(default=True)
+    #: The admin blocked this client: what they send is dropped on arrival (nothing is stored, nobody is rung) and nothing
+    #: is sent to them from a chat or the mail page. Null = not blocked. See ``services.set_client_blocked``.
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    blocked_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ("code",)
+
+    @property
+    def is_blocked(self):
+        return self.blocked_at is not None
 
     def save(self, *args, **kwargs):
         if not self.code:

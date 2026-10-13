@@ -205,7 +205,9 @@ def whatsapp_hook(request):
                     reply_to_external=(message.get("context") or {}).get("id", ""),
                     owner=line_owner,
                 )
-                created.append(record.id)
+                # None: the client is blocked, and the message was dropped.
+                if record is not None:
+                    created.append(record.id)
 
     # --- Simplified/manual shape ------------------------------------------
     if not is_meta and data.get("from"):
@@ -228,7 +230,8 @@ def whatsapp_hook(request):
             attachments=_decode_files(data.get("attachments")),
             owner=lines.owner_for_number(data.get("to", "")),
         )
-        created.append(record.id)
+        if record is not None:
+            created.append(record.id)
 
     # Meta retries anything that is not a 200, so always acknowledge.
     return JsonResponse({"ok": True, "created": created})
@@ -253,4 +256,4 @@ def email_hook(request):
         attachments=_decode_files(data.get("attachments")),
         recipients=lines.addresses_in(data.get("to", ""), data.get("cc", "")),
     )
-    return JsonResponse({"ok": True, "created": [record.id]})
+    return JsonResponse({"ok": True, "created": [record.id] if record is not None else []})

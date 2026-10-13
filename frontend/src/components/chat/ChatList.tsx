@@ -57,6 +57,11 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
               <Icon name="alert" size="sm" />
             </span>
           )}
+          {row.blocked && (
+            <span className="muted cthread__muted" title={t("محظور", "Blocked")}>
+              <Icon name="lock" size="sm" />
+            </span>
+          )}
           {row.muted && (
             <span className="muted cthread__muted" title={t("مكتوم", "Muted")}>
               <Icon name="bell-off" size="sm" />
