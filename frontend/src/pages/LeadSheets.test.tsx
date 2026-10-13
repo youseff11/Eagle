@@ -511,8 +511,10 @@ describe("LeadSheetPage", () => {
   it("adds a note on Enter, dated by the server, and keeps the ones before", async () => {
     const user = userEvent.setup();
     const before = { id: 1, text: "first call", at: "10/10/2026 1:00 PM", day: "10/10/2026", by: { id: 7, name: "Seller" } };
+    const added = { id: 2, text: "sent the rate sheet", at: "13/10/2026 2:00 PM", day: "13/10/2026", by: { id: 7, name: "Seller" } };
+    // The door answers with the row and every note on it, as the server does.
     const mocked = serve("sales", {
-      "/api/v1/b2b/leads/5/notes/": () => jsonResponse({ ok: true, lead: lead() }),
+      "/api/v1/b2b/leads/5/notes/": () => jsonResponse({ ok: true, lead: lead({ notes: [before, added] }) }),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ notes: [before] })])),
     });
     const { container } = open("/leads/3");
@@ -523,6 +525,7 @@ describe("LeadSheetPage", () => {
     await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/notes/")).toEqual([{ text: "sent the rate sheet" }]));
     await waitFor(() => expect(input).toHaveValue(""));
     expect(container.querySelector('[data-note="1"]')).toHaveTextContent("first call");
+    await waitFor(() => expect(container.querySelector('[data-note="2"]')).toHaveTextContent("sent the rate sheet"));
   });
 
   it("lets the writer take a note off after asking twice, and nobody else's", async () => {
@@ -633,5 +636,46 @@ describe("LeadSheetPage", () => {
     open("/leads/3");
     await user.click(await screen.findByRole("button", { name: "ارفع Excel أو Google Sheet" }));
     expect(screen.getByLabelText("ملف Excel أو CSV")).toBeInTheDocument();
+  });
+
+  it("draws a big sheet a hundred rows at a time, and the search looks through all of them", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 250 }, (_unused, i) => lead({ id: i + 1, company_name: `Company ${i + 1}` }));
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, many)) });
+    const { container } = open("/leads/3");
+    await screen.findByDisplayValue("Company 1");
+    expect(container.querySelectorAll("tr[data-lead]")).toHaveLength(100);
+    expect(screen.getByText("1–100 من 250")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "السابق" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    expect(container.querySelectorAll("tr[data-lead]")).toHaveLength(50);
+    expect(screen.getByDisplayValue("Company 250")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Company 1")).toBeNull();
+    expect(screen.getByRole("button", { name: "التالي" })).toBeDisabled();
+    // A search goes back to the first page, and finds a company that was not on the page drawn.
+    await user.click(screen.getByLabelText("بحث"));
+    await user.paste("Company 7");
+    await waitFor(() => expect(container.querySelectorAll("tr[data-lead]")).toHaveLength(11));
+    expect(screen.getByLabelText("الشركة · Company 7")).toBeInTheDocument();
+    expect(container.querySelector("[data-pages]")).toBeNull();
+  }, 30000);
+
+  it("puts a saved cell's row in place without asking for the whole sheet again", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ contact_person: "Anna Weber", call_at: "13/10/2026 1:00 PM" }) }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    const person = await screen.findByLabelText("الشخص المسؤول · Lingua GmbH");
+    const sheetLoads = () => mocked.calls.filter((call) => call.url === "/api/v1/b2b/sheets/3/").length;
+    const before = sheetLoads();
+    await user.clear(person);
+    await user.type(person, "Anna Weber{Enter}");
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toHaveLength(1));
+    // The row is the server's answer, and the header's count follows it.
+    expect(await screen.findByText(/1 من 1 اتواصلنا معاهم/)).toBeInTheDocument();
+    expect(sheetLoads()).toBe(before);
   });
 });

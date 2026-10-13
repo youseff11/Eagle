@@ -1,4 +1,4 @@
-import { useMemo, useState, type ClipboardEvent, type FormEvent } from "react";
+import { useDeferredValue, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
   refusalCode,
@@ -27,6 +27,7 @@ import {
 import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
+import { PAGE_ROWS, Pages, pageWithin } from "../components/b2b/Pages";
 import { filledValues, isCopiedRow } from "../components/b2b/pastedRow";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { ChoiceCell, GRID_COLUMNS, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
@@ -725,6 +726,10 @@ export function LeadSheetPage() {
   const [open, setOpen] = useState<Open | null>(null);
   const [search, setSearch] = useState("");
   const [only, setOnly] = useState<Only>("all");
+  // A sheet holds 5000 companies: one page of them is drawn at a time, and the search runs behind the typing.
+  const [page, setPage] = useState(0);
+  const typed = useDeferredValue(search);
+  const top = useRef<HTMLDivElement>(null);
   const toasts = useToasts();
   const readRows = useReadRows(sheetId);
   const saveCell = useSaveCell();
@@ -732,7 +737,7 @@ export function LeadSheetPage() {
 
   const data = sheet.data;
   const leads = useMemo(() => {
-    const words = search.trim().toLowerCase();
+    const words = typed.trim().toLowerCase();
     if (!data) return [];
     return data.leads.filter(
       (lead) =>
@@ -740,7 +745,8 @@ export function LeadSheetPage() {
         (!words ||
           (["company_name", "country", "contact_person", "email", "whatsapp", "phone"] as B2bColumn[]).some((name) => lead[name].toLowerCase().includes(words))),
     );
-  }, [data, search, only]);
+  }, [data, typed, only]);
+  const shown = pageWithin(page, leads.length);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!sheetId) return <Navigate to="/leads" replace />;
@@ -812,7 +818,7 @@ export function LeadSheetPage() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" ref={top}>
         <div className="row" style={{ marginBottom: 12 }}>
           <button className="btn btn--primary" type="button" onClick={() => setOpen({ kind: "new" })}>
             <Icon name="plus" />
@@ -829,7 +835,10 @@ export function LeadSheetPage() {
             </button>
           )}
           <div className="grow" />
-          <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => setOnly(event.target.value as Only)}>
+          <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => {
+              setOnly(event.target.value as Only);
+              setPage(0);
+            }}>
             <option value="all">{t("كل الشركات", "All companies")}</option>
             <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
             <option value="replied">{t("ردّوا علينا", "They answered")}</option>
@@ -837,7 +846,10 @@ export function LeadSheetPage() {
           </select>
           <div className="field-icon" style={{ margin: 0 }}>
             <Icon name="search" className="ic--lead" />
-            <input className="input" value={search} maxLength={100} placeholder={t("ابحث…", "Search…")} aria-label={t("بحث", "Search")} onChange={(event) => setSearch(event.target.value)} />
+            <input className="input" value={search} maxLength={100} placeholder={t("ابحث…", "Search…")} aria-label={t("بحث", "Search")} onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(0);
+            }} />
           </div>
         </div>
 
@@ -863,7 +875,7 @@ export function LeadSheetPage() {
               </tr>
             </thead>
             <tbody onPaste={pasteRow}>
-              {leads.map((lead) => (
+              {leads.slice(shown * PAGE_ROWS, (shown + 1) * PAGE_ROWS).map((lead) => (
                 <tr key={lead.id} data-lead={lead.id}>
                   {GRID_COLUMNS.map((column) => {
                     const name = lang === "ar" ? column.ar : column.en;
@@ -953,6 +965,14 @@ export function LeadSheetPage() {
             </tbody>
           </table>
         </div>
+        <Pages
+          page={shown}
+          count={leads.length}
+          onPage={(next) => {
+            setPage(next);
+            top.current?.scrollIntoView?.({ block: "start" });
+          }}
+        />
       </div>
 
       {open?.kind === "new" && <LeadForm data={data} lead={null} onClose={close} />}

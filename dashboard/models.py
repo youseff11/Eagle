@@ -4748,11 +4748,16 @@ class Lead(models.Model):
         ordering = ("id",)
 
     def save(self, *args, **kwargs):
+        self.fill_keys()
+        super().save(*args, **kwargs)
+
+    def fill_keys(self):
+        """The keys a message is matched on, from the numbers and the address: ``save`` keeps them, and a block added in one
+        insert (``api_b2b.rows_add``, which skips ``save``) calls this itself."""
         keys = [Client.phone_key(number) for number in self.all_phones]
         self.phone_key = keys[0] if keys else ""
         self.phone_keys = f" {' '.join(keys)} " if keys else ""
         self.email_key = (self.email or "").strip().lower()
-        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.company_name

@@ -128,9 +128,10 @@ COLUMNS = (
 COLUMN_LIMITS = {name: limit for name, limit, _ar, _en in COLUMNS}
 #: The longest notes a row (or a call) keeps.
 MAX_NOTES = 4000
-#: The most rows one paste may add, and the most a sheet may hold.
+#: The most rows one request may add (a bigger upload goes in parts of this many, ``ImportRows``), and the most a sheet may
+#: hold (13/10/2026: 2000 -> 5000, a Google Sheet of 3000 companies came in cut to its first 500 lines).
 MAX_PASTE_ROWS = 500
-MAX_SHEET_ROWS = 2000
+MAX_SHEET_ROWS = 5000
 
 
 class Refused(Exception):

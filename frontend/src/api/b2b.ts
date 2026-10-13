@@ -304,6 +304,32 @@ function useWrite<V, R>(run: (values: V) => Promise<R>) {
   });
 }
 
+/** Whether a company was reached on any channel: what the sheet's "contacted" count counts. */
+const isContacted = (lead: B2bLead) => Boolean(lead.whatsapp_at || lead.email_at || lead.call_at);
+
+/**
+ * A write on one company that answers with its row: the row is put in place in the sheet already loaded, and the sheet is
+ * not asked again (13/10/2026: a sheet holds 5000 companies, and it came down whole after every cell typed). Everything
+ * else (the list of sheets, the follow-ups, the numbers) is asked again as after any write.
+ */
+function useLeadWrite<V, R extends { lead?: B2bLead }>(run: (values: V) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSettled: (answer) => {
+      const lead = answer?.lead;
+      if (lead) {
+        client.setQueriesData<B2bSheetResponse>({ queryKey: ["b2b", "sheet"] }, (sheet) => {
+          if (!sheet?.leads.some((one) => one.id === lead.id)) return sheet;
+          const leads = sheet.leads.map((one) => (one.id === lead.id ? lead : one));
+          return { ...sheet, leads, sheet: { ...sheet.sheet, contacted: leads.filter(isContacted).length } };
+        });
+      }
+      void client.invalidateQueries({ queryKey: qk.b2b, predicate: lead ? (query) => query.queryKey[1] !== "sheet" : undefined });
+    },
+  });
+}
+
 export interface SheetValues {
   title: string;
   note: string;
@@ -327,41 +353,66 @@ export function useDeleteSheet(id: number) {
   return useWrite(() => api<{ ok: boolean }>(`/api/v1/b2b/sheets/${id}/delete/`, { json: {} }));
 }
 
+type NewRow = Partial<LeadValues> & { notes?: string };
+
 export function useAddRows(sheetId: number) {
-  return useWrite((rows: (Partial<LeadValues> & { notes?: string })[]) =>
-    api<{ ok: boolean; added: number; leads: B2bLead[] }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }),
-  );
+  return useWrite((rows: NewRow[]) => api<{ ok: boolean; added: number }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }));
+}
+
+/** The most rows one request adds (`b2b.MAX_PASTE_ROWS`): a bigger upload goes in parts of this many. */
+export const ADD_PART = 500;
+
+/**
+ * An upload of any size added in parts of `ADD_PART`, one after the other, and the sheet asked again once at the end, not
+ * after every part. `onPart(done)` says how many rows have gone in so far: a part that fails stops there, and what went in
+ * stays in.
+ */
+export function useAddRowsInParts(sheetId: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ rows, onPart }: { rows: NewRow[]; onPart: (done: number) => void }) => {
+      let added = 0;
+      for (let start = 0; start < rows.length; start += ADD_PART) {
+        const part = rows.slice(start, start + ADD_PART);
+        const answer = await api<{ ok: boolean; added: number }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows: part } });
+        added += answer.added;
+        onPart(start + part.length);
+      }
+      return { added };
+    },
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.b2b }),
+  });
 }
 
 export type LeadValues = B2bRow & { status: string; priority: string; deal_value: string; next_follow_up: string };
 
 export function useSaveLead() {
-  return useWrite(({ id, values }: { id: number; values: LeadValues }) =>
+  return useLeadWrite(({ id, values }: { id: number; values: LeadValues }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
   );
 }
 
 /** One cell edited on the sheet: only what is sent changes, so two people on one sheet do not write over each other. */
 export function useSaveCell() {
-  return useWrite(({ id, values }: { id: number; values: Partial<LeadValues> }) =>
+  return useLeadWrite(({ id, values }: { id: number; values: Partial<LeadValues> }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/save/`, { json: values }),
   );
 }
 
 /** A note on the company, dated now and signed by the server. */
 export function useAddNote() {
-  return useWrite(({ id, text }: { id: number; text: string }) =>
+  return useLeadWrite(({ id, text }: { id: number; text: string }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/notes/`, { json: { text } }),
   );
 }
 
 export function useDeleteNote() {
-  return useWrite((id: number) => api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/notes/${id}/delete/`, { json: {} }));
+  return useLeadWrite((id: number) => api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/notes/${id}/delete/`, { json: {} }));
 }
 
 /** A message written on the sheet, by WhatsApp to one of the company's numbers or by e-mail; the row is marked by itself. */
 export function useSendMessage() {
-  return useWrite((values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string }) => {
+  return useLeadWrite((values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string }) => {
     const { id, ...rest } = values;
     return api<{ ok: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/send/`, { json: rest });
   });
@@ -414,13 +465,13 @@ export function useDeleteLead() {
 }
 
 export function useLeadWhatsapp() {
-  return useWrite(({ id, number }: { id: number; number: string }) =>
+  return useLeadWrite(({ id, number }: { id: number; number: string }) =>
     api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: { number } }),
   );
 }
 
 export function useLeadEmail() {
-  return useWrite(({ id, subject, body }: { id: number; subject: string; body: string }) =>
+  return useLeadWrite(({ id, subject, body }: { id: number; subject: string; body: string }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/email/`, { json: { subject, body } }),
   );
 }
@@ -434,7 +485,7 @@ export interface CallValues {
 }
 
 export function useLeadCall() {
-  return useWrite(({ id, values }: { id: number; values: CallValues }) =>
+  return useLeadWrite(({ id, values }: { id: number; values: CallValues }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/call/`, { json: values }),
   );
 }
@@ -444,8 +495,11 @@ export interface ReadRowsResponse {
   ok: boolean;
   rows: B2bRow[];
   mapped: Partial<Record<B2bColumn, string>>;
-  /** The file had more rows than one go takes: the rest is in another upload. */
+  /** The file had more companies than a sheet holds: only the first `max_rows` were read. */
   more: boolean;
+  /** The most companies a sheet holds, and how many more this one takes. */
+  max_rows?: number;
+  room?: number;
 }
 
 /** Read an Excel / CSV file, or pasted cells, into rows - nothing is written (`/sheets/<id>/read/`). */

@@ -22,10 +22,14 @@ from xml.etree import ElementTree
 
 from . import b2b, net
 
-#: The largest file read, what its parts may unpack to all together, and the most rows a file brings.
+#: The largest file read, what its parts may unpack to all together, and the most companies a file brings: as many as a
+#: sheet holds (13/10/2026: it was one paste's 500 lines, and a Google Sheet of 3000 came in as its first 400 or so).
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_UNPACKED_BYTES = 40 * 1024 * 1024
-MAX_ROWS = b2b.MAX_PASTE_ROWS
+MAX_ROWS = b2b.MAX_SHEET_ROWS
+#: The most lines read to find them: a company's second number or address sits on its own line under it (``_join_continued``),
+#: so the lines run past the companies.
+MAX_LINES = 5 * MAX_ROWS
 #: The most columns a row is read across.
 MAX_COLUMNS = 40
 
@@ -229,7 +233,8 @@ def map_header(cells):
 
 def to_rows(table):
     """``(rows, mapped)``: the table's lines as rows of the sheet's columns, cut to each column's length; lines with nothing
-    in them dropped. ``mapped`` is ``{column: the header it came from}`` when the first line named the columns."""
+    in them dropped. ``mapped`` is ``{column: the header it came from}`` when the first line named the columns. At most
+    ``MAX_ROWS + 1`` rows: one more than is taken says the file went on (``cut``)."""
     table = [[str(cell if cell is not None else "").strip() for cell in line[:MAX_COLUMNS]] for line in table]
     table = [line for line in table if any(line)]
     if not table:
@@ -262,9 +267,11 @@ def to_rows(table):
         mapped = {}
         found = [_guess_row(line) for line in table]
     rows = []
-    for row in _join_continued(found)[:MAX_ROWS]:
+    for row in _join_continued(found):
         if not any(row.get(name) for name in order):
             continue
+        if len(rows) > MAX_ROWS:
+            break
         whole = {name: "" for name in order}
         for column, value in row.items():
             whole[column] = value[: b2b.COLUMN_LIMITS[column]] if column in b2b.COLUMN_LIMITS else value[: b2b.MAX_NOTES]
@@ -380,7 +387,7 @@ def read_xlsx(data):
                 if column is not None and column < MAX_COLUMNS:
                     cells[column] = _cell_text(cell, shared)
             table.append([cells.get(i, "") for i in range(max(cells) + 1)] if cells else [])
-            if len(table) > MAX_ROWS + 1:
+            if len(table) > MAX_LINES:
                 break
         return table
 
@@ -405,7 +412,7 @@ def read_text(text):
     table = []
     for line in reader:
         table.append(line)
-        if len(table) > MAX_ROWS + 1:
+        if len(table) > MAX_LINES:
             break
     return table
 
@@ -493,6 +500,11 @@ def read_link(link):
     if "html" in kind or data[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
         raise _not_shared()
     return to_rows(read_text(_decode(data)))
+
+
+def cut(rows):
+    """``(rows, more)``: the rows ``to_rows`` found cut to ``MAX_ROWS``, and whether the file went on past them."""
+    return rows[:MAX_ROWS], len(rows) > MAX_ROWS
 
 
 def read(name, data):

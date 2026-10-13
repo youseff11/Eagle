@@ -201,6 +201,35 @@ class RowTests(_B2b):
         self.assertEqual(alpha.phone_key, Client.phone_key("+33612345678"))
         self.assertEqual(alpha.created_by, self.sales)
 
+    def test_a_block_of_500_goes_in_at_once_with_its_keys_and_notes(self):
+        # 13/10/2026: an upload of thousands goes in parts of 500; each part is one insert, not a save a row.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        rows = [
+            {"company_name": f"Firm {i}", "whatsapp": f"+44 7700 9{i:05d}", "email": f"Info{i}@Firm.test", "notes": "met" if i % 2 else ""}
+            for i in range(500)
+        ]
+        browser = self.browser(self.sales)
+        with CaptureQueriesContext(connection) as queries:
+            answer = browser.post(reverse("dashboard:v1_b2b_rows_add", args=[self.sheet.pk]), json.dumps({"rows": rows}), content_type="application/json")
+        self.assertEqual((answer.status_code, _json(answer)["added"]), (200, 500))
+        self.assertLess(len(queries), 40)
+        last = Lead.objects.get(company_name="Firm 499")
+        self.assertEqual((last.phone_key, last.phone_keys, last.email_key), (Client.phone_key("+447700900499"), f" {Client.phone_key('+447700900499')} ", "info499@firm.test"))
+        self.assertEqual((last.created_by, list(last.note_items.values_list("text", "by"))), (self.sales, [("met", self.sales.pk)]))
+        self.assertEqual(Lead.objects.get(company_name="Firm 0").note_items.count(), 0)
+        self.assertEqual(self.sheet.leads.count(), 501)
+
+    def test_a_sheet_holds_5000_companies(self):
+        Lead.objects.bulk_create([Lead(sheet=self.sheet, company_name=f"Firm {i}") for i in range(b2b.MAX_SHEET_ROWS - 2)])
+        two = [{"company_name": "One more"}, {"company_name": "Two more"}]
+        answer = self.post(self.sales, "v1_b2b_rows_add", {"rows": two}, self.sheet.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "sheet_full"))
+        self.assertEqual(self.sheet.leads.count(), 4999)
+        answer = self.post(self.sales, "v1_b2b_rows_add", {"rows": two[:1]}, self.sheet.pk)
+        self.assertEqual((answer.status_code, self.sheet.leads.count()), (200, 5000))
+
     def test_a_row_of_the_wrong_shape_writes_nothing(self):
         for body in ({"rows": []}, {"rows": "x"}, {"rows": [{"company_name": 5}]}, {"rows": [{"company_name": "a" * 161}]}, {"rows": [1]}):
             answer = self.post(self.sales, "v1_b2b_rows_add", body, self.sheet.pk)

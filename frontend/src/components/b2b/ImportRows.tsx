@@ -1,9 +1,10 @@
 import { useState, type ChangeEvent } from "react";
-import { refusalText, useAddRows, useReadRows, type B2bColumn, type B2bRow, type B2bSheetResponse, type ReadRowsResponse } from "../../api/b2b";
+import { refusalText, useAddRowsInParts, useReadRows, type B2bColumn, type B2bRow, type B2bSheetResponse, type ReadRowsResponse } from "../../api/b2b";
 import { usePreferences } from "../../i18n/Preferences";
 import { Icon } from "../Icon";
 import { Modal } from "../Modal";
 import { useToasts } from "../Toasts";
+import { PAGE_ROWS, Pages, pageWithin } from "./Pages";
 
 type Columns = B2bSheetResponse["columns"];
 
@@ -42,7 +43,7 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
   const { t, lang } = usePreferences();
   const toasts = useToasts();
   const read = useReadRows(sheetId);
-  const add = useAddRows(sheetId);
+  const add = useAddRowsInParts(sheetId);
   const [text, setText] = useState(pasted?.text ?? "");
   const [link, setLink] = useState("");
   const named = (answer: ReadRowsResponse) =>
@@ -56,9 +57,14 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
   const [rows, setRows] = useState<B2bRow[] | null>(pasted ? listed(pasted.answer) : null);
   const [mapped, setMapped] = useState<string[]>(pasted ? named(pasted.answer) : []);
   const [more, setMore] = useState(pasted?.answer.more ?? false);
+  const [limits, setLimits] = useState({ max: pasted?.answer.max_rows, room: pasted?.answer.room });
   const [problem, setProblem] = useState("");
+  // The grid draws one page of rows at a time, and the add says how far it got: thousands of rows go in parts.
+  const [page, setPage] = useState(0);
+  const [sent, setSent] = useState<number | null>(null);
   const busy = read.isPending || add.isPending;
   const ready = (rows ?? []).filter((row) => row.company_name.trim() !== "");
+  const shown = pageWithin(page, rows?.length ?? 0);
 
   const take = (source: { file: File } | { text: string } | { link: string }) => {
     setProblem("");
@@ -66,7 +72,9 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
       onSuccess: (answer) => {
         setRows(listed(answer));
         setMore(answer.more);
+        setLimits({ max: answer.max_rows, room: answer.room });
         setMapped(named(answer));
+        setPage(0);
       },
       onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أقرا الملف.", "Could not read the file."))),
     });
@@ -84,13 +92,43 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
   const submit = () => {
     if (busy || ready.length === 0) return;
     setProblem("");
-    add.mutate(ready, {
-      onSuccess: (answer) => {
-        toasts.push({ level: "success", title: t(`اتضاف ${answer.added} شركة`, `${answer.added} companies added`) });
-        onClose();
+    // Said before anything goes in, instead of a sheet filled halfway and a refusal on the next part.
+    if (limits.room !== undefined && ready.length > limits.room) {
+      setProblem(
+        t(
+          `الشيت مايشيلش أكتر من ${limits.max} شركة، وفاضل فيه مكان لـ${limits.room} بس. شيل ${ready.length - limits.room} صف أو ضيفهم في شيت تاني.`,
+          `A sheet holds at most ${limits.max} companies, and this one has room for ${limits.room}. Take out ${ready.length - limits.room} rows or add them to another sheet.`,
+        ),
+      );
+      return;
+    }
+    const sending = ready;
+    let done = 0;
+    setSent(0);
+    add.mutate(
+      {
+        rows: sending,
+        onPart: (count) => {
+          done = count;
+          setSent(count);
+        },
       },
-      onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أضيفهم. جرّب تاني.", "Could not add them. Try again."))),
-    });
+      {
+        onSuccess: (answer) => {
+          toasts.push({ level: "success", title: t(`اتضاف ${answer.added} شركة`, `${answer.added} companies added`) });
+          onClose();
+        },
+        onError: (failure) => {
+          // What went in stays in and leaves the grid; the rest stays to be added again.
+          const gone = new Set(sending.slice(0, done));
+          setRows((before) => (before ?? []).filter((row) => !gone.has(row)));
+          setLimits((before) => ({ ...before, room: before.room === undefined ? undefined : before.room - done }));
+          setSent(null);
+          const why = refusalText(failure, lang, t("مقدرتش أضيفهم. جرّب تاني.", "Could not add them. Try again."));
+          setProblem(done ? t(`اتضاف ${done} شركة والباقي ماتضافش: ${why}`, `${done} companies were added and the rest were not: ${why}`) : why);
+        },
+      },
+    );
   };
 
   return (
@@ -154,7 +192,12 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
           {more && (
             <div className="note note--info" style={{ marginBottom: 10 }}>
               <Icon name="info" />
-              <div>{t("الملف فيه أكتر من 500 صف: اتقرا أول 500. ارفع الباقي في ملف تاني.", "The file has more than 500 rows: the first 500 were read. Upload the rest in another file.")}</div>
+              <div>
+                {t(
+                  `الملف فيه أكتر من ${limits.max ?? ""} شركة، والشيت مايشيلش أكتر من كده: اتقرا أول ${limits.max ?? ""}. ضيف الباقي في شيت تاني.`,
+                  `The file has more than ${limits.max ?? ""} companies, the most a sheet holds: the first ${limits.max ?? ""} were read. Add the rest to another sheet.`,
+                )}
+              </div>
             </div>
           )}
           <p className="muted">
@@ -173,39 +216,51 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
-                  <tr key={index} data-import-row={index}>
-                    <td>
-                      <button
-                        className="icon-btn"
-                        type="button"
-                        title={t("شيل الصف", "Remove the row")}
-                        aria-label={t("شيل الصف", "Remove the row")}
-                        onClick={() => setRows((before) => (before ?? []).filter((_row, i) => i !== index))}
-                      >
-                        <Icon name="x" />
-                      </button>
-                    </td>
-                    {columns.map((column) => (
-                      <td key={column.name}>
-                        <input
-                          className="input"
-                          style={{ width: WIDE[column.name] ?? 130, padding: "4px 6px" }}
-                          maxLength={column.max}
-                          dir={["email", "phone", "whatsapp", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
-                          aria-label={`${lang === "ar" ? column.ar : column.en} ${index + 1}`}
-                          value={row[column.name]}
-                          onChange={(event) => set(index, column.name, event.target.value)}
-                        />
+                {rows.slice(shown * PAGE_ROWS, (shown + 1) * PAGE_ROWS).map((row, offset) => {
+                  const index = shown * PAGE_ROWS + offset;
+                  return (
+                    <tr key={index} data-import-row={index}>
+                      <td>
+                        <button
+                          className="icon-btn"
+                          type="button"
+                          title={t("شيل الصف", "Remove the row")}
+                          aria-label={t("شيل الصف", "Remove the row")}
+                          onClick={() => setRows((before) => (before ?? []).filter((_row, i) => i !== index))}
+                        >
+                          <Icon name="x" />
+                        </button>
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      {columns.map((column) => (
+                        <td key={column.name}>
+                          <input
+                            className="input"
+                            style={{ width: WIDE[column.name] ?? 130, padding: "4px 6px" }}
+                            maxLength={column.max}
+                            dir={["email", "phone", "whatsapp", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
+                            aria-label={`${lang === "ar" ? column.ar : column.en} ${index + 1}`}
+                            value={row[column.name]}
+                            onChange={(event) => set(index, column.name, event.target.value)}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          <Pages page={shown} count={rows.length} onPage={setPage} />
           <div className="row" style={{ marginTop: 10 }}>
-            <button className="btn btn--sm" type="button" onClick={() => setRows((before) => [...(before ?? []), emptyRow(columns)])}>
+            <button
+              className="btn btn--sm"
+              type="button"
+              onClick={() => {
+                setRows((before) => [...(before ?? []), emptyRow(columns)]);
+                // The new row is the last: its page opens.
+                setPage(Math.floor(rows.length / PAGE_ROWS));
+              }}
+            >
               <Icon name="plus" />
               {t("صف جديد", "New row")}
             </button>
@@ -213,7 +268,11 @@ export function ImportRows({ sheetId, columns, pasted, onClose }: {
               {t("ملف تاني", "Another file")}
             </button>
             <div className="grow" />
-            <span className="muted">{t(`${ready.length} شركة جاهزة تتضاف`, `${ready.length} companies ready to add`)}</span>
+            <span className="muted" role="status">
+              {sent !== null && add.isPending
+                ? t(`بيضيف... ${sent} من ${ready.length}`, `Adding... ${sent} of ${ready.length}`)
+                : t(`${ready.length} شركة جاهزة تتضاف`, `${ready.length} companies ready to add`)}
+            </span>
             <button className="btn btn--primary" type="button" disabled={busy || ready.length === 0} onClick={submit}>
               <Icon name="plus" />
               {t("ضيفهم", "Add them")}

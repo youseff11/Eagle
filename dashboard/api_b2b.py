@@ -412,21 +412,24 @@ def rows_add(request, sheet_id):
                 "sheet_full", f"الشيت مايشيلش أكتر من {b2b.MAX_SHEET_ROWS} شركة. اعمل شيت تاني.",
                 f"A sheet holds at most {b2b.MAX_SHEET_ROWS} companies. Make another sheet.",
             ))
-        made = []
+        notes, made = [], []
         for values in rows:
-            note = values.pop("notes", "")
+            notes.append(values.pop("notes", ""))
             lead = Lead(sheet=sheet, created_by=request.user, **values)
-            lead.save()
-            # A pasted or uploaded notes cell is the row's first note, dated the day it came in.
-            if note:
-                LeadNote.objects.create(lead=lead, text=note, by=request.user)
+            lead.fill_keys()
             made.append(lead)
+        # One insert for the whole block (13/10/2026: an upload of thousands goes in parts of 500, row by row was slow).
+        made = Lead.objects.bulk_create(made)
+        # A pasted or uploaded notes cell is the row's first note, dated the day it came in.
+        LeadNote.objects.bulk_create(
+            [LeadNote(lead=lead, text=note, by=request.user) for lead, note in zip(made, notes) if note]
+        )
     services.log(request.user, "b2b.rows_add", f"sheet {sheet.pk}", f"{len(made)} row(s)")
-    return JsonResponse({"ok": True, "added": len(made), "leads": [_lead_json(lead) for lead in made]})
+    return JsonResponse({"ok": True, "added": len(made)})
 
 
-#: The longest pasted text read (500 rows of 13 columns, generously).
-MAX_PASTED_TEXT = 2 * 1024 * 1024
+#: The longest pasted text read: as long as a file may be.
+MAX_PASTED_TEXT = 5 * 1024 * 1024
 
 
 @endpoint("POST")
@@ -438,7 +441,7 @@ def rows_read(request, sheet_id):
     (``b2b_import``), and ``mapped`` says which header each came from."""
     from . import b2b_import
 
-    _sheet_or_404(request, sheet_id)
+    sheet = _sheet_or_404(request, sheet_id)
     try:
         if (request.content_type or "").startswith("multipart/"):
             upload = request.FILES.get("file")
@@ -466,7 +469,10 @@ def rows_read(request, sheet_id):
         return JsonResponse({"ok": False, "error": "unreadable", "message": problem.ar, "message_en": problem.en}, status=400)
     except (ValueError, RecursionError, UnicodeDecodeError):
         return _error(400, "bad_request")
-    return JsonResponse({"ok": True, "rows": rows, "mapped": mapped, "more": len(rows) >= b2b_import.MAX_ROWS})
+    rows, more = b2b_import.cut(rows)
+    # ``room``: how many more companies the sheet takes, for the page to say so before it adds anything.
+    room = max(0, b2b.MAX_SHEET_ROWS - sheet.leads.count())
+    return JsonResponse({"ok": True, "rows": rows, "mapped": mapped, "more": more, "max_rows": b2b.MAX_SHEET_ROWS, "room": room})
 
 
 @endpoint("GET")

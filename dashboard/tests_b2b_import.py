@@ -186,6 +186,24 @@ class DoorTests(_B2b):
         self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "unreadable"))
         self.assertIn(".xlsx", _json(answer)["message"])
 
+    def test_a_sheet_of_thousands_is_read_whole(self):
+        # 13/10/2026: a Google Sheet of 3000 companies came in as its first 400 or so, and nothing said the rest was left.
+        # Every company here has its second address on a line of its own, as the team's sheet writes it.
+        lines = ["Company,Email"] + [f"Firm {i},a{i}@firm.test\n,b{i}@firm.test" for i in range(1, 3001)]
+        body = _json(self.read(self.sales, file=SimpleUploadedFile("big.csv", "\n".join(lines).encode())))
+        self.assertEqual((len(body["rows"]), body["more"]), (3000, False))
+        self.assertEqual((body["rows"][-1]["company_name"], body["rows"][-1]["notes"]), ("Firm 3000", "b3000@firm.test"))
+        self.assertEqual((body["max_rows"], body["room"]), (5000, 4999))
+
+    def test_past_what_a_sheet_holds_the_first_are_read_and_it_says_so(self):
+        lines = ["Company"] + [f"Firm {i}" for i in range(1, 5011)]
+        body = _json(self.read(self.sales, file=SimpleUploadedFile("huge.csv", "\n".join(lines).encode())))
+        self.assertEqual((len(body["rows"]), body["more"]), (5000, True))
+        self.assertEqual(body["rows"][-1]["company_name"], "Firm 5000")
+        exact = ["Company"] + [f"Firm {i}" for i in range(1, 5001)]
+        body = _json(self.read(self.sales, file=SimpleUploadedFile("exact.csv", "\n".join(exact).encode())))
+        self.assertEqual((len(body["rows"]), body["more"]), (5000, False))
+
     def test_the_sheets_own_doors_decide_who_may(self):
         upload = lambda: SimpleUploadedFile("leads.csv", b"Company\nLambda\n")
         self.assertEqual(self.read(self.other, file=upload()).status_code, 404)
