@@ -1,4 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
+import { ApiError } from "../../api/client";
 import type { Reaction, ThreadEntry, ThreadFile } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { clockText } from "../../lib/clock";
@@ -204,6 +205,69 @@ function Words({ body, mentions }: { body: string; mentions?: Mentioned[] }) {
   );
 }
 
+/** Words worth putting into Arabic: there is a letter in them that is not Arabic (English, Spanish, Russian, Chinese...). */
+export function foreignWords(body: string): boolean {
+  return /\p{L}/u.test(body.replace(/\p{Script=Arabic}/gu, ""));
+}
+
+/** Why there is no translation, in the person's words (the codes of `api_v1.client_translate`). */
+function translateRefusal(error: unknown, t: (ar: string, en: string) => string): string {
+  const code = error instanceof ApiError ? error.code : "";
+  if (code === "too_fast") return t("ترجمت رسايل كتير في دقيقة. استنى شوية وجرّب تاني.", "Too many translations in a minute. Wait a little and try again.");
+  if (code === "empty") return t("مفيش كلام يتترجم في الرسالة دي.", "There are no words to translate in this message.");
+  return t("الترجمة ماشتغلتش دلوقتي. جرّب تاني.", "The translation did not work. Try again.");
+}
+
+/**
+ * «ترجم» under a client's words: the message in Arabic, asked of the server once and kept on the bubble (and on the
+ * message, server side). For reading only: nothing is sent to the client.
+ */
+function Translation({ entry, run }: { entry: ThreadEntry; run: (entry: ThreadEntry) => Promise<string> }) {
+  const { t } = usePreferences();
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const press = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    if (text) {
+      setOpen(true);
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    setProblem("");
+    run(entry)
+      .then((answer) => {
+        setText(answer);
+        setOpen(true);
+      })
+      .catch((error: unknown) => setProblem(translateRefusal(error, t)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="bub__tr">
+      <button type="button" className="bub__trbtn" aria-expanded={open} disabled={busy} onClick={press}>
+        <Icon name="globe" size="sm" />
+        <span>{busy ? t("بيترجم...", "Translating...") : open ? t("اخفي الترجمة", "Hide translation") : t("ترجم", "Translate")}</span>
+      </button>
+      {open && text && (
+        <div className="bub__trtext" dir="rtl" lang="ar">
+          {text}
+        </div>
+      )}
+      {problem && (
+        <div className="bub__trerr" role="alert">
+          {problem}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The pill that hangs off the bubble: who reacted, and a tap on it opens the bar of reactions. */
 function Reactions({ reactions, onOpen, off }: { reactions: Reaction[]; onOpen?: (trigger: HTMLElement) => void; off: boolean }) {
   const { t } = usePreferences();
@@ -256,6 +320,7 @@ export function Bubble({
   onConfirm,
   onConvert,
   onUnsend,
+  onTranslate,
   fileMark,
   textMark,
   personal,
@@ -273,6 +338,8 @@ export function Bubble({
   onConvert?: (entry: ThreadEntry) => void;
   /** Take the message back: shown on a bubble the server says this person may take back (`entry.can_unsend`). */
   onUnsend?: (entry: ThreadEntry) => void;
+  /** «ترجم» under the words of a client's message that are not Arabic: what they say in Arabic. */
+  onTranslate?: (entry: ThreadEntry) => Promise<string>;
   /** A mode that ticks files (see `FileMark`), or none. */
   fileMark?: FileMark;
   /** The box on the words of a message, while files are being picked for a task (see `TextMark`). */
@@ -402,6 +469,9 @@ export function Bubble({
               <Words body={entry.body} mentions={entry.mentions} />
             </div>
           ))}
+        {!gone && onTranslate && entry.kind === "in" && foreignWords(entry.body) && !selecting && !wordsOn && (
+          <Translation entry={entry} run={onTranslate} />
+        )}
         {(gone ? [] : fileBlocks(entry, fileMark)).map((block) =>
           block.grid ? (
             <ImageGrid key={`grid-${block.start}`} images={block.grid} />

@@ -67,6 +67,32 @@ textarea.cchat__input:disabled { cursor: not-allowed; opacity: .7; }
 }
 .bub__seen .ic { flex: none; width: 13px; height: 13px; color: var(--accent); }
 .bub__seen span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* «ترجم» under a client's words, and what they say in Arabic: set apart from the words by a thin line, never mistaken for them. */
+.bub__tr { margin-block-start: 4px; }
+.bub__trbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: calc(12px * var(--fs, 1));
+  cursor: pointer;
+}
+.bub__trbtn:hover, .bub__trbtn:focus-visible { text-decoration: underline; }
+.bub__trbtn:disabled { cursor: progress; opacity: .7; }
+.bub__trtext {
+  margin-block-start: 4px;
+  padding-block-start: 6px;
+  border-block-start: 1px dashed var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.bub__trerr { margin-block-start: 4px; font-size: calc(12px * var(--fs, 1)); color: var(--danger, #c0392b); }
+.cchat__stream.is-selecting .bub__tr { display: none; }
 .bub__retry { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 8px; }
 
 /* Mentioning a colleague in a group: the list of people over the box, and the name drawn in the words. The blue is

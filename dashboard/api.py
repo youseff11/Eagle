@@ -1087,6 +1087,15 @@ def _conversation_json(client, viewer, unread=0, facts=None, muted=None):
     }
 
 
+def open_conversation_json(client, viewer):
+    """The row of the one conversation on screen: what the lists show, and whether «ترجم» is offered beside the client's words."""
+    from . import translate
+
+    row = _conversation_json(client, viewer)
+    row["translate"] = translate.available()
+    return row
+
+
 def _group_json(room, viewer, unread=0, facts=None, muted=None):
     """A group in the same shape as a 1:1 conversation, so one list renders both.
 
@@ -1485,7 +1494,7 @@ def client_chat_fetch(request, client_code):
     entries = services.client_thread(client, request.user)
     return JsonResponse({
         "ok": True,
-        "client": _conversation_json(client, request.user),
+        "client": open_conversation_json(client, request.user),
         "messages": [_thread_entry_json(e, request.user) for e in entries],
     })
 

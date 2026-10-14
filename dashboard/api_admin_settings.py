@@ -45,6 +45,7 @@ SECTIONS = (
         "groups": (
             {"fields": ("ai_check_enabled", "claude_api_key", "claude_model")},
             {"ar": "مساعد النظام", "en": "The help assistant", "fields": ("helpbot_ai_enabled", "helpbot_actions_enabled")},
+            {"ar": "ترجمة رسايل العملاء", "en": "Translating clients' messages", "fields": ("chat_translate_enabled",)},
         ),
     },
     {
@@ -106,6 +107,13 @@ TEXTS = {
         "hint": (
             "المساعد (الزرار اللي فوق جنب التنبيهات) بيرد من دليل الخطوات في كل الأحوال. لو فتحت ده ومفتاح Claude موجود، بيبعت سؤال الموظف ودليل دوره بس لـ Claude عشان يفهم السؤال ويرتّب الرد. مابيبعتش أي حاجة من الشغل. وكلام الموظف نفسه بيتبعت بعد ما الإيميلات والأرقام والمفاتيح وأسماء العملاء المعروفة بتتشال منه (اسم العميل بيتحوّل لكوده)، فنبّه الموظفين ما يكتبوش بيانات عملاء في المساعد.",
             "The assistant (the button in the top bar) always answers from the step guides. When this is on and a Claude key is saved, it sends the person's question and the guides of their role to Claude, which understands the question and words the reply. Nothing from the work is sent. What a person types is cleaned first (e-mails, numbers, keys and known clients' names are taken out; a client's name becomes their code), so tell staff not to type client details into the assistant.",
+        ),
+    },
+    "chat_translate_enabled": {
+        "label": ("زرار «ترجم» تحت رسايل العملاء في الشات", "The «Translate» button under clients' messages in the chat"),
+        "hint": (
+            "الأدمن والأوبريشن والـSales بيشوفوا «ترجم» تحت أي رسالة من العميل مكتوبة بلغة غير العربي، ولما يضغطوا الترجمة العربي بتظهر تحتها. كلام الرسالة بيتبعت لـ Claude عشان يترجمه، والترجمة بتتحفظ على الرسالة فمابتتطلبش تاني. مابتتبعتش للعميل. محتاج مفتاح Claude محفوظ.",
+            "The admin, the operation and Sales get «Translate» under any client message that is not in Arabic; pressing it shows the Arabic under the words. The message's words are sent to Claude to translate, and the translation is kept on the message so it is not asked for twice. It is never sent to the client. It needs a Claude key saved.",
         ),
     },
     "b2b_auto_leads": {

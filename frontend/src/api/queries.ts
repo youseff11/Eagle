@@ -83,6 +83,7 @@ import type {
   ReviewerTest,
   SalesLine,
   SendResponse,
+  TranslateResponse,
   ThreadResponse,
   TaskAiNotes,
   TaskSearchResponse,
@@ -1178,6 +1179,14 @@ export function useMuteChat(code: string) {
       void client.invalidateQueries({ queryKey: qk.me });
     },
   });
+}
+
+/**
+ * A client's message in Arabic (`/api/v1/clients/<code>/messages/<id>/translate/`), for the person answering them. The
+ * server keeps it on the message, so asking again for the same one costs nothing.
+ */
+export function translateMessage(code: string, id: number): Promise<TranslateResponse> {
+  return api<TranslateResponse>(`/api/v1/clients/${encodeURIComponent(code)}/messages/${id}/translate/`, { json: {} });
 }
 
 /**

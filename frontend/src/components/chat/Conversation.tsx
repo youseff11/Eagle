@@ -2,7 +2,7 @@ import { Loading } from "../Loading";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
-import { readPath, threadPath, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useMuteChat, useBlockClient, useReact, useThread, useUnsend } from "../../api/queries";
+import { readPath, threadPath, translateMessage, useGroupMembers, useHandInTasks, useMarkChatRead, useMe, useMuteChat, useBlockClient, useReact, useThread, useUnsend } from "../../api/queries";
 import type { ChatKind, ChatRow, ThreadEntry } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { useFilePick } from "../../hooks/useFilePick";
@@ -126,6 +126,8 @@ interface BubbleActions {
   onConvert?: (entry: ThreadEntry) => void;
   /** Take back a message of your own (the server says which: `entry.can_unsend`). */
   onUnsend?: (entry: ThreadEntry) => void;
+  /** A client's words in Arabic (a client's conversation, when the server offers it: `row.translate`). */
+  onTranslate?: (entry: ThreadEntry) => Promise<string>;
 }
 
 function Stream({
@@ -228,6 +230,7 @@ function Stream({
               onConfirm={actions.onConfirm}
               onConvert={actions.onConvert}
               onUnsend={actions.onUnsend}
+              onTranslate={actions.onTranslate}
               selecting={selecting}
               selected={selected.includes(entry.uid)}
               fileMark={fileMark}
@@ -500,6 +503,9 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
     ...(mayMark ? { onReact: openPicker, onForward: startSelecting, onToggle: toggle } : {}),
     onUnsend: askUnsend,
     ...(clientThread && mayAnswerClients ? { onConfirm: setReceipting, onConvert: (entry: ThreadEntry) => setConverting(newFilesRun(messages, entry)) } : {}),
+    ...(clientThread && row?.translate === true
+      ? { onTranslate: (entry: ThreadEntry) => translateMessage(code, entry.id).then((answer) => answer.text) }
+      : {}),
   };
 
   const refused = !known || (thread.error instanceof ApiError && [401, 403, 404].includes(thread.error.status));

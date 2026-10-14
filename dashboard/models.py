@@ -1229,6 +1229,8 @@ class InboundMessage(models.Model):
     sender_display = models.CharField(max_length=190, blank=True)
     subject = models.CharField(max_length=250, blank=True)
     body = models.TextField(blank=True)
+    #: The words in Arabic, the first time somebody pressed «ترجم» on it (``translate.py``). For reading only.
+    translation_ar = models.TextField(blank=True)
     received_at = models.DateTimeField(default=timezone.now)
     #: The WhatsApp id this message replies to, when the client quoted one.
     reply_to_external = models.CharField(max_length=190, blank=True)
@@ -2458,6 +2460,9 @@ class AppSettings(models.Model):
     #: The owner alone may let the assistant carry out what they ask for (``helpactions.py``): it prepares the order, the owner
     #: confirms it, and it goes through the same doors a click would. Off until the owner turns it on, and it needs the AI above.
     helpbot_actions_enabled = models.BooleanField(default=False)
+    #: «ترجم» beside a client's message in the chat (``translate.py``): the client's words go to Claude. Off until the owner
+    #: turns it on, and it needs the key above.
+    chat_translate_enabled = models.BooleanField(default=False)
 
     response_window_seconds = models.PositiveIntegerField(default=60)
     deadline_warning_minutes = models.PositiveIntegerField(default=15)

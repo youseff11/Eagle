@@ -37,7 +37,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, audio, avatars, clock, identity, newui, payroll, services
+from . import api, audio, avatars, clock, identity, newui, payroll, services, translate
 from .models import (
     ACTIVE_TASK_STATUSES, AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
     Role, RoomKind, Task, TaskStatus, User, Violation, WorkDay,
@@ -634,8 +634,33 @@ def client_send(request, client_code):
         "delivered": ok,
         "error": error,
         "messages": [api._thread_entry_json(e, request.user) for e in services.client_thread(client, request.user)],
-        "client": api._conversation_json(client, request.user),
+        "client": api.open_conversation_json(client, request.user),
     })
+
+
+#: Why a message was not translated, as the page is told it (the status it answers with).
+TRANSLATE_REFUSALS = {"empty": 400, "too_fast": 429, "unavailable": 503}
+
+
+@endpoint("POST")
+@api_role_required(Role.OPERATION, Role.SALES)
+def client_translate(request, client_code, message_id):
+    """A client's message in Arabic, for reading (``translate.to_arabic``): ``{"ok": true, "text": "..."}``.
+
+    Only a message this person sees in the conversation: off their line, a message rate-blocked from them, or one of
+    another client answers like an unknown one, and the refusal is written down. Nothing is sent to the client.
+    """
+    client = api._client_or_404(request, client_code)
+    if not api.may_answer(client, request.user):
+        identity.hidden(request, "client")
+    message = services._visible_inbound(client, request.user).filter(pk=message_id).first()
+    if message is None:
+        identity.hidden(request, "message")
+    try:
+        text = translate.to_arabic(message, request.user)
+    except translate.Problem as problem:
+        return _error(TRANSLATE_REFUSALS.get(problem.code, 503), problem.code)
+    return JsonResponse({"ok": True, "uid": f"in-{message.pk}", "text": text})
 
 
 # ---------------------------------------------------------------------------

@@ -467,6 +467,28 @@ GUIDES = (
         ),
     ),
     _guide(
+        "chat-translate", CLIENT_DESK, "/chats",
+        ("إزاي أترجم رسالة العميل للعربي", "How do I translate a client's message into Arabic"),
+        (
+            "ترجم، ترجمة، ترجم الرسالة، رسالة بالانجليزي، رسالة أجنبي، عميل أجنبي، مش فاهم الرسالة، عربي",
+            "translate, translation, translate a message, foreign client, English message, Spanish, into Arabic",
+        ),
+        [
+            "افتح شات العميل من «الشات» (تبويب «العملاء»).",
+            "تحت أي رسالة من العميل مكتوبة بلغة غير العربي هتلاقي «ترجم». اضغط عليه.",
+            "الترجمة بتظهر تحت كلامه في نفس الرسالة. اضغط «اخفي الترجمة» عشان تقفلها.",
+        ],
+        [
+            "Open the client's chat from «Chats» (the «Clients» tab).",
+            "Under any message from the client that is not in Arabic there is «Translate». Press it.",
+            "The translation shows under their words in the same message. Press «Hide translation» to close it.",
+        ],
+        note=(
+            "الترجمة ليك إنت بس عشان تقرا، مابتتبعتش للعميل. الزرار بيظهر بس لما الأدمن يفتح «ترجمة رسايل العملاء» في الإعدادات ويكون مفتاح Claude محفوظ.",
+            "The translation is for you to read; it is never sent to the client. The button shows only when the admin turns on «Translating clients' messages» in the settings and a Claude key is saved.",
+        ),
+    ),
+    _guide(
         "contact-support", (Role.ADMIN, *STAFF), "/chats",
         ("إزاي أتواصل مع الدعم الفني", "How do I contact technical support"),
         (

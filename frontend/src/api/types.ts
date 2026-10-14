@@ -671,6 +671,8 @@ export interface ChatRow {
   muted?: boolean;
   /** A client the admin blocked: what they send is dropped, and nothing is sent to them. A client's row only. */
   blocked?: boolean;
+  /** The open conversation with a client only: «ترجم» is offered beside the client's words (a Claude key is saved). */
+  translate?: boolean;
 }
 
 export interface ChatListResponse {
@@ -756,6 +758,13 @@ export interface SendResponse {
   error: string;
   messages: ThreadEntry[];
   client: ChatRow;
+}
+
+/** POST /api/v1/clients/<code>/messages/<id>/translate/: the client's message in Arabic, for reading. */
+export interface TranslateResponse {
+  ok: true;
+  uid: string;
+  text: string;
 }
 
 /** POST /api/v1/chats/react/: the reactions of that one message as they are now (the same one again took it back). */
