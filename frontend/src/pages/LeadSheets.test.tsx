@@ -9,7 +9,10 @@ import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helper
 import { LeadSheetPage } from "./LeadSheetPage";
 import { LeadSheetsPage } from "./LeadSheetsPage";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
 
 const COLUMNS: B2bSheetResponse["columns"] = [
   { name: "company_name", ar: "اسم الشركة", en: "Company name", max: 160 },
@@ -659,6 +662,52 @@ describe("LeadSheetPage", () => {
     await waitFor(() => expect(container.querySelectorAll("tr[data-lead]")).toHaveLength(11));
     expect(screen.getByLabelText("الشركة · Company 7")).toBeInTheDocument();
     expect(container.querySelector("[data-pages]")).toBeNull();
+  }, 30000);
+
+  // 14/10/2026: on a 5000-row sheet the Sales person walked to company 2000, wrote to it, and on coming back walked there
+  // again from the first page.
+  it("opens a sheet again on the page and the view it was left on, each sheet its own", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 250 }, (_unused, i) => lead({ id: i + 1, company_name: `Company ${i + 1}` }));
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, many)),
+      "/api/v1/b2b/sheets/4/": () => jsonResponse(sheetAnswer({ id: 4 }, many)),
+    });
+    const first = open("/leads/3");
+    await screen.findByDisplayValue("Company 1");
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    // A search walks to its own first page and is not kept; wiping it goes back to the page before it.
+    await user.click(screen.getByLabelText("بحث"));
+    await user.paste("Company 7");
+    await waitFor(() => expect(first.container.querySelector("[data-pages]")).toBeNull());
+    await user.clear(screen.getByLabelText("بحث"));
+    expect(await screen.findByText("201–250 من 250")).toBeInTheDocument();
+    first.unmount();
+
+    const back = open("/leads/3");
+    expect(await screen.findByDisplayValue("Company 250")).toBeInTheDocument();
+    expect(screen.getByText("201–250 من 250")).toBeInTheDocument();
+    back.unmount();
+
+    const other = open("/leads/4");
+    expect(await screen.findByDisplayValue("Company 1")).toBeInTheDocument();
+    expect(screen.getByText("1–100 من 250")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("اعرض"), "untouched");
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    other.unmount();
+
+    open("/leads/4");
+    expect(await screen.findByText("101–200 من 250")).toBeInTheDocument();
+    expect(screen.getByLabelText("اعرض")).toHaveValue("untouched");
+  }, 30000);
+
+  it("starts on the first page when what was kept is rubbish", async () => {
+    localStorage.setItem("eagle.sheet.place", JSON.stringify({ 3: { page: "<b>", only: "everything" } }));
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, Array.from({ length: 150 }, (_u, i) => lead({ id: i + 1, company_name: `Company ${i + 1}` })))) });
+    open("/leads/3");
+    expect(await screen.findByText("1–100 من 150")).toBeInTheDocument();
+    expect(screen.getByLabelText("اعرض")).toHaveValue("all");
   }, 30000);
 
   it("puts a saved cell's row in place without asking for the whole sheet again", async () => {

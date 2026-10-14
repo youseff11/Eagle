@@ -28,6 +28,7 @@ import { useMe } from "../api/queries";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
 import { PAGE_ROWS, Pages, pageWithin } from "../components/b2b/Pages";
+import { keepPlace, readPlace } from "../lib/sheetPlace";
 import { filledValues, isCopiedRow } from "../components/b2b/pastedRow";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { ChoiceCell, GRID_COLUMNS, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
@@ -725,9 +726,11 @@ export function LeadSheetPage() {
   const sheet = useB2bSheet(allowed ? sheetId : 0);
   const [open, setOpen] = useState<Open | null>(null);
   const [search, setSearch] = useState("");
-  const [only, setOnly] = useState<Only>("all");
-  // A sheet holds 5000 companies: one page of them is drawn at a time, and the search runs behind the typing.
-  const [page, setPage] = useState(0);
+  // A sheet holds 5000 companies: one page of them is drawn at a time, and the search runs behind the typing. The page
+  // and the view are kept for the sheet, so coming back from a chat opens where the person was (`lib/sheetPlace`).
+  const [place] = useState(() => readPlace(sheetId, Object.keys(ONLY)));
+  const [only, setOnly] = useState<Only>(place.only as Only);
+  const [page, setPage] = useState(place.page);
   const typed = useDeferredValue(search);
   const top = useRef<HTMLDivElement>(null);
   const toasts = useToasts();
@@ -836,8 +839,10 @@ export function LeadSheetPage() {
           )}
           <div className="grow" />
           <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => {
-              setOnly(event.target.value as Only);
+              const next = event.target.value as Only;
+              setOnly(next);
               setPage(0);
+              if (!search.trim()) keepPlace(sheetId, { page: 0, only: next });
             }}>
             <option value="all">{t("كل الشركات", "All companies")}</option>
             <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
@@ -848,7 +853,8 @@ export function LeadSheetPage() {
             <Icon name="search" className="ic--lead" />
             <input className="input" value={search} maxLength={100} placeholder={t("ابحث…", "Search…")} aria-label={t("بحث", "Search")} onChange={(event) => {
               setSearch(event.target.value);
-              setPage(0);
+              // A search starts on its first page; wiping it goes back to the page the person was on before it.
+              setPage(event.target.value.trim() ? 0 : readPlace(sheetId, Object.keys(ONLY)).page);
             }} />
           </div>
         </div>
@@ -970,6 +976,7 @@ export function LeadSheetPage() {
           count={leads.length}
           onPage={(next) => {
             setPage(next);
+            if (!search.trim()) keepPlace(sheetId, { page: next, only });
             top.current?.scrollIntoView?.({ block: "start" });
           }}
         />
