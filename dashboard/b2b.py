@@ -26,6 +26,7 @@ Who:
 * nobody else has a door here. A company on a sheet is a client's identity: the operation never sees it.
 """
 
+import re
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -73,7 +74,10 @@ INTRO_SPEC_AR = {
 }
 #: language -> (template name, its words at Meta).
 INTRO_TEMPLATES = {INTRO_LANGUAGE: (INTRO_TEMPLATE, INTRO_SPEC), "ar": (INTRO_TEMPLATE_AR, INTRO_SPEC_AR)}
-#: What fills ``{{1}}`` when the row has no contact person.
+#: What fills ``{{1}}``: the company the row is about, never the contact person (the owner's choice, 14/10/2026). The
+#: words around it are ours, so Meta's approved body ("Hello {{1}}, ...") reads "Hello Lingua GmbH team, ..." with nothing
+#: to submit again. ``NO_CONTACT_NAME`` when the row has no company name.
+INTRO_GREETING = {INTRO_LANGUAGE: "{} team", "ar": "فريق {}"}
 NO_CONTACT_NAME = {INTRO_LANGUAGE: "there", "ar": "حضرتك"}
 #: Dialling codes of the Arab League countries: a number starting with one gets the Arabic letter. Israel (972) is not one.
 ARAB_DIAL_CODES = (
@@ -83,17 +87,71 @@ ARAB_DIAL_CODES = (
 
 
 def intro_language(number):
-    """``"ar"`` for a number from an Arab country, else the English letter's language."""
-    digits = "".join(ch for ch in str(number or "") if ch.isdigit())
-    if digits.startswith("00"):
-        digits = digits[2:]
-    return "ar" if digits.startswith(ARAB_DIAL_CODES) else INTRO_LANGUAGE
+    """``"ar"`` for a number from an Arab country, else the English letter's language. ``number`` is international
+    (``international_number``): a local ``010...`` says nothing of its country."""
+    from .whatsapp import normalize_number
+
+    return "ar" if normalize_number(number).startswith(ARAB_DIAL_CODES) else INTRO_LANGUAGE
+
+
+#: A row's country, folded (``_fold_country``) -> its dialling code, for a number written the local way (``010...``,
+#: ``050...``): the 0 before it is the country's trunk prefix, dropped when the code goes in front. Only countries whose
+#: local numbers start with that 0 - Italy, Spain or the US have none, so a 0 there is not something to drop.
+LOCAL_DIAL_CODES = {
+    "20": ("egypt", "مصر"),
+    "966": ("saudi arabia", "saudi", "ksa", "السعوديه", "المملكه العربيه السعوديه"),
+    "971": ("uae", "united arab emirates", "emirates", "الامارات", "الامارات العربيه المتحده"),
+    "965": ("kuwait", "الكويت"), "974": ("qatar", "قطر"), "973": ("bahrain", "البحرين"), "968": ("oman", "عمان"),
+    "962": ("jordan", "الاردن"), "961": ("lebanon", "لبنان"), "963": ("syria", "سوريا"), "964": ("iraq", "العراق"),
+    "967": ("yemen", "اليمن"), "970": ("palestine", "فلسطين"), "218": ("libya", "ليبيا"), "249": ("sudan", "السودان"),
+    "212": ("morocco", "المغرب"), "213": ("algeria", "الجزائر"), "216": ("tunisia", "تونس"),
+    "90": ("turkey", "turkiye", "türkiye", "تركيا"), "49": ("germany", "المانيا"), "33": ("france", "فرنسا"),
+    "44": ("uk", "united kingdom", "england", "britain", "great britain", "بريطانيا", "انجلترا", "المملكه المتحده"),
+    "31": ("netherlands", "holland", "هولندا"), "32": ("belgium", "بلجيكا"), "43": ("austria", "النمسا"),
+    "41": ("switzerland", "سويسرا"), "353": ("ireland", "ايرلندا", "ايرلاندا"), "46": ("sweden", "السويد"),
+    "358": ("finland", "فنلندا"), "61": ("australia", "استراليا"), "91": ("india", "الهند"), "86": ("china", "الصين"),
+    "81": ("japan", "اليابان"),
+}
+#: An Egyptian mobile written the local way (010, 011, 012, 015 and eight digits): Egypt when the row's country is empty or
+#: not in the list above, since both of the company's numbers are Egyptian and that is the number the team writes most.
+EGYPT_MOBILE = re.compile(r"01[0125]\d{8}")
+
+
+def _fold_country(text):
+    text = str(text or "").strip().lower()
+    text = re.sub("[أإآ]", "ا", text).replace("ة", "ه").replace("ى", "ي")
+    return re.sub(r"[\s_\-.]+", " ", text).strip()
+
+
+_COUNTRY_CODE = {_fold_country(name): code for code, names in LOCAL_DIAL_CODES.items() for name in names}
+
+
+def international_number(number, country=""):
+    """The number as WhatsApp takes it (digits, with the country code), or ``""`` when it is written the local way and its
+    country is not known.
+
+    A local number used to go to Meta as it was, and Meta put the sender's country code in front of it: an Egyptian
+    ``010...`` still arrived, but the letter's language was picked from ``010`` and went in English (14/10/2026). The
+    code is put in front here, from the row's country, so the language and the number the message goes to agree.
+    """
+    from .whatsapp import normalize_number
+
+    raw = str(number or "").strip()
+    digits = normalize_number(raw)
+    if raw.startswith("+") or not digits.startswith("0"):
+        return digits
+    code = _COUNTRY_CODE.get(_fold_country(country))
+    if code is None and EGYPT_MOBILE.fullmatch(digits):
+        code = "20"
+    return code + digits[1:] if code else ""
 
 
 def intro_params(lead, user, language=INTRO_LANGUAGE):
-    first = (lead.contact_person or "").strip().split(" ")[0] or NO_CONTACT_NAME[language]
+    # Meta refuses a parameter with a line break, a tab or more than four spaces in a row.
+    company = " ".join(str(lead.company_name or "").split())
+    greeting = INTRO_GREETING[language].format(company) if company else NO_CONTACT_NAME[language]
     sender = (user.get_full_name() or user.username).strip()
-    return [first, sender]
+    return [greeting, sender]
 
 
 def intro_text(params, language=INTRO_LANGUAGE):
@@ -706,7 +764,12 @@ def start_whatsapp(lead, user, number=""):
             raise Refused("not_its_number", "الرقم ده مش من أرقام الشركة دي.", "That number is not one of this company's.")
     else:
         chosen = numbers[0] if numbers else ""
-    number = wa.normalize_number(chosen)
+    number = international_number(chosen, lead.country)
+    if not number and wa.normalize_number(chosen).startswith("0"):
+        raise Refused(
+            "no_country_code", "الرقم مكتوب محلي (بادئ بـ0) ومش عارفين دولته. اكتبه بكود الدولة (+966...) أو اكتب الدولة في الصف.",
+            "The number is written the local way (it starts with 0) and its country is not known. Write it with the country code (+966...) or fill in the row's country.",
+        )
     if len(number) < 8:
         raise Refused("no_number", "مفيش رقم واتساب مظبوط للشركة دي. اكتبه بكود الدولة (+44...).", "This company has no usable WhatsApp number. Write it with the country code (+44...).")
     from_id = (user.wa_phone_number_id or "").strip()

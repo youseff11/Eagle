@@ -10,6 +10,7 @@ import hmac
 import json
 import mimetypes
 import re
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
@@ -146,8 +147,10 @@ def _multipart(fields, filename, content, mime):
 
 
 def normalize_number(value):
-    """WhatsApp wants digits only, in international format."""
-    return "".join(ch for ch in str(value or "") if ch.isdigit())
+    """WhatsApp wants digits only, in international format: ``٠١٢`` is ``012``, and the ``00`` before a country code goes
+    (it is how a phone dials out, not part of the number: ``00966...`` is ``+966...``)."""
+    digits = "".join(str(unicodedata.decimal(ch)) for ch in str(value or "") if ch.isdecimal())
+    return digits[2:] if digits.startswith("00") else digits
 
 
 def guess_mime(filename, fallback="application/octet-stream"):

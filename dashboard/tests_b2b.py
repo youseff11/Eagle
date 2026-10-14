@@ -278,13 +278,16 @@ class WhatsappTests(_B2b):
         body = _json(answer)
         self.assertTrue(body["sent"])
         self.template.assert_called_once_with(
-            "447700900123", b2b.INTRO_TEMPLATE, "en", ["Anna", "Seller"], from_id="900002",
+            "447700900123", b2b.INTRO_TEMPLATE, "en", ["Lingua GmbH team", "Seller"], from_id="900002",
         )
         client = Client.objects.get(code=body["chat"])
         self.assertEqual((client.company, client.name, client.email), ("Lingua GmbH", "Anna Schmidt", "anna@lingua.test"))
         sent = OutboundMessage.objects.get(client=client)
         self.assertEqual((sent.status, sent.owner, sent.channel, sent.provider_id), ("sent", self.sales, "whatsapp", "wamid.intro.1"))
         self.assertIn("this is Seller from EagleLingua", sent.body)
+        # 14/10/2026: the letter greets the company, not the contact person on the row.
+        self.assertTrue(sent.body.startswith("Hello Lingua GmbH team, "))
+        self.assertNotIn("Anna", sent.body)
         # The row's own pair ("German to Arabic") is not named: the letter offers every language.
         self.assertIn("a certified translation company", sent.body)
         self.assertIn("projects in all languages", sent.body)
@@ -372,15 +375,24 @@ class WhatsappTests(_B2b):
             self.assertIs(TEMPLATES[name], spec)
 
     def test_an_arab_number_gets_the_arabic_letter(self):
-        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="+20 100 123 4567", contact_person="")
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="+20 100 123 4567")
         self.assertTrue(_json(self.press())["sent"])
         self.template.assert_called_once_with(
-            "201001234567", b2b.INTRO_TEMPLATE_AR, "ar", ["حضرتك", "Seller"], from_id="900002",
+            "201001234567", b2b.INTRO_TEMPLATE_AR, "ar", ["فريق Lingua GmbH", "Seller"], from_id="900002",
         )
         sent = OutboundMessage.objects.get()
-        self.assertTrue(sent.body.startswith("أهلًا حضرتك، معاك Seller من EagleLingua"))
+        self.assertTrue(sent.body.startswith("أهلًا فريق Lingua GmbH، معاك Seller من EagleLingua"))
+        self.assertNotIn("Anna", sent.body)
         self.assertNotIn("{{", sent.body)
         self.assertTrue(AuditLog.objects.filter(action="b2b.whatsapp", detail__endswith=b2b.INTRO_TEMPLATE_AR).exists())
+
+    def test_the_greeting_is_the_company_on_one_line_or_a_plain_hello_without_one(self):
+        self.lead.company_name = "  Lingua\n\tGmbH     Berlin "
+        self.assertEqual(b2b.intro_params(self.lead, self.sales, "en")[0], "Lingua GmbH Berlin team")
+        self.assertEqual(b2b.intro_params(self.lead, self.sales, "ar")[0], "فريق Lingua GmbH Berlin")
+        self.lead.company_name = " "
+        self.assertEqual(b2b.intro_params(self.lead, self.sales, "en")[0], "there")
+        self.assertEqual(b2b.intro_params(self.lead, self.sales, "ar")[0], "حضرتك")
 
     def test_the_letter_language_follows_the_dialling_code(self):
         for number, language in (
@@ -388,6 +400,39 @@ class WhatsappTests(_B2b):
             ("+44 7700 900123", "en"), ("+49 151 2345678", "en"), ("+972 50 123 4567", "en"), ("+1 202 555 0100", "en"), ("", "en"),
         ):
             self.assertEqual(b2b.intro_language(number), language, number)
+
+    def test_a_local_egyptian_number_goes_with_its_code_and_gets_the_arabic_letter(self):
+        # 14/10/2026: "010..." on a row went to Meta as it was; Meta put Egypt in front and it arrived, in English.
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="010 0123 4567", country="", company_name="")
+        self.assertTrue(_json(self.press())["sent"])
+        self.template.assert_called_once_with(
+            "201001234567", b2b.INTRO_TEMPLATE_AR, "ar", ["حضرتك", "Seller"], from_id="900002",
+        )
+        self.assertEqual(OutboundMessage.objects.get().to_identity, "201001234567")
+
+    def test_a_local_number_takes_the_code_of_the_rows_country(self):
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="050 123 4567", country="السعودية")
+        self.assertTrue(_json(self.press())["sent"])
+        self.assertEqual(self.template.call_args.args[:3], ("966501234567", b2b.INTRO_TEMPLATE_AR, "ar"))
+
+    def test_a_local_number_of_an_unknown_country_is_refused_and_nothing_goes(self):
+        Lead.objects.filter(pk=self.lead.pk).update(whatsapp="0501234567", country="")
+        answer = self.press()
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "no_country_code"))
+        self.template.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+        self.assertFalse(Client.objects.exists())
+
+    def test_numbers_are_made_international_before_the_letter_is_picked(self):
+        for number, country, international in (
+            ("01001234567", "", "201001234567"), ("01501234567", "Spain", "201501234567"),
+            ("01001234567", "مصر", "201001234567"), ("0501234567", "Saudi Arabia", "966501234567"),
+            ("0501234567", "الإمارات", "971501234567"), ("07700 900123", "UK", "447700900123"),
+            ("0501234567", "", ""), ("0612345678", "Spain", ""),
+            ("+20 100 123 4567", "Germany", "201001234567"), ("00966 50 123 4567", "", "966501234567"),
+            ("+٢٠ ١٠٠ ١٢٣ ٤٥٦٧", "", "201001234567"), ("447700900123", "", "447700900123"),
+        ):
+            self.assertEqual(b2b.international_number(number, country), international, (number, country))
 
 
 
@@ -401,6 +446,10 @@ class TemplatePayloadTests(TestCase):
         self.assertEqual(payload["template"]["language"], {"code": "en"})
         self.assertEqual(payload["template"]["components"][0]["parameters"], [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}])
         self.assertEqual(send.call_args.kwargs, {"from_id": "77"})
+
+    def test_the_number_meta_gets_has_no_dial_out_zeros_and_plain_digits(self):
+        for written, sent in (("00966 50 123 4567", "966501234567"), ("+٤٤ ٧٧٠٠", "447700"), ("+44 (7700) 900-123", "447700900123")):
+            self.assertEqual(whatsapp.normalize_number(written), sent, written)
 
 
 class MarkedByItselfTests(_B2b):
