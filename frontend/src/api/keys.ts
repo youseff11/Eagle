@@ -139,6 +139,14 @@ export const qk = {
   /** The B2C field visits of a month, and the companies a visit may be to (under `b2b`: a visit moves a row too). */
   b2cVisits: (month: string) => ["b2b", "b2c-visits", month] as const,
   b2cVisitLeads: (words: string) => ["b2b", "b2c-visit-leads", words] as const,
+  /** The B2C numbers, by the query they were asked with (the period and the filters). */
+  b2cBoard: (search: string) => ["b2b", "b2c-board", search] as const,
+  /** The Sales commissions (by the status asked for), and all of them for a write to refresh. */
+  /** The price list (a version, or the one in force for ""), and all of it for a write to refresh. */
+  priceListAll: ["price-list"] as const,
+  priceList: (version: string) => ["price-list", version] as const,
+  commissionsAll: ["commissions"] as const,
+  commissions: (status: string) => ["commissions", status] as const,
   b2bQuotes: (leadId: number) => ["b2b", "quotes", leadId] as const,
   b2bTargets: (month: string) => ["b2b", "targets", month] as const,
   /** Client invoices (Accounting's): the lists by filter, and one invoice. A write asks all of them again. */

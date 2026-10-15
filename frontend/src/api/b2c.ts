@@ -48,6 +48,11 @@ export interface Visit {
   mine: boolean;
   can_decide: boolean;
   can_escalate: boolean;
+  /** The person's objection to a turned-down visit (once), what the first decision said, and whether they may object now. */
+  appeal_note: string;
+  appealed_from: string;
+  appealed_at: string;
+  can_appeal: boolean;
 }
 
 export interface VisitBoardRow {
@@ -160,6 +165,102 @@ export function useEscalateVisit() {
   );
 }
 
+export function useAppealVisit() {
+  return useVisitWrite(({ id, note }: { id: number; note: string }) =>
+    api<{ ok: boolean; visit: Visit }>(`/api/v1/b2c/visits/${id}/appeal/`, { json: { note } }),
+  );
+}
+
 export function useVerifyClean() {
   return useVisitWrite((ids: number[]) => api<{ ok: boolean; verified: number }>("/api/v1/b2c/visits/verify-clean/", { json: { ids } }));
+}
+
+/** A rate with what it is made of (the requirements' section 9): `value` is null when there is nothing to divide by. */
+export interface BoardRate {
+  value: number | null;
+  part: number;
+  whole: number;
+}
+
+export interface BoardCounts {
+  new_leads: number;
+  contacted: number;
+  calls: number;
+  messages: number;
+  planned: number;
+  submitted: number;
+  verified: number;
+  rejected: number;
+  pending: number;
+  /** The visits owed for the period (0 for an online person: no visit target). */
+  due: number;
+  qualified: number;
+  qualified_from_visits: number;
+  quotations: number;
+  quotes_waiting: number;
+  won: number;
+  lost: number;
+  follow_ups_on_time: number;
+  follow_ups_late: number;
+  follow_ups_missed: number;
+  overdue_now: number;
+  untouched: number;
+  holding: number;
+  open_value: string;
+  quote_values: Record<string, { total: string; count: number }>;
+  visit_achievement: BoardRate;
+  verification_rate: BoardRate;
+  lead_conversion: BoardRate;
+  quotation_conversion: BoardRate;
+  win_rate: BoardRate;
+  follow_up_compliance: BoardRate;
+}
+
+export interface BoardRow extends BoardCounts {
+  person: { id: number; name: string; active: boolean; track: string };
+  field: boolean;
+}
+
+export interface BoardCompany {
+  id: number;
+  company_name: string;
+  sheet: number;
+  person: string;
+  governorate: string;
+  next_follow_up: string;
+}
+
+export interface BoardResponse {
+  ok: boolean;
+  from: string;
+  to: string;
+  /** The manager's (and the owner's) answer: every B2C Sales person, and the team's total. */
+  team: boolean;
+  filters: { people: B2bPerson[]; sources: string[]; governorates: string[] };
+  rows: BoardRow[];
+  total: BoardCounts & { quote_average: Record<string, string> };
+  stages: { value: string; count: number }[];
+  sources: { value: string; count: number; won: number }[];
+  governorates: { value: string; count: number; verified: number }[];
+  matrix: { person: BoardRow["person"]; stages: Record<string, number> }[];
+  untouched: BoardCompany[];
+  overdue: BoardCompany[];
+  rejected: { code: string; company_name: string; sheet: number; person: string; note: string; flags: string[] }[];
+}
+
+/** The query the board and its export are asked with: the period and the filters, as the page's address holds them. */
+export function boardQuery(values: Record<string, string>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (value) query.set(key, value);
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+export function useB2cBoard(values: Record<string, string>, enabled = true) {
+  const search = boardQuery(values);
+  return useQuery({
+    queryKey: qk.b2cBoard(search),
+    queryFn: () => api<BoardResponse>(`/api/v1/b2c/board/${search}`),
+    enabled,
+  });
 }

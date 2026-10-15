@@ -412,6 +412,42 @@ def verify_clean(user, ids):
     return done
 
 
+def appeal(visit, user, note):
+    """The field person objects to a turned-down visit (part 4, the requirements' section 6): once, with why. The visit
+    waits again, handed to the owner, whose decision is the last one."""
+    from . import services
+
+    note = (note or "").strip()[:MAX_NOTE]
+    if not note:
+        raise Refused("needs_reason", "اكتب سبب اعتراضك.", "Write why you object.")
+    with transaction.atomic():
+        row = _locked(visit)
+        if row.person_id != user.pk:
+            raise Refused("not_yours", "الزيارة دي مش بتاعتك.", "This visit is not yours.")
+        if row.status != FieldVisit.Status.REJECTED:
+            raise Refused("not_rejected", "الاعتراض على زيارة اترفضت بس.", "Only a turned-down visit is objected to.")
+        if row.appealed_at is not None:
+            raise Refused("appealed", "اعترضت على الزيارة دي قبل كده، والقرار بقى نهائي.", "You objected to this visit already; the decision is final.")
+        row.appealed_from = row.decision_note
+        row.appeal_note, row.appealed_at = note, timezone.now()
+        row.status = FieldVisit.Status.PENDING
+        row.escalated = True
+        row.escalation_note = note
+        row.decided_by, row.decided_at, row.decision_note = None, None, ""
+        row.save()
+    services.log(user, "b2c.visit_appeal", f"visit {row.code}", note[:200])
+    for owner in User.objects.filter(role=Role.ADMIN, is_active=True):
+        services.notify(
+            owner,
+            title_ar="اعتراض على زيارة اترفضت",
+            title_en="An objection to a turned-down visit",
+            body_ar=f"الزيارة {row.code} اعترض عليها صاحبها: {note}",
+            body_en=f"Visit {row.code} was objected to by its Sales person: {note}",
+            level="warning", url="/app/b2c/visits",
+        )
+    return row
+
+
 def escalate(visit, user, note):
     """The manager hands a doubtful visit to the owner, with why; only the owner decides it then."""
     from . import services
@@ -489,6 +525,11 @@ WEEKLY_OFF = 4
 
 def leave_days(person, first):
     """Working days of the month the person is on approved leave (whole days; a permission of hours is not a day off)."""
+    return len(leave_dates(person, first))
+
+
+def leave_dates(person, first):
+    """The days themselves (``leave_days``)."""
     days = set(month_days(first))
     off = set()
     for leave in LeaveRequest.objects.filter(
@@ -499,7 +540,7 @@ def leave_days(person, first):
             if day.weekday() != WEEKLY_OFF:
                 off.add(day)
             day += timedelta(days=1)
-    return len(off)
+    return off
 
 
 def due_target(person, first, conf=None):
@@ -508,6 +549,23 @@ def due_target(person, first, conf=None):
     work = max(1, conf.b2c_work_days)
     leave = min(work, leave_days(person, first))
     return round(conf.b2c_visit_target * (work - leave) / work), leave
+
+
+def due_for_period(person, start, end, conf=None):
+    """The visits the person owes for the days ``start``..``end``: each month's target (``due_target``) spread over the
+    days of it they work (not Friday, not on approved leave), and the days of the period counted. A whole month is its
+    target."""
+    conf = conf or AppSettings.load()
+    total = 0.0
+    first = start.replace(day=1)
+    while first <= end:
+        off = leave_dates(person, first)
+        working = [day for day in month_days(first) if day.weekday() != WEEKLY_OFF and day not in off]
+        inside = [day for day in working if start <= day <= end]
+        if working:
+            total += due_target(person, first, conf)[0] * len(inside) / len(working)
+        first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return round(total)
 
 
 def _rate(part, whole):

@@ -18,6 +18,7 @@ The client's name and address are shown only to who may see the client's identit
 need them shown: the server finds the address.
 """
 
+import logging
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -28,6 +29,8 @@ from django.utils import timezone
 from .models import (
     HOME_CURRENCY, Channel, Invoice, InvoicePayment, ProjectCost, Quotation, Role, Task, TaskStatus, User,
 )
+
+logger = logging.getLogger(__name__)
 
 CENT = Decimal("0.01")
 #: How long a client has to pay when nothing else was agreed.
@@ -236,6 +239,14 @@ def draft_for_delivered(task, by=None):
     from . import services
 
     services.log(by, "finance.invoice_draft", invoice.code, f"{task.code} {invoice.amount} {invoice.currency} (automatic)")
+    # The Sales person who sold it gets their commission line (part 3): a line that fails must not stop the invoice.
+    try:
+        from . import commissions
+
+        with transaction.atomic():
+            commissions.ensure_default(invoice, by=by)
+    except Exception:  # noqa: BLE001
+        logger.exception("The commission line of %s was not made", invoice.code)
     _tell_accounting(invoice)
     return invoice
 
@@ -420,8 +431,13 @@ def cancel_invoice(invoice, user):
         raise Refused("cancelled", "الفاتورة دي اتلغت قبل كده.", "This invoice was cancelled already.")
     if invoice.payments.exists():
         raise Refused("has_payments", "فيه فلوس اتسجّلت على الفاتورة دي. امسح الدفع الأول لو كان غلط.", "Money was recorded on this invoice. Remove the payment first if it was a mistake.")
-    invoice.status = Invoice.Status.CANCELLED
-    invoice.save(update_fields=["status", "updated_at"])
+    from . import commissions
+
+    with transaction.atomic():
+        invoice.status = Invoice.Status.CANCELLED
+        invoice.save(update_fields=["status", "updated_at"])
+        # Its commission lines go with it (none can be approved: an invoice with money on it is not cancelled).
+        commissions.cancel_for(invoice, by=user)
     services.log(user, "finance.invoice_cancel", invoice.code, "")
     return invoice
 

@@ -120,6 +120,14 @@ export interface Quotation {
   decided_at: string;
   /** The task the operation made from it, once accepted. */
   task: string;
+  /** The price list version it was priced against, and the list's price of a unit then ("" when the list had none). */
+  list_version: number | null;
+  list_rate: string;
+  /** How far under the list it is, in percent (a lower rate counts, the discount too). */
+  effective_discount: string;
+  /** "" within its maker's limit; "pending" waits for an approval, "rejected" was turned down: neither is sent. */
+  discount_state: "" | "pending" | "approved" | "rejected";
+  discount_note: string;
   /** Where its invoice stands (Accounting's): never the costs nor the profit. */
   invoice: { code: string; status: string; overdue: boolean; amount: string; paid: string; currency: string } | null;
 }

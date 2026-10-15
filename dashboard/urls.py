@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_commissions, api_pricing, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -259,7 +259,24 @@ urlpatterns = [
     path("api/v1/b2c/visits/<int:visit_id>/cancel/", api_b2c.visit_cancel, name="v1_b2c_visit_cancel"),
     path("api/v1/b2c/visits/<int:visit_id>/decide/", api_b2c.visit_decide, name="v1_b2c_visit_decide"),
     path("api/v1/b2c/visits/<int:visit_id>/escalate/", api_b2c.visit_escalate, name="v1_b2c_visit_escalate"),
+    path("api/v1/b2c/visits/<int:visit_id>/appeal/", api_b2c.visit_appeal, name="v1_b2c_visit_appeal"),
     path("api/v1/b2c/leads/", api_b2c.leads, name="v1_b2c_leads"),
+    # Sales commissions (commissions.py): the owner sets, splits, approves and pays; a Sales person reads their own.
+    path("api/v1/commissions/", api_commissions.lines, name="v1_commissions"),
+    path("api/v1/commissions/rate/", api_commissions.company_rate, name="v1_commissions_rate"),
+    path("api/v1/commissions/people/<int:user_id>/rate/", api_commissions.person_rate, name="v1_commissions_person_rate"),
+    path("api/v1/commissions/invoices/<int:invoice_id>/split/", api_commissions.split, name="v1_commissions_split"),
+    path("api/v1/commissions/<int:line_id>/rate/", api_commissions.line_rate, name="v1_commissions_line_rate"),
+    path("api/v1/commissions/<int:line_id>/approve/", api_commissions.approve, name="v1_commissions_approve"),
+    path("api/v1/commissions/<int:line_id>/paid/", api_commissions.paid, name="v1_commissions_paid"),
+    path("api/v1/commissions/<int:line_id>/take-back/", api_commissions.take_back, name="v1_commissions_take_back"),
+    path("api/v1/b2c/board/", api_b2c.board, name="v1_b2c_board"),
+    path("api/v1/b2c/board/export/", api_b2c.board_export, name="v1_b2c_board_export"),
+    # The price list, its versions, the discount limits and the discounts waiting (pricing.py).
+    path("api/v1/b2b/price-list/", api_pricing.price_list, name="v1_price_list"),
+    path("api/v1/b2b/price-list/save/", api_pricing.price_list_save, name="v1_price_list_save"),
+    path("api/v1/b2b/price-list/limits/", api_pricing.limits_save, name="v1_price_list_limits"),
+    path("api/v1/b2b/quotations/<int:quote_id>/discount/", api_pricing.discount_decide, name="v1_quote_discount"),
     path("api/v1/b2b/sheets/", api_b2b.sheets, name="v1_b2b_sheets"),
     path("api/v1/b2b/sheets/new/", api_b2b.sheet_create, name="v1_b2b_sheet_create"),
     path("api/v1/b2b/follow-ups/", api_b2b.follow_ups, name="v1_b2b_follow_ups"),

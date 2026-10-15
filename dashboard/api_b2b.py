@@ -888,6 +888,13 @@ def _quote_json(quote):
         "sent_at": _stamp(quote.sent_at),
         "decided_at": _stamp(quote.decided_at),
         "task": quote.task.code if quote.task_id else "",
+        # The price list it was priced against, and its discount (part 4): "" within its maker's limit, or the approval it
+        # needed (pending / approved / rejected); a pending or turned-down one is not sent.
+        "list_version": quote.price_list.version if quote.price_list_id else None,
+        "list_rate": f"{quote.list_rate.normalize():f}" if quote.list_rate is not None else "",
+        "effective_discount": f"{quote.effective_discount:.2f}",
+        "discount_state": quote.discount_state,
+        "discount_note": quote.discount_note,
         # Where its invoice stands (code, status, amount, paid): never the costs nor the profit.
         "invoice": _invoice_of(quote),
     }
@@ -962,7 +969,7 @@ def quotations(request, lead_id):
     return JsonResponse({
         "ok": True,
         "lead": {"id": lead.pk, "company_name": lead.company_name, "contact_person": lead.contact_person, "email": lead.email},
-        "quotations": [_quote_json(q) for q in lead.quotations.select_related("task")],
+        "quotations": [_quote_json(q) for q in lead.quotations.select_related("task", "price_list")],
         "can_make": b2b.may_contact(request.user, lead.sheet),
         "can_decide": b2b.may_decide(request.user, lead),
         **_quote_choices(),

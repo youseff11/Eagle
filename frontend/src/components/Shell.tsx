@@ -121,6 +121,11 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       // B2C (15/10/2026): the companies inside Egypt, and the field visits the owner may decide.
       { path: "/b2c", icon: "building", label: ["شيتات B2C", "B2C sheets"], order: 107 },
       { path: "/b2c/visits", icon: "map-pin", label: ["الزيارات", "Visits"], order: 108 },
+      { path: "/b2c/performance", icon: "chart", label: ["أداء B2C", "B2C performance"], order: 109 },
+      // The Sales commissions: the owner sets, splits, approves and pays them (part 3, 15/10/2026).
+      { path: "/commissions", icon: "star", label: ["العمولات", "Commissions"], section: "accounts", order: 60 },
+      // The price list, its versions, the discount limits and the discounts waiting (part 4, 15/10/2026).
+      { path: "/price-list", icon: "list-checks", label: ["قايمة الأسعار", "Price list"], order: 110 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
@@ -240,7 +245,11 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       // A B2C sheet opens at /leads/<id> like any sheet: the line stays lit there.
       { path: "/b2c", icon: "building", label: ["شيتات B2C", "B2C sheets"], order: 18, needs: "b2c", also: ["/leads"] },
       { path: "/b2c/visits", icon: "map-pin", label: ["الزيارات", "Visits"], order: 18, needs: "visits" },
-      { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 19 },
+      // Each team's numbers (15/10/2026): the B2B page for the B2B team, the B2C one for the B2C team.
+      { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 19, needs: "b2b" },
+      { path: "/b2c/performance", icon: "chart", label: ["أداء B2C", "B2C performance"], order: 19, needs: "b2c" },
+      { path: "/commissions", icon: "star", label: ["عمولاتي", "My commissions"], order: 20 },
+      { path: "/price-list", icon: "list-checks", label: ["قايمة الأسعار", "Price list"], order: 21 },
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
     ],

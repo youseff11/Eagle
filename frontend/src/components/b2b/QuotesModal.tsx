@@ -317,9 +317,27 @@ export function QuotesModal({ leadId, onClose }: { leadId: number; onClose: () =
                       </td>
                       <td className="mono">
                         {quote.total} {quote.currency}
+                        {/* Against the price list (part 4): its version and how far under it the quotation is. */}
+                        {quote.list_version !== null && (
+                          <div className="muted" data-list={quote.code}>
+                            {t(`القايمة v${quote.list_version}: ${quote.list_rate}`, `List v${quote.list_version}: ${quote.list_rate}`)}
+                            {Number(quote.effective_discount) > 0 && ` · ${t("تحت القايمة", "under the list")} ${Number(quote.effective_discount)}%`}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <QuoteStatus status={quote.status} />
+                        {quote.status === "draft" && quote.discount_state === "pending" && (
+                          <div className="chip chip--sm chip--open" data-discount={quote.code}>
+                            {t("الخصم مستني الاعتماد", "Discount waiting for approval")}
+                          </div>
+                        )}
+                        {quote.status === "draft" && quote.discount_state === "rejected" && (
+                          <div className="muted deadline--late" data-discount={quote.code}>
+                            {t("الخصم اترفض", "Discount turned down")}: {quote.discount_note}
+                          </div>
+                        )}
+                        {quote.discount_state === "approved" && <div className="muted">{t("الخصم اتعتمد", "Discount approved")}</div>}
                         {quote.task && <div className="muted mono">{quote.task}</div>}
                         {quote.invoice && <InvoiceWord invoice={quote.invoice} />}
                       </td>
@@ -327,7 +345,13 @@ export function QuotesModal({ leadId, onClose }: { leadId: number; onClose: () =
                         <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
                           {data.can_make && quote.status === "draft" && (
                             <>
-                              <button className="btn btn--sm btn--primary" type="button" disabled={act.isPending || !data.lead.email} onClick={() => run(quote, "send")}>
+                              <button
+                                className="btn btn--sm btn--primary"
+                                type="button"
+                                disabled={act.isPending || !data.lead.email || quote.discount_state === "pending" || quote.discount_state === "rejected"}
+                                title={quote.discount_state === "pending" ? t("الخصم أكبر من حدك ومستني الاعتماد", "The discount is beyond your limit and waits for an approval") : undefined}
+                                onClick={() => run(quote, "send")}
+                              >
                                 <Icon name="send" />
                                 {t("ابعته", "Send it")}
                               </button>

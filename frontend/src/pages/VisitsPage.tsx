@@ -2,6 +2,7 @@ import { useDeferredValue, useState, type FormEvent } from "react";
 import { Navigate } from "react-router";
 import { refusalText } from "../api/b2b";
 import {
+  useAppealVisit,
   useCancelVisit,
   useCheckIn,
   useCheckOut,
@@ -213,6 +214,44 @@ function CheckOut({ visit, data, onClose }: { visit: Visit; data: VisitsResponse
   );
 }
 
+/** The objection to a turned-down visit: once, with why; the owner decides it for good. */
+function Appeal({ visit, onClose }: { visit: Visit; onClose: () => void }) {
+  const { t, lang } = usePreferences();
+  const appeal = useAppealVisit();
+  const [note, setNote] = useState("");
+  const [problem, setProblem] = useState("");
+  return (
+    <Modal title={`${t("اعترض على الرفض", "Object to the decision")} · ${visit.code}`} icon="hand" busy={appeal.isPending} onClose={onClose}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!note.trim()) {
+            setProblem(t("اكتب سبب اعتراضك.", "Write why you object."));
+            return;
+          }
+          appeal.mutate(
+            { id: visit.id, note: note.trim() },
+            { onSuccess: onClose, onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أبعت الاعتراض.", "Could not send the objection."))) },
+          );
+        }}
+      >
+        <p className="muted">
+          {t("الاعتراض مرة واحدة بس، وبيروح للمالك وقراره نهائي.", "You object once only; it goes to the owner, whose decision is final.")}
+        </p>
+        <div className="field">
+          <label htmlFor="appealNote">{t("سبب اعتراضك", "Why you object")}</label>
+          <textarea className="input" id="appealNote" rows={3} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
+        </div>
+        <Problem text={problem} />
+        <button className="btn btn--primary" type="submit" disabled={appeal.isPending}>
+          <Icon name="send" />
+          {t("ابعت الاعتراض", "Send the objection")}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 type DecideMode = "verify" | "reject" | "escalate";
 
 /** The manager's decision: verify (with why, when the visit is flagged) or turn down (always with why), or hand to the owner. */
@@ -379,7 +418,7 @@ function PressLine({ label, at, distance, accuracy, map }: { label: string; at: 
   );
 }
 
-type Open = { kind: "out"; visit: Visit } | { kind: "decide"; visit: Visit; mode: DecideMode } | { kind: "new" };
+type Open = { kind: "out"; visit: Visit } | { kind: "decide"; visit: Visit; mode: DecideMode } | { kind: "new" } | { kind: "appeal"; visit: Visit };
 type Show = "all" | "open" | "pending" | "decided";
 
 const SHOWS: Record<Show, (visit: Visit) => boolean> = {
@@ -613,10 +652,17 @@ export function VisitsPage() {
                   )}
                 </div>
               )}
-              {visit.escalation_note && (
-                <div className="muted">
-                  {t("اتحوّلت للمالك:", "Handed to the owner:")} {visit.escalation_note}
+              {visit.appeal_note ? (
+                <div className="muted" data-appeal={visit.code}>
+                  {t("اعتراض", "Objection")}: {visit.appeal_note}
+                  {visit.appealed_from && ` · ${t("الرفض الأول", "The first decision")}: ${visit.appealed_from}`}
                 </div>
+              ) : (
+                visit.escalation_note && (
+                  <div className="muted">
+                    {t("اتحوّلت للمالك:", "Handed to the owner:")} {visit.escalation_note}
+                  </div>
+                )
               )}
               {visit.decided_at && (
                 <div className="muted">
@@ -655,6 +701,12 @@ export function VisitsPage() {
                     </button>
                   </>
                 )}
+                {visit.can_appeal && (
+                  <button className="btn btn--sm" type="button" onClick={() => setOpen({ kind: "appeal", visit })}>
+                    <Icon name="hand" size="sm" />
+                    {t("اعترض", "Object")}
+                  </button>
+                )}
                 {visit.can_escalate && (
                   <button className="btn btn--sm btn--ghost" type="button" onClick={() => setOpen({ kind: "decide", visit, mode: "escalate" })}>
                     <Icon name="forward" size="sm" />
@@ -680,6 +732,7 @@ export function VisitsPage() {
       {open?.kind === "out" && <CheckOut visit={open.visit} data={data} onClose={() => setOpen(null)} />}
       {open?.kind === "decide" && <Decide visit={open.visit} mode={open.mode} onClose={() => setOpen(null)} />}
       {open?.kind === "new" && <NewVisit onClose={() => setOpen(null)} />}
+      {open?.kind === "appeal" && <Appeal visit={open.visit} onClose={() => setOpen(null)} />}
       {press.asking && <NoPlace onAnswer={press.answer} />}
     </>
   );

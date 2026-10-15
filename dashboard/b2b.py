@@ -1284,7 +1284,15 @@ def save_quotation(lead, user, values, quote=None):
         setattr(quote, name, value)
     quote.source_lang, quote.target_lang = source, target
     quote.total = quotation_total(quote.quantity, quote.rate, quote.discount_percent)
+    # Priced against the list in force; beyond the maker's limit it waits for an approval before it may be sent (part 4).
+    from . import pricing
+
+    waited = quote.pk is not None and quote.discount_state == pricing.PENDING
+    waits = pricing.price(quote, user)
     quote.save()
+    # Told once when it starts waiting, not again at every save while it waits.
+    if waits and not waited:
+        pricing.tell_approvers(quote)
     if made:
         _quote_line(quote, "created", user)
         services.log(user, "b2b.quote_create", quote.code, f"lead {lead.pk} {quote.total} {quote.currency}")
@@ -1351,6 +1359,11 @@ def send_quotation(quote, user):
         locked = Quotation.objects.select_for_update().filter(pk=quote.pk).first()
         if locked is None or locked.status != Quotation.Status.DRAFT:
             raise Refused("not_draft", "العرض ده اتبعت قبل كده.", "This quotation was sent already.")
+        # A discount beyond the maker's limit leaves only once it is approved (part 4).
+        if locked.discount_state == "pending":
+            raise Refused("discount_waits", "الخصم في العرض ده أكبر من حدك ومستني الاعتماد.", "This quotation's discount is beyond your limit and waits for an approval.")
+        if locked.discount_state == "rejected":
+            raise Refused("discount_rejected", "الخصم اترفض. عدّل السعر أو الخصم واحفظ العرض تاني.", "The discount was turned down. Change the rate or the discount and save the quotation again.")
         # Written before the letter leaves, so a second press finds it on its way and sends nothing.
         locked.status = Quotation.Status.SENT
         locked.sent_at = timezone.now()

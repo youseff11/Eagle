@@ -1268,6 +1268,145 @@ GUIDES = (
         cap="runs_b2c",
     ),
     _guide(
+        "b2c-performance", (Role.ADMIN,), "/b2c/performance",
+        ("فين أرقام B2C وأداء الفريق", "Where are the B2C numbers and the team's performance"),
+        (
+            "اداء b2c، ارقام b2c، مؤشرات، kpi، نسبة الكسب، تحويل الزيارات، تحقيق التارجت، الالتزام بالمتابعات، مصدر العملاء، المحافظات، تصدير، csv، اكسيل",
+            "b2c performance, b2c numbers, kpis, win rate, lead conversion, visit achievement, follow-up compliance, lead source, governorates, export, csv, excel",
+        ),
+        [
+            "من قسم «الشغل» افتح «أداء B2C».",
+            "اختار الفترة من فوق، وصفّي بالـSales أو المصدر أو المحافظة لو عايز.",
+            "كل نسبة مكتوب جنبها هي متحسبة من كام على كام. النسبة اللي مفيش حاجة تتقسم عليها مكتوب عليها «مش متقاس».",
+            "تحت فيه المراحل دلوقتي، والشركات الجديدة حسب المصدر، والمحافظات، و«شركات لسه محدش كلمها» و«متابعات متأخرة»، وكل شركة جنبها «افتح الشيت».",
+            "عشان تاخد الجدول على Excel اضغط «نزّل CSV»: بينزل بنفس الفترة والفلتر.",
+        ],
+        [
+            "In the «Work» section open «B2C performance».",
+            "Choose the period at the top, and narrow it by Sales person, source or governorate if you want.",
+            "Each rate shows what it is made of. A rate with nothing to divide by reads «Not measured».",
+            "Below are the stages now, the new leads by source, the governorates, «Companies nobody has contacted» and «Overdue follow-ups», each company with «Open the sheet».",
+            "To take the table to Excel press «Download CSV»: it has the same period and filters.",
+        ],
+        note=(
+            "الـSales بيشوف أرقامه هو بس. مانجر B2C والمالك بيشوفوا الفريق كله. الملف فيه أسماء الـSales بس، من غير أسماء شركات.",
+            "A Sales person sees their own numbers only. The B2C manager and the owner see the whole team. The file holds the Sales people's names only, never a company's.",
+        ),
+        cap="is_b2c_sales",
+    ),
+    _guide(
+        "commissions", (Role.ADMIN,), "/commissions",
+        ("إزاي أحدد عمولة السيلز وأعتمدها وأصرفها", "How do I set, approve and pay the Sales commissions"),
+        (
+            "عمولة، عمولات، نسبة العمولة، اعتماد العمولة، صرف العمولة، تقسيم العمولة، اتنين على نفس الصفقة، commission",
+            "commission, commissions, commission rate, approve a commission, pay a commission, split a commission, two people on one deal",
+        ),
+        [
+            "من قسم «الحسابات» افتح «العمولات».",
+            "في «نسب العمولة» اكتب «النسبة العامة» واضغط «احفظ». ولو موظف ليه نسبة غيرها اكتبها قدام اسمه، والفاضية بتتحسب بالعامة.",
+            "العمولة بتتحسب على إجمالي الفاتورة، وبتبقى مستحقة لما العميل يدفع الفاتورة كلها. ساعتها بيظهر زرار «اعتمد».",
+            "بعد ما تصرفها اضغط «اتصرفت»، والموظف بيوصله تنبيه. لو اعتمدت بالغلط اضغط «رجّعها».",
+            "لو أكتر من واحد اشتغل على الصفقة اضغط «قسّم» واختار كل واحد ونصيبه لحد ما المجموع يبقى 100%، واضغط «احفظ التقسيم».",
+            "الفواتير اللي اتعملت بالإيد من غير Sales بتظهر في «فواتير من غير عمولة»: اضغط «قسّم» لو حد باعها.",
+        ],
+        [
+            "In the «Accounts» section open «Commissions».",
+            "Under «Commission rates» write the «Company rate» and press «Save». A person with a different rate gets it beside their name; an empty one uses the company's.",
+            "A commission is counted on the invoice's whole amount and is due once the client pays the whole invoice. Then «Approve» appears.",
+            "Once you pay it press «Paid», and the person is notified. Approved by mistake? Press «Take back».",
+            "When several people worked the deal press «Split», choose each one and their share until the total is 100%, and press «Save the split».",
+            "Invoices made by hand with no Sales person show under «Invoices with no commission»: press «Split» if somebody sold it.",
+        ],
+        note=(
+            "انت بس اللي بتعتمد وتصرف. بعد الاعتماد المبلغ بيتثبت، فلو غيّرت النسبة بعدها مابيتغيرش. العمولة للفريقين B2B وB2C.",
+            "You alone approve and pay. Approving fixes the amount, so a rate changed afterwards does not change it. Commissions are for both teams, B2B and B2C.",
+        ),
+    ),
+    _guide(
+        "my-commissions", (Role.SALES,), "/commissions",
+        ("فين عمولاتي", "Where are my commissions"),
+        (
+            "عمولتي، عمولاتي، العمولة بتاعتي، امتى العمولة تتصرف، عمولة اتصرفت",
+            "my commission, my commissions, when is my commission paid, commission paid",
+        ),
+        [
+            "من قسم «الشغل» افتح «عمولاتي».",
+            "كل فاتورة من صفقاتك ليها سطر: نصيبك والنسبة والمبلغ وحالته.",
+            "العمولة بتستحق لما العميل يدفع الفاتورة كلها، والمالك بيعتمدها ويصرفها، وبيوصلك تنبيه لما تتصرف.",
+        ],
+        [
+            "In the «Work» section open «My commissions».",
+            "Each invoice of your deals has a line: your share, the rate, the amount and where it stands.",
+            "A commission is due once the client pays the whole invoice; the owner approves and pays it, and you are notified when it is paid.",
+        ],
+    ),
+    _guide(
+        "price-list", (Role.ADMIN,), "/price-list",
+        ("إزاي أعمل قايمة الأسعار وحدود الخصم", "How do I make the price list and the discount limits"),
+        (
+            "قايمة الاسعار، الاسعار، سعر الكلمة، اصدار جديد، حد الخصم، حدود الخصم، خصم كبير، price list",
+            "price list, prices, price per word, new version, discount limit, discount limits, big discount",
+        ),
+        [
+            "من قسم «الشغل» افتح «قايمة الأسعار».",
+            "اضغط «عدّل القايمة»: كل سطر خدمة ووحدة وعملة وسعر، وزوج اللغات لو السعر لزوج معيّن (زي EN>AR) أو سيبه فاضي لأي زوج. «ضيف سعر» لسطر جديد.",
+            "اضغط «احفظ كإصدار جديد». الإصدار القديم بيفضل زي ما هو، وكل عرض سعر بيتسجّل عليه الإصدار اللي اتسعّر منه.",
+            "في «حدود الخصم» اكتب حد الـSales وحد المانجر واضغط «احفظ الحدود». الخصم بيتحسب على سعر القايمة، فالسعر الأقل منها خصم برضه.",
+        ],
+        [
+            "In the «Work» section open «Price list».",
+            "Press «Edit the list»: each line is a service, a unit, a currency and a price, with the pair if the price is for one pair (like EN>AR) or empty for any pair. «Add a price» adds a line.",
+            "Press «Save as a new version». The old version stays as it was, and each quotation keeps the version it was priced from.",
+            "Under «Discount limits» write the Sales person's and the manager's limits and press «Save the limits». The discount is measured against the list price, so a lower price counts as discount too.",
+        ],
+    ),
+    _guide(
+        "discount-approve", (Role.ADMIN,), "/price-list",
+        ("إزاي أعتمد خصم أكبر من حد الـSales", "How do I approve a discount beyond a Sales person's limit"),
+        (
+            "اعتماد الخصم، خصم مستني، الخصم اترفض، العرض مش بيتبعت، اعتمد الخصم",
+            "approve a discount, discount waiting, discount turned down, quotation will not send",
+        ),
+        [
+            "لما عرض سعر يبقى تحت القايمة أكتر من حد صاحبه، بيوصلك تنبيه والعرض مابيتبعتش.",
+            "افتح «قايمة الأسعار»: فوق «خصومات مستنية اعتمادك»، وكل عرض جنبه سعره وسعر القايمة وتحت القايمة بكام.",
+            "اضغط «اعتمد الخصم»، أو «ارفض» واكتب السبب. الـSales بيوصله القرار، والعرض المعتمد يقدر يبعته.",
+        ],
+        [
+            "When a quotation is further under the list than its maker's limit, you are notified and it cannot be sent.",
+            "Open «Price list»: at the top is «Discounts waiting for your approval», each with its price, the list price and how far under it is.",
+            "Press «Approve the discount», or «Turn down» and write why. The Sales person is told, and an approved quotation may be sent.",
+        ],
+        note=(
+            "المانجر بيعتمد لحد حده هو، والأكبر منه المالك بس. ومحدش بيعتمد عرضه هو.",
+            "The manager approves up to their own limit; beyond it only the owner. Nobody approves their own quotation.",
+        ),
+        cap="is_sales_manager",
+    ),
+    _guide(
+        "b2c-visit-appeal", (Role.ADMIN,), "/b2c/visits",
+        ("إزاي أعترض على زيارة اترفضت", "How do I object to a turned-down visit"),
+        (
+            "اعتراض، اعترض، زيارة اترفضت، رفض الزيارة غلط، مراجعة الرفض",
+            "object, objection, visit turned down, wrong rejection, review the rejection",
+        ),
+        [
+            "افتح «الزيارات» ولاقي الزيارة اللي اترفضت.",
+            "اضغط «اعترض»، اكتب سبب اعتراضك، واضغط «ابعت الاعتراض».",
+            "الزيارة بترجع مستنية، والمالك هو اللي بيقرر فيها، وقراره نهائي.",
+        ],
+        [
+            "Open «Visits» and find the turned-down visit.",
+            "Press «Object», write why you object, and press «Send the objection».",
+            "The visit waits again, the owner decides it, and that decision is final.",
+        ],
+        note=(
+            "الاعتراض مرة واحدة بس لكل زيارة.",
+            "You object once only for each visit.",
+        ),
+        cap="is_field_sales",
+    ),
+    _guide(
         "sales-quotations", (Role.SALES, Role.ADMIN), "/leads",
         ("إزاي أعمل عرض سعر لشركة وأبعته", "How do I make a quotation for a company and send it"),
         (

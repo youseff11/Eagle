@@ -13,7 +13,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import b2c, clock, identity
+from . import b2c, b2c_board, clock, identity
 from .api_v1 import BadBody, _error, _object, _text, endpoint
 from .b2b import Refused
 from .models import AppSettings, FieldVisit, Lead, LeadPriority
@@ -84,6 +84,11 @@ def _visit_json(visit, user):
         "can_decide": visit.status == FieldVisit.Status.PENDING and b2c._may_decide(user, visit),
         "can_escalate": visit.status == FieldVisit.Status.PENDING and not visit.escalated and not user.is_admin_role
         and b2c._may_decide(user, visit),
+        # The objection (part 4): once, by the person, to a turned-down visit; the owner decides it for good.
+        "appeal_note": visit.appeal_note,
+        "appealed_from": visit.appealed_from,
+        "appealed_at": _stamp(visit.appealed_at),
+        "can_appeal": visit.person_id == user.pk and visit.status == FieldVisit.Status.REJECTED and visit.appealed_at is None,
     }
 
 
@@ -306,6 +311,22 @@ def visits_verify_clean(request):
 
 
 @endpoint("POST")
+@api_gate(b2c.has_visit_door)
+def visit_appeal(request, visit_id):
+    """``{"note"}`` - the field person objects to a turned-down visit, once; the owner decides it for good."""
+    visit = _visit_or_404(request, visit_id)
+    try:
+        note = _text(_object(request), "note", b2c.MAX_NOTE)
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        visit = b2c.appeal(visit, request.user, note)
+    except Refused as refusal:
+        return _refused(refusal, status=403 if refusal.code == "not_yours" else 400)
+    return JsonResponse({"ok": True, "visit": _visit_json(_visit_or_404(request, visit.pk), request.user)})
+
+
+@endpoint("POST")
 @api_gate(b2c.manages)
 def visit_escalate(request, visit_id):
     """``{"note"}`` - the manager hands a doubtful visit to the owner."""
@@ -319,3 +340,80 @@ def visit_escalate(request, visit_id):
     except Refused as refusal:
         return _refused(refusal, status=403 if refusal.code == "not_yours" else 400)
     return JsonResponse({"ok": True, "visit": _visit_json(_visit_or_404(request, visit.pk), request.user)})
+
+
+# ---------------------------------------------------------------------------
+# The B2C numbers (part 2): b2c_board.py
+# ---------------------------------------------------------------------------
+
+def _board_query(request):
+    """``(start, end, filters)`` from ``?from&to&person&source&governorate``. ``BadBody`` for a period that is not one, or
+    a person the reader may not read."""
+    from .api_b2b import _period
+
+    start, end = _period(request)
+    person = None
+    raw = request.GET.get("person", "")
+    if raw:
+        if not raw.isdigit():
+            raise BadBody
+        person = next((one for one in b2c_board.team(request.user) if one.pk == int(raw)), None)
+        if person is None:
+            raise BadBody
+    source = request.GET.get("source", "")[:120]
+    governorate = request.GET.get("governorate", "")[:80]
+    return start, end, b2c_board.Filters(person, source, governorate)
+
+
+def _board_answer(request):
+    start, end, filters = _board_query(request)
+    answer = b2c_board.board(request.user, start, end, filters)
+    named = len(answer["untouched"]) + len(answer["overdue"]) + len(answer["rejected"])
+    if named:
+        # The lists name companies: one row in the log, as a page of client names is.
+        identity.audit(request, request.user, identity.IDENTITY_LIST, "b2c board", f"{named} companies")
+    return start, end, filters, answer
+
+
+@endpoint("GET")
+@api_gate(b2c_board.has_door)
+def board(request):
+    """The B2C numbers for a period: a Sales person's own, the team's for the B2C manager and the owner (``b2c_board``)."""
+    try:
+        start, end, filters, answer = _board_answer(request)
+    except BadBody:
+        return _error(400, "bad_filter")
+    return JsonResponse({
+        "ok": True,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "team": b2c.manages(request.user),
+        "filters": b2c_board.choices(request.user, filters),
+        **answer,
+    })
+
+
+@endpoint("GET")
+@api_gate(b2c_board.has_door)
+def board_export(request):
+    """The board's table as a CSV file Excel opens (UTF-8 with its mark): one row per person and the team's total. Names
+    of the Sales people only, never a company's."""
+    import csv
+    import io
+
+    from django.http import HttpResponse
+
+    from . import services
+
+    try:
+        start, end, filters = _board_query(request)
+    except BadBody:
+        return _error(400, "bad_filter")
+    answer = b2c_board.board(request.user, start, end, filters)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerows(b2c_board.export_rows(answer, request.user.ui_lang))
+    services.log(request.user, "b2c.export", "b2c board", f"{start}..{end} {len(answer['rows'])} rows")
+    response = HttpResponse("\ufeff" + out.getvalue(), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="b2c-{start}-{end}.csv"'
+    return response

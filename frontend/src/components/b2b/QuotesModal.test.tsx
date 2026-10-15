@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Quotation, QuotationsResponse } from "../../api/b2b";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../../test/helpers";
+import { ToastProvider } from "../Toasts";
 import { QuotesModal } from "./QuotesModal";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -29,6 +30,11 @@ function quote(over: Partial<Quotation> = {}): Quotation {
     decided_at: "",
     task: "",
     invoice: null,
+    list_version: null,
+    list_rate: "",
+    effective_discount: "10.00",
+    discount_state: "",
+    discount_note: "",
     ...over,
   };
 }
@@ -139,5 +145,43 @@ describe("QuotesModal", () => {
     open();
     await user.click(await screen.findByRole("button", { name: "ابعته" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("العرض ده اتبعت قبل كده.");
+  });
+});
+
+describe("QuotesModal: the price list and the discount (part 4)", () => {
+  it("shows the list version and holds back a quotation whose discount waits", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/v1/me/": () => jsonResponse(me({ role: "sales" })),
+        "/api/v1/b2b/leads/5/quotations/": () =>
+          jsonResponse(answer({ quotations: [quote({ list_version: 2, list_rate: "0.1", effective_discount: "28.00", discount_state: "pending" })] })),
+      }).fn,
+    );
+    renderWithProviders(
+      <ToastProvider>
+        <QuotesModal leadId={5} onClose={() => {}} />
+      </ToastProvider>,
+    );
+    expect(await screen.findByText("الخصم مستني الاعتماد")).toBeInTheDocument();
+    expect(screen.getByText(/القايمة v2: 0.1/)).toHaveTextContent("تحت القايمة 28%");
+    expect(screen.getByRole("button", { name: "ابعته" })).toBeDisabled();
+  });
+
+  it("says why a turned-down discount was turned down", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/v1/me/": () => jsonResponse(me({ role: "sales" })),
+        "/api/v1/b2b/leads/5/quotations/": () => jsonResponse(answer({ quotations: [quote({ discount_state: "rejected", discount_note: "Too low" })] })),
+      }).fn,
+    );
+    renderWithProviders(
+      <ToastProvider>
+        <QuotesModal leadId={5} onClose={() => {}} />
+      </ToastProvider>,
+    );
+    expect(await screen.findByText(/Too low/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ابعته" })).toBeDisabled();
   });
 });

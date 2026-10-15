@@ -549,6 +549,9 @@ class User(AbstractUser):
     #: What the company pays this translator for 250 words, by the agreement made with them (EGP; part 5, 11/10/2026). It
     #: prices their share of a project for the project's profit (``finance.py``); payroll does not read it. Empty = not agreed:
     #: the profit of a project they worked on reads "not measured" until it is set.
+    #: This Sales person's commission, in percent of an invoice (part 3, 15/10/2026): set by the owner on the commissions page.
+    #: Empty = the company's rate (``AppSettings.commission_rate``).
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     cost_per_250 = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
         help_text="Translators and team leaders: the agreed price of 250 words, in EGP. Used for project profit only.",
@@ -2587,6 +2590,13 @@ class AppSettings(models.Model):
     b2c_work_days = models.PositiveSmallIntegerField(default=22, help_text="Working days a month the visit target is spread over.")
     b2c_visit_radius_m = models.PositiveIntegerField(default=100, help_text="How near the company the check-in must be, in metres.")
     b2c_gps_accuracy_m = models.PositiveIntegerField(default=100, help_text="A location less sure than this (metres) goes to review.")
+    #: The Sales commission, in percent of the invoice's whole amount (part 3, 15/10/2026): the owner's, set on the
+    #: commissions page. A person may have their own (``User.commission_rate``). Empty = no rate yet.
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    #: How far under the price list a quotation may go without an approval (part 4, the requirements' section 8): a Sales
+    #: person's limit, and the Sales manager's (who approves up to it); beyond the manager's only the owner approves.
+    discount_limit_sales = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10"))
+    discount_limit_manager = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("20"))
     #: How far each mail folder has been read, as JSON: ``{folder: {"validity",
     #: "last"}}`` (the server's UIDVALIDITY and the highest UID handled). Mail is
     #: new when its UID is past ``last``, not when it is unread: a letter opened
@@ -5030,6 +5040,19 @@ class Quotation(models.Model):
     sent_at = models.DateTimeField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
     decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    # -- The price list and the discount (part 4, 15/10/2026) ---------------------------------------------------------
+    #: The price list version in force when the quotation was saved, and the list's price of one unit then: what the price
+    #: was measured against. Empty when the list had no price for it.
+    price_list = models.ForeignKey("PriceList", null=True, blank=True, on_delete=models.PROTECT, related_name="quotations")
+    list_rate = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    #: How far under the list the quotation is, in percent (a lower rate counts, the discount too): what the limits read.
+    effective_discount = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0"))
+    #: "" (within the person's limit), or the approval it needed: pending, approved, rejected. Not sent while pending or
+    #: rejected.
+    discount_state = models.CharField(max_length=10, blank=True, db_index=True)
+    discount_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    discount_at = models.DateTimeField(null=True, blank=True)
+    discount_note = models.CharField(max_length=250, blank=True)
     #: The letter it went in, and the task the operation made from it.
     outbound = models.ForeignKey(OutboundMessage, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="quotations")
@@ -5097,6 +5120,91 @@ class Invoice(models.Model):
     def save(self, *args, **kwargs):
         if not self.code:
             self.code = next_code(Invoice, "code", "INV")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code
+
+
+class PriceList(models.Model):
+    """One version of the company's price list (part 4, 15/10/2026; the B2C requirements' section 8). A version is never
+    changed: the owner saves a new one, and the newest is the one in force. A quotation keeps the version it was priced
+    against, so what the price was then is always known."""
+
+    version = models.PositiveIntegerField(unique=True)
+    note = models.CharField(max_length=250, blank=True)
+    created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-version",)
+
+    def __str__(self):
+        return f"v{self.version}"
+
+
+class PriceItem(models.Model):
+    """One price on a version of the list: a service, by a unit, in a currency; for one language pair ("EN>AR") or for any
+    pair when the pair is empty."""
+
+    price_list = models.ForeignKey(PriceList, on_delete=models.CASCADE, related_name="items")
+    service = models.CharField(max_length=16, choices=Quotation.Service.choices)
+    unit = models.CharField(max_length=10, choices=Quotation.Unit.choices)
+    currency = models.CharField(max_length=3, choices=Quotation.Currency.choices)
+    pair = models.CharField(max_length=20, blank=True)
+    rate = models.DecimalField(max_digits=12, decimal_places=4)
+
+    class Meta:
+        ordering = ("service", "unit", "currency", "pair", "id")
+        constraints = [
+            models.UniqueConstraint(fields=("price_list", "service", "unit", "currency", "pair"), name="one_price_a_line"),
+        ]
+
+
+class Commission(models.Model):
+    """A Sales person's commission on one invoice (part 3, 15/10/2026; the B2C requirements' section 10, both teams).
+
+    The owner's decisions: the rate is his to set (the company's, a person's own, or one line's); it is counted on the
+    invoice's whole amount; it is due once the client has paid the invoice in full; when several people worked the deal he
+    splits it between them (``share``); he alone approves it and marks it paid. Until it is approved its figures follow the
+    invoice and the rates; approving writes them down (``base``, ``rate``, ``amount``...), so a rate changed later does not
+    rewrite it. One line per person per invoice. The rules are ``commissions.py``.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        PAID = "paid", "Paid"
+        CANCELLED = "cancelled", "Cancelled"
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    invoice = models.ForeignKey("Invoice", on_delete=models.CASCADE, related_name="commissions")
+    person = models.ForeignKey(User, on_delete=models.CASCADE, related_name="commissions")
+    #: This person's part of the deal, in percent: the lines of one invoice add up to 100.
+    share = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("100"))
+    #: The rate set on this line alone; empty = the person's, or else the company's. Written down on approval.
+    rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    # Written down when approved: what it was counted on and what it came to.
+    base = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    egp_rate = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    amount_egp = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    note = models.CharField(max_length=250, blank=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    paid_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        constraints = [models.UniqueConstraint(fields=("invoice", "person"), name="one_commission_a_person_an_invoice")]
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Commission, "code", "COM")
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -5233,6 +5341,11 @@ class FieldVisit(models.Model):
     decided_at = models.DateTimeField(null=True, blank=True)
     #: The reason a visit was turned down, or why a flagged one was verified anyway.
     decision_note = models.CharField(max_length=500, blank=True)
+    #: The person's objection to a turned-down visit (part 4, the requirements' section 6): once, and the owner decides it
+    #: for good. ``appealed_from`` keeps what the first decision said.
+    appeal_note = models.CharField(max_length=500, blank=True)
+    appealed_at = models.DateTimeField(null=True, blank=True)
+    appealed_from = models.CharField(max_length=500, blank=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

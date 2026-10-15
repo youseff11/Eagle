@@ -152,7 +152,7 @@ function visit(over: Partial<Visit> = {}): Visit {
     check_in_accuracy: null, check_in_map: "", check_out_at: "", check_out_distance: null, check_out_accuracy: null, check_out_map: "",
     minutes: null, no_location_reason: "", outcome: "", met: "", interest: "", summary: "", next_step: "", next_step_on: "", flags: [],
     escalated: false, escalation_note: "", decided_by: null, decided_at: "", decision_note: "", mine: true, can_decide: false,
-    can_escalate: false, ...over,
+    can_escalate: false, appeal_note: "", appealed_from: "", appealed_at: "", can_appeal: false, ...over,
   };
 }
 
@@ -272,6 +272,29 @@ describe("the visits page", () => {
     await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2c/visits/22/decide/")).toEqual([{ verified: false, note: "Not the company" }]));
   });
 
+  it("lets the person object to a turned-down visit, once, with why", async () => {
+    const user = userEvent.setup();
+    const turned = visit({ status: "rejected", decision_note: "Not the company", can_appeal: true });
+    const mocked = serve({
+      "/api/v1/b2c/visits/11/appeal/": () => jsonResponse({ ok: true, visit: { ...turned, status: "pending", can_appeal: false } }),
+      "/api/v1/b2c/visits/": () => jsonResponse(visitsAnswer([turned])),
+    });
+    open("/b2c/visits");
+    await user.click(await screen.findByRole("button", { name: "اعترض" }));
+    await user.click(screen.getByRole("button", { name: "ابعت الاعتراض" }));
+    expect(await screen.findByText("اكتب سبب اعتراضك.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("سبب اعتراضك"), "I was there");
+    await user.click(screen.getByRole("button", { name: "ابعت الاعتراض" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2c/visits/11/appeal/")).toEqual([{ note: "I was there" }]));
+  });
+
+  it("offers no objection where the server says none", async () => {
+    serve({ "/api/v1/b2c/visits/": () => jsonResponse(visitsAnswer([visit({ status: "rejected", can_appeal: false, appeal_note: "Once", appealed_from: "No" })])) });
+    open("/b2c/visits");
+    expect(await screen.findByText(/Once/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "اعترض" })).toBeNull();
+  });
+
   it("sends an online Sales person home", async () => {
     serve({ "/api/v1/b2c/visits/": () => jsonResponse(visitsAnswer()) }, { sales_track: "b2c_online" });
     open("/b2c/visits");
@@ -302,6 +325,9 @@ describe("the B2C Sales menu", () => {
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/b2c/visits"]')).not.toBeNull());
     expect(links(view.container)).toContain("/b2c");
     expect(links(view.container)).not.toContain("/leads");
+    // Their numbers are the B2C page's, not the B2B one's.
+    expect(links(view.container)).toContain("/b2c/performance");
+    expect(links(view.container)).not.toContain("/sales-performance");
   });
 
   it("keeps a B2B person on the B2B sheets", async () => {
