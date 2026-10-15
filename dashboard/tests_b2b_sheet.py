@@ -8,11 +8,12 @@ from decimal import Decimal
 
 from django.apps import apps
 from django.test import SimpleTestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from . import b2b_import
 from . import services
-from .models import AuditLog, Channel, Client, Lead, LeadActivity, LeadNote, OutboundMessage
+from .models import AuditLog, Channel, Client, Lead, LeadActivity, LeadNote, LeadSheet, OutboundMessage
 from .tests_b2b import PHONE, _B2b, _json
 
 #: The test company's WhatsApp number as WhatsApp sends it.
@@ -352,6 +353,72 @@ class SendTests(_B2b):
         self.lead.refresh_from_db()
         self.assertIsNotNone(self.lead.email_at)
         self.assertEqual(self.lead.status, "contacted")
+
+
+class LastSentTests(_B2b):
+    """The sheet marks the last row a message left from with its send button (15/10/2026), so its Sales person opens it
+    where they stopped and writes to the next one."""
+
+    def setUp(self):
+        super().setUp()
+        self.second = Lead.objects.create(sheet=self.sheet, company_name="Second Ltd", email="b@second.test", whatsapp="+44 7700 900777")
+
+    def marked(self):
+        answer = self.get(self.sales, "v1_b2b_sheet", self.sheet.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        return _json(answer)["sheet"]["last_sent"]
+
+    def their_message(self, sender=PHONE_DIGITS, wamid="wamid.in.last"):
+        services.ingest_message(channel=Channel.WHATSAPP, body="hi", sender_identity=sender, external_id=wamid, owner=self.sales)
+
+    def test_the_doors_are_under_api_v1(self):
+        self.assertEqual(reverse("dashboard:v1_b2b_sheet", args=[3]), "/api/v1/b2b/sheets/3/")
+        self.assertEqual(reverse("dashboard:v1_b2b_lead_whatsapp", args=[3]), "/api/v1/b2b/leads/3/whatsapp/")
+        self.assertEqual(reverse("dashboard:v1_b2b_lead_email", args=[3]), "/api/v1/b2b/leads/3/email/")
+
+    def test_a_message_sent_from_the_row_marks_it_and_the_next_one_moves_the_mark(self):
+        self.assertIsNone(self.marked())
+        self.their_message()
+        answer = self.post(self.sales, "v1_b2b_lead_send", {"channel": "whatsapp", "to": PHONE, "body": "Our rates"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(_json(answer)["last_sent"], self.lead.pk)
+        self.assertEqual(self.marked(), self.lead.pk)
+        answer = self.post(self.sales, "v1_b2b_lead_send", {"channel": "email", "subject": "Rates", "body": "Dear team"}, self.second.pk)
+        self.assertEqual(_json(answer)["last_sent"], self.second.pk)
+        self.assertEqual(self.marked(), self.second.pk)
+
+    def test_a_refused_send_marks_nothing(self):
+        self.post(self.sales, "v1_b2b_lead_send", {"channel": "email", "subject": "Rates", "body": "Dear team"}, self.second.pk)
+        answer = self.post(self.sales, "v1_b2b_lead_send", {"channel": "whatsapp", "to": PHONE, "body": "hello"}, self.lead.pk)
+        self.assertEqual(_json(answer)["error"], "window_closed")
+        self.assertNotIn("last_sent", _json(answer))
+        answer = self.post(self.manager, "v1_b2b_lead_send", {"channel": "email", "subject": "x", "body": "x"}, self.lead.pk)
+        self.assertEqual(_json(answer)["error"], "not_yours")
+        self.assertEqual(self.marked(), self.second.pk)
+
+    def test_the_opening_message_marks_the_row_and_a_chat_opened_with_nothing_sent_does_not(self):
+        answer = self.post(self.sales, "v1_b2b_lead_whatsapp", {"number": PHONE}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertTrue(_json(answer)["sent"])
+        self.assertEqual(_json(answer)["last_sent"], self.lead.pk)
+        self.assertEqual(self.marked(), self.lead.pk)
+        self.their_message(sender="447700900777", wamid="wamid.in.second")
+        answer = self.post(self.sales, "v1_b2b_lead_whatsapp", {"number": "+44 7700 900777"}, self.second.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertFalse(_json(answer)["sent"])
+        self.assertNotIn("last_sent", _json(answer))
+        self.assertEqual(self.marked(), self.lead.pk)
+
+    def test_the_email_door_marks_the_row(self):
+        answer = self.post(self.sales, "v1_b2b_lead_email", {"subject": "Rates", "body": "Dear Anna"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(_json(answer)["last_sent"], self.lead.pk)
+        self.assertEqual(self.marked(), self.lead.pk)
+
+    def test_a_marked_row_deleted_leaves_the_sheet_unmarked(self):
+        LeadSheet.objects.filter(pk=self.sheet.pk).update(last_sent=self.second)
+        self.second.delete()
+        self.assertIsNone(self.marked())
 
 
 class _Answer:

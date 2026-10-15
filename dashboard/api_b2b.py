@@ -75,6 +75,8 @@ def _sheet_json(sheet, user, rows=None, contacted=None):
         "contacted": contacted if contacted is not None else sheet.leads.filter(_contacted_q()).count(),
         "can_manage": user.manages_sales,
         "can_contact": b2b.may_contact(user, sheet),
+        # The last row a message left from with its send button: the sheet marks it (``_sent_from_row``).
+        "last_sent": sheet.last_sent_id,
     }
 
 
@@ -620,6 +622,10 @@ def lead_delete(request, lead_id):
 # Contacting from the row
 # ---------------------------------------------------------------------------
 
+def _sent_from_row(lead):
+    """A message left from this row's send button: it becomes the sheet's marked row, where its Sales person stopped."""
+    LeadSheet.objects.filter(pk=lead.sheet_id).update(last_sent=lead)
+
 @endpoint("POST")
 @api_gate(b2b.has_door)
 def lead_whatsapp(request, lead_id):
@@ -633,8 +639,13 @@ def lead_whatsapp(request, lead_id):
         client, sent = b2b.start_whatsapp(lead, request.user, number)
     except b2b.Refused as refusal:
         return _refused(refusal)
+    answer = {"ok": True, "sent": sent, "chat": client.code}
+    # Only a message that left marks the row: a chat opened with nothing sent is not where the person stopped.
+    if sent:
+        _sent_from_row(lead)
+        answer["last_sent"] = lead.pk
     lead.refresh_from_db()
-    return JsonResponse({"ok": True, "sent": sent, "chat": client.code, "lead": _lead_json(lead)})
+    return JsonResponse({**answer, "lead": _lead_json(lead)})
 
 
 @endpoint("POST")
@@ -661,8 +672,9 @@ def lead_send(request, lead_id):
             return _error(400, "bad_request")
     except b2b.Refused as refusal:
         return _refused(refusal)
+    _sent_from_row(lead)
     lead.refresh_from_db()
-    return JsonResponse({"ok": True, "chat": client.code, "lead": _lead_json(lead)})
+    return JsonResponse({"ok": True, "chat": client.code, "lead": _lead_json(lead), "last_sent": lead.pk})
 
 
 @endpoint("POST")
@@ -710,8 +722,9 @@ def lead_email(request, lead_id):
         b2b.send_email(lead, request.user, subject, letter)
     except b2b.Refused as refusal:
         return _refused(refusal)
+    _sent_from_row(lead)
     lead.refresh_from_db()
-    return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+    return JsonResponse({"ok": True, "lead": _lead_json(lead), "last_sent": lead.pk})
 
 
 #: The longest call one may write down, in minutes.

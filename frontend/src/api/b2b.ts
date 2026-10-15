@@ -25,6 +25,8 @@ export interface B2bSheet {
   contacted: number;
   can_manage: boolean;
   can_contact: boolean;
+  /** The last row a message left from with its send button (the sheet marks it), or null. */
+  last_sent: number | null;
 }
 
 /** The columns a row is typed or pasted in, in the order the server reads a pasted block. */
@@ -314,17 +316,20 @@ const isContacted = (lead: B2bLead) => Boolean(lead.whatsapp_at || lead.email_at
  * not asked again (13/10/2026: a sheet holds 5000 companies, and it came down whole after every cell typed). Everything
  * else (the list of sheets, the follow-ups, the numbers) is asked again as after any write.
  */
-function useLeadWrite<V, R extends { lead?: B2bLead }>(run: (values: V) => Promise<R>) {
+function useLeadWrite<V, R extends { lead?: B2bLead; last_sent?: number }>(run: (values: V) => Promise<R>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSettled: (answer) => {
       const lead = answer?.lead;
       if (lead) {
+        // A message that left from the row makes it the sheet's marked row (`last_sent`).
+        const lastSent = answer?.last_sent;
         client.setQueriesData<B2bSheetResponse>({ queryKey: ["b2b", "sheet"] }, (sheet) => {
           if (!sheet?.leads.some((one) => one.id === lead.id)) return sheet;
           const leads = sheet.leads.map((one) => (one.id === lead.id ? lead : one));
-          return { ...sheet, leads, sheet: { ...sheet.sheet, contacted: leads.filter(isContacted).length } };
+          const marked = typeof lastSent === "number" ? lastSent : sheet.sheet.last_sent;
+          return { ...sheet, leads, sheet: { ...sheet.sheet, contacted: leads.filter(isContacted).length, last_sent: marked } };
         });
       }
       void client.invalidateQueries({ queryKey: qk.b2b, predicate: lead ? (query) => query.queryKey[1] !== "sheet" : undefined });
@@ -416,7 +421,7 @@ export function useDeleteNote() {
 export function useSendMessage() {
   return useLeadWrite((values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string }) => {
     const { id, ...rest } = values;
-    return api<{ ok: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/send/`, { json: rest });
+    return api<{ ok: boolean; chat: string; lead: B2bLead; last_sent?: number }>(`/api/v1/b2b/leads/${id}/send/`, { json: rest });
   });
 }
 
@@ -491,13 +496,13 @@ export function useDeleteLead() {
 
 export function useLeadWhatsapp() {
   return useLeadWrite(({ id, number }: { id: number; number: string }) =>
-    api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: { number } }),
+    api<{ ok: boolean; sent: boolean; chat: string; lead: B2bLead; last_sent?: number }>(`/api/v1/b2b/leads/${id}/whatsapp/`, { json: { number } }),
   );
 }
 
 export function useLeadEmail() {
   return useLeadWrite(({ id, subject, body }: { id: number; subject: string; body: string }) =>
-    api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/email/`, { json: { subject, body } }),
+    api<{ ok: boolean; lead: B2bLead; last_sent?: number }>(`/api/v1/b2b/leads/${id}/email/`, { json: { subject, body } }),
   );
 }
 

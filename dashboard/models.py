@@ -4695,6 +4695,9 @@ class LeadSheet(models.Model):
     assigned_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name="lead_sheets")
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+    #: The last row a message left from with the row's send button (15/10/2026): the sheet marks it, so the Sales person
+    #: who opens it again finds where they stopped and writes to the next one. Kept on the sheet, not the browser.
+    last_sent = models.ForeignKey("Lead", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
 
     class Meta:
         ordering = ("-created_at",)

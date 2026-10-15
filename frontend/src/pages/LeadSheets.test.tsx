@@ -80,6 +80,7 @@ function sheetAnswer(over: Partial<B2bSheetResponse["sheet"]> = {}, leads: B2bLe
       contacted: 0,
       can_manage: false,
       can_contact: true,
+      last_sent: null,
       ...over,
     },
     sales: [],
@@ -701,6 +702,43 @@ describe("LeadSheetPage", () => {
     expect(await screen.findByText("101–200 من 250")).toBeInTheDocument();
     expect(screen.getByLabelText("اعرض")).toHaveValue("untouched");
   }, 30000);
+
+  // 15/10/2026: the Sales person writes down the sheet one company after another; the last row a message left from is
+  // marked, so the sheet opens where they stopped and they write to the next one.
+  it("opens on the last row a message left from, marked, and walks back to it from another page", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 250 }, (_unused, i) => lead({ id: i + 1, company_name: `Company ${i + 1}` }));
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({ last_sent: 180 }, many)) });
+    const { container } = open("/leads/3");
+    expect(await screen.findByDisplayValue("Company 180")).toBeInTheDocument();
+    expect(screen.getByText("101–200 من 250")).toBeInTheDocument();
+    expect(container.querySelectorAll("tr.sheet__row--last")).toHaveLength(1);
+    expect(container.querySelector("tr.sheet__row--last")).toHaveAttribute("data-lead", "180");
+    expect(within(container.querySelector<HTMLElement>('tr[data-lead="180"]')!).getByText("آخر واحد بعتله")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "التالي" }));
+    expect(await screen.findByText("201–250 من 250")).toBeInTheDocument();
+    expect(container.querySelector("tr.sheet__row--last")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "آخر صف بعتله" }));
+    expect(await screen.findByText("101–200 من 250")).toBeInTheDocument();
+    expect(container.querySelector("tr.sheet__row--last")).toHaveAttribute("data-lead", "180");
+  }, 30000);
+
+  it("moves the mark to the row a message was just sent from, and marks nothing on a sheet never written from", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: true, chat: "CL-0042", lead: lead({ whatsapp_at: "15/10/2026 1:00 PM" }), last_sent: 5 }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead(), lead({ id: 6, company_name: "Other Co" })])),
+    });
+    const { container } = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(container.querySelector("tr.sheet__row--last")).toBeNull();
+    expect(screen.queryByRole("button", { name: "آخر صف بعتله" })).toBeNull();
+    await user.click(within(container.querySelector<HTMLElement>('tr[data-lead="5"]')!).getByRole("button", { name: "ابعت رسالة" }));
+    await user.type(screen.getByLabelText("الرسالة"), "Here are our rates");
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    await waitFor(() => expect(container.querySelector("tr.sheet__row--last")).toHaveAttribute("data-lead", "5"));
+    expect(screen.getByRole("button", { name: "آخر صف بعتله" })).toBeInTheDocument();
+  });
 
   it("starts on the first page when what was kept is rubbish", async () => {
     localStorage.setItem("eagle.sheet.place", JSON.stringify({ 3: { page: "<b>", only: "everything" } }));

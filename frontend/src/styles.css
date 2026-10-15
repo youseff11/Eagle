@@ -241,6 +241,12 @@ button.nav-tools__btn { appearance: none; }
 .sheet__band td { background: var(--sheet-band); height: 12px; border-color: var(--sheet-band); }
 .sheet tbody td { background: var(--sheet-row); }
 .sheet tbody tr:hover td { background: var(--sheet-row-hover); }
+/* The last row a message left from (15/10/2026): yellow, as a row is highlighted on the team's Google Sheet, with a thick
+   line on its start side, so the Sales person sees where they stopped and writes to the next one. */
+.sheet tbody tr.sheet__row--last td { background: #fff2cc; }
+.sheet tbody tr.sheet__row--last:hover td { background: #ffe599; }
+.sheet tbody tr.sheet__row--last td:first-child { box-shadow: inset 4px 0 0 #bf9000; }
+[dir="rtl"] .sheet tbody tr.sheet__row--last td:first-child { box-shadow: inset -4px 0 0 #bf9000; }
 .sheet__cell {
   display: block; width: 100%; min-height: 36px; padding: 7px 8px; border: 2px solid transparent; border-radius: 0;
   background: transparent; color: var(--sheet-ink); font: inherit; font-size: 14px; line-height: 1.45; text-align: center;
@@ -284,6 +290,7 @@ button.nav-tools__btn { appearance: none; }
 .sheet__tools .muted, .sheet__under .muted { color: var(--sheet-soft); }
 .sheet .chip { color: var(--sheet-soft); background: color-mix(in srgb, var(--sheet-ink) 7%, transparent); border-color: var(--sheet-line); }
 .sheet .chip--replied { color: var(--sheet-done); }
+.sheet .chip--last { color: #7f6000; background: #ffe599; border-color: #bf9000; }
 .sheet .deadline--late { color: var(--sheet-high); }
 .sheet .empty { color: var(--sheet-soft); padding: 24px; }
 

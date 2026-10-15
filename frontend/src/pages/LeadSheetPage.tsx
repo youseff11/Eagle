@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import {
   refusalCode,
@@ -753,6 +753,25 @@ export function LeadSheetPage() {
   }, [data, typed, only]);
   const shown = pageWithin(page, leads.length);
 
+  // The last row a message left from with its send button is marked (15/10/2026): the sheet opens on its page and shows
+  // it, so the Sales person writes to the one after it; «آخر صف بعتله» walks back to it from anywhere.
+  const lastSent = data?.leads.find((lead) => lead.id === data.sheet.last_sent) ?? null;
+  const [seek, setSeek] = useState(0);
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!data || opened.current) return;
+    opened.current = true;
+    const at = leads.findIndex((lead) => lead.id === data.sheet.last_sent);
+    if (at < 0) return;
+    setPage(Math.floor(at / PAGE_ROWS));
+    setSeek(leads[at].id);
+  }, [data, leads]);
+  useEffect(() => {
+    if (!seek) return;
+    document.querySelector(`tr[data-lead="${seek}"]`)?.scrollIntoView?.({ block: "center" });
+    setSeek(0);
+  }, [seek, shown]);
+
   if (me.data && !allowed) return <Navigate to="/" replace />;
   if (!sheetId) return <Navigate to="/leads" replace />;
   if (sheet.isError) {
@@ -766,6 +785,16 @@ export function LeadSheetPage() {
   if (!data) return <Loading />;
 
   const contact = data.sheet.can_contact;
+  const toLastSent = () => {
+    if (!lastSent) return;
+    const at = data.leads.findIndex((lead) => lead.id === lastSent.id);
+    const next = Math.floor(at / PAGE_ROWS);
+    setSearch("");
+    setOnly("all");
+    setPage(next);
+    keepPlace(sheetId, { page: next, only: "all" });
+    setSeek(lastSent.id);
+  };
   const sender = me.data ? `${me.data.user.name}` : "";
   const close = () => setOpen(null);
 
@@ -843,6 +872,12 @@ export function LeadSheetPage() {
               {t("إعدادات الشيت", "Sheet settings")}
             </button>
           )}
+          {lastSent && (
+            <button className="btn" type="button" title={lastSent.company_name} onClick={toLastSent}>
+              <Icon name="map-pin" />
+              {t("آخر صف بعتله", "Last row I wrote to")}
+            </button>
+          )}
           <div className="grow" />
           <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => {
               const next = event.target.value as Only;
@@ -888,7 +923,7 @@ export function LeadSheetPage() {
             </thead>
             <tbody onPaste={pasteRow}>
               {leads.slice(shown * PAGE_ROWS, (shown + 1) * PAGE_ROWS).map((lead) => (
-                <tr key={lead.id} data-lead={lead.id}>
+                <tr key={lead.id} data-lead={lead.id} className={lead.id === lastSent?.id ? "sheet__row--last" : undefined}>
                   {GRID_COLUMNS.map((column) => {
                     const name = lang === "ar" ? column.ar : column.en;
                     return (
@@ -945,6 +980,12 @@ export function LeadSheetPage() {
                         <Icon name="pen" />
                       </button>
                     </div>
+                    {lead.id === lastSent?.id && (
+                      <div className="chip chip--sm chip--last" style={{ marginTop: 4 }}>
+                        <Icon name="map-pin" size="sm" />
+                        {t("آخر واحد بعتله", "The last one I wrote to")}
+                      </div>
+                    )}
                     <Reached at={lead.whatsapp_at} label={t("واتساب", "WhatsApp")} />
                     <Reached at={lead.email_at} label={t("إيميل", "E-mail")} />
                     <Reached at={lead.call_at} label={t("مكالمة", "Call")} />
