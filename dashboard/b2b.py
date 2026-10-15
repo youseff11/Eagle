@@ -348,6 +348,63 @@ def note_outbound(outbound):
         _record(lead, kind, outbound.created_by, outbound=outbound, automatic=True)
 
 
+#: The row's first time per channel, recounted from its timeline when a message it was marked by turns out not to have gone.
+_FIRST_OF_KIND = (("whatsapp", "whatsapp_at"), ("email", "email_at"), ("call", "call_at"))
+
+
+def unmark_failed(outbound_ids, *, models=None, log=True):
+    """Messages WhatsApp took and then reported as not delivered (15/10/2026: a number with no WhatsApp, Meta's limit on
+    marketing messages): the company never got them, so the rows they marked are not «contacted» by them.
+
+    Each line on a row's timeline made by such a message goes - or, when another message of that day from the same line to
+    that company did go, it stands for that one instead. The row's contact times are then recounted from what is left, and a
+    row the system moved from «New» to «Contacted» goes back to «New» when nothing reached it at all. ``models``: the
+    historical models, when a migration fixes the rows marked before this existed (``(Lead, LeadActivity, OutboundMessage)``).
+    Returns the ids of the rows changed."""
+    from django.db.models import Max, Min
+
+    LeadModel, Activity, Outbound = models or (Lead, LeadActivity, OutboundMessage)
+    changed = set()
+    for out in Outbound.objects.filter(pk__in=list(outbound_ids), status="failed"):
+        for act in Activity.objects.filter(outbound_id=out.pk, incoming=False):
+            lead = LeadModel.objects.select_for_update().filter(pk=act.lead_id).first()
+            day = timezone.localtime(act.at).date()
+            stand_in = (
+                Outbound.objects.filter(
+                    owner_id=out.owner_id, channel=out.channel, status="sent",
+                    client_id__in={pk for pk in (out.client_id, lead.client_id) if pk},
+                    created_at__date=day,
+                ).exclude(pk=out.pk).order_by("created_at").first()
+            )
+            if stand_in is not None:
+                act.outbound_id, act.at = stand_in.pk, max(act.at, stand_in.created_at)
+                act.save(update_fields=["outbound", "at"])
+            else:
+                act.delete()
+            changed.add(lead.pk)
+    for lead in LeadModel.objects.filter(pk__in=changed):
+        reached = Activity.objects.filter(lead_id=lead.pk, kind__in=("whatsapp", "email", "call"))
+        ours = reached.filter(incoming=False)
+        for kind, field in _FIRST_OF_KIND:
+            setattr(lead, field, ours.filter(kind=kind).aggregate(first=Min("at"))["first"])
+        lead.last_outreach_at = ours.aggregate(last=Max("at"))["last"]
+        lead.last_contact_at = reached.aggregate(last=Max("at"))["last"]
+        fields = ["whatsapp_at", "email_at", "call_at", "last_outreach_at", "last_contact_at"]
+        last_stage = Activity.objects.filter(lead_id=lead.pk, kind="status").order_by("-at", "-id").first()
+        nothing_left = not (lead.whatsapp_at or lead.email_at or lead.call_at)
+        # Only the system's own move goes back: a stage somebody chose by hand, or one the sheet came with, stays.
+        if nothing_left and lead.status == "contacted" and last_stage is not None and last_stage.automatic and last_stage.status == "contacted":
+            lead.status = "new"
+            fields.append("status")
+            last_stage.delete()
+        lead.save(update_fields=fields + ["updated_at"])
+    if log and changed:
+        from . import services
+
+        services.log(None, "b2b.unmark_failed", f"{len(changed)} row(s)", ", ".join(map(str, sorted(changed)))[:500])
+    return sorted(changed)
+
+
 def note_inbound(message):
     """The company answered: a message came in on the Sales person's own line (``owner``) from a company on their sheets.
 
@@ -572,7 +629,7 @@ MAX_KPI_DAYS = 366
 #: The counts a person's row carries (zero is a real zero: nothing was done), and the two rates (``None`` when there is
 #: nothing to divide by: "not measured", never 0%).
 KPI_COUNTS = (
-    "new_leads", "contacted", "whatsapp", "emails", "calls", "replies", "visits", "won", "lost",
+    "new_leads", "contacted", "whatsapp", "failed", "emails", "calls", "replies", "visits", "won", "lost",
     "follow_ups_on_time", "follow_ups_late", "follow_ups_missed", "overdue_now", "holding", "untouched",
     "quotations", "quotes_accepted",
 )
@@ -614,7 +671,7 @@ def kpis(user, start, end, today=None):
 
     * new_leads - companies added to the person's sheets in the period;
     * contacted - companies they reached out to (a message or a call); whatsapp / emails - the messages themselves that left
-      their line to a company on their sheets; calls - the calls they logged;
+      their line to a company on their sheets; failed - the WhatsApp ones that did not reach it; calls - the calls they logged;
     * replies - companies that answered them for the first time in the period;
     * visits / won / lost - companies moved to «Visit», «Contracted» or «Refused» in the period (each company once);
     * follow-ups that fell due in the period: done on the day, done later, or still not done;
@@ -635,10 +692,10 @@ def kpis(user, start, end, today=None):
         acts = LeadActivity.objects.filter(owner=person, at__gte=start_at, at__lt=end_at)
         ours = acts.filter(incoming=False, kind__in=(LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.EMAIL, LeadActivity.Kind.CALL))
         stage = acts.filter(kind=LeadActivity.Kind.STATUS)
-        sent = OutboundMessage.objects.filter(
-            owner=person, status=OutboundMessage.Status.SENT, created_at__gte=start_at, created_at__lt=end_at,
-            client__leads__sheet__assigned_to=person,
+        to_companies = OutboundMessage.objects.filter(
+            owner=person, created_at__gte=start_at, created_at__lt=end_at, client__leads__sheet__assigned_to=person,
         )
+        sent = to_companies.filter(status=OutboundMessage.Status.SENT)
         mine = Lead.objects.filter(sheet__assigned_to=person)
         done = [
             (timezone.localtime(at).date(), due)
@@ -653,6 +710,9 @@ def kpis(user, start, end, today=None):
             "new_leads": mine.filter(created_at__gte=start_at, created_at__lt=end_at).count(),
             "contacted": ours.values("lead").distinct().count(),
             "whatsapp": sent.filter(channel=Channel.WHATSAPP).distinct().count(),
+            # WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by Meta
+            # afterwards (15/10/2026: «contacted» and «WhatsApp» did not match and nothing said why).
+            "failed": to_companies.filter(channel=Channel.WHATSAPP, status=OutboundMessage.Status.FAILED).distinct().count(),
             "emails": sent.filter(channel=Channel.EMAIL).distinct().count(),
             "calls": ours.filter(kind=LeadActivity.Kind.CALL).count(),
             "replies": Lead.objects.filter(

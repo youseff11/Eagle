@@ -19,6 +19,7 @@ const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, s
   { key: "new_leads", ar: "شركات جديدة", en: "New leads" },
   { key: "contacted", ar: "اتواصلنا معاهم", en: "Contacted" },
   { key: "whatsapp", ar: "رسايل واتساب", en: "WhatsApp messages" },
+  { key: "failed", ar: "رسايل فشلت", en: "Messages failed", hint: ["رسايل واتساب ماوصلتش للشركة: اترفضت وهي بتتبعت، أو واتساب قال بعدها إنها ماوصلتش (رقم مالوش واتساب، أو حد ميتا لرسايل التسويق). الشركة دي مابتتحسبش «اتواصلنا معاهم» بيها.", "WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by WhatsApp afterwards (a number with no WhatsApp, Meta's limit on marketing messages). The company is not counted as contacted by them."] },
   { key: "emails", ar: "إيميلات", en: "E-mails sent" },
   { key: "calls", ar: "مكالمات", en: "Calls logged" },
   { key: "replies", ar: "ردّوا", en: "Answered" },

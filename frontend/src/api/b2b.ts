@@ -247,6 +247,8 @@ export interface KpiCounts {
   new_leads: number;
   contacted: number;
   whatsapp: number;
+  /** WhatsApp messages that did not reach the company (refused, or reported not delivered afterwards). */
+  failed: number;
   emails: number;
   calls: number;
   replies: number;

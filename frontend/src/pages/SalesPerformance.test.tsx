@@ -14,6 +14,7 @@ function counts(over: Partial<KpiCounts> = {}): KpiCounts {
     new_leads: 4,
     contacted: 3,
     whatsapp: 5,
+    failed: 2,
     emails: 2,
     calls: 1,
     replies: 1,
@@ -80,6 +81,16 @@ describe("SalesPerformancePage", () => {
     expect(revenue).toHaveTextContent("100.00 EUR");
     expect(revenue).toHaveTextContent("1,250.50 USD");
     expect(container.querySelector('[data-kpi="quotations"] .kpi__value')).toHaveTextContent("3");
+  });
+
+  it("shows the WhatsApp messages that failed, next to the ones that went", async () => {
+    serve("sales", () => jsonResponse(answer()));
+    const { container } = open();
+    await screen.findByText("Seller");
+    const headers = Array.from(container.querySelectorAll("thead th")).map((th) => th.textContent);
+    const at = headers.indexOf("رسايل فشلت");
+    expect(at).toBe(headers.indexOf("رسايل واتساب") + 1);
+    expect(container.querySelectorAll('[data-person="7"] td')[at]).toHaveTextContent("2");
   });
 
   it("writes «مش متقاس» for a rate with nothing to measure, never 0%", async () => {

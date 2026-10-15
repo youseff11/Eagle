@@ -4621,9 +4621,19 @@ def record_whatsapp_status(wamid, status, error=""):
 
         # Meta's own words: they may quote the number or address back, and they are shown to the whole room.
         reason = identity.scrub_contacts((error or "WhatsApp reported the message as not delivered.")[:500])
-        touched = OutboundMessage.objects.filter(provider_id=wamid).exclude(
-            wa_receipt="read"
-        ).update(status=OutboundMessage.Status.FAILED, error_message=reason)
+        failing = OutboundMessage.objects.filter(provider_id=wamid).exclude(wa_receipt="read")
+        failed_ids = list(failing.exclude(status=OutboundMessage.Status.FAILED).values_list("pk", flat=True))
+        touched = failing.update(status=OutboundMessage.Status.FAILED, error_message=reason)
+        if failed_ids:
+            # The B2B rows the message marked «contacted» were not reached by it (15/10/2026). Inside a savepoint: the
+            # status is Meta's and is kept even if the sheet cannot be put right.
+            from . import b2b
+
+            try:
+                with transaction.atomic():
+                    b2b.unmark_failed(failed_ids)
+            except Exception:  # noqa: BLE001 - the webhook answers Meta 200 whatever the sheet does
+                logger.exception("b2b.unmark_failed for %s", wamid)
         touched += ChatMessage.objects.filter(relay_wamid=wamid).exclude(
             relay_receipt="read"
         ).update(relay_status="failed", relay_error=reason)

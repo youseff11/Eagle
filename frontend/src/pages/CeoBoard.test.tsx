@@ -11,7 +11,7 @@ import { CeoBoardPage } from "./CeoBoardPage";
 afterEach(() => vi.unstubAllGlobals());
 
 const counts: KpiCounts = {
-  new_leads: 12, contacted: 9, whatsapp: 4, emails: 7, calls: 3, replies: 2, visits: 1, won: 1, lost: 1,
+  new_leads: 12, contacted: 9, whatsapp: 4, failed: 0, emails: 7, calls: 3, replies: 2, visits: 1, won: 1, lost: 1,
   follow_ups_on_time: 1, follow_ups_late: 0, follow_ups_missed: 0, overdue_now: 0, holding: 20, untouched: 5,
   quotations: 3, quotes_accepted: 1, revenue: { USD: "80.00" }, conversion_rate: 50, follow_up_rate: 100,
 };
