@@ -27,7 +27,13 @@ export interface B2bSheet {
   can_contact: boolean;
   /** The last row a message left from with its send button (the sheet marks it), or null. */
   last_sent: number | null;
+  /** The B2B team's (companies abroad) or the B2C team's (companies inside Egypt): its columns and its stages. */
+  market: Market;
+  /** A B2C sheet held by a field Sales person: its companies are visited (by them, or planned by the manager). */
+  can_visit: boolean;
 }
+
+export type Market = "b2b" | "b2c";
 
 /** The columns a row is typed or pasted in, in the order the server reads a pasted block. */
 export type B2bColumn =
@@ -43,7 +49,10 @@ export type B2bColumn =
   | "linkedin"
   | "languages"
   | "services"
-  | "source";
+  | "source"
+  | "governorate"
+  | "address"
+  | "location";
 
 export type B2bRow = Record<B2bColumn, string>;
 
@@ -73,6 +82,10 @@ export interface B2bLead extends B2bRow {
   overdue: boolean;
   /** The row's newest quotation, in a word. */
   quote: { code: string; status: QuotationStatus; total: string; currency: string } | null;
+  /** B2C: the company's place on Google Maps ("" when it has none), company or individual, and why it was lost. */
+  map_link: string;
+  customer_type: string;
+  lost_reason: string;
 }
 
 export interface B2bNote {
@@ -154,7 +167,7 @@ export interface B2bFollowUpsResponse {
 
 export interface B2bActivity {
   id: number;
-  kind: "whatsapp" | "email" | "call" | "status" | "quotation";
+  kind: "whatsapp" | "email" | "call" | "status" | "quotation" | "visit";
   automatic: boolean;
   /** The company's own message to us, not ours to them. */
   incoming: boolean;
@@ -176,6 +189,7 @@ export interface B2bChoice {
 
 export interface B2bSheetsResponse {
   ok: boolean;
+  market: Market;
   can_manage: boolean;
   sales: B2bPerson[];
   sheets: B2bSheet[];
@@ -192,6 +206,8 @@ export interface B2bSheetResponse {
   statuses: B2bChoice[];
   priorities: B2bChoice[];
   outcomes: B2bChoice[];
+  lost_reasons: B2bChoice[];
+  customer_types: B2bChoice[];
 }
 
 export interface B2bLeadResponse {
@@ -211,10 +227,12 @@ export function refusalText(failure: unknown, lang: string, fallback: string): s
   return fallback;
 }
 
-export function useB2bSheets(enabled = true) {
+/** One team's sheets: a Sales person always gets their own team's; the owner the one asked for. */
+export function useB2bSheets(enabled = true, market: Market = "b2b") {
   return useQuery({
-    queryKey: qk.b2bSheets,
-    queryFn: () => api<B2bSheetsResponse>("/api/v1/b2b/sheets/"),
+    queryKey: qk.b2bSheets(market),
+    // No word for B2B: the server answers with the person's own team (the owner's: B2B), the address the menu warms.
+    queryFn: () => api<B2bSheetsResponse>(`/api/v1/b2b/sheets/${market === "b2c" ? "?market=b2c" : ""}`),
     enabled,
   });
 }
@@ -236,10 +254,10 @@ export function useB2bLead(id: number) {
 }
 
 /** The follow-ups due today or late: one's own, or the team's for the manager. */
-export function useB2bFollowUps(enabled = true) {
+export function useB2bFollowUps(enabled = true, market: Market = "b2b") {
   return useQuery({
-    queryKey: qk.b2bFollowUps,
-    queryFn: () => api<B2bFollowUpsResponse>("/api/v1/b2b/follow-ups/"),
+    queryKey: qk.b2bFollowUps(market),
+    queryFn: () => api<B2bFollowUpsResponse>(`/api/v1/b2b/follow-ups/${market === "b2c" ? "?market=b2c" : ""}`),
     enabled,
   });
 }
@@ -287,13 +305,15 @@ export interface KpiResponse {
 }
 
 /** The Sales numbers for the days `from`..`to` (both included; empty = this month so far). */
-export function useB2bKpis(from: string, to: string, enabled = true) {
+export function useB2bKpis(from: string, to: string, enabled = true, market = "") {
   const query = new URLSearchParams();
   if (from) query.set("from", from);
   if (to) query.set("to", to);
+  // The owner's choice of team; anybody else's numbers are their own team's whatever is asked.
+  if (market) query.set("market", market);
   const search = query.toString();
   return useQuery({
-    queryKey: qk.b2bKpis(from, to),
+    queryKey: qk.b2bKpis(from, to, market),
     queryFn: () => api<KpiResponse>(`/api/v1/b2b/kpis/${search ? `?${search}` : ""}`),
     enabled,
   });
@@ -341,6 +361,8 @@ export interface SheetValues {
   title: string;
   note: string;
   assigned_to: number;
+  /** Which team's a new sheet is (the owner's choice; a manager's sheet is always their own team's). */
+  market?: Market;
 }
 
 export function useCreateSheet() {
@@ -391,7 +413,15 @@ export function useAddRowsInParts(sheetId: number) {
   });
 }
 
-export type LeadValues = B2bRow & { status: string; priority: string; deal_value: string; next_follow_up: string };
+export type LeadValues = B2bRow & {
+  status: string;
+  priority: string;
+  deal_value: string;
+  next_follow_up: string;
+  /** B2C (any row takes them): company or individual, and why a lost company was lost. */
+  customer_type?: string;
+  lost_reason?: string;
+};
 
 export function useSaveLead() {
   return useLeadWrite(({ id, values }: { id: number; values: LeadValues }) =>

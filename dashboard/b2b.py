@@ -24,6 +24,11 @@ Who:
 * the sheet's Sales person reads and writes it, and is the only one who contacts from it (it is their line);
 * the Sales manager and the owner read and write every sheet, and are the ones who make, hand over and delete sheets;
 * nobody else has a door here. A company on a sheet is a client's identity: the operation never sees it.
+
+Two teams (15/10/2026): a sheet is the B2B team's (companies abroad) or the B2C team's (companies inside Egypt,
+``LeadSheet.market``), and a Sales person is on one of them by what the owner set on their file (``User.sales_track``). A
+sheet is given to its own team's people only, and a manager runs their own team's sheets; the owner runs both. What only a
+B2C sheet has - its stages, a lost company's reason, the visits - is ``b2c.py``.
 """
 
 import re
@@ -37,7 +42,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
-    Channel, Client, Lead, LeadActivity, LeadNote, LeadSheet, LeadStatus, OutboundMessage, Quotation, Role, SalesTarget, User,
+    B2C_TRACKS, Channel, Client, Lead, LeadActivity, LeadNote, LeadSheet, LeadStatus, Market, OutboundMessage, Quotation, Role,
+    SalesTarget, SalesTrack, User,
 )
 
 # ---------------------------------------------------------------------------
@@ -183,7 +189,29 @@ COLUMNS = (
     ("services", 250, "الخدمات المطلوبة", "Services required"),
     ("source", 120, "المصدر", "Source"),
 )
-COLUMN_LIMITS = {name: limit for name, limit, _ar, _en in COLUMNS}
+#: The B2C sheet's own columns (15/10/2026): where the company is in Egypt. ``location`` (its place on the map) is not a column
+#: of text: it is read into two numbers (``b2c.parse_location``).
+B2C_COLUMNS = (
+    ("governorate", 80, "المحافظة", "Governorate"),
+    ("address", 250, "العنوان", "Address"),
+)
+#: Every text column a row has, of either team.
+ALL_COLUMNS = COLUMNS + B2C_COLUMNS
+COLUMN_LIMITS = {name: limit for name, limit, _ar, _en in ALL_COLUMNS}
+#: The order a B2C sheet's form and upload show the columns in: a company in Egypt has no country, and few a LinkedIn page.
+B2C_ORDER = (
+    "company_name", "contact_person", "position", "phone", "whatsapp", "email", "industry", "governorate", "address",
+    "location", "website", "languages", "services", "source",
+)
+LOCATION_COLUMN = ("location", 500, "اللوكيشن (لينك Google Maps)", "Location (Google Maps link)")
+
+
+def columns_for(market):
+    """``(name, longest, Arabic, English)`` of a sheet's columns in its order: the B2B team's, or the B2C team's."""
+    if market != Market.B2C:
+        return COLUMNS
+    every = {column[0]: column for column in ALL_COLUMNS + (LOCATION_COLUMN,)}
+    return tuple(every[name] for name in B2C_ORDER)
 #: The longest notes a row (or a call) keeps.
 MAX_NOTES = 4000
 #: The most rows one request may add (a bigger upload goes in parts of this many, ``ImportRows``), and the most a sheet may
@@ -209,18 +237,32 @@ def has_door(user):
     return bool(getattr(user, "is_authenticated", False) and (user.is_admin_role or user.is_sales))
 
 
-def sheets_for(user):
-    """The sheets this person reads: all of them for the manager and the owner, their own for a Sales person."""
+def manages_market(user, market):
+    """Runs this team's sheets: the owner both teams', the Sales manager their own team's (15/10/2026)."""
+    return user.is_admin_role or (user.manages_sales and user.sales_market == market)
+
+
+def manages(user, sheet):
+    return manages_market(user, sheet.market)
+
+
+def sheets_for(user, market=None):
+    """The sheets this person reads: their team's for the manager, every one for the owner, their own for a Sales person.
+    ``market`` narrows it to one team's."""
     rows = LeadSheet.objects.select_related("assigned_to", "created_by")
-    if user.manages_sales:
-        return rows
-    if user.is_sales:
-        return rows.filter(assigned_to=user)
-    return rows.none()
+    if user.is_admin_role:
+        pass
+    elif user.manages_sales:
+        rows = rows.filter(Q(market=user.sales_market) | Q(assigned_to=user))
+    elif user.is_sales:
+        rows = rows.filter(assigned_to=user)
+    else:
+        return rows.none()
+    return rows.filter(market=market) if market else rows
 
 
 def may_read(user, sheet):
-    return user.manages_sales or (user.is_sales and sheet.assigned_to_id == user.pk)
+    return manages(user, sheet) or (user.is_sales and sheet.assigned_to_id == user.pk)
 
 
 def may_contact(user, sheet):
@@ -228,17 +270,22 @@ def may_contact(user, sheet):
     return user.is_sales and sheet.assigned_to_id == user.pk
 
 
-def sales_people():
-    """The Sales people a target is set for: the ones still working, without the Sales manager."""
-    return User.objects.filter(role=Role.SALES, is_active=True, is_sales_manager=False).order_by("first_name", "username")
+def track_q(market):
+    """The Sales people of one team, by what the owner set on their file."""
+    return Q(sales_track__in=B2C_TRACKS) if market == Market.B2C else Q(sales_track=SalesTrack.B2B)
 
 
-def sheet_holders():
+def sales_people(market=Market.B2B):
+    """The Sales people a target is set for: the ones still working on that team, without the Sales manager."""
+    return User.objects.filter(track_q(market), role=Role.SALES, is_active=True, is_sales_manager=False).order_by("first_name", "username")
+
+
+def sheet_holders(market=Market.B2B):
     """Who a sheet may be given to: every Sales person still working, the Sales manager too - who may make one for
     themselves and contact its companies from their own number (the owner's rule, 13/10/2026; it was "never a manager"
     from 10/10). The list the page draws and the check of what is posted are both this, so anybody else typed into the
-    request by hand is refused."""
-    return User.objects.filter(role=Role.SALES, is_active=True).order_by("first_name", "username")
+    request by hand is refused. Only the sheet's own team (15/10/2026): a B2C sheet goes to a B2C Sales person."""
+    return User.objects.filter(track_q(market), role=Role.SALES, is_active=True).order_by("first_name", "username")
 
 
 # ---------------------------------------------------------------------------
@@ -280,8 +327,9 @@ def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, i
             lead.replied_at = at
             fields.append("replied_at")
     else:
-        first = FIRST_FIELD[kind]
-        if getattr(lead, first) is None:
+        # A visit has no "first time" of its own on the row: its own record is the visit.
+        first = FIRST_FIELD.get(kind)
+        if first and getattr(lead, first) is None:
             setattr(lead, first, at)
             fields.append(first)
         fields += _later(lead, "last_outreach_at", at)
@@ -290,8 +338,9 @@ def _record(lead, kind, by, *, outbound=None, client_id=None, automatic=False, i
     if client_id and lead.client_id is None:
         lead.client_id = client_id
         fields.append("client")
-    # The sheet's first step moves by itself: the first letter or WhatsApp to a new company makes it «Contacted».
-    if kind in (LeadActivity.Kind.EMAIL, LeadActivity.Kind.WHATSAPP) and not incoming and lead.status == LeadStatus.NEW:
+    # The sheet's first step moves by itself: the first letter or WhatsApp to a new company makes it «Contacted» (and a
+    # field visit, on a B2C sheet).
+    if kind in (LeadActivity.Kind.EMAIL, LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.VISIT) and not incoming and lead.status == LeadStatus.NEW:
         lead.status = LeadStatus.CONTACTED
         fields.append("status")
     if fields:
@@ -462,8 +511,9 @@ def auto_lead(message, kind):
         known |= Q(email_key=sender.lower())
     if Lead.objects.filter(known).exists():
         return None
-    sheet = LeadSheet.objects.filter(assigned_to=owner, title=AUTO_SHEET_TITLE).first() or LeadSheet.objects.create(
-        title=AUTO_SHEET_TITLE, note=AUTO_SHEET_NOTE, assigned_to=owner,
+    market = owner.sales_market
+    sheet = LeadSheet.objects.filter(assigned_to=owner, title=AUTO_SHEET_TITLE, market=market).first() or LeadSheet.objects.create(
+        title=AUTO_SHEET_TITLE, note=AUTO_SHEET_NOTE, assigned_to=owner, market=market,
     )
     person = (client.name or message.sender_display or "").strip()
     domain = sender.split("@", 1)[1] if kind == LeadActivity.Kind.EMAIL and "@" in sender else ""
@@ -520,10 +570,10 @@ def _open_follow_ups(rows, today):
 MAX_FOLLOW_UPS = 300
 
 
-def follow_ups_for(user, today=None):
+def follow_ups_for(user, today=None, market=None):
     """The follow-ups due today or late on the sheets this person reads: their own, or the team's for the manager."""
     today = today or timezone.localdate()
-    rows = Lead.objects.filter(sheet__in=sheets_for(user)).select_related("sheet", "sheet__assigned_to").prefetch_related("quotations", "note_items__by")
+    rows = Lead.objects.filter(sheet__in=sheets_for(user, market)).select_related("sheet", "sheet__assigned_to").prefetch_related("quotations", "note_items__by")
     return _open_follow_ups(rows.order_by("next_follow_up", "id"), today)[:MAX_FOLLOW_UPS]
 
 
@@ -654,19 +704,23 @@ def _rates(row):
     return row
 
 
-def kpi_people(user, start_at, end_at):
-    """Whose numbers this person reads: their own, or - for the manager and the owner - every Sales person who holds
-    companies now or worked one in the period (somebody who left mid-month still has their month)."""
+def kpi_people(user, start_at, end_at, market=Market.B2B):
+    """Whose numbers this person reads: their own, or - for the manager and the owner - every Sales person of the team who
+    holds companies now or worked one in the period (somebody who left mid-month still has their month). A manager reads
+    their own team's; the owner the team asked for."""
     if not user.manages_sales:
         return [user] if user.is_sales else []
-    worked = LeadActivity.objects.filter(at__gte=start_at, at__lt=end_at).values("owner_id")
+    if not user.is_admin_role:
+        market = user.sales_market
+    worked = LeadActivity.objects.filter(at__gte=start_at, at__lt=end_at, lead__sheet__market=market).values("owner_id")
     rows = User.objects.filter(role=Role.SALES).filter(
-        Q(is_active=True, is_sales_manager=False) | Q(pk__in=worked) | Q(lead_sheets__isnull=False)
+        Q(track_q(market), is_active=True, is_sales_manager=False) | Q(pk__in=worked)
+        | Q(lead_sheets__market=market, lead_sheets__isnull=False)
     ).distinct()
     return list(rows.order_by("first_name", "username"))
 
 
-def kpis(user, start, end, today=None):
+def kpis(user, start, end, today=None, market=Market.B2B):
     """``(rows, total)`` for the days ``start``..``end`` (Cairo, both included).
 
     * new_leads - companies added to the person's sheets in the period;
@@ -688,15 +742,18 @@ def kpis(user, start, end, today=None):
     start_at = timezone.make_aware(datetime.combine(start, dtime.min))
     end_at = timezone.make_aware(datetime.combine(end + timedelta(days=1), dtime.min))
     rows = []
-    for person in kpi_people(user, start_at, end_at):
-        acts = LeadActivity.objects.filter(owner=person, at__gte=start_at, at__lt=end_at)
-        ours = acts.filter(incoming=False, kind__in=(LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.EMAIL, LeadActivity.Kind.CALL))
+    for person in kpi_people(user, start_at, end_at, market):
+        # The team's own sheets only: a person moved from one team to the other keeps each team's numbers apart.
+        acts = LeadActivity.objects.filter(owner=person, at__gte=start_at, at__lt=end_at, lead__sheet__market=market)
+        ours = acts.filter(incoming=False, kind__in=(
+            LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.EMAIL, LeadActivity.Kind.CALL, LeadActivity.Kind.VISIT,
+        ))
         stage = acts.filter(kind=LeadActivity.Kind.STATUS)
         to_companies = OutboundMessage.objects.filter(
-            owner=person, created_at__gte=start_at, created_at__lt=end_at, client__leads__sheet__assigned_to=person,
+            owner=person, created_at__gte=start_at, created_at__lt=end_at, client__leads__sheet__assigned_to=person, client__leads__sheet__market=market,
         )
         sent = to_companies.filter(status=OutboundMessage.Status.SENT)
-        mine = Lead.objects.filter(sheet__assigned_to=person)
+        mine = Lead.objects.filter(sheet__assigned_to=person, sheet__market=market)
         done = [
             (timezone.localtime(at).date(), due)
             for at, due in acts.filter(follow_up_for__isnull=False).values_list("at", "follow_up_for")
@@ -717,6 +774,7 @@ def kpis(user, start, end, today=None):
             "calls": ours.filter(kind=LeadActivity.Kind.CALL).count(),
             "replies": Lead.objects.filter(
                 activities__owner=person, activities__incoming=True, replied_at__gte=start_at, replied_at__lt=end_at,
+                sheet__market=market,
             ).distinct().count(),
             "visits": stage.filter(status=LeadStatus.VISIT).values("lead").distinct().count(),
             "won": stage.filter(status=LeadStatus.WON).values("lead").distinct().count(),
@@ -728,7 +786,7 @@ def kpis(user, start, end, today=None):
             "holding": mine.count(),
             "untouched": mine.filter(whatsapp_at__isnull=True, email_at__isnull=True, call_at__isnull=True).count(),
         }
-        quotes = Quotation.objects.filter(owner=person)
+        quotes = Quotation.objects.filter(owner=person, lead__sheet__market=market)
         accepted = quotes.filter(status=Quotation.Status.ACCEPTED, decided_at__gte=start_at, decided_at__lt=end_at)
         row["quotations"] = quotes.filter(sent_at__gte=start_at, sent_at__lt=end_at).count()
         row["quotes_accepted"] = accepted.count()
@@ -750,11 +808,14 @@ def move_lead(lead, sheet, actor):
     stays on the line it was had on: the new Sales person starts their own from the row. ``Refused`` when it may not."""
     from . import services
 
-    if not actor.manages_sales:
+    if not manages(actor, lead.sheet):
         raise Refused("not_manager", "نقل الشركات للمانجر بس.", "Only the Sales manager moves companies.")
     if sheet.pk == lead.sheet_id:
         raise Refused("same_sheet", "الشركة في الشيت ده أصلًا.", "The company is on that sheet already.")
-    if not sheet_holders().filter(pk=sheet.assigned_to_id).exists():
+    # A B2C company does not go to a B2B sheet: the stages are not the same list.
+    if sheet.market != lead.sheet.market:
+        raise Refused("other_team", "الشيت ده بتاع الفريق التاني (B2B / B2C).", "That sheet is the other team's (B2B / B2C).")
+    if not sheet_holders(sheet.market).filter(pk=sheet.assigned_to_id).exists():
         raise Refused("no_sales", "الشيت ده مع حد مايستلمش شركات (حساب مقفول).", "That sheet is with someone who takes no companies (a closed account).")
     if sheet.leads.count() >= MAX_SHEET_ROWS:
         raise Refused("sheet_full", f"الشيت مايشيلش أكتر من {MAX_SHEET_ROWS} شركة.", f"A sheet holds at most {MAX_SHEET_ROWS} companies.")
@@ -1077,7 +1138,7 @@ def add_note(lead, user, text, at=None):
 
 def may_delete_note(user, note):
     """A note is taken off by whoever wrote it, or by the manager and the owner."""
-    return user.manages_sales or (note.by_id is not None and note.by_id == user.pk)
+    return manages(user, note.lead.sheet) or (note.by_id is not None and note.by_id == user.pk)
 
 
 def delete_note(note, user):
@@ -1183,7 +1244,7 @@ def _quote_line(quote, kind_word, by, at=None):
 
 def may_decide(user, lead):
     """Who writes down the company's answer to a quotation: the Sales person who sent it, the manager, the owner."""
-    return may_contact(user, lead.sheet) or user.manages_sales
+    return may_contact(user, lead.sheet) or manages(user, lead.sheet)
 
 
 def save_quotation(lead, user, values, quote=None):
@@ -1408,7 +1469,7 @@ def _actuals(person, first, today):
     start, end = month_bounds(first)
     if start > today:
         return None
-    rows, _total = kpis(person, start, min(end, today), today=today)
+    rows, _total = kpis(person, start, min(end, today), today=today, market=person.sales_market)
     return rows[0] if rows else None
 
 
@@ -1436,8 +1497,14 @@ def target_people(user, first):
     if not user.manages_sales:
         return [user] if user.is_sales else []
     had = SalesTarget.objects.filter(month=first).values("person_id")
+    if user.is_admin_role:
+        team = User.objects.filter(role=Role.SALES, is_active=True, is_sales_manager=False)
+    else:
+        # A manager sets their own team's (15/10/2026); a target of the other team's person is not theirs to read.
+        team = sales_people(user.sales_market)
+        had = had.filter(person__in=User.objects.filter(track_q(user.sales_market)))
     return list(
-        User.objects.filter(Q(pk__in=sales_people().values("pk")) | Q(pk__in=had)).distinct().order_by("first_name", "username")
+        User.objects.filter(Q(pk__in=team.values("pk")) | Q(pk__in=had)).distinct().order_by("first_name", "username")
     )
 
 
@@ -1462,7 +1529,8 @@ def save_target(actor, person, first, values):
 
     if not actor.manages_sales:
         raise Refused("not_manager", "التارجت بيحطه المانجر.", "Targets are set by the Sales manager.")
-    if not sales_people().filter(pk=person.pk).exists():
+    team = User.objects.filter(role=Role.SALES, is_active=True, is_sales_manager=False) if actor.is_admin_role else sales_people(actor.sales_market)
+    if not team.filter(pk=person.pk).exists():
         raise Refused("no_sales", "التارجت للـSales اللي شغالين بس.", "Targets are for working Sales people.")
     if values.get("revenue_currency") not in Quotation.Currency.values:
         raise Refused("bad_currency", "اختار العملة.", "Choose the currency.")

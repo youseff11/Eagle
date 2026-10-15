@@ -132,6 +132,9 @@ export interface MeResponse {
     is_admin: boolean;
     lang: Lang;
     theme: Theme;
+    /** A Sales person's kind of work (`""` for anybody else): which team's sheets and pages are theirs (15/10/2026). */
+    sales_track?: "" | "b2b" | "b2c_online" | "b2c_field";
+    sales_manager?: boolean;
   };
   /** The lists this role has; and whether this person may open an internal work group. */
   chats: { types: string[]; can_create_group?: boolean };

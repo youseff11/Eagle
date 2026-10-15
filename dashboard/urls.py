@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_ceo, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -250,6 +250,16 @@ urlpatterns = [
     path("api/v1/finance/costs/<int:cost_id>/save/", api_finance.cost_save, name="v1_finance_cost_save"),
     path("api/v1/finance/costs/<int:cost_id>/delete/", api_finance.cost_delete, name="v1_finance_cost_delete"),
     path("api/v1/finance/tasks/<str:code>/invoice/", api_finance.invoice_create, name="v1_finance_invoice_create"),
+    # B2C: the field visits to the companies inside Egypt (b2c.py); the B2C sheets are the B2B doors above.
+    path("api/v1/b2c/visits/", api_b2c.visits, name="v1_b2c_visits"),
+    path("api/v1/b2c/visits/new/", api_b2c.visit_new, name="v1_b2c_visit_new"),
+    path("api/v1/b2c/visits/verify-clean/", api_b2c.visits_verify_clean, name="v1_b2c_visits_verify_clean"),
+    path("api/v1/b2c/visits/<int:visit_id>/check-in/", api_b2c.visit_check_in, name="v1_b2c_visit_check_in"),
+    path("api/v1/b2c/visits/<int:visit_id>/check-out/", api_b2c.visit_check_out, name="v1_b2c_visit_check_out"),
+    path("api/v1/b2c/visits/<int:visit_id>/cancel/", api_b2c.visit_cancel, name="v1_b2c_visit_cancel"),
+    path("api/v1/b2c/visits/<int:visit_id>/decide/", api_b2c.visit_decide, name="v1_b2c_visit_decide"),
+    path("api/v1/b2c/visits/<int:visit_id>/escalate/", api_b2c.visit_escalate, name="v1_b2c_visit_escalate"),
+    path("api/v1/b2c/leads/", api_b2c.leads, name="v1_b2c_leads"),
     path("api/v1/b2b/sheets/", api_b2b.sheets, name="v1_b2b_sheets"),
     path("api/v1/b2b/sheets/new/", api_b2b.sheet_create, name="v1_b2b_sheet_create"),
     path("api/v1/b2b/follow-ups/", api_b2b.follow_ups, name="v1_b2b_follow_ups"),

@@ -62,6 +62,12 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     follow_up: "",
     overdue: false,
     quote: null,
+    governorate: "",
+    address: "",
+    location: "",
+    map_link: "",
+    customer_type: "",
+    lost_reason: "",
     ...over,
   };
 }
@@ -81,6 +87,8 @@ function sheetAnswer(over: Partial<B2bSheetResponse["sheet"]> = {}, leads: B2bLe
       can_manage: false,
       can_contact: true,
       last_sent: null,
+      market: "b2b",
+      can_visit: false,
       ...over,
     },
     sales: [],
@@ -98,6 +106,14 @@ function sheetAnswer(over: Partial<B2bSheetResponse["sheet"]> = {}, leads: B2bLe
       { value: "low", label: "Low" },
     ],
     outcomes: [{ value: "no_answer", label: "No answer" }],
+    lost_reasons: [
+      { value: "price", label: "Price" },
+      { value: "other", label: "Other" },
+    ],
+    customer_types: [
+      { value: "company", label: "Company" },
+      { value: "individual", label: "Individual" },
+    ],
   };
 }
 
@@ -132,6 +148,7 @@ const noFollowUps: B2bFollowUpsResponse = { ok: true, today: "2026-10-10", items
 describe("LeadSheetsPage", () => {
   const list = (over: Partial<B2bSheetsResponse> = {}): B2bSheetsResponse => ({
     ok: true,
+    market: "b2b",
     can_manage: false,
     sales: [],
     sheets: [{ ...sheetAnswer().sheet, rows: 4, contacted: 1 }],
@@ -158,7 +175,7 @@ describe("LeadSheetsPage", () => {
     await user.type(await screen.findByLabelText("اسم الشيت"), "France");
     await user.selectOptions(screen.getByLabelText("الـSales اللي هياخده"), "7");
     await user.click(screen.getByRole("button", { name: "اعمل الشيت" }));
-    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/sheets/new/")).toEqual([{ title: "France", note: "", assigned_to: 7 }]));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/sheets/new/")).toEqual([{ title: "France", note: "", assigned_to: 7, market: "b2b" }]));
   });
 
   it("puts the day's follow-ups on top, late ones marked, and the team's with whose they are for the manager", async () => {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router";
-import { refusalText, useB2bFollowUps, useB2bSheets, useCreateSheet, useDeleteAnySheet, type B2bPerson, type B2bSheet } from "../api/b2b";
+import { refusalText, useB2bFollowUps, useB2bSheets, useCreateSheet, useDeleteAnySheet, type B2bPerson, type B2bSheet, type Market } from "../api/b2b";
 import { Confirm } from "../components/Confirm";
 import { useToasts } from "../components/Toasts";
 import { useMe } from "../api/queries";
@@ -10,7 +10,7 @@ import { Loading } from "../components/Loading";
 import { usePreferences } from "../i18n/Preferences";
 
 /** The manager's box for a new sheet: a name, the Sales person who gets it, and what the manager wants from it. */
-function NewSheet({ sales }: { sales: B2bPerson[] }) {
+function NewSheet({ sales, market }: { sales: B2bPerson[]; market: Market }) {
   const { t, lang } = usePreferences();
   const navigate = useNavigate();
   const create = useCreateSheet();
@@ -24,7 +24,7 @@ function NewSheet({ sales }: { sales: B2bPerson[] }) {
     if (create.isPending) return;
     setProblem("");
     create.mutate(
-      { title: title.trim(), note: note.trim(), assigned_to: Number(person) },
+      { title: title.trim(), note: note.trim(), assigned_to: Number(person), market },
       {
         onSuccess: (answer) => navigate(`/leads/${answer.sheet.id}`),
         onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أعمل الشيت. جرّب تاني.", "Could not make the sheet. Try again."))),
@@ -46,7 +46,7 @@ function NewSheet({ sales }: { sales: B2bPerson[] }) {
             id="sheetTitle"
             maxLength={160}
             value={title}
-            placeholder={t("مثلًا: شركات ترجمة ألمانيا", "e.g. Translation agencies, Germany")}
+            placeholder={market === "b2c" ? t("مثلًا: شركات المعادي", "e.g. Companies in Maadi") : t("مثلًا: شركات ترجمة ألمانيا", "e.g. Translation agencies, Germany")}
             onChange={(event) => setTitle(event.target.value)}
           />
         </div>
@@ -81,9 +81,9 @@ function NewSheet({ sales }: { sales: B2bPerson[] }) {
 }
 
 /** The follow-ups due today or late: the Sales person's own, or the whole team's for the manager (with whose they are). */
-function FollowUps({ team }: { team: boolean }) {
+function FollowUps({ team, market }: { team: boolean; market: Market }) {
   const { t } = usePreferences();
-  const list = useB2bFollowUps();
+  const list = useB2bFollowUps(true, market);
   const items = list.data?.items ?? [];
   if (!list.data || items.length === 0) return null;
   const late = items.filter((item) => item.follow_up === "overdue").length;
@@ -139,11 +139,11 @@ function FollowUps({ team }: { team: boolean }) {
  * The B2B company sheets: a Sales person's own, or - for the Sales manager and the owner - all of them, with the box that
  * makes a new one. Titles and counts only: the companies are on the sheet's own page.
  */
-export function LeadSheetsPage() {
+export function LeadSheetsPage({ market = "b2b" }: { market?: Market }) {
   const { t, lang } = usePreferences();
   const me = useMe();
   const allowed = me.data !== undefined && (me.data.user.role === "sales" || me.data.user.is_admin);
-  const list = useB2bSheets(allowed);
+  const list = useB2bSheets(allowed, market);
   const remove = useDeleteAnySheet();
   const toasts = useToasts();
   const [doomed, setDoomed] = useState<B2bSheet | null>(null);
@@ -170,18 +170,33 @@ export function LeadSheetsPage() {
   return (
     <>
       <div className="page-head">
-        <h1>{t("شيتات الشركات", "Company sheets")}</h1>
-        <span className="page-head__sub">
-          {t(
-            "الشركات اللي بنتواصل معاها (B2B). الواتساب والإيميل اللي بيتبعتوا من الشيت بيتعلّموا لوحدهم، والمكالمة بتتسجّل بإيدك.",
-            "The companies we reach out to (B2B). WhatsApp and e-mail sent from a sheet are marked by themselves; a call is logged by hand.",
-          )}
-        </span>
+        {/* The team is the server's answer: a Sales person always reads their own team's sheets, whatever the address. */}
+        {(data?.market ?? market) === "b2c" ? (
+          <>
+            <h1>{t("شيتات B2C", "B2C sheets")}</h1>
+            <span className="page-head__sub">
+              {t(
+                "الشركات جوه مصر. الأونلاين بيتواصل بالتليفون والرسايل، والميداني بينزلها ويأكد الزيارة من «الزيارات».",
+                "The companies inside Egypt. Online Sales reach them by phone and messages; field Sales visit them and confirm each visit on «Visits».",
+              )}
+            </span>
+          </>
+        ) : (
+          <>
+            <h1>{t("شيتات الشركات", "Company sheets")}</h1>
+            <span className="page-head__sub">
+              {t(
+                "الشركات اللي بنتواصل معاها (B2B). الواتساب والإيميل اللي بيتبعتوا من الشيت بيتعلّموا لوحدهم، والمكالمة بتتسجّل بإيدك.",
+                "The companies we reach out to (B2B). WhatsApp and e-mail sent from a sheet are marked by themselves; a call is logged by hand.",
+              )}
+            </span>
+          </>
+        )}
       </div>
 
-      {data && <FollowUps team={data.can_manage} />}
+      {data && <FollowUps team={data.can_manage} market={data.market} />}
 
-      {data?.can_manage && <NewSheet sales={data.sales} />}
+      {data?.can_manage && <NewSheet sales={data.sales} market={data.market} />}
 
       <div className="card">
         {data ? (

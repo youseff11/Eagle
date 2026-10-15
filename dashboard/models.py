@@ -50,6 +50,27 @@ WA_LINE_ROLES = MAIL_ALIAS_ROLES
 COST_RATE_ROLES = (Role.TRANSLATOR, Role.TEAM_LEAD)
 
 
+class SalesTrack(models.TextChoices):
+    """What a Sales person sells, as the owner sets it on their file (15/10/2026): no new role. B2B is the companies abroad
+    on the company sheets; B2C is the companies inside Egypt, reached online (calls, messages) or in the field (the Sales
+    person goes to the company and proves it with their location, ``b2c.py``)."""
+
+    B2B = "b2b", "B2B"
+    B2C_ONLINE = "b2c_online", "B2C online"
+    B2C_FIELD = "b2c_field", "B2C field"
+
+
+#: The tracks of the B2C team.
+B2C_TRACKS = (SalesTrack.B2C_ONLINE, SalesTrack.B2C_FIELD)
+
+
+class Market(models.TextChoices):
+    """Whose a company sheet is: the B2B team's (companies abroad) or the B2C team's (companies inside Egypt)."""
+
+    B2B = "b2b", "B2B"
+    B2C = "b2c", "B2C"
+
+
 class Channel(models.TextChoices):
     WHATSAPP = "whatsapp", "WhatsApp"
     EMAIL = "email", "Email"
@@ -517,7 +538,13 @@ class User(AbstractUser):
     #: person (their line, their mail, their attendance) stays a Sales person's. Ignored for every other role.
     is_sales_manager = models.BooleanField(
         default=False,
-        help_text="Sales only: makes the B2B company sheets, gives each to a Sales person and reads all of them.",
+        help_text="Sales only: makes the company sheets of their own team (B2B or B2C), gives each to a Sales person and reads all of them.",
+    )
+    #: B2B, B2C online or B2C field (15/10/2026): which team's sheets the person holds, and - for a manager - which team
+    #: they run. Ignored for every other role.
+    sales_track = models.CharField(
+        max_length=12, choices=SalesTrack.choices, default=SalesTrack.B2B,
+        help_text="Sales only: B2B (companies abroad), B2C online, or B2C field (visits the companies in Egypt).",
     )
     #: What the company pays this translator for 250 words, by the agreement made with them (EGP; part 5, 11/10/2026). It
     #: prices their share of a project for the project's profit (``finance.py``); payroll does not read it. Empty = not agreed:
@@ -579,6 +606,7 @@ class User(AbstractUser):
             self.wa_display_number = ""
         if self.role != Role.SALES:
             self.is_sales_manager = False
+            self.sales_track = SalesTrack.B2B
         if not self.is_admin_role:
             self.line_view = ""
         # The price of 250 words is a translator's (a team leader translates too): nobody else is priced by the word.
@@ -646,6 +674,26 @@ class User(AbstractUser):
     @property
     def is_sales(self):
         return self.role == Role.SALES
+
+    @property
+    def sales_market(self):
+        """``"b2c"`` for a Sales person of the B2C team, ``"b2b"`` for anybody else: whose sheets they hold or run."""
+        return Market.B2C if self.is_sales and self.sales_track in B2C_TRACKS else Market.B2B
+
+    @property
+    def is_field_sales(self):
+        """A B2C Sales person who goes to the companies: their visits are proved by their location (``b2c.py``)."""
+        return self.is_sales and self.sales_track == SalesTrack.B2C_FIELD
+
+    @property
+    def is_b2c_sales(self):
+        """A Sales person on the B2C team, online or in the field."""
+        return self.is_sales and self.sales_track in B2C_TRACKS
+
+    @property
+    def runs_b2c(self):
+        """The B2C Sales manager: runs the B2C sheets and decides the field visits (the owner does too)."""
+        return self.is_b2c_sales and bool(self.is_sales_manager)
 
     @property
     def manages_sales(self):
@@ -2532,6 +2580,13 @@ class AppSettings(models.Model):
         default=False,
         help_text="Also e-mail each Sales person their daily follow-up reminder (to the e-mail on their account).",
     )
+    # -- B2C (15/10/2026) ------------------------------------------------------------------------------------------
+    #: The B2C requirements' section 5: 220 verified visits a month for each field Sales person, over 22 working days;
+    #: a visit counts when the press at the company is within this many metres of it, and the phone was this sure.
+    b2c_visit_target = models.PositiveIntegerField(default=220, help_text="Verified visits a month for each field Sales person.")
+    b2c_work_days = models.PositiveSmallIntegerField(default=22, help_text="Working days a month the visit target is spread over.")
+    b2c_visit_radius_m = models.PositiveIntegerField(default=100, help_text="How near the company the check-in must be, in metres.")
+    b2c_gps_accuracy_m = models.PositiveIntegerField(default=100, help_text="A location less sure than this (metres) goes to review.")
     #: How far each mail folder has been read, as JSON: ``{folder: {"validity",
     #: "last"}}`` (the server's UIDVALIDITY and the highest UID handled). Mail is
     #: new when its UID is past ``last``, not when it is unread: a letter opened
@@ -4674,6 +4729,40 @@ class LeadStatus(models.TextChoices):
     VISIT = "visit", "Visit"
     NO_ANSWER = "no_answer", "No answer"
     CALL = "call", "Call"
+    #: The B2C pipeline's own stages (15/10/2026, the B2C requirements' section 4); new, contacted, won and lost are shared.
+    REQUIREMENT = "requirement", "Requirement collected"
+    QUOTED = "quoted", "Quotation sent"
+    WAITING = "waiting", "Waiting for the customer"
+    NEGOTIATION = "negotiation", "Negotiation"
+    LATER = "later", "Follow-up later"
+
+
+#: The stages a sheet of each team offers, in its order.
+B2B_STATUSES = (
+    LeadStatus.NEW, LeadStatus.CONTACTED, LeadStatus.FOLLOW_UP, LeadStatus.WON, LeadStatus.LOST, LeadStatus.WHATSAPP,
+    LeadStatus.VISIT, LeadStatus.NO_ANSWER, LeadStatus.CALL,
+)
+B2C_STATUSES = (
+    LeadStatus.NEW, LeadStatus.CONTACTED, LeadStatus.REQUIREMENT, LeadStatus.QUOTED, LeadStatus.WAITING,
+    LeadStatus.NEGOTIATION, LeadStatus.WON, LeadStatus.LOST, LeadStatus.LATER,
+)
+STATUSES_OF = {Market.B2B: B2B_STATUSES, Market.B2C: B2C_STATUSES}
+
+
+class LostReason(models.TextChoices):
+    """Why a B2C company was lost: a B2C row is never «Lost» without one (the B2C requirements' sections 4 and 8)."""
+
+    PRICE = "price", "Price"
+    COMPETITOR = "competitor", "Competitor"
+    TIMING = "timing", "Timing"
+    NO_RESPONSE = "no_response", "No response"
+    NO_NEED = "no_need", "No need"
+    OTHER = "other", "Other"
+
+
+class CustomerType(models.TextChoices):
+    COMPANY = "company", "Company"
+    INDIVIDUAL = "individual", "Individual"
 
 
 class LeadPriority(models.TextChoices):
@@ -4698,6 +4787,8 @@ class LeadSheet(models.Model):
     #: The last row a message left from with the row's send button (15/10/2026): the sheet marks it, so the Sales person
     #: who opens it again finds where they stopped and writes to the next one. Kept on the sheet, not the browser.
     last_sent = models.ForeignKey("Lead", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    #: The B2B team's or the B2C team's (15/10/2026): which stages its rows take, who may hold it and which manager runs it.
+    market = models.CharField(max_length=3, choices=Market.choices, default=Market.B2B, db_index=True)
 
     class Meta:
         ordering = ("-created_at",)
@@ -4730,6 +4821,16 @@ class Lead(models.Model):
     #: What the deal with the company is worth, as the Sales person guesses it; no currency, as on the team's sheet.
     deal_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     next_follow_up = models.DateField(null=True, blank=True)
+    # -- B2C (15/10/2026): a company inside Egypt, and where it is for a visit ------------------------------------------
+    customer_type = models.CharField(max_length=10, choices=CustomerType.choices, blank=True)
+    governorate = models.CharField(max_length=80, blank=True)
+    address = models.CharField(max_length=250, blank=True)
+    #: Where the company is, for a field visit: typed or pasted from Google Maps, or the check-in of its first verified
+    #: visit (``b2c.decide``). A visit is measured against it.
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    #: Why the company was lost (B2C: required with «Lost»).
+    lost_reason = models.CharField(max_length=12, choices=LostReason.choices, blank=True)
     #: The client this company became the first time it was contacted from the row: the conversation lives on it.
     client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="leads")
     #: What a message to the company is matched on: the last nine digits of its WhatsApp (or phone) number, and its address
@@ -4824,6 +4925,8 @@ class LeadActivity(models.Model):
         STATUS = "status", "Stage changed"
         #: A quotation was made, sent, accepted or turned down (part 4); ``notes`` says which, ``quotation`` which one.
         QUOTATION = "quotation", "Quotation"
+        #: A B2C field visit's report (15/10/2026): written when the Sales person leaves the company (``b2c.check_out``).
+        VISIT = "visit", "Field visit"
 
     class Outcome(models.TextChoices):
         INTERESTED = "interested", "Interested"
@@ -5066,4 +5169,89 @@ class SalesTarget(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=("person", "month"), name="one_sales_target_a_month")]
         ordering = ("month", "person_id")
+
+
+class FieldVisit(models.Model):
+    """A B2C field Sales person's visit to a company on their sheet (15/10/2026, the B2C requirements' sections 5 and 6).
+
+    The person plans it, presses «I arrived» at the company - the browser reads their location once, at that press, and
+    the server writes the time and how far it is from the company - then «I am done» on leaving, with the report. Nothing
+    follows them in between. It is then waiting for the Sales manager, who verifies it or turns it down with a reason, or
+    hands a doubtful one to the owner. A visit is never verified by itself, and nothing about it changes once it is
+    decided. The rules are ``b2c.py``.
+    """
+
+    class Status(models.TextChoices):
+        PLANNED = "planned", "Planned"
+        CHECKED_IN = "checked_in", "Checked in"
+        PENDING = "pending", "Pending approval"
+        VERIFIED = "verified", "Verified"
+        REJECTED = "rejected", "Rejected"
+
+    class Outcome(models.TextChoices):
+        INTERESTED = "interested", "Interested"
+        FOLLOW_UP = "follow_up", "Follow-up"
+        QUOTATION = "quotation", "Quotation requested"
+        NOT_INTERESTED = "not_interested", "Not interested"
+        NOBODY = "nobody", "Nobody to meet"
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="visits")
+    #: The field Sales person who makes it.
+    person = models.ForeignKey(User, on_delete=models.CASCADE, related_name="field_visits")
+    planned_at = models.DateTimeField(null=True, blank=True)
+    purpose = models.CharField(max_length=250, blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PLANNED, db_index=True)
+    # The press at the company, and the press on leaving: the server's time, the browser's one reading of the place.
+    check_in_at = models.DateTimeField(null=True, blank=True)
+    check_in_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    check_in_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    #: How sure the phone was, in metres (the smaller the better).
+    check_in_accuracy = models.PositiveIntegerField(null=True, blank=True)
+    #: Metres from the company's own location, when the company has one.
+    check_in_distance = models.PositiveIntegerField(null=True, blank=True)
+    check_out_at = models.DateTimeField(null=True, blank=True)
+    check_out_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    check_out_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    check_out_accuracy = models.PositiveIntegerField(null=True, blank=True)
+    check_out_distance = models.PositiveIntegerField(null=True, blank=True)
+    #: Why there was no location (the phone gave none): the person's own words, for the manager.
+    no_location_reason = models.CharField(max_length=250, blank=True)
+    # The report.
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, blank=True)
+    met = models.CharField(max_length=160, blank=True, help_text="Who was met there, and their position.")
+    interest = models.CharField(max_length=8, choices=LeadPriority.choices, blank=True)
+    summary = models.TextField(blank=True)
+    next_step = models.CharField(max_length=250, blank=True)
+    next_step_on = models.DateField(null=True, blank=True)
+    #: What the manager has to look at, worked out by the server (``b2c.FLAGS``).
+    flags = models.JSONField(default=list, blank=True)
+    #: Handed to the owner by the manager: only the owner decides it then.
+    escalated = models.BooleanField(default=False)
+    escalation_note = models.CharField(max_length=500, blank=True)
+    decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    #: The reason a visit was turned down, or why a flagged one was verified anyway.
+    decision_note = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [models.Index(fields=("person", "status"), name="field_visit_person_status")]
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(FieldVisit, "code", "VIS")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code
+
+    @property
+    def minutes(self):
+        """How long it lasted, from the two presses; ``None`` until both are there."""
+        if self.check_in_at and self.check_out_at:
+            return max(0, int((self.check_out_at - self.check_in_at).total_seconds() // 60))
+        return None
 

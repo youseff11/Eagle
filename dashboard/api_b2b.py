@@ -21,9 +21,11 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import b2b, clock, identity, services
+from . import b2b, b2c, clock, identity, services
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import Lead, LeadActivity, LeadNote, LeadPriority, LeadSheet, LeadStatus, Quotation
+from .models import (
+    CustomerType, Lead, LeadActivity, LeadNote, LeadPriority, LeadSheet, LeadStatus, LostReason, Market, Quotation, STATUSES_OF,
+)
 from .permissions import api_gate
 
 #: The longest title and note of a sheet.
@@ -73,8 +75,13 @@ def _sheet_json(sheet, user, rows=None, contacted=None):
         "created_at": _stamp(sheet.created_at),
         "rows": rows if rows is not None else sheet.leads.count(),
         "contacted": contacted if contacted is not None else sheet.leads.filter(_contacted_q()).count(),
-        "can_manage": user.manages_sales,
+        # The B2B team's or the B2C team's: its columns and its stages.
+        "market": sheet.market,
+        "can_manage": b2b.manages(user, sheet),
         "can_contact": b2b.may_contact(user, sheet),
+        # A B2C sheet held by a field Sales person: its companies are visited (``b2c.plan``), by them or planned by the manager.
+        "can_visit": sheet.market == Market.B2C and sheet.assigned_to.is_field_sales
+        and (sheet.assigned_to_id == user.pk or b2c.manages(user)),
         # The last row a message left from with its send button: the sheet marks it (``_sent_from_row``).
         "last_sent": sheet.last_sent_id,
     }
@@ -88,7 +95,12 @@ def _lead_json(lead, today=None):
     state = b2b.follow_up_state(lead, today)
     return {
         "id": lead.pk,
-        **{name: getattr(lead, name) for name, *_rest in b2b.COLUMNS},
+        **{name: getattr(lead, name) for name, *_rest in b2b.ALL_COLUMNS},
+        # B2C: the company's place on the map as it is typed ("30.0444, 31.2357"), its link, and why it was lost.
+        "location": b2c.location_text(lead.latitude, lead.longitude),
+        "map_link": b2c.map_link(lead.latitude, lead.longitude),
+        "customer_type": lead.customer_type,
+        "lost_reason": lead.lost_reason,
         # Every number the company has, the WhatsApp one first: what the WhatsApp button offers to write to.
         "phones": lead.all_phones,
         "status": lead.status,
@@ -147,10 +159,13 @@ def _activity_json(row):
     }
 
 
-def _choices():
+def _choices(market=Market.B2B):
+    labels = dict(LeadStatus.choices)
     return {
-        "columns": [{"name": name, "ar": ar, "en": en, "max": limit} for name, limit, ar, en in b2b.COLUMNS],
-        "statuses": [{"value": value, "label": label} for value, label in LeadStatus.choices],
+        "columns": [{"name": name, "ar": ar, "en": en, "max": limit} for name, limit, ar, en in b2b.columns_for(market)],
+        "statuses": [{"value": value, "label": labels[value]} for value in STATUSES_OF[market]],
+        "lost_reasons": [{"value": value, "label": label} for value, label in LostReason.choices],
+        "customer_types": [{"value": value, "label": label} for value, label in CustomerType.choices],
         "priorities": [{"value": value, "label": label} for value, label in LeadPriority.choices],
         "outcomes": [{"value": value, "label": label} for value, label in LeadActivity.Outcome.choices],
     }
@@ -160,26 +175,38 @@ def _choices():
 # Sheets
 # ---------------------------------------------------------------------------
 
+def _market(request, value):
+    """The team a list is of: the one asked for by the owner, a Sales person's own team for everybody else."""
+    if request.user.is_admin_role and value in Market.values:
+        return value
+    return request.user.sales_market
+
+
 @endpoint("GET")
 @api_gate(b2b.has_door)
 def sheets(request):
-    """The sheets this person reads, newest first, and - for the manager and the owner - who a sheet may be given to."""
+    """The sheets this person reads, newest first, and - for the manager and the owner - who a sheet may be given to.
+    ``?market=b2c`` is the B2C team's (the owner's choice; a Sales person always reads their own team's)."""
     user = request.user
-    rows = b2b.sheets_for(user).annotate(
+    market = _market(request, request.GET.get("market"))
+    rows = b2b.sheets_for(user, market).annotate(
         row_count=Count("leads", distinct=True),
         contacted_count=Count("leads", filter=Q(leads__whatsapp_at__isnull=False) | Q(leads__email_at__isnull=False)
                               | Q(leads__call_at__isnull=False), distinct=True),
     )
+    manager = b2b.manages_market(user, market)
     return JsonResponse({
         "ok": True,
-        "can_manage": user.manages_sales,
-        "sales": [_person(p) for p in b2b.sheet_holders()] if user.manages_sales else [],
+        "market": market,
+        "can_manage": manager,
+        "sales": [_person(p) for p in b2b.sheet_holders(market)] if manager else [],
         "sheets": [_sheet_json(s, user, s.row_count, s.contacted_count) for s in rows],
     })
 
 
-def _sheet_fields(body):
-    """``(title, note, assigned_to)`` from the body. ``BadBody`` for a body of the wrong shape, ``Refused`` for a value."""
+def _sheet_fields(body, market):
+    """``(title, note, assigned_to)`` from the body. ``BadBody`` for a body of the wrong shape, ``Refused`` for a value. The
+    Sales person must be of the sheet's team."""
     title = _text(body, "title", MAX_TITLE)
     note = _text(body, "note", MAX_SHEET_NOTE)
     raw = body.get("assigned_to")
@@ -187,7 +214,7 @@ def _sheet_fields(body):
         raise b2b.Refused("no_title", "اكتب اسم للشيت.", "Give the sheet a name.")
     if not isinstance(raw, int) or isinstance(raw, bool):
         raise b2b.Refused("no_sales", "اختار الـSales اللي هياخد الشيت.", "Choose the Sales person who gets the sheet.")
-    person = b2b.sheet_holders().filter(pk=raw).first()
+    person = b2b.sheet_holders(market).filter(pk=raw).first()
     if person is None:
         raise b2b.Refused("no_sales", "اختار الـSales اللي هياخد الشيت.", "Choose the Sales person who gets the sheet.")
     return title, note, person
@@ -209,14 +236,17 @@ def _notify_assigned(sheet, actor):
 @endpoint("POST")
 @api_gate(lambda user: user.manages_sales)
 def sheet_create(request):
-    """``{"title", "note", "assigned_to": <id>}`` - the manager makes a sheet for one Sales person, or for themselves."""
+    """``{"title", "note", "assigned_to": <id>, "market"}`` - the manager makes a sheet of their team for one of its Sales
+    people, or for themselves; the owner says which team's (``market``, B2B when not said)."""
     try:
-        title, note, person = _sheet_fields(_object(request))
+        body = _object(request)
+        market = _market(request, body.get("market", Market.B2B))
+        title, note, person = _sheet_fields(body, market)
     except BadBody:
         return _error(400, "bad_request")
     except b2b.Refused as refusal:
         return _refused(refusal)
-    sheet = LeadSheet.objects.create(title=title, note=note, assigned_to=person, created_by=request.user)
+    sheet = LeadSheet.objects.create(title=title, note=note, assigned_to=person, created_by=request.user, market=market)
     services.log(request.user, "b2b.sheet_create", f"sheet {sheet.pk}", f"{title} -> {person.username}")
     _notify_assigned(sheet, request.user)
     return JsonResponse({"ok": True, "sheet": _sheet_json(sheet, request.user)})
@@ -227,10 +257,10 @@ def sheet_create(request):
 def sheet_save(request, sheet_id):
     """The manager renames a sheet, rewrites its note or hands it to another Sales person."""
     sheet = _sheet_or_404(request, sheet_id)
-    if not request.user.manages_sales:
+    if not b2b.manages(request.user, sheet):
         return _error(403, "forbidden")
     try:
-        title, note, person = _sheet_fields(_object(request))
+        title, note, person = _sheet_fields(_object(request), sheet.market)
     except BadBody:
         return _error(400, "bad_request")
     except b2b.Refused as refusal:
@@ -249,7 +279,7 @@ def sheet_save(request, sheet_id):
 def sheet_delete(request, sheet_id):
     """The manager deletes a sheet - only one nobody has contacted a company from: the history of a contact is kept."""
     sheet = _sheet_or_404(request, sheet_id)
-    if not request.user.manages_sales:
+    if not b2b.manages(request.user, sheet):
         return _error(403, "forbidden")
     if sheet.leads.filter(_contacted_q()).exists():
         return _refused(b2b.Refused(
@@ -272,18 +302,19 @@ def sheet(request, sheet_id):
     if leads:
         identity.audit(request, request.user, identity.IDENTITY_LIST, f"sheet {sheet.pk}", f"{len(leads)} companies")
     today = timezone.localdate()
-    manager = request.user.manages_sales
+    manager = b2b.manages(request.user, sheet)
+    holders = b2b.sheet_holders(sheet.market)
     return JsonResponse({
         "ok": True,
         "sheet": _sheet_json(sheet, request.user, len(leads), contacted),
-        "sales": [_person(p) for p in b2b.sheet_holders()] if manager else [],
-        # Where the manager may move a company to: the other sheets.
+        "sales": [_person(p) for p in holders] if manager else [],
+        # Where the manager may move a company to: the other sheets of the same team.
         "sheets": [
             {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
-            for other in b2b.sheets_for(request.user).exclude(pk=sheet.pk).filter(assigned_to__in=b2b.sheet_holders())
+            for other in b2b.sheets_for(request.user, sheet.market).exclude(pk=sheet.pk).filter(assigned_to__in=holders)
         ] if manager else [],
         "leads": [_lead_json(lead, today) for lead in leads],
-        **_choices(),
+        **_choices(sheet.market),
     })
 
 
@@ -293,7 +324,7 @@ def follow_ups(request):
     """The follow-ups due today or late: a Sales person's own, the team's for the manager and the owner. Companies and their
     people are drawn, so it is a row in the log when there are any."""
     today = timezone.localdate()
-    rows = b2b.follow_ups_for(request.user, today)
+    rows = b2b.follow_ups_for(request.user, today, _market(request, request.GET.get("market")))
     if rows:
         identity.audit(request, request.user, identity.IDENTITY_LIST, "b2b follow-ups", f"{len(rows)} companies")
     return JsonResponse({
@@ -341,24 +372,47 @@ def _parse_deal(value):
 
 
 #: The row's own fields besides its columns: what a corrected row may change, and what a pasted or uploaded row may carry.
-SHEET_FIELDS = ("status", "priority", "deal_value", "notes", "next_follow_up")
+#: The last three are a B2C row's (15/10/2026), and any row takes them.
+SHEET_FIELDS = ("status", "priority", "deal_value", "notes", "next_follow_up", "location", "customer_type", "lost_reason")
 #: What a corrected row may change besides its columns: a note is added (``lead_note_add``), never written over.
-SAVED_FIELDS = ("status", "priority", "deal_value", "next_follow_up")
+SAVED_FIELDS = ("status", "priority", "deal_value", "next_follow_up", "location", "customer_type", "lost_reason")
+#: A stage of the other team's list, in a pasted or uploaded block: the nearest of the sheet's own.
+OTHER_TEAM_STATUS = {
+    Market.B2C: {"follow_up": "contacted", "whatsapp": "contacted", "visit": "contacted", "no_answer": "contacted", "call": "contacted"},
+    Market.B2B: {"requirement": "follow_up", "quoted": "follow_up", "waiting": "follow_up", "negotiation": "follow_up", "later": "follow_up"},
+}
 
 
-def _sheet_values(body, present_only):
+def _sheet_values(body, present_only, market=Market.B2B):
     """The status, priority, deal value, notes and next follow-up from the body, checked. ``present_only``: only the ones
-    the body names (a cell edited on the sheet changes that cell and nothing else)."""
+    the body names (a cell edited on the sheet changes that cell and nothing else). A stage must be one of the sheet's
+    team; a block pasted or uploaded takes the nearest one instead (``OTHER_TEAM_STATUS``)."""
     out = {}
     for name in SAVED_FIELDS if present_only else SHEET_FIELDS:
         if present_only and name not in body:
             continue
         if name == "status":
             value = _text(body, name, 20)
+            if not present_only:
+                value = OTHER_TEAM_STATUS[market].get(value, value)
             if present_only or value:
-                if value not in LeadStatus.values:
+                if value not in STATUSES_OF[market]:
                     raise BadBody
                 out[name] = value
+        elif name == "location":
+            # ``Refused`` (said plainly) for a place that is not one; the two numbers are what is stored.
+            place = b2c.parse_location(_text(body, name, b2b.MAX_NOTES))
+            out["latitude"], out["longitude"] = place if place else (None, None)
+        elif name == "customer_type":
+            value = _text(body, name, 12)
+            if value not in ("", *CustomerType.values):
+                raise BadBody
+            out[name] = value
+        elif name == "lost_reason":
+            value = _text(body, name, 12)
+            if value not in ("", *LostReason.values):
+                raise BadBody
+            out[name] = value
         elif name == "priority":
             value = _text(body, name, 10)
             if value not in ("", *LeadPriority.values):
@@ -401,10 +455,24 @@ def rows_add(request, sheet_id):
         raw = body.get("rows")
         if not isinstance(raw, list) or not 0 < len(raw) <= b2b.MAX_PASTE_ROWS:
             raise BadBody
-        rows = [{**_row_values(item), **_sheet_values(item, present_only=False)} for item in raw]
+        rows = []
+        for item in raw:
+            values = _row_values(item)
+            try:
+                rows.append({**values, **_sheet_values(item, present_only=False, market=sheet.market)})
+            except b2b.Refused as refusal:
+                # Which row, in a block of hundreds: the company's name before the reason.
+                name = values["company_name"] or "—"
+                return _refused(b2b.Refused(refusal.code, f"«{name}»: {refusal.ar}", f"“{name}”: {refusal.en}"))
     except (BadBody, ValueError, RecursionError, UnicodeDecodeError):
         return _error(400, "bad_request")
     rows = [values for values in rows if values["company_name"]]
+    for values in rows:
+        # A lost company keeps a reason (the B2C rule); one that came in a block without one says "other".
+        if values.get("status") == LeadStatus.LOST and sheet.market == Market.B2C and not values.get("lost_reason"):
+            values["lost_reason"] = LostReason.OTHER
+        if values.get("status") != LeadStatus.LOST:
+            values["lost_reason"] = ""
     if not rows:
         return _refused(b2b.Refused("no_company", "كل صف لازم يبقى فيه اسم الشركة.", "Every row needs a company name."))
     with transaction.atomic():
@@ -504,15 +572,29 @@ def lead_save(request, lead_id):
         if "notes" in body:
             raise BadBody
         values = {name: _text(body, name, limit) for name, limit in b2b.COLUMN_LIMITS.items() if name in body}
-        extra = _sheet_values(body, present_only=True)
+        extra = _sheet_values(body, present_only=True, market=lead.sheet.market)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
     except BadBody:
         return _error(400, "bad_request")
     if "company_name" in values and not values["company_name"]:
         return _refused(b2b.Refused("no_company", "اكتب اسم الشركة.", "Write the company name."))
     before = lead.status
+    placed = (lead.latitude, lead.longitude)
     for name, value in {**values, **extra}.items():
         setattr(lead, name, value)
+    # A reason is a lost company's: moved to any other stage, it has none.
+    if lead.status != LeadStatus.LOST:
+        lead.lost_reason = ""
+    if {"status", "lost_reason", "next_follow_up"} & set(extra):
+        try:
+            b2c.check_stage(lead, lead.status, lead.lost_reason, lead.next_follow_up)
+        except b2b.Refused as refusal:
+            return _refused(refusal)
     lead.save()
+    # The place a field visit is measured against: whoever moves it is written down.
+    if (lead.latitude, lead.longitude) != placed:
+        services.log(request.user, "b2c.lead_place", f"lead {lead.pk}", f"{placed} -> {lead.latitude},{lead.longitude}")
     # On the timeline and in the log: what the Sales numbers count visits, won and lost by.
     b2b.note_status(lead, before, lead.status, request.user)
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
@@ -541,11 +623,13 @@ def kpis(request):
         start, end = _period(request)
     except BadBody:
         return _error(400, "bad_period")
-    rows, total = b2b.kpis(request.user, start, end)
+    market = _market(request, request.GET.get("market"))
+    rows, total = b2b.kpis(request.user, start, end, market=market)
     return JsonResponse({
         "ok": True,
         "from": start.isoformat(),
         "to": end.isoformat(),
+        "market": market,
         "team": request.user.manages_sales,
         "rows": rows,
         "total": total,

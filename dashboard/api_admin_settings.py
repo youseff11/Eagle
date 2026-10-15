@@ -53,6 +53,14 @@ SECTIONS = (
         "groups": ({"fields": ("b2b_auto_leads", "b2b_reminder_email")},),
     },
     {
+        "key": "b2c", "icon": "map-pin", "ar": "المبيعات (B2C) والزيارات", "en": "Sales (B2C) and visits",
+        "note": (
+            "الـSales الميداني بيضغط «وصلت» وهو عند الشركة و«خلصت» وهو ماشي، والموبايل بيدّي مكانه مرة واحدة مع كل ضغطة. الزيارة مابتتعتمدش لوحدها: المانجر بيعتمدها.",
+            "A field Sales person presses «I arrived» at the company and «I am done» on leaving; the phone gives its place once at each press. A visit is never verified by itself: the manager verifies it.",
+        ),
+        "groups": ({"fields": ("b2c_visit_target", "b2c_work_days", "b2c_visit_radius_m", "b2c_gps_accuracy_m")},),
+    },
+    {
         "key": "workflow", "icon": "list-checks", "ar": "قواعد الشغل", "en": "Workflow rules",
         "groups": ({"fields": (
             "response_window_seconds", "deadline_warning_minutes", "penalty_value", "max_rating", "poll_ms",
@@ -129,6 +137,22 @@ TEXTS = {
             "بيروح على الإيميل المكتوب في حساب الـSales (من صفحة الموظف)، مش على عنوانه على ميل الشركة. اللي مالوش إيميل مابيوصلوش غير التنبيه جوه السيستم.",
             "It goes to the e-mail on the Sales person's account (the employee page), not their company-mailbox address. Somebody with none gets the in-app notice only.",
         ),
+    },
+    "b2c_visit_target": {
+        "label": ("تارجت الزيارات المعتمدة في الشهر لكل Sales ميداني", "Verified visits a month for each field Sales person"),
+        "hint": ("بيقل بنسبة أيام الإجازات المعتمدة في الشهر.", "It is lowered in proportion to the month's approved leave days."),
+    },
+    "b2c_work_days": {"label": ("أيام الشغل في الشهر", "Working days a month")},
+    "b2c_visit_radius_m": {
+        "label": ("أقصى بُعد عن الشركة وقت «وصلت» (متر)", "Furthest from the company at «I arrived» (metres)"),
+        "hint": (
+            "أبعد من كده الزيارة بتتعلّم «بعيد عن الشركة» والمانجر بيقرر. الشركة اللي مالهاش لوكيشن بتاخد مكان أول زيارة معتمدة ليها.",
+            "Further than this the visit is marked «Away from the company» and the manager decides. A company with no location takes the place of its first verified visit.",
+        ),
+    },
+    "b2c_gps_accuracy_m": {
+        "label": ("أقل دقة مقبولة للوكيشن (متر)", "Least precise location accepted (metres)"),
+        "hint": ("لوكيشن دقته أسوأ من كده بيتعلّم «مش دقيق» ويروح للمراجعة.", "A location less precise than this is marked «not precise» and goes to review."),
     },
     "response_window_seconds": {"label": ("مهلة تأكيد الاستلام (ثانية)", "Confirmation window (seconds)")},
     "deadline_warning_minutes": {"label": ("تحذير قبل الديدلاين (دقيقة)", "Deadline warning (minutes)")},

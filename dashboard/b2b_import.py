@@ -68,6 +68,9 @@ SYNONYMS = {
     "languages": ("languages", "language", "language pairs", "language pair", "pairs", "اللغات", "اللغة", "ازواج اللغات"),
     "services": ("services", "service", "services required", "needs", "الخدمات", "الخدمات المطلوبة", "الخدمة"),
     "source": ("source", "lead source", "from", "المصدر"),
+    # A B2C sheet's own (15/10/2026): where the company is in Egypt.
+    "governorate": ("governorate", "province", "city", "المحافظة", "المحافظه", "المدينة", "المدينه"),
+    "address": ("address", "street", "العنوان", "عنوان", "عنوان الشركة"),
 }
 
 
@@ -78,6 +81,9 @@ EXTRA_SYNONYMS = {
     "priority": ("priority", "الأولوية", "الاولوية", "الأولويه"),
     "deal_value": ("deal value", "deal", "value", "amount", "قيمة الصفقة", "قيمة الصفقه", "القيمة"),
     "notes": ("notes", "note", "comments", "remarks", "ملاحظات", "الملاحظات", "ملاحظة"),
+    # The company's place on the map (B2C): a Google Maps link or the coordinates, read into numbers when the row is added.
+    "location": ("location link", "map", "maps", "google maps", "map link", "coordinates", "gps", "اللوكيشن", "لوكيشن",
+                 "الخريطة", "لينك الخريطة", "الموقع على الخريطة", "الاحداثيات", "الإحداثيات"),
 }
 #: The words a status or a priority cell may hold, as the sheet's values. A word not here leaves the row «New client».
 STATUS_WORDS = {
@@ -90,6 +96,12 @@ STATUS_WORDS = {
     "visit": ("visit", "meeting", "زيارة", "زياره"),
     "no_answer": ("no answer", "لم يتم الرد"),
     "call": ("call", "مكالمة", "مكالمه"),
+    # The B2C stages (15/10/2026).
+    "requirement": ("requirement collected", "requirements collected", "جمعنا الطلب", "تم جمع الطلب"),
+    "quoted": ("quotation sent", "quoted", "اتبعت عرض سعر", "تم ارسال عرض السعر", "عرض سعر"),
+    "waiting": ("waiting customer", "waiting", "في انتظار العميل", "مستني رده", "في الانتظار"),
+    "negotiation": ("negotiation", "تفاوض"),
+    "later": ("follow-up later", "follow up later", "later", "متابعة بعدين", "مؤجل"),
 }
 PRIORITY_WORDS = {
     "high": ("high", "عالية", "عاليه"),
@@ -131,7 +143,7 @@ def _fold(text):
 
 def _header_index():
     index = {}
-    for name, _limit, ar, en in b2b.COLUMNS:
+    for name, _limit, ar, en in b2b.ALL_COLUMNS:
         for word in (name, ar, en, *SYNONYMS.get(name, ())):
             index.setdefault(_fold(word), name)
     for name, words in EXTRA_SYNONYMS.items():
@@ -170,7 +182,10 @@ def _kind(cell):
     if EMAIL.fullmatch(cell):
         return "email"
     if LINK.fullmatch(cell):
-        return "linkedin" if "linkedin.com" in cell.lower() else "website"
+        lower = cell.lower()
+        if "google." in lower and "/maps" in lower or "maps.app.goo.gl" in lower or "goo.gl/maps" in lower:
+            return "location"
+        return "linkedin" if "linkedin.com" in lower else "website"
     if PHONE.fullmatch(cell) and sum(ch.isdigit() for ch in cell) >= 7:
         return "phone"
     if _word_value(cell, STATUS_WORDS):
@@ -240,7 +255,7 @@ def to_rows(table):
     if not table:
         return [], {}
     header = map_header(table[0])
-    order = [name for name, *_rest in b2b.COLUMNS]
+    order = [name for name, *_rest in b2b.ALL_COLUMNS]
     if header is not None:
         # A first row that names columns but no company: a sheet of something else (a daily report, payments...), not a
         # list of companies. Said plainly, instead of a grid of rows with no name that adds nothing.

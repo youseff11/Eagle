@@ -11,6 +11,7 @@ from .models import (
     COST_RATE_ROLES, IDENTITY_GRANTABLE_ROLES,
     MAIL_ALIAS_ROLES, WA_LINE_ROLES,
     AppSettings,
+    SalesTrack,
     Candidate,
     CandidateTest,
     Client,
@@ -520,12 +521,14 @@ class StaffEditForm(forms.ModelForm):
             "mail_alias",
             "wa_phone_number_id",
             "is_sales_manager",
+            "sales_track",
             "cost_per_250",
         )
         labels = {
             "wa_phone_number_id": "رقم الواتساب بتاعه",
             "translator_level": "مستوى المترجم",
             "is_sales_manager": "مانجر Sales",
+            "sales_track": "شغل الـSales بتاعه",
             "cost_per_250": "سعر الـ250 كلمة (جنيه)",
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
             "mail_alias": "بيستقبل ميلات العنوان ده",
@@ -545,8 +548,12 @@ class StaffEditForm(forms.ModelForm):
                 "بيتحسب بيه ربح كل مشروع في «فواتير العملاء»، والمرتب مابيقراهوش. فاضي = لسه مااتفقناش، والربح يبقى «مش متقاس»."
             ),
             "is_sales_manager": (
-                "للـSales بس. بيعمل شيتات الشركات (B2B) ويديها للـSales، وبيشوف شيتات الفريق كله. "
-                "باقي حسابه زي أي Sales: خطه وميله وحضوره."
+                "للـSales بس. بيعمل شيتات الشركات لفريقه (B2B أو B2C حسب «شغل الـSales بتاعه») ويديها للـSales، وبيشوف شيتات الفريق كله، "
+                "ومانجر B2C هو اللي بيعتمد الزيارات. باقي حسابه زي أي Sales: خطه وميله وحضوره."
+            ),
+            "sales_track": (
+                "للـSales بس. B2B: الشركات برا مصر. B2C أونلاين: الشركات جوه مصر بالتليفون والرسايل. "
+                "B2C ميداني: بينزل الشركات جوه مصر، وكل زيارة بيأكدها من مكانه وهو هناك (لوكيشن مرة واحدة لما يضغط)، والمانجر بيعتمدها."
             ),
             "client_identity_access": (
                 "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
@@ -578,6 +585,13 @@ class StaffEditForm(forms.ModelForm):
             self.fields["attendance_enabled"].help_text = "The owner and technical support do not clock in: attendance is always off."
         self._alias_as_list()
         self._number_as_list()
+        # The three kinds of Sales work, in the words the owner uses for them.
+        self.fields["sales_track"].choices = [
+            (SalesTrack.B2B, "B2B — شركات برا مصر"),
+            (SalesTrack.B2C_ONLINE, "B2C أونلاين — شركات جوه مصر بالتليفون والرسايل"),
+            (SalesTrack.B2C_FIELD, "B2C ميداني — بينزل الشركات جوه مصر"),
+        ]
+        self.fields["sales_track"].widget.attrs.update({"class": "input"})
 
     def _number_as_list(self):
         """The account's WhatsApp numbers to pick from (``walines.staff_choices``), each saying who holds it."""
@@ -656,6 +670,8 @@ class StaffEditForm(forms.ModelForm):
         # Same for the Sales manager's mark: on any other role it would mean nothing and mislead whoever reads the form.
         if data.get("is_sales_manager") and data.get("role") != Role.SALES:
             self.add_error("is_sales_manager", "العلامة دي للـSales بس.")
+        if data.get("sales_track") not in (None, "", SalesTrack.B2B) and data.get("role") != Role.SALES:
+            self.add_error("sales_track", "نوع الشغل ده للـSales بس.")
         if data.get("cost_per_250") is not None:
             if data.get("role") not in COST_RATE_ROLES:
                 self.add_error("cost_per_250", "سعر الـ250 كلمة للمترجمين والتيم ليدر بس.")
@@ -917,6 +933,7 @@ class SettingsForm(forms.ModelForm):
             "ai_check_enabled", "claude_api_key", "claude_model", "helpbot_ai_enabled", "helpbot_actions_enabled",
             "chat_translate_enabled",
             "b2b_auto_leads", "b2b_reminder_email",
+            "b2c_visit_target", "b2c_work_days", "b2c_visit_radius_m", "b2c_gps_accuracy_m",
             "response_window_seconds", "deadline_warning_minutes",
             "penalty_value", "max_rating", "rate_keywords",
             "whatsapp_verify_token", "whatsapp_access_token",

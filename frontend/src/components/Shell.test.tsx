@@ -543,7 +543,7 @@ describe("Shell: the admin's panel", () => {
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
-      "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance",
+      "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance", "/b2c", "/b2c/visits",
       "/admin/settings", "/admin/simulate", "/admin/audit",
       "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
@@ -552,6 +552,7 @@ describe("Shell: the admin's panel", () => {
     ]);
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
+      ["/b2c", "شيتات B2C"], ["/b2c/visits", "الزيارات"],
       ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];

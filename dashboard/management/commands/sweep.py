@@ -6,7 +6,7 @@ firing even when nobody has the dashboard open.
 
 from django.core.management.base import BaseCommand
 
-from dashboard import attendance, b2b, employees, finance, services
+from dashboard import attendance, b2b, b2c, employees, finance, services
 
 
 class Command(BaseCommand):
@@ -25,10 +25,12 @@ class Command(BaseCommand):
         follow_ups = b2b.sweep()
         # An invoice falls overdue on a date: Accounting and the owner are told once.
         overdue = finance.sweep_overdue()
+        # A field visit left open past its day goes to the B2C manager as it is, marked.
+        open_visits = b2c.sweep()
         self.stdout.write(
             self.style.SUCCESS(
                 f"expired={expired} deadline_warnings={warned} "
                 f"attendance_alerts={alerts} probation_due={lifecycle['probation']} "
-                f"b2b_follow_up_reminders={follow_ups} overdue_invoices={overdue}"
+                f"b2b_follow_up_reminders={follow_ups} overdue_invoices={overdue} b2c_open_visits={open_visits}"
             )
         )

@@ -26,7 +26,7 @@ const COLUMNS: B2bSheetResponse["columns"] = [
 function row(over: Partial<B2bRow> = {}): B2bRow {
   return {
     company_name: "", country: "", website: "", industry: "", contact_person: "", position: "", email: "", phone: "",
-    whatsapp: "", linkedin: "", languages: "", services: "", source: "", ...over,
+    whatsapp: "", linkedin: "", languages: "", services: "", source: "", governorate: "", address: "", location: "", ...over,
   };
 }
 

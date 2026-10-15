@@ -246,7 +246,7 @@ class FormTests(_Settings):
 
     def test_the_door_sends_the_sections_the_fields_and_the_bilingual_texts(self):
         body = _json(self.get(self.admin, GET))
-        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "b2b", "workflow", "whatsapp", "email"])
+        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "b2b", "b2c", "workflow", "whatsapp", "email"])
         fields = {field["name"]: field for field in body["fields"]}
         self.assertEqual((fields["claude_model"]["label_ar"], fields["claude_model"]["label_en"]), ("الموديل", "Model"))
         self.assertIn("hint_ar", fields["rate_keywords"])

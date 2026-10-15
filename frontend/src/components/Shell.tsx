@@ -91,8 +91,11 @@ export const SECTIONS: { key: Section; label: [string, string] }[] = [
   { key: "danger", label: ["منطقة خطر", "Danger zone"] },
 ];
 
-/** A line some people see only because of what they were given: the recruitment pages are HR's, the attendance pages are anybody's who manages it. */
-type Need = "recruit" | "manage";
+/** A line some people see only because of what they were given: the recruitment pages are HR's, the attendance pages are anybody's who manages it.
+ * A Sales person's sheets are their team's (15/10/2026): the B2B sheets, or the B2C sheets and - for the field people and the
+ * B2C manager - the visits. */
+type Need = "recruit" | "manage" | "b2b" | "b2c" | "visits";
+type Can = Record<Need, boolean>;
 
 /** The counters `/me/` carries for the menu. */
 type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
@@ -115,6 +118,9 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       // The B2B sheets the Sales manager hands out: the owner reads and writes all of them.
       { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 105 },
       { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 106 },
+      // B2C (15/10/2026): the companies inside Egypt, and the field visits the owner may decide.
+      { path: "/b2c", icon: "building", label: ["شيتات B2C", "B2C sheets"], order: 107 },
+      { path: "/b2c/visits", icon: "map-pin", label: ["الزيارات", "Visits"], order: 108 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
       { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
@@ -230,7 +236,10 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     order: 10,
     badge: "mail_unseen",
     extra: [
-      { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 18 },
+      { path: "/leads", icon: "building", label: ["شيتات الشركات", "Company sheets"], order: 18, needs: "b2b" },
+      // A B2C sheet opens at /leads/<id> like any sheet: the line stays lit there.
+      { path: "/b2c", icon: "building", label: ["شيتات B2C", "B2C sheets"], order: 18, needs: "b2c", also: ["/leads"] },
+      { path: "/b2c/visits", icon: "map-pin", label: ["الزيارات", "Visits"], order: 18, needs: "visits" },
       { path: "/sales-performance", icon: "chart", label: ["أداء المبيعات", "Sales performance"], order: 19 },
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
@@ -279,8 +288,8 @@ const UNORDERED = 50;
  * The lines this person has, each address once, in the classic menu's order: by section, and inside it by `order`
  * (lines that tie keep the order their screens are listed in).
  */
-function menuLines(keys: ScreenKey[], isAdmin: boolean, can: { recruit: boolean; manage: boolean }): MenuLine[] {
-  const allowed = (need?: Need) => !need || (need === "recruit" ? can.recruit : can.manage);
+function menuLines(keys: ScreenKey[], isAdmin: boolean, can: Can): MenuLine[] {
+  const allowed = (need?: Need) => !need || can[need];
   const out: MenuLine[] = [];
   for (const key of keys) {
     const screen = SCREENS[key];
@@ -399,13 +408,17 @@ function Frame() {
   const isAdmin = Boolean(user?.is_admin);
   const canRecruit = me.data?.can.recruit ?? false;
   const canManage = me.data?.can.manage_attendance ?? false;
+  // A Sales person's team, by what the owner set on their file: an account from before it (no track) is B2B.
+  const track = user?.sales_track || "b2b";
+  const b2c = track !== "b2b";
+  const visits = track === "b2c_field" || (b2c && Boolean(user?.sales_manager));
   const screensKey = screens.join(",");
   // The lines are rebuilt only when the person's screens change: the search indexes them. Until the server has said who this is
   // there is no menu at all (not the bell alone): a menu that settles on its first look must not settle on half of itself.
   const known = Boolean(me.data);
   const lines = useMemo(
-    () => (known ? menuLines(screens, isAdmin, { recruit: canRecruit, manage: canManage }) : []),
-    [known, screensKey, isAdmin, canRecruit, canManage],
+    () => (known ? menuLines(screens, isAdmin, { recruit: canRecruit, manage: canManage, b2b: !b2c, b2c, visits }) : []),
+    [known, screensKey, isAdmin, canRecruit, canManage, b2c, visits],
   );
   // The pages in the person's own menu are asked for in the background, so the first click on each opens on data and
   // not on a loading screen (see `api/prefetch.ts` for which, and why only these).

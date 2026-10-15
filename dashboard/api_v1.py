@@ -222,6 +222,9 @@ def me(request):
             "avatar": avatars.url_of(user),
             "role": user.role,
             "is_admin": user.is_admin_role,
+            # A Sales person's team (B2B or B2C) and kind of work: which sheets and which pages are theirs (15/10/2026).
+            "sales_track": user.sales_track if user.is_sales else "",
+            "sales_manager": bool(user.is_sales and user.is_sales_manager),
             "lang": user.ui_lang,
             "theme": user.ui_theme,
         },

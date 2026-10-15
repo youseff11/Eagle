@@ -12,7 +12,8 @@ function lead(id: number, company_name: string, over: Partial<B2bLead> = {}): B2
     id, company_name, country: "", website: "", industry: "", contact_person: "", position: "", email: "", phone: "", whatsapp: "",
     linkedin: "", languages: "", services: "", source: "", status: "new", priority: "", deal_value: "", phones: [],
     next_follow_up: "", notes: [], client_code: "", whatsapp_at: "", email_at: "", call_at: "", last_contact_at: "",
-    replied_at: "", last_outreach_at: "", follow_up: "", overdue: false, quote: null, ...over,
+    replied_at: "", last_outreach_at: "", follow_up: "", overdue: false, quote: null, governorate: "", address: "", location: "",
+    map_link: "", customer_type: "", lost_reason: "", ...over,
   };
 }
 

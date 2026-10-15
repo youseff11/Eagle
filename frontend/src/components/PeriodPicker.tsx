@@ -32,9 +32,19 @@ export function usePeriod(): [string, string] {
 /** The period's controls: three quick periods and the two dates. `shown` is the period the server answered for. */
 export function PeriodPicker({ shown }: { shown: { from: string; to: string } }) {
   const { t } = usePreferences();
-  const [, setParams] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const quick = periods(new Date());
-  const set = (next: { from: string; to: string }) => setParams(next.from && next.to ? { from: next.from, to: next.to } : {});
+  // The period alone changes: whatever else the address holds (the owner's choice of Sales team) stays.
+  const set = (next: { from: string; to: string }) => {
+    const kept = new URLSearchParams(params);
+    kept.delete("from");
+    kept.delete("to");
+    if (next.from && next.to) {
+      kept.set("from", next.from);
+      kept.set("to", next.to);
+    }
+    setParams(kept);
+  };
 
   return (
     <div className="card" style={{ marginBottom: 14 }}>

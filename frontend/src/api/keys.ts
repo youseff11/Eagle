@@ -129,12 +129,16 @@ export const qk = {
   help: (lang: string) => ["help", lang] as const,
   /** The B2B company sheets: the list, one sheet with its rows, one row with its timeline. A write asks all of them again. */
   b2b: ["b2b"] as const,
-  b2bSheets: ["b2b", "sheets"] as const,
+  /** The sheets of one team: `"b2b"` or `"b2c"` (15/10/2026). */
+  b2bSheets: (market: string) => ["b2b", "sheets", market] as const,
   b2bSheet: (id: number) => ["b2b", "sheet", id] as const,
   b2bLead: (id: number) => ["b2b", "lead", id] as const,
   b2bDuplicates: (sheetId: number) => ["b2b", "duplicates", sheetId] as const,
-  b2bFollowUps: ["b2b", "follow-ups"] as const,
-  b2bKpis: (from: string, to: string) => ["b2b", "kpis", from, to] as const,
+  b2bFollowUps: (market: string) => ["b2b", "follow-ups", market] as const,
+  b2bKpis: (from: string, to: string, market = "") => ["b2b", "kpis", from, to, market] as const,
+  /** The B2C field visits of a month, and the companies a visit may be to (under `b2b`: a visit moves a row too). */
+  b2cVisits: (month: string) => ["b2b", "b2c-visits", month] as const,
+  b2cVisitLeads: (words: string) => ["b2b", "b2c-visit-leads", words] as const,
   b2bQuotes: (leadId: number) => ["b2b", "quotes", leadId] as const,
   b2bTargets: (month: string) => ["b2b", "targets", month] as const,
   /** Client invoices (Accounting's): the lists by filter, and one invoice. A write asks all of them again. */

@@ -6680,6 +6680,22 @@ def heartbeat(user):
         _overdue_invoices()
     if user.is_sales or user.is_admin_role:
         _sales_targets()
+        _open_visits()
+
+
+def _open_visits():
+    """The B2C visits left open past their day, from the heartbeat of the Sales people and the owner: at most every quarter
+    of an hour (the sweep command does it too)."""
+    from django.core.cache import cache
+
+    from . import b2c
+
+    if not cache.add("b2c-open-visits", 1, B2B_DIGEST_EVERY_SECONDS):
+        return
+    try:
+        b2c.sweep()
+    except Exception:  # noqa: BLE001 - a sweep that breaks must not break the heartbeat
+        logger.exception("The open B2C visits sweep failed")
 
 
 def _sales_targets():

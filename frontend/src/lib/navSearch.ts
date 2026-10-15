@@ -35,6 +35,8 @@ export const KEYWORDS: Record<string, string> = {
   "/leads": "شيت شيتات شركات ليدز عملاء جداد تواصل مكالمة b2b sheet sheets companies leads prospects outreach",
   "/admin/ceo": "لوحة المدير سي اي او داشبورد ارقام الشركة ربح ايراد مبيعات ceo board dashboard company profit revenue",
   "/accounts/invoices": "فواتير فاتورة العملاء تحصيل دفع متأخرة ربح تكلفة invoice invoices billing payment collection overdue profit cost",
+  "/b2c": "شيت شيتات شركات مصر عملاء محليين اونلاين ميداني b2c sheets egypt local companies",
+  "/b2c/visits": "زيارة زيارات ميداني لوكيشن وصلت خلصت اعتماد تارجت visit visits field check in check out location approve target",
   "/sales-performance": "اداء المبيعات ارقام السيلز داشبورد تقرير won lost نسبة التحويل kpi kpis dashboard sales performance conversion",
   "/tasks": "تاسك مهام شغل جديد task tasks jobs new",
   "/team": "فريق مترجمين متاح مشغول اونلاين team status online busy",

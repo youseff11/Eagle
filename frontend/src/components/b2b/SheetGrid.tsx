@@ -21,6 +21,23 @@ export const STATUS_AR: Record<string, string> = {
   visit: "زيارة",
   no_answer: "لم يتم الرد",
   call: "call",
+  // The B2C stages (15/10/2026), the requirements' pipeline.
+  requirement: "جمعنا الطلب",
+  quoted: "اتبعت عرض سعر",
+  waiting: "مستنيين رده",
+  negotiation: "تفاوض",
+  later: "متابعة بعدين",
+};
+/** On a B2C sheet the shared stages read as the requirements' words. */
+export const B2C_STATUS_AR: Record<string, string> = { ...STATUS_AR, new: "جديد", contacted: "اتواصلنا", won: "تم التعاقد", lost: "خسرناه" };
+/** Why a B2C company was lost. */
+export const LOST_AR: Record<string, string> = {
+  price: "السعر",
+  competitor: "منافس",
+  timing: "التوقيت",
+  no_response: "مابيردّش",
+  no_need: "مش محتاج",
+  other: "سبب تاني",
 };
 export const PRIORITY_AR: Record<string, string> = {
   high: "عالية",
@@ -29,8 +46,23 @@ export const PRIORITY_AR: Record<string, string> = {
 };
 
 /** The columns of the team's sheet, in its order, with the widths it gives them. */
-export type GridColumn = "company_name" | "contact_person" | "phone" | "whatsapp" | "email" | "status" | "priority" | "deal_value" | "industry" | "notes" | "country";
-export const GRID_COLUMNS: { name: GridColumn; ar: string; en: string; width: number; max: number; ltr?: boolean; multiline?: boolean }[] = [
+export type GridColumn =
+  | "company_name"
+  | "contact_person"
+  | "phone"
+  | "whatsapp"
+  | "email"
+  | "status"
+  | "priority"
+  | "deal_value"
+  | "industry"
+  | "notes"
+  | "country"
+  | "governorate"
+  | "address"
+  | "location";
+type GridEntry = { name: GridColumn; ar: string; en: string; width: number; max: number; ltr?: boolean; multiline?: boolean };
+export const GRID_COLUMNS: GridEntry[] = [
   { name: "company_name", ar: "الشركة", en: "Company", width: 290, max: 160 },
   { name: "contact_person", ar: "الشخص المسؤول", en: "Contact person", width: 150, max: 160 },
   { name: "phone", ar: "رقم الهاتف", en: "Phone", width: 160, max: 250, ltr: true, multiline: true },
@@ -42,6 +74,24 @@ export const GRID_COLUMNS: { name: GridColumn; ar: string; en: string; width: nu
   { name: "industry", ar: "النشاط", en: "Activity", width: 110, max: 120 },
   { name: "notes", ar: "ملاحظات", en: "Notes", width: 340, max: 4000 },
   { name: "country", ar: "الدوله", en: "Country", width: 100, max: 80 },
+];
+
+/** A B2C sheet's columns (15/10/2026): the companies are in Egypt, so where they are replaces the country, and the place on
+ * the map is a cell of its own (a Google Maps link or the coordinates). */
+export const B2C_GRID_COLUMNS: GridEntry[] = [
+  { name: "company_name", ar: "الشركة", en: "Company", width: 260, max: 160 },
+  { name: "contact_person", ar: "الشخص المسؤول", en: "Contact person", width: 150, max: 160 },
+  { name: "phone", ar: "رقم الهاتف", en: "Phone", width: 150, max: 250, ltr: true, multiline: true },
+  { name: "whatsapp", ar: "واتساب", en: "WhatsApp", width: 150, max: 250, ltr: true, multiline: true },
+  { name: "email", ar: "البريد الإلكتروني", en: "Email", width: 170, max: 254, ltr: true },
+  { name: "status", ar: "الحالة", en: "Stage", width: 150, max: 20 },
+  { name: "priority", ar: "الاهتمام", en: "Interest", width: 110, max: 10 },
+  { name: "deal_value", ar: "قيمة الصفقة", en: "Deal value", width: 110, max: 20, ltr: true },
+  { name: "governorate", ar: "المحافظة", en: "Governorate", width: 110, max: 80 },
+  { name: "address", ar: "العنوان", en: "Address", width: 200, max: 250 },
+  { name: "location", ar: "اللوكيشن", en: "Location", width: 170, max: 4000, ltr: true },
+  { name: "industry", ar: "النشاط", en: "Activity", width: 110, max: 120 },
+  { name: "notes", ar: "ملاحظات", en: "Notes", width: 320, max: 4000 },
 ];
 
 function useCellSave(lead: B2bLead, name: keyof LeadValues) {
@@ -235,7 +285,7 @@ export function NotesCell({ lead, label, meId, manages }: { lead: B2bLead; label
 }
 
 /** A list in the cell: the status or the priority, saved as soon as it is picked. */
-export function ChoiceCell({ lead, name, label, choices, words, empty, children }: {
+export function ChoiceCell({ lead, name, label, choices, words, empty, children, intercept }: {
   lead: B2bLead;
   name: "status" | "priority";
   label: string;
@@ -243,6 +293,9 @@ export function ChoiceCell({ lead, name, label, choices, words, empty, children 
   words: Record<string, string>;
   empty?: boolean;
   children?: ReactNode;
+  /** A choice that needs more than the cell (a lost company's reason, a waiting one's day): `true` = handled elsewhere,
+   * the cell stays as it was and saves nothing. */
+  intercept?: (next: string) => boolean;
 }) {
   const { lang } = usePreferences();
   const saved = lead[name];
@@ -259,6 +312,7 @@ export function ChoiceCell({ lead, name, label, choices, words, empty, children 
         data-value={value || "none"}
         onChange={(event) => {
           const next = event.target.value;
+          if (intercept?.(next)) return;
           setValue(next);
           commit(next, () => setValue(saved));
         }}

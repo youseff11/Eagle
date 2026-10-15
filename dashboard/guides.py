@@ -1167,6 +1167,107 @@ GUIDES = (
         ),
     ),
     _guide(
+        "b2c-sales-type", (Role.ADMIN,), "/hr/employees",
+        ("إزاي أخلي Sales يشتغل B2C أونلاين أو ميداني", "How do I make a Sales person B2C online or field"),
+        (
+            "b2c، بي تو سي، سيلز ميداني، سيلز اونلاين، نوع شغل السيلز، شركات مصر، شركات جوه مصر، زيارات، مانجر b2c",
+            "b2c, field sales, online sales, kind of sales work, companies in egypt, local companies, visits, b2c manager",
+        ),
+        [
+            "افتح ملف الموظف من «الموظفين».",
+            "من «شغل الـSales بتاعه» اختار: B2B (شركات برا مصر)، أو B2C أونلاين (شركات جوه مصر بالتليفون والرسايل)، أو B2C ميداني (بينزل الشركات ويأكد كل زيارة بمكانه).",
+            "عشان يبقى مانجر فريق B2C: علّم «مانجر Sales» واختار له نوع B2C. هو اللي بيعمل شيتات B2C ويديها لفريقه ويعتمد الزيارات.",
+            "احفظ. القايمة بتاعته بتتغيّر لوحدها: B2C بيشوف «شيتات B2C»، والميداني ومانجر B2C بيشوفوا «الزيارات» كمان.",
+        ],
+        [
+            "Open the person's file from «الموظفين».",
+            "Under «شغل الـSales بتاعه» choose B2B (companies abroad), B2C online (companies in Egypt, by phone and messages) or B2C field (visits the companies and confirms each visit with their place).",
+            "To make them the B2C team's manager: tick «مانجر Sales» and choose a B2C kind. They make the B2C sheets, give them to the team and verify the visits.",
+            "Save. Their menu changes by itself: B2C people see «B2C sheets», and the field people and the B2C manager see «Visits» too.",
+        ],
+        note=(
+            "الشيت بيتدّي لفريقه بس: شيت B2C مابيروحش لـSales B2B ولا العكس. والتارجت والإعدادات (220 زيارة، 100 متر) من «الإعدادات و AI» في «المبيعات (B2C) والزيارات».",
+            "A sheet goes to its own team only: a B2C sheet never goes to a B2B Sales person nor the other way round. The target and the rules (220 visits, 100 m) are in «Settings & AI» under «Sales (B2C) and visits».",
+        ),
+    ),
+    _guide(
+        "b2c-sheets", (Role.ADMIN,), "/b2c",
+        ("إزاي أشتغل على شيت B2C", "How do I work on a B2C sheet"),
+        (
+            "شيت b2c، شركات مصر، المحافظة، العنوان، اللوكيشن، لينك جوجل ماب، خسرناه، سبب الخسارة، تفاوض، مستنيين رده، متابعة بعدين، جمعنا الطلب",
+            "b2c sheet, egypt companies, governorate, address, location, google maps link, lost, lost reason, negotiation, waiting, follow-up later, requirement collected",
+        ),
+        [
+            "من قسم «الشغل» افتح «شيتات B2C» واضغط «افتح» على الشيت بتاعك.",
+            "الشيت زي شيت B2B: «شركة جديدة» أو «ارفع Excel أو Google Sheet»، وكل خانة بتتحفظ أول ما تخرج منها. فيه كمان «المحافظة» و«العنوان» و«اللوكيشن».",
+            "في «اللوكيشن» الزق لينك الشركة الطويل من Google Maps أو الإحداثيات (رقمين بينهم فاصلة، من Google Maps لما تضغط على المكان). اللينك المختصر مابيقولش المكان.",
+            "الحالة: لما تختار «خسرناه» بيسألك «سبب الخسارة»، ولما تختار «مستنيين رده» أو «متابعة بعدين» بيسألك «المتابعة الجاية». من غيرهم مابيتحفظش.",
+            "التواصل بالرسايل والمكالمات زي B2B بالظبط من آخر الصف.",
+        ],
+        [
+            "In the «Work» section open «B2C sheets» and press «Open» on your sheet.",
+            "It works like a B2B sheet: «New company» or «Upload Excel or Google Sheets», and each cell saves when you leave it. It also has «Governorate», «Address» and «Location».",
+            "In «Location» paste the company's long Google Maps link or its coordinates (two numbers with a comma, from Google Maps when you press the place). A short link does not say where the place is.",
+            "The stage: «خسرناه» asks «Why it was lost», and «مستنيين رده» or «متابعة بعدين» ask the «Next follow-up». Without them nothing is saved.",
+            "Messages and calls work exactly as on B2B, from the end of the row.",
+        ],
+        cap="is_b2c_sales",
+    ),
+    _guide(
+        "b2c-visits", (Role.ADMIN,), "/b2c/visits",
+        ("إزاي أسجّل زيارة لشركة وأأكد إني رحت", "How do I record a visit to a company and prove I went"),
+        (
+            "زيارة، زيارات، وصلت، خلصت، لوكيشن، اثبات الزيارة، اكد اني رحت، ميداني، تارجت الزيارات، 220 زيارة، الزيارة اترفضت",
+            "visit, visits, i arrived, i am done, location, prove the visit, field, visits target, 220 visits, visit turned down",
+        ),
+        [
+            "اعمل الزيارة: من زرار «زيارة» في آخر صف الشركة في الشيت، أو من «الزيارات» ثم «زيارة جديدة»، وبعدين «اعمل الزيارة».",
+            "وانت عند الشركة افتح «الزيارات» واضغط «وصلت». الموبايل بيسألك تسمح باللوكيشن: اسمح. مكانك بيتاخد مرة واحدة بس مع الضغطة.",
+            "وانت ماشي اضغط «خلصت»، اكتب «نتيجة الزيارة» و«ملخص المقابلة» والخطوة الجاية، واضغط «خلصت، ابعتها». الزيارة بتروح للمانجر.",
+            "لو الموبايل مادّاش لوكيشن اكتب السبب واضغط «ابعت من غير لوكيشن»، والمانجر هيراجعها.",
+            "فوق الصفحة «التارجت»: الزيارات المعتمدة من التارجت، وبيقل بأيام الإجازة المعتمدة.",
+        ],
+        [
+            "Plan the visit: with «Visit» at the end of the company's row on the sheet, or from «Visits» then «New visit», then «Plan the visit».",
+            "At the company open «Visits» and press «I arrived». The phone asks to allow the location: allow it. Your place is read once, at the press only.",
+            "On leaving press «I am done», write «How it went» and «What was said» and the next step, and press «Done, send it». The visit goes to the manager.",
+            "If the phone gives no location write why and press «Send without a location»; the manager reviews it.",
+            "At the top is «The target»: your verified visits against the target, lowered by approved leave days.",
+        ],
+        note=(
+            "لازم تبقى قريب من الشركة (100 متر في الإعدادات). البعيد أو اللوكيشن المش دقيق بيروح للمانجر بملاحظة، ومفيش زيارة بتتعتمد لوحدها. مفيش أي تتبع لمكانك غير الضغطتين دول.",
+            "You must be near the company (100 m in the settings). A far press or an unsure location goes to the manager flagged, and no visit is verified by itself. Nothing follows your place but those two presses.",
+        ),
+        cap="is_field_sales",
+    ),
+    _guide(
+        "b2c-visits-approve", (Role.ADMIN,), "/b2c/visits",
+        ("إزاي أعتمد زيارات الفريق أو أرفضها", "How do I verify or turn down the team's visits"),
+        (
+            "اعتماد الزيارات، اعتمد زيارة، ارفض زيارة، زيارة بعيدة، زيارة مشكوك فيها، حولها للمالك، اعتمد السليمة، مراجعة الزيارات",
+            "verify visits, approve a visit, reject a visit, far visit, doubtful visit, hand to the owner, verify the clean ones, review visits",
+        ),
+        [
+            "افتح «الزيارات»: كل زيارة عليها مكان الضغطتين، والبُعد عن الشركة، ودقة اللوكيشن، والتقرير، والملاحظات لو فيه.",
+            "الزيارة السليمة اضغط «اعتمد». اللي عليها ملاحظة (بعيدة، لوكيشن مش دقيق، من غير لوكيشن) لازم تكتب ليه هتعتمدها.",
+            "«ارفض» محتاج سبب، والسبب بيوصل للـSales في تنبيه.",
+            "الزيارة المشكوك فيها اضغط «حوّلها للمالك» واكتب ليه: المالك بس اللي يقرر فيها بعد كده.",
+            "الزيارات اللي مفيش عليها أي ملاحظة تعتمدهم مرة واحدة من زرار اعتمد السليمة اللي فوق.",
+        ],
+        [
+            "Open «Visits»: each visit shows where both presses were, how far from the company, how sure the location was, the report and any flags.",
+            "A clean visit: press «Verify». A flagged one (far, not precise, no location) needs why you verify it.",
+            "«Turn down» needs the reason, and the Sales person is told it.",
+            "A doubtful visit: press «Hand it to the owner» and write why: only the owner decides it after that.",
+            "The visits with no flag at all are verified in one go with the button at the top.",
+        ],
+        note=(
+            "محدش بيعتمد زيارته هو. والشركة اللي مالهاش لوكيشن بتاخد مكان أول زيارة معتمدة ليها، فالزيارات اللي بعدها بتتقاس عليه.",
+            "Nobody decides their own visit. A company with no location takes the place of its first verified visit, so later visits are measured against it.",
+        ),
+        cap="runs_b2c",
+    ),
+    _guide(
         "sales-quotations", (Role.SALES, Role.ADMIN), "/leads",
         ("إزاي أعمل عرض سعر لشركة وأبعته", "How do I make a quotation for a company and send it"),
         (

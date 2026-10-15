@@ -1,4 +1,4 @@
-import { Navigate } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import { useB2bKpis, type KpiCounts } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
@@ -72,7 +72,11 @@ export function SalesPerformancePage() {
   const me = useMe();
   const [from, to] = usePeriod();
   const allowed = me.data !== undefined && (me.data.user.role === "sales" || me.data.user.is_admin);
-  const numbers = useB2bKpis(from, to, allowed);
+  // The owner reads either team's numbers (15/10/2026); the choice is in the address like the period.
+  const [params, setParams] = useSearchParams();
+  const owner = Boolean(me.data?.user.is_admin);
+  const market = owner && params.get("market") === "b2c" ? "b2c" : "";
+  const numbers = useB2bKpis(from, to, allowed, market);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
   const data = numbers.data;
@@ -101,7 +105,28 @@ export function SalesPerformancePage() {
         </span>
       </div>
 
-      {allowed && <TargetsCard />}
+      {owner && (
+        <div className="row" style={{ marginBottom: 14 }}>
+          <label htmlFor="kpiMarket">{t("الفريق", "Team")}</label>
+          <select
+            className="input"
+            id="kpiMarket"
+            style={{ width: "auto" }}
+            value={market || "b2b"}
+            onChange={(event) => {
+              const next = new URLSearchParams(params);
+              if (event.target.value === "b2c") next.set("market", "b2c");
+              else next.delete("market");
+              setParams(next, { replace: true });
+            }}
+          >
+            <option value="b2b">{t("B2B — شركات برا مصر", "B2B — companies abroad")}</option>
+            <option value="b2c">{t("B2C — شركات جوه مصر", "B2C — companies in Egypt")}</option>
+          </select>
+        </div>
+      )}
+
+      {allowed && !market && <TargetsCard />}
 
       <PeriodPicker shown={shown} />
 

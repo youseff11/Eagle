@@ -24,6 +24,7 @@ import {
   type LeadValues,
   type ReadRowsResponse,
 } from "../api/b2b";
+import { usePlanVisit } from "../api/b2c";
 import { useMe } from "../api/queries";
 import { Duplicates } from "../components/b2b/Duplicates";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
@@ -32,7 +33,7 @@ import { PAGE_ROWS, Pages, pageWithin } from "../components/b2b/Pages";
 import { keepPlace, readPlace } from "../lib/sheetPlace";
 import { filledValues, isCopiedRow } from "../components/b2b/pastedRow";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
-import { ChoiceCell, GRID_COLUMNS, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
+import { B2C_GRID_COLUMNS, B2C_STATUS_AR, ChoiceCell, GRID_COLUMNS, LOST_AR, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { Modal } from "../components/Modal";
@@ -89,11 +90,21 @@ const EMPTY_ROW: LeadValues = {
   languages: "",
   services: "",
   source: "",
+  governorate: "",
+  address: "",
+  location: "",
   status: "new",
   priority: "",
   deal_value: "",
   next_follow_up: "",
+  customer_type: "",
+  lost_reason: "",
 };
+
+/** The stage words of the sheet's own team. */
+const stageWords = (data: B2bSheetResponse) => (data.sheet.market === "b2c" ? B2C_STATUS_AR : STATUS_AR);
+/** The Arabic words for company / individual. */
+const CUSTOMER_AR: Record<string, string> = { company: "شركة", individual: "فرد" };
 
 /** A row typed in, or one corrected: every column, the status, the priority, the deal value and the next follow-up. A new
  * company may come with its first note; the notes of a company on the sheet are added in their cell. */
@@ -116,7 +127,7 @@ function LeadForm({
     if (!lead) return { ...EMPTY_ROW };
     const {
       id: _id, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, overdue: _o,
-      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, phones: _p, notes: _n, ...rest
+      replied_at: _r, last_outreach_at: _lo, follow_up: _f, quote: _q, phones: _p, notes: _n, map_link: _m, ...rest
     } = lead;
     return rest;
   });
@@ -125,6 +136,7 @@ function LeadForm({
   const busy = add.isPending || save.isPending || remove.isPending;
   const fallback = t("مقدرتش أحفظ. جرّب تاني.", "Could not save. Try again.");
   const set = (name: keyof LeadValues, value: string) => setValues((before) => ({ ...before, [name]: value }));
+  const b2c = data.sheet.market === "b2c";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -132,6 +144,10 @@ function LeadForm({
     setProblem("");
     if (!values.company_name.trim()) {
       setProblem(t("اكتب اسم الشركة.", "Write the company name."));
+      return;
+    }
+    if (b2c && values.status === "lost" && !values.lost_reason) {
+      setProblem(t("اختار سبب الخسارة.", "Choose why the company was lost."));
       return;
     }
     const onError = (failure: unknown) => setProblem(refusalText(failure, lang, fallback));
@@ -203,7 +219,8 @@ ${words}` : words));
                   className="input"
                   id={`lead-${column.name}`}
                   maxLength={column.max}
-                  dir={["email", "website", "linkedin"].includes(column.name) ? "ltr" : undefined}
+                  placeholder={column.name === "location" ? t("لينك Google Maps أو 30.0444, 31.2357", "A Google Maps link or 30.0444, 31.2357") : undefined}
+                  dir={["email", "website", "linkedin", "location"].includes(column.name) ? "ltr" : undefined}
                   value={values[column.name]}
                   onChange={(event) => set(column.name, event.target.value)}
                 />
@@ -215,13 +232,39 @@ ${words}` : words));
             <select className="input" id="lead-status" value={values.status} onChange={(event) => set("status", event.target.value)}>
               {data.statuses.map((choice) => (
                 <option key={choice.value} value={choice.value}>
-                  {label(choice, STATUS_AR)}
+                  {label(choice, stageWords(data))}
                 </option>
               ))}
             </select>
           </div>
+          {b2c && values.status === "lost" && (
+            <div className="field">
+              <label htmlFor="lead-lost">{t("سبب الخسارة", "Why it was lost")}</label>
+              <select className="input" id="lead-lost" value={values.lost_reason ?? ""} onChange={(event) => set("lost_reason", event.target.value)}>
+                <option value="">{t("— اختار —", "— choose —")}</option>
+                {data.lost_reasons.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {label(choice, LOST_AR)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {b2c && (
+            <div className="field">
+              <label htmlFor="lead-kind">{t("نوع العميل", "Customer type")}</label>
+              <select className="input" id="lead-kind" value={values.customer_type ?? ""} onChange={(event) => set("customer_type", event.target.value)}>
+                <option value="">—</option>
+                {data.customer_types.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {label(choice, CUSTOMER_AR)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="field">
-            <label htmlFor="lead-priority">{t("الأولوية", "Priority")}</label>
+            <label htmlFor="lead-priority">{b2c ? t("الاهتمام", "Interest") : t("الأولوية", "Priority")}</label>
             <select className="input" id="lead-priority" value={values.priority} onChange={(event) => set("priority", event.target.value)}>
               <option value="">—</option>
               {data.priorities.map((choice) => (
@@ -247,7 +290,9 @@ ${words}` : words));
           </div>
         )}
         <small className="muted">
-          {t("أرقام الواتساب بكود الدولة (+44…)، كل رقم في سطر: دي اللي الرسايل بتروح عليها.", "Write the WhatsApp numbers with their country code (+44…), one a line: messages go to them.")}
+          {b2c
+            ? t("كل رقم في سطر. اللوكيشن: افتح الشركة في Google Maps وانسخ اللينك الطويل أو الإحداثيات: الزيارة بتتقاس عليه.", "One number a line. Location: open the company in Google Maps and copy the long link or the coordinates: visits are measured against it.")
+            : t("أرقام الواتساب بكود الدولة (+44…)، كل رقم في سطر: دي اللي الرسايل بتروح عليها.", "Write the WhatsApp numbers with their country code (+44…), one a line: messages go to them.")}
         </small>
         <Problem text={problem} />
         {lead && data.sheets.length > 0 && <MoveLead lead={lead} sheets={data.sheets} onMoved={onClose} />}
@@ -369,7 +414,7 @@ function SheetSettings({ data, onClose }: { data: B2bSheetResponse; onClose: () 
             className="btn btn--danger"
             type="button"
             disabled={busy}
-            onClick={() => remove.mutate(undefined, { onSuccess: () => navigate("/leads"), onError: (failure) => setProblem(refusalText(failure, lang, fallback)) })}
+            onClick={() => remove.mutate(undefined, { onSuccess: () => navigate(data.sheet.market === "b2c" ? "/b2c" : "/leads"), onError: (failure) => setProblem(refusalText(failure, lang, fallback)) })}
           >
             <Icon name="trash" />
             {t("امسح الشيت", "Delete the sheet")}
@@ -634,9 +679,9 @@ function LogCall({ lead, outcomes, onClose }: { lead: B2bLead; outcomes: B2bChoi
 }
 
 /** A row's timeline: every message that reached the company, every call. */
-function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2bChoice[]; onClose: () => void }) {
+function Timeline({ leadId, outcomes, words, onClose }: { leadId: number; outcomes: B2bChoice[]; words: Record<string, string>; onClose: () => void }) {
   const { t, lang } = usePreferences();
-  const statusWord = (value: string) => (lang === "ar" ? (STATUS_AR[value] ?? value) : value);
+  const statusWord = (value: string) => (lang === "ar" ? (words[value] ?? value) : value);
   const label = useChoiceLabel();
   const detail = useB2bLead(leadId);
   const kinds: Record<string, [string, string, string]> = {
@@ -645,6 +690,7 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
     call: ["phone", "مكالمة", "Call"],
     status: ["target", "الحالة اتغيّرت", "Stage changed"],
     quotation: ["file", "عرض سعر", "Quotation"],
+    visit: ["map-pin", "زيارة", "Field visit"],
   };
   const quoteWord: Record<string, [string, string]> = {
     created: ["اتعمل", "made"],
@@ -700,6 +746,122 @@ function Timeline({ leadId, outcomes, onClose }: { leadId: number; outcomes: B2b
   );
 }
 
+/**
+ * A B2C stage that needs more than the cell (15/10/2026): «خسرناه» asks why, «مستنيين رده» and «متابعة بعدين» ask the day of
+ * the next follow-up. The server holds the same rule (`b2c.check_stage`); this only asks before it refuses.
+ */
+function StageWindow({ data, lead, status, onClose }: { data: B2bSheetResponse; lead: B2bLead; status: string; onClose: () => void }) {
+  const { t, lang } = usePreferences();
+  const label = useChoiceLabel();
+  const save = useSaveCell();
+  const lost = status === "lost";
+  const [reason, setReason] = useState(lead.lost_reason);
+  const [day, setDay] = useState(lead.next_follow_up);
+  const [problem, setProblem] = useState("");
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (save.isPending) return;
+    if (lost ? !reason : !day) {
+      setProblem(lost ? t("اختار سبب الخسارة.", "Choose why the company was lost.") : t("حدد ميعاد المتابعة الجاية.", "Set the day of the next follow-up."));
+      return;
+    }
+    save.mutate(
+      { id: lead.id, values: lost ? { status, lost_reason: reason } : { status, next_follow_up: day } },
+      { onSuccess: onClose, onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أحفظ. جرّب تاني.", "Could not save. Try again."))) },
+    );
+  };
+
+  return (
+    <Modal title={`${lead.company_name} · ${lang === "ar" ? (B2C_STATUS_AR[status] ?? status) : status}`} icon="target" busy={save.isPending} onClose={onClose}>
+      <form onSubmit={submit}>
+        {lost ? (
+          <div className="field">
+            <label htmlFor="stageReason">{t("سبب الخسارة", "Why it was lost")}</label>
+            <select className="input" id="stageReason" value={reason} onChange={(event) => setReason(event.target.value)}>
+              <option value="">{t("— اختار —", "— choose —")}</option>
+              {data.lost_reasons.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {label(choice, LOST_AR)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="field">
+            <label htmlFor="stageDay">{t("المتابعة الجاية", "Next follow-up")}</label>
+            <input className="input" id="stageDay" type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+          </div>
+        )}
+        <Problem text={problem} />
+        <button className="btn btn--primary" type="submit" disabled={save.isPending}>
+          <Icon name="check" />
+          {t("احفظ", "Save")}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/** A visit planned from the company's row: the purpose and, if known, when. «وصلت» is pressed on the visits page, at the company. */
+function PlanVisit({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
+  const { t, lang } = usePreferences();
+  const toasts = useToasts();
+  const navigate = useNavigate();
+  const plan = usePlanVisit();
+  const [purpose, setPurpose] = useState("");
+  const [when, setWhen] = useState("");
+  const [problem, setProblem] = useState("");
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (plan.isPending) return;
+    setProblem("");
+    plan.mutate(
+      { lead: lead.id, purpose: purpose.trim(), planned_at: when },
+      {
+        onSuccess: (answer) => {
+          toasts.push({ level: "success", title: t(`الزيارة ${answer.visit.code} اتعملت`, `Visit ${answer.visit.code} planned`) });
+          onClose();
+          navigate("/b2c/visits");
+        },
+        onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش أعمل الزيارة. جرّب تاني.", "Could not plan the visit. Try again."))),
+      },
+    );
+  };
+
+  return (
+    <Modal title={`${t("زيارة", "Visit")} · ${lead.company_name}`} icon="map-pin" busy={plan.isPending} onClose={onClose}>
+      <form onSubmit={submit}>
+        {!lead.map_link && (
+          <div className="note note--info" style={{ marginBottom: 10 }}>
+            <Icon name="info" />
+            <div>
+              {t(
+                "الشركة دي مالهاش لوكيشن، فالزيارة هتروح للمانجر يراجعها. حط لينك Google Maps بتاعها في خانة «اللوكيشن» لو تعرفه.",
+                "This company has no location, so the visit goes to the manager to review. Put its Google Maps link in «Location» if you know it.",
+              )}
+            </div>
+          </div>
+        )}
+        <div className="field">
+          <label htmlFor="visitPurpose">{t("الغرض من الزيارة", "Purpose of the visit")}</label>
+          <input className="input" id="visitPurpose" maxLength={250} value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="visitWhen">{t("الميعاد (اختياري)", "When (optional)")}</label>
+          <input className="input" id="visitWhen" type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
+        </div>
+        <Problem text={problem} />
+        <button className="btn btn--primary" type="submit" disabled={plan.isPending}>
+          <Icon name="map-pin" />
+          {t("اعمل الزيارة", "Plan the visit")}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 /** Which rows the sheet shows: all of them, or the ones that need something. */
 type Only = "all" | "due" | "replied" | "untouched";
 const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
@@ -714,7 +876,8 @@ type Open =
   | { kind: "paste"; pasted?: { text: string; answer: ReadRowsResponse } }
   | { kind: "settings" }
   | { kind: "duplicates" }
-  | { kind: "edit" | "send" | "call"; lead: B2bLead }
+  | { kind: "edit" | "send" | "call" | "visit"; lead: B2bLead }
+  | { kind: "stage"; lead: B2bLead; status: string }
   | { kind: "timeline"; id: number }
   | { kind: "quotes"; id: number };
 
@@ -785,6 +948,10 @@ export function LeadSheetPage() {
   if (!data) return <Loading />;
 
   const contact = data.sheet.can_contact;
+  // The B2C team's sheet has its own columns and stages (15/10/2026).
+  const columns = data.sheet.market === "b2c" ? B2C_GRID_COLUMNS : GRID_COLUMNS;
+  const words = stageWords(data);
+  const b2c = data.sheet.market === "b2c";
   const toLastSent = () => {
     if (!lastSent) return;
     const at = data.leads.findIndex((lead) => lead.id === lastSent.id);
@@ -903,14 +1070,14 @@ export function LeadSheetPage() {
         <div className="sheet-wrap">
           <table className="sheet">
             <colgroup>
-              {GRID_COLUMNS.map((column) => (
+              {columns.map((column) => (
                 <col key={column.name} style={{ width: column.width }} />
               ))}
               <col style={{ width: 250 }} />
             </colgroup>
             <thead>
               <tr>
-                {GRID_COLUMNS.map((column) => (
+                {columns.map((column) => (
                   <th key={column.name} data-column={column.name}>
                     {lang === "ar" ? column.ar : column.en}
                   </th>
@@ -918,18 +1085,29 @@ export function LeadSheetPage() {
                 <th>{t("التواصل", "Reach")}</th>
               </tr>
               <tr className="sheet__band" aria-hidden="true">
-                <td colSpan={GRID_COLUMNS.length + 1} />
+                <td colSpan={columns.length + 1} />
               </tr>
             </thead>
             <tbody onPaste={pasteRow}>
               {leads.slice(shown * PAGE_ROWS, (shown + 1) * PAGE_ROWS).map((lead) => (
                 <tr key={lead.id} data-lead={lead.id} className={lead.id === lastSent?.id ? "sheet__row--last" : undefined}>
-                  {GRID_COLUMNS.map((column) => {
+                  {columns.map((column) => {
                     const name = lang === "ar" ? column.ar : column.en;
                     return (
                       <td key={column.name} className={`sheet__td sheet__td--${column.name}`}>
                         {column.name === "status" ? (
-                          <ChoiceCell lead={lead} name="status" label={name} choices={data.statuses} words={STATUS_AR}>
+                          <ChoiceCell
+                            lead={lead}
+                            name="status"
+                            label={name}
+                            choices={data.statuses}
+                            words={words}
+                            intercept={(next) => {
+                              if (!b2c || !["lost", "waiting", "later"].includes(next)) return false;
+                              setOpen({ kind: "stage", lead, status: next });
+                              return true;
+                            }}
+                          >
                             {lead.quote && (
                               <div className="sheet__under" data-lead-quote={lead.quote.code}>
                                 <span className="mono">{lead.quote.code}</span> <QuoteStatus status={lead.quote.status} />
@@ -970,6 +1148,22 @@ export function LeadSheetPage() {
                           <Icon name="phone" />
                         </button>
                       )}
+                      {data.sheet.can_visit && (
+                        <button
+                          className={`icon-btn${lead.last_outreach_at ? " is-done" : ""}`}
+                          type="button"
+                          title={t("زيارة", "Visit")}
+                          aria-label={`${t("زيارة", "Visit")} · ${lead.company_name}`}
+                          onClick={() => setOpen({ kind: "visit", lead })}
+                        >
+                          <Icon name="map-pin" />
+                        </button>
+                      )}
+                      {lead.map_link && (
+                        <a className="icon-btn" href={lead.map_link} target="_blank" rel="noreferrer noopener" title={t("على الخريطة", "On the map")} aria-label={`${t("على الخريطة", "On the map")} · ${lead.company_name}`}>
+                          <Icon name="globe" />
+                        </a>
+                      )}
                       <button className="icon-btn" type="button" title={t("عروض الأسعار", "Quotations")} aria-label={t("عروض الأسعار", "Quotations")} onClick={() => setOpen({ kind: "quotes", id: lead.id })}>
                         <Icon name="file" />
                       </button>
@@ -1005,7 +1199,7 @@ export function LeadSheetPage() {
               ))}
               {leads.length === 0 && (
                 <tr>
-                  <td colSpan={GRID_COLUMNS.length + 1} className="empty">
+                  <td colSpan={columns.length + 1} className="empty">
                     <Icon name="building" size="xl" />
                     <span>
                       {data.leads.length
@@ -1036,7 +1230,9 @@ export function LeadSheetPage() {
       {open?.kind === "duplicates" && <Duplicates sheetId={data.sheet.id} leads={data.leads} onClose={close} />}
       {open?.kind === "send" && <SendMessage lead={open.lead} sender={sender} onClose={close} />}
       {open?.kind === "call" && <LogCall lead={open.lead} outcomes={data.outcomes} onClose={close} />}
-      {open?.kind === "timeline" && <Timeline leadId={open.id} outcomes={data.outcomes} onClose={close} />}
+      {open?.kind === "timeline" && <Timeline leadId={open.id} outcomes={data.outcomes} words={words} onClose={close} />}
+      {open?.kind === "stage" && <StageWindow data={data} lead={open.lead} status={open.status} onClose={close} />}
+      {open?.kind === "visit" && <PlanVisit lead={open.lead} onClose={close} />}
       {open?.kind === "quotes" && <QuotesModal leadId={open.id} onClose={close} />}
     </>
   );
