@@ -18,7 +18,7 @@ function Rate({ value }: { value: number | null }) {
 const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, string] }[] = [
   { key: "new_leads", ar: "شركات جديدة", en: "New leads" },
   { key: "contacted", ar: "اتواصلنا معاهم", en: "Contacted" },
-  { key: "whatsapp", ar: "رسايل واتساب", en: "WhatsApp messages" },
+  { key: "whatsapp", ar: "وصلهم واتساب", en: "Reached on WhatsApp", hint: ["الشركات اللي وصلتها رسالة واتساب في الفترة، كل شركة مرة واحدة مهما اتبعتلها. ولو التواصل كله واتساب الرقم ده بيساوي «اتواصلنا معاهم».", "The companies a WhatsApp message reached in the period, each company once however many it was sent. With WhatsApp the only channel it equals «Contacted»."] },
   { key: "failed", ar: "رسايل فشلت", en: "Messages failed", hint: ["رسايل واتساب ماوصلتش للشركة: اترفضت وهي بتتبعت، أو واتساب قال بعدها إنها ماوصلتش (رقم مالوش واتساب، أو حد ميتا لرسايل التسويق). الشركة دي مابتتحسبش «اتواصلنا معاهم» بيها.", "WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by WhatsApp afterwards (a number with no WhatsApp, Meta's limit on marketing messages). The company is not counted as contacted by them."] },
   { key: "emails", ar: "إيميلات", en: "E-mails sent" },
   { key: "calls", ar: "مكالمات", en: "Calls logged" },

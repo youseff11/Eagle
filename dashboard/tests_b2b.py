@@ -865,6 +865,31 @@ class KpiTests(_B2b):
         expected = {"new_leads": 2, "contacted": 1, "whatsapp": 1, "emails": 1, "calls": 1, "replies": 1, "holding": 2, "untouched": 1}
         self.assertEqual({name: row[name] for name in expected}, expected)
 
+    def test_contacted_and_whatsapp_agree_when_whatsapp_is_the_only_channel(self):
+        # 15/10/2026: «contacted» 286 next to «WhatsApp» 256 - companies counted against messages.
+        copy = Lead.objects.create(sheet=self.sheet, company_name="Lingua GmbH (copy)", whatsapp=PHONE)
+        self.post(self.sales, "v1_b2b_lead_whatsapp", {}, self.lead.pk)
+        self.lead.refresh_from_db()
+        copy.refresh_from_db()
+        self.assertIsNotNone(copy.whatsapp_at)
+        for n in (2, 3):
+            reply = OutboundMessage.objects.create(
+                client=self.lead.client, kind=OutboundMessage.Kind.CHAT, created_by=self.sales, owner=self.sales,
+                channel=Channel.WHATSAPP, to_identity=PHONE, body="hello", status=OutboundMessage.Status.SENT,
+                provider_id=f"wamid.reply.{n}",
+            )
+            b2b.note_outbound(reply)
+        # A row whose message failed after its unmarking ran (or before it existed) is not reached by it either.
+        stale = Lead.objects.create(sheet=self.sheet, company_name="Stale SARL", whatsapp="+33 6 12 34 56 78")
+        gone = OutboundMessage.objects.create(
+            client=self.lead.client, kind=OutboundMessage.Kind.CHAT, created_by=self.sales, owner=self.sales,
+            channel=Channel.WHATSAPP, to_identity="+33 6 12 34 56 78", status=OutboundMessage.Status.FAILED,
+        )
+        LeadActivity.objects.create(lead=stale, kind=LeadActivity.Kind.WHATSAPP, automatic=True, at=timezone.now(), outbound=gone, owner=self.sales)
+        row = self.row(self.sales)
+        self.assertEqual((row["contacted"], row["whatsapp"]), (2, 2))
+        self.assertEqual(self.row(self.manager, self.sales)["whatsapp"], 2)
+
     def test_stages_are_counted_once_per_company_and_the_conversion_rate(self):
         self.save_status(self.lead, "visit")
         self.save_status(self.lead, "follow_up")

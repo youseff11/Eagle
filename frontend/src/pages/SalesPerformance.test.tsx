@@ -89,7 +89,7 @@ describe("SalesPerformancePage", () => {
     await screen.findByText("Seller");
     const headers = Array.from(container.querySelectorAll("thead th")).map((th) => th.textContent);
     const at = headers.indexOf("رسايل فشلت");
-    expect(at).toBe(headers.indexOf("رسايل واتساب") + 1);
+    expect(at).toBe(headers.indexOf("وصلهم واتساب") + 1);
     expect(container.querySelectorAll('[data-person="7"] td')[at]).toHaveTextContent("2");
   });
 

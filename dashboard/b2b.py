@@ -724,8 +724,10 @@ def kpis(user, start, end, today=None, market=Market.B2B):
     """``(rows, total)`` for the days ``start``..``end`` (Cairo, both included).
 
     * new_leads - companies added to the person's sheets in the period;
-    * contacted - companies they reached out to (a message or a call); whatsapp / emails - the messages themselves that left
-      their line to a company on their sheets; failed - the WhatsApp ones that did not reach it; calls - the calls they logged;
+    * contacted - companies they reached (a message that went, a call, a visit); whatsapp - of those, the ones a WhatsApp
+      reached: the same rows counted the same way, so with WhatsApp the only channel the two are equal (15/10/2026); emails -
+      the letters that left their line to a company on their sheets; failed - the WhatsApp messages that did not reach it;
+      calls - the calls they logged;
     * replies - companies that answered them for the first time in the period;
     * visits / won / lost - companies moved to «Visit», «Contracted» or «Refused» in the period (each company once);
     * follow-ups that fell due in the period: done on the day, done later, or still not done;
@@ -748,6 +750,9 @@ def kpis(user, start, end, today=None, market=Market.B2B):
         ours = acts.filter(incoming=False, kind__in=(
             LeadActivity.Kind.WHATSAPP, LeadActivity.Kind.EMAIL, LeadActivity.Kind.CALL, LeadActivity.Kind.VISIT,
         ))
+        # A row is reached by a message only while the message stands: one Meta reported not delivered does not count,
+        # even on a line its unmarking missed.
+        reached = ours.exclude(outbound__status=OutboundMessage.Status.FAILED)
         stage = acts.filter(kind=LeadActivity.Kind.STATUS)
         to_companies = OutboundMessage.objects.filter(
             owner=person, created_at__gte=start_at, created_at__lt=end_at, client__leads__sheet__assigned_to=person, client__leads__sheet__market=market,
@@ -765,8 +770,11 @@ def kpis(user, start, end, today=None, market=Market.B2B):
         row = {
             "person": {"id": person.pk, "name": person.get_full_name() or person.username, "active": person.is_active},
             "new_leads": mine.filter(created_at__gte=start_at, created_at__lt=end_at).count(),
-            "contacted": ours.values("lead").distinct().count(),
-            "whatsapp": sent.filter(channel=Channel.WHATSAPP).distinct().count(),
+            "contacted": reached.values("lead").distinct().count(),
+            # Companies, not messages (15/10/2026: «contacted» 286 next to «WhatsApp» 256 with WhatsApp the only channel):
+            # counted as messages, a reply in the chat added one, a message that marked two rows of the same company
+            # counted once, and a row moved to another sheet lost its message.
+            "whatsapp": reached.filter(kind=LeadActivity.Kind.WHATSAPP).values("lead").distinct().count(),
             # WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by Meta
             # afterwards (15/10/2026: «contacted» and «WhatsApp» did not match and nothing said why).
             "failed": to_companies.filter(channel=Channel.WHATSAPP, status=OutboundMessage.Status.FAILED).distinct().count(),
