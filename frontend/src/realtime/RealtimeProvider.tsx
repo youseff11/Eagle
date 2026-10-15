@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { qk } from "../api/keys";
+import { beatNow } from "../lib/beat";
 import { redirectToLogin } from "../lib/navigation";
 import { RealtimeConnection, socketUrl, type RealtimeEvent, type RealtimeStatus } from "./connection";
 
@@ -22,7 +23,12 @@ export function useRealtimeStatus(): RealtimeStatus {
 
 /** What a doorbell means: the data it points at is stale, so ask for it again. */
 export function handleEvent(client: ReturnType<typeof useQueryClient>, event: RealtimeEvent): void {
-  if (event.t === "notify") {
+  if (event.t === "call") {
+    // A colleague is calling: the ring is in the heartbeat's answer, so ask it now rather than at the next beat.
+    beatNow();
+  } else if (event.t === "notify") {
+    // A hand-off to answer, or one taken back, is told by a notification and drawn from the heartbeat's answer.
+    beatNow();
     void client.invalidateQueries({ queryKey: qk.notifications });
     void client.invalidateQueries({ queryKey: qk.me });
     // Every workflow step notifies somebody (`services.live_stamp` relies on the same fact), so a

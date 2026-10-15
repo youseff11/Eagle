@@ -1,8 +1,14 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beatNow } from "../lib/beat";
 import { navigation } from "../lib/navigation";
+import type { RealtimeStatus } from "../realtime/connection";
 import { jsonResponse } from "../test/helpers";
-import { useHeartbeat } from "./useHeartbeat";
+import { EXPIRY_GRACE_MS, LIVE_BEAT_MS, useHeartbeat } from "./useHeartbeat";
+
+// The socket's state, as the provider would tell it. "closed" unless a test opens it: the pace the page always had.
+const socket = vi.hoisted(() => ({ status: "closed" as RealtimeStatus }));
+vi.mock("../realtime/RealtimeProvider", () => ({ useRealtimeStatus: () => socket.status }));
 
 const PENDING = { id: 5, task_code: "TSK-00001", seconds_left: 59 };
 let answer: unknown;
@@ -16,6 +22,7 @@ beforeEach(() => {
   vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
 });
 afterEach(() => {
+  socket.status = "closed";
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -250,5 +257,85 @@ describe("useHeartbeat", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2); // no extra beat from the re-render
     });
 
+  });
+  describe("its pace with the socket open (the database's traffic, 15/10/2026)", () => {
+    beforeEach(() => {
+      socket.status = "open";
+    });
+
+    it("beats every thirty seconds, not at the configured three", async () => {
+      renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(LIVE_BEAT_MS - 100);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("goes back to the fast pace the moment the socket is down", async () => {
+      const view = renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      socket.status = "closed";
+      view.rerender();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2); // at once, then every 3 s
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("beats at once when a doorbell rings, so a hand-off or a call is not thirty seconds late", async () => {
+      const heard: unknown[] = [];
+      const CALL = { id: 9, video: false, from: "Mona", initials: "MO", chat_url: "/ops/chats/u/4/" };
+      renderHook(() => useHeartbeat(3000, undefined, undefined, undefined, (call) => heard.push(call)));
+      await vi.advanceTimersByTimeAsync(0);
+      answer = { ok: true, attendance: null, pending: null, call: CALL };
+      beatNow();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(heard).toEqual([null, CALL]);
+    });
+
+    it("asks again after an answer that was already on its way when the doorbell rang", async () => {
+      let release: (value: Response) => void = () => undefined;
+      renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (release = resolve)));
+      beatNow();
+      await vi.advanceTimersByTimeAsync(0);
+      beatNow(); // rang while the beat above was still waiting: its answer may predate it
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      release(jsonResponse({ ok: true, attendance: null, pending: null, call: null }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("beats just after a hand-off's window ends, so the server takes it back on time", async () => {
+      answer = { ok: true, attendance: null, pending: { ...PENDING, seconds_left: 10 }, call: null };
+      renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      answer = { ok: true, attendance: null, pending: null, call: null };
+      await vi.advanceTimersByTimeAsync(10_000 + EXPIRY_GRACE_MS - 100);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps asking every three seconds while a hand-off past its window is still on the screen", async () => {
+      answer = { ok: true, attendance: null, pending: { ...PENDING, seconds_left: 0 }, call: null };
+      renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("stops listening for doorbells with the page", async () => {
+      const view = renderHook(() => useHeartbeat(3000));
+      await vi.advanceTimersByTimeAsync(0);
+      view.unmount();
+      beatNow();
+      await vi.advanceTimersByTimeAsync(LIVE_BEAT_MS);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -74,8 +74,9 @@ afterEach(() => {
 });
 
 describe("parseEvent", () => {
-  it("understands the two doorbells", () => {
+  it("understands the three doorbells", () => {
     expect(parseEvent('{"t":"notify"}')).toEqual({ t: "notify" });
+    expect(parseEvent('{"t":"call"}')).toEqual({ t: "call" });
     expect(parseEvent('{"t":"room","id":12}')).toEqual({ t: "room", id: 12 });
   });
 

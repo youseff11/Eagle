@@ -6654,11 +6654,26 @@ def sweep_deadlines():
     return warned
 
 
+#: The presence dot is written at most this often per person. ``User.PRESENCE_TIMEOUT`` is 130 s and a page with its
+#: socket open beats every 30 s, so a written stamp is never older than a minute while the page is open.
+PRESENCE_WRITE_EVERY_SECONDS = 30
+
+#: The expiry and deadline sweeps run at most this often for the whole server, not once per open tab: with a tab beating
+#: every 3 s each, every tab ran both on every beat, and that traffic is what paused the database (15/10/2026). A hand-off
+#: window is 60 s, so 5 s keeps its expiry on time; the page also beats on the second its window ends.
+HOUSEKEEPING_EVERY_SECONDS = 5
+
+
 def heartbeat(user):
     """Called from the browser poller: refresh presence + run housekeeping."""
-    User.objects.filter(pk=user.pk).update(last_seen=timezone.now())
-    sweep_expired_assignments()
-    sweep_deadlines()
+    from django.core.cache import cache
+
+    now = timezone.now()
+    if user.last_seen is None or (now - user.last_seen).total_seconds() >= PRESENCE_WRITE_EVERY_SECONDS:
+        User.objects.filter(pk=user.pk).update(last_seen=now)
+    if cache.add("heartbeat-housekeeping", 1, HOUSEKEEPING_EVERY_SECONDS):
+        sweep_expired_assignments()
+        sweep_deadlines()
     if user.is_sales:
         _b2b_digest(user)
     if user.is_accounting or user.is_admin_role:

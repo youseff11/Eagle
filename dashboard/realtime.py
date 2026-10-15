@@ -30,10 +30,12 @@ from django.db.models import Q
 
 log = logging.getLogger("dashboard")
 
-#: Event kinds. The page reacts to these two strings, so they are API.
+#: Event kinds. The page reacts to these strings, so they are API. ``call``: a colleague is calling this person, so
+#: the page asks the heartbeat now instead of at its next beat (a call has no notification row to ring with).
 NOTIFY = "notify"
 ROOM = "room"
-KINDS = (NOTIFY, ROOM)
+CALL = "call"
+KINDS = (NOTIFY, ROOM, CALL)
 
 #: How long one delivery may take, and how long pushes stay off after a failed
 #: one. Module state on purpose: it is per process, and so is the problem.

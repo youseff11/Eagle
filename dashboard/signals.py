@@ -17,13 +17,21 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from . import realtime
-from .models import ChatAttachment, ChatMessage, ChatReaction, Notification
+from .models import CallSession, ChatAttachment, ChatMessage, ChatReaction, Notification
 
 
 @receiver(post_save, sender=Notification, dispatch_uid="realtime_notification")
 def push_notification(sender, instance, created, raw=False, **kwargs):
     if created and not raw:
         realtime.send_to_users([instance.user_id], {"t": realtime.NOTIFY})
+
+
+@receiver(post_save, sender=CallSession, dispatch_uid="realtime_call")
+def push_call(sender, instance, created, raw=False, **kwargs):
+    """A call placed rings the callee's page at once: the heartbeat that carries the ring beats only every 30 s while
+    the socket is open."""
+    if created and not raw:
+        realtime.send_to_users([instance.callee_id], {"t": realtime.CALL})
 
 
 @receiver(post_save, sender=ChatMessage, dispatch_uid="realtime_chat_message")

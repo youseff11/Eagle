@@ -1,7 +1,7 @@
 /**
  * The WebSocket to /ws/events/, kept alive.
  *
- * The server only ever sends a doorbell: `{"t":"notify"}` or `{"t":"room","id":N}`.
+ * The server only ever sends a doorbell: `{"t":"notify"}`, `{"t":"room","id":N}` or `{"t":"call"}`.
  * What those mean is decided by whoever handles them (they refetch from the API,
  * which applies the permissions). This class owns only the connection:
  *
@@ -19,7 +19,7 @@
  *    whatever was missed while it was down.
  */
 
-export type RealtimeEvent = { t: "notify" } | { t: "room"; id: number };
+export type RealtimeEvent = { t: "notify" } | { t: "room"; id: number } | { t: "call" };
 export type RealtimeStatus = "connecting" | "open" | "closed" | "stopped";
 
 export interface SocketLike {
@@ -64,6 +64,7 @@ export function parseEvent(data: unknown): RealtimeEvent | null {
   if (!parsed || typeof parsed !== "object") return null;
   const record = parsed as { t?: unknown; id?: unknown };
   if (record.t === "notify") return { t: "notify" };
+  if (record.t === "call") return { t: "call" };
   if (record.t === "room" && typeof record.id === "number" && Number.isInteger(record.id)) {
     return { t: "room", id: record.id };
   }

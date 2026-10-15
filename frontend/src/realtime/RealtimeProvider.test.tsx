@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { qk } from "../api/keys";
+import { onBeatNow } from "../lib/beat";
 import { handleEvent, RealtimeProvider, sessionRenewed } from "./RealtimeProvider";
 
 function spy() {
@@ -10,6 +11,27 @@ function spy() {
 }
 
 describe("handleEvent", () => {
+  function beats(event: Parameters<typeof handleEvent>[1]): number {
+    let count = 0;
+    const off = onBeatNow(() => (count += 1));
+    handleEvent(spy().client, event);
+    off();
+    return count;
+  }
+
+  it("a call or a notification asks the heartbeat at once; a room message does not need it", () => {
+    // The ring and the hand-off to accept are in the heartbeat's answer, which comes only every 30 s with the socket open.
+    expect(beats({ t: "call" })).toBe(1);
+    expect(beats({ t: "notify" })).toBe(1);
+    expect(beats({ t: "room", id: 3 })).toBe(0);
+  });
+
+  it("a call doorbell refreshes nothing else", () => {
+    const { client, invalidateQueries } = spy();
+    handleEvent(client, { t: "call" });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
   it("a notification doorbell refreshes the notifications, the unread count, the boards and the chats", () => {
     const { client, invalidateQueries } = spy();
     handleEvent(client, { t: "notify" });
