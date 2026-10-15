@@ -715,6 +715,148 @@ def move_lead(lead, sheet, actor):
 
 
 # ---------------------------------------------------------------------------
+# The same company twice on a sheet (15/10/2026)
+# ---------------------------------------------------------------------------
+
+#: A number shorter than this is not matched on: "123" in a cell is a slip, not a company.
+MIN_DUPLICATE_DIGITS = 7
+#: Why rows are one company: a number, the address, the name.
+SAME_PHONE, SAME_EMAIL, SAME_NAME = "phone", "email", "name"
+
+
+def name_key(name):
+    """A company name as two rows are compared on it: no case, no spaces, no dots or dashes ("Frutos MirandaTraductores"
+    and "frutos miranda traductores." are one name)."""
+    return re.sub(r"[\W_]+", "", (name or "").casefold())
+
+
+def _duplicate_keys(lead):
+    keys = [(SAME_PHONE, key) for key in lead.phone_keys.split() if len(key) >= MIN_DUPLICATE_DIGITS]
+    if lead.email_key:
+        keys.append((SAME_EMAIL, lead.email_key))
+    if name_key(lead.company_name):
+        keys.append((SAME_NAME, name_key(lead.company_name)))
+    return keys
+
+
+def _worked(lead, counts):
+    """How much a row holds, to pick the one that stays: reached, its history, a client, then the oldest."""
+    return (bool(lead.contacted), counts.get(lead.pk, 0), bool(lead.client_id), -lead.pk)
+
+
+def duplicate_groups(sheet):
+    """The rows of the sheet that are one company, in groups: two rows are one when they share a number (of seven digits or
+    more), the address or the name (``name_key``), and a row that shares something with any row of a group is in that group.
+    ``[{"ids": [...], "keep": id, "why": [...]}]``, the oldest row first in each; ``keep`` is the row with the most on it."""
+    leads = list(sheet.leads.only("id", "company_name", "phone_keys", "email_key", "whatsapp_at", "email_at", "call_at", "client_id"))
+    parent = {lead.pk: lead.pk for lead in leads}
+
+    def root(pk):
+        while parent[pk] != pk:
+            parent[pk] = parent[parent[pk]]
+            pk = parent[pk]
+        return pk
+
+    first, shared_keys = {}, set()
+    for lead in leads:
+        for kind, key in _duplicate_keys(lead):
+            other = first.setdefault((kind, key), lead.pk)
+            if other != lead.pk:
+                a, b = root(other), root(lead.pk)
+                if a != b:
+                    parent[max(a, b)] = min(a, b)
+                shared_keys.add((kind, key))
+    members = {}
+    for lead in leads:
+        members.setdefault(root(lead.pk), []).append(lead)
+    groups = [rows for rows in members.values() if len(rows) > 1]
+    if not groups:
+        return []
+    ids = [lead.pk for rows in groups for lead in rows]
+    counts = {}
+    for model in (LeadActivity, LeadNote, Quotation):
+        for pk in model.objects.filter(lead_id__in=ids).values_list("lead_id", flat=True):
+            counts[pk] = counts.get(pk, 0) + 1
+    out = []
+    for rows in sorted(groups, key=lambda rows: min(lead.pk for lead in rows)):
+        rows.sort(key=lambda lead: lead.pk)
+        own = {pair for lead in rows for pair in _duplicate_keys(lead)}
+        shared = {kind for kind, key in shared_keys & own}
+        out.append({
+            "ids": [lead.pk for lead in rows],
+            "keep": max(rows, key=lambda lead: _worked(lead, counts)).pk,
+            "why": [kind for kind in (SAME_PHONE, SAME_EMAIL, SAME_NAME) if kind in shared],
+        })
+    return out
+
+
+#: Earliest wins for the first time a channel reached the company; latest wins for the last time anything did.
+_FIRST_TIMES = ("whatsapp_at", "email_at", "call_at", "replied_at")
+_LAST_TIMES = ("last_contact_at", "last_outreach_at")
+
+
+def _join_numbers(mine, theirs, limit):
+    """``mine`` with the numbers of ``theirs`` it does not have yet, one a line, as long as the column takes them."""
+    known = {Client.phone_key(number) for number in Lead.split_numbers(mine)}
+    out = mine.strip()
+    for number in Lead.split_numbers(theirs):
+        key = Client.phone_key(number)
+        if key and key not in known:
+            longer = f"{out}\n{number}" if out else number
+            if len(longer) > limit:
+                break
+            known.add(key)
+            out = longer
+    return out
+
+
+@transaction.atomic
+def merge_duplicates(sheet, keep_id, remove_ids, actor):
+    """Take the extra copies of one company off the sheet. Nothing they held is lost: their notes, history and quotations
+    move to the row that stays, an empty cell of it takes what a copy had, numbers it lacks are added to its own, and the
+    first and last contact times are the earliest and the latest of them all. Every row named must be on this sheet and in
+    the same group as ``keep_id`` (``duplicate_groups``, worked out again here), so a request cannot take off a row that is
+    not a copy. Returns how many went; ``Refused`` when the rows are not one company."""
+    from . import services
+
+    remove_ids = sorted(set(remove_ids) - {keep_id})
+    if not remove_ids:
+        raise Refused("nothing", "اختار الصفوف اللي هتتمسح.", "Pick the rows to delete.")
+    # The rows are locked alone (no joins): a lock over an outer join is refused by Postgres (CLAUDE.md, 08/10).
+    locked = {lead.pk: lead for lead in Lead.objects.select_for_update().filter(sheet=sheet, pk__in=[keep_id, *remove_ids])}
+    group = next((g["ids"] for g in duplicate_groups(sheet) if keep_id in g["ids"]), [])
+    if keep_id not in locked or any(pk not in locked or pk not in group for pk in remove_ids):
+        raise Refused("not_duplicates", "الصفوف دي مش نفس الشركة، أو اتغيّرت. افتح المكرر تاني.", "These rows are not one company, or they changed. Open the duplicates again.")
+    keep = locked[keep_id]
+    for pk in remove_ids:
+        copy = locked[pk]
+        for name, limit, *_words in COLUMNS:
+            if name in ("phone", "whatsapp"):
+                setattr(keep, name, _join_numbers(getattr(keep, name), getattr(copy, name), limit))
+            elif not getattr(keep, name).strip() and getattr(copy, name).strip():
+                setattr(keep, name, getattr(copy, name))
+        for name in ("priority", "deal_value", "next_follow_up", "client_id"):
+            if getattr(keep, name) in ("", None) and getattr(copy, name) not in ("", None):
+                setattr(keep, name, getattr(copy, name))
+        if keep.status == LeadStatus.NEW and copy.status != LeadStatus.NEW:
+            keep.status = copy.status
+        for name in _FIRST_TIMES:
+            times = [t for t in (getattr(keep, name), getattr(copy, name)) if t]
+            setattr(keep, name, min(times) if times else None)
+        for name in _LAST_TIMES:
+            times = [t for t in (getattr(keep, name), getattr(copy, name)) if t]
+            setattr(keep, name, max(times) if times else None)
+    LeadNote.objects.filter(lead_id__in=remove_ids).update(lead=keep)
+    LeadActivity.objects.filter(lead_id__in=remove_ids).update(lead=keep)
+    Quotation.objects.filter(lead_id__in=remove_ids).update(lead=keep)
+    keep.save()
+    Lead.objects.filter(pk__in=remove_ids).delete()
+    # Row numbers only: a company's name is not written into the log.
+    services.log(actor, "b2b.duplicates_merge", f"lead {keep.pk}", f"sheet {sheet.pk}: {', '.join(map(str, remove_ids))} merged")
+    return len(remove_ids)
+
+
+# ---------------------------------------------------------------------------
 # Contacting from the row
 # ---------------------------------------------------------------------------
 

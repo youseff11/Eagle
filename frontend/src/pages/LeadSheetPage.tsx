@@ -25,6 +25,7 @@ import {
   type ReadRowsResponse,
 } from "../api/b2b";
 import { useMe } from "../api/queries";
+import { Duplicates } from "../components/b2b/Duplicates";
 import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
 import { PAGE_ROWS, Pages, pageWithin } from "../components/b2b/Pages";
@@ -712,6 +713,7 @@ type Open =
   | { kind: "new" }
   | { kind: "paste"; pasted?: { text: string; answer: ReadRowsResponse } }
   | { kind: "settings" }
+  | { kind: "duplicates" }
   | { kind: "edit" | "send" | "call"; lead: B2bLead }
   | { kind: "timeline"; id: number }
   | { kind: "quotes"; id: number };
@@ -830,6 +832,10 @@ export function LeadSheetPage() {
           <button className="btn" type="button" onClick={() => setOpen({ kind: "paste" })}>
             <Icon name="upload" />
             {t("ارفع Excel أو Google Sheet", "Upload Excel or Google Sheets")}
+          </button>
+          <button className="btn" type="button" onClick={() => setOpen({ kind: "duplicates" })}>
+            <Icon name="layers" />
+            {t("الصفوف المكررة", "Duplicate rows")}
           </button>
           {data.sheet.can_manage && (
             <button className="btn" type="button" onClick={() => setOpen({ kind: "settings" })}>
@@ -986,6 +992,7 @@ export function LeadSheetPage() {
       {open?.kind === "edit" && <LeadForm data={data} lead={open.lead} onClose={close} />}
       {open?.kind === "paste" && <ImportRows sheetId={data.sheet.id} columns={data.columns} pasted={open.pasted} onClose={close} />}
       {open?.kind === "settings" && <SheetSettings data={data} onClose={close} />}
+      {open?.kind === "duplicates" && <Duplicates sheetId={data.sheet.id} leads={data.leads} onClose={close} />}
       {open?.kind === "send" && <SendMessage lead={open.lead} sender={sender} onClose={close} />}
       {open?.kind === "call" && <LogCall lead={open.lead} outcomes={data.outcomes} onClose={close} />}
       {open?.kind === "timeline" && <Timeline leadId={open.id} outcomes={data.outcomes} onClose={close} />}

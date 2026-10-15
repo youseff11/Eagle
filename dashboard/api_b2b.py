@@ -571,6 +571,36 @@ def lead_move(request, lead_id):
     return JsonResponse({"ok": True, "lead": _lead_json(lead)})
 
 
+@endpoint("GET")
+@api_gate(b2b.has_door)
+def duplicates(request, sheet_id):
+    """The rows of the sheet that are one company (``b2b.duplicate_groups``): ids only, the page has the rows already."""
+    sheet = _sheet_or_404(request, sheet_id)
+    return JsonResponse({"ok": True, "groups": b2b.duplicate_groups(sheet)})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def duplicates_remove(request, sheet_id):
+    """``{"keep": id, "remove": [ids]}`` - the copies of one company go, and what they held moves to the row that stays
+    (``b2b.merge_duplicates``)."""
+    sheet = _sheet_or_404(request, sheet_id)
+    try:
+        body = _object(request)
+        keep, remove = body.get("keep"), body.get("remove")
+        if not isinstance(keep, int) or isinstance(keep, bool) or not isinstance(remove, list) or len(remove) > b2b.MAX_SHEET_ROWS:
+            raise BadBody
+        if any(not isinstance(pk, int) or isinstance(pk, bool) for pk in remove):
+            raise BadBody
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        removed = b2b.merge_duplicates(sheet, keep, remove, request.user)
+    except b2b.Refused as refusal:
+        return _refused(refusal)
+    return JsonResponse({"ok": True, "removed": removed})
+
+
 @endpoint("POST")
 @api_gate(b2b.has_door)
 def lead_delete(request, lead_id):

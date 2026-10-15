@@ -1143,6 +1143,30 @@ GUIDES = (
         ),
     ),
     _guide(
+        "sales-duplicates", (Role.SALES, Role.ADMIN), "/leads",
+        ("إزاي أمسح الصفوف المكررة في الشيت", "How do I delete the duplicate rows on a sheet"),
+        (
+            "مكرر، المكرر، صفوف مكررة، شركة متكررة، اتكررت مرتين، نفس الرقم، نفس الايميل، امسح المكرر، duplicate، duplicates",
+            "duplicate, duplicates, duplicate rows, same company twice, same number, same e-mail, delete duplicates, remove copies",
+        ),
+        [
+            "افتح الشيت واضغط «الصفوف المكررة».",
+            "هتطلعلك كل شركة موجودة أكتر من مرة (نفس الرقم أو الإيميل أو اسم الشركة) في مجموعة، ومكتوب جنبها اتكررت بإيه.",
+            "في كل مجموعة اختار من «يفضل» الصف اللي هيفضل، وشيل علامة «امسح» من أي صف مش مكرر فعلًا.",
+            "اضغط «امسح» تحت المجموعة، أو «امسح كل المكرر» مرة واحدة.",
+        ],
+        [
+            "Open the sheet and press «Duplicate rows».",
+            "Every company that is on it more than once (the same number, e-mail or company name) shows in a group, with what they share.",
+            "In each group pick under «Stays» the row that stays, and untick «Delete» on any row that is not really a copy.",
+            "Press «Delete» on the group, or «Delete all duplicates» at once.",
+        ],
+        note=(
+            "مفيش حاجة بتضيع: ملاحظات الصف اللي اتمسح وسجله وعروض أسعاره بتتنقل للصف اللي فضل، والخانة الفاضية فيه بتاخد اللي كان في المكرر.",
+            "Nothing is lost: the deleted row's notes, timeline and quotations move to the row that stays, and an empty cell of it takes what the copy had.",
+        ),
+    ),
+    _guide(
         "sales-quotations", (Role.SALES, Role.ADMIN), "/leads",
         ("إزاي أعمل عرض سعر لشركة وأبعته", "How do I make a quotation for a company and send it"),
         (

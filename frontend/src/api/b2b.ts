@@ -460,6 +460,29 @@ export function useQuotationAction() {
   );
 }
 
+/** One company that is on the sheet more than once: its rows (the oldest first), the one suggested to stay, and why they are one. */
+export interface DuplicateGroup {
+  ids: number[];
+  keep: number;
+  why: ("phone" | "email" | "name")[];
+}
+
+/** The duplicate rows of a sheet (15/10/2026), asked only while the window that shows them is open. */
+export function useDuplicates(sheetId: number) {
+  return useQuery({
+    queryKey: qk.b2bDuplicates(sheetId),
+    queryFn: () => api<{ ok: boolean; groups: DuplicateGroup[] }>(`/api/v1/b2b/sheets/${sheetId}/duplicates/`),
+    enabled: sheetId > 0,
+  });
+}
+
+/** The copies of one company go; what they held moves to the row that stays (`b2b.merge_duplicates`). */
+export function useRemoveDuplicates(sheetId: number) {
+  return useWrite(({ keep, remove }: { keep: number; remove: number[] }) =>
+    api<{ ok: boolean; removed: number }>(`/api/v1/b2b/sheets/${sheetId}/duplicates/remove/`, { json: { keep, remove } }),
+  );
+}
+
 export function useDeleteLead() {
   return useWrite((id: number) => api<{ ok: boolean }>(`/api/v1/b2b/leads/${id}/delete/`, { json: {} }));
 }
