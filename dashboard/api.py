@@ -1088,11 +1088,13 @@ def _conversation_json(client, viewer, unread=0, facts=None, muted=None):
 
 
 def open_conversation_json(client, viewer):
-    """The row of the one conversation on screen: what the lists show, and whether «ترجم» is offered beside the client's words."""
-    from . import translate
+    """The row of the one conversation on screen: what the lists show, whether «ترجم» is offered beside the client's words,
+    and the follow-up message offered when the 24-hour window is closed (``followup.offer``)."""
+    from . import followup, translate
 
     row = _conversation_json(client, viewer)
     row["translate"] = translate.available()
+    row["followup"] = followup.offer(client, viewer)
     return row
 
 

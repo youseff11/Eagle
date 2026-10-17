@@ -685,6 +685,80 @@ KPI_COUNTS = (
 )
 
 
+#: Why a WhatsApp message to a company failed, in words a Sales manager can act on (17/10/2026: «رسايل فشلت» was a bare
+#: number). Each reason: Meta's error codes, then words of Meta's text or of our own hint when the code was not kept.
+#: The order matters: the first match wins (the 24-hour hint names a template too).
+FAIL_REASONS = (
+    ("marketing_limit", (131049,), ("healthy ecosystem",),
+     "ميتا وقفتها: الرقم ده جاله رسايل تسويق كتير من شركات، فميتا مابتوصّلوش تاني لفترة. جرّب بعد كام يوم.",
+     "Meta held it back: the number has had many marketing messages from businesses lately. Try again in a few days."),
+    ("not_on_whatsapp", (131026, 133010), ("undeliverable", "not on whatsapp", "not registered", "مش مسجل"),
+     "الرقم مالوش واتساب أو مايقدرش يستقبل (رقم أرضي، أو صاحبه ماقبلش شروط واتساب، أو نسخة قديمة).",
+     "The number has no WhatsApp or cannot receive (a landline, terms not accepted, or an old app)."),
+    ("opted_out", (131050,), ("stopped marketing", "opted out"),
+     "صاحب الرقم قفل رسايل التسويق من شركتنا في واتساب.",
+     "The person turned off marketing messages from us in WhatsApp."),
+    ("window", (131047,), ("re-engagement", "24 hours", "24 ساعة"),
+     "فات 24 ساعة على آخر رسالة منه: الرسالة الحرة ممنوعة ولازم تمبليت.",
+     "More than 24 hours since their last message: only a template may go."),
+    ("too_many", (131056, 131048, 130429, 80007, 4), ("rate limit", "spam", "too many", "رسايل كتير"),
+     "رسايل كتير في وقت قصير (حد سرعة ميتا أو حد السبام).",
+     "Too many messages in a short time (Meta's speed or spam limit)."),
+    ("template", (132000, 132001, 132005, 132007, 132012, 132015, 132016), ("template",),
+     "مشكلة في التمبليت نفسه (اتوقف، أو اترفض، أو بياناته مش مظبوطة).",
+     "A problem with the template itself (paused, rejected, or its values do not fit)."),
+    ("account", (190, 100, 10, 200, 368, 131031, 131042, 131045), ("access token", "التوكن", "phone number id", "payment"),
+     "مشكلة في حساب واتساب أو الإعدادات (التوكن، الدفع، أو الرقم موقوف).",
+     "A problem with the WhatsApp account or settings (token, payment, or the number suspended)."),
+)
+#: Meta said "failed" and gave no reason (``services.record_whatsapp_status``'s own words), and a send cut off mid-way.
+_FAIL_SILENT = ("unknown", "ميتا قالت إنها ماوصلتش ومقالتش ليه.", "Meta reported it not delivered and gave no reason.")
+_FAIL_UNSURE = ("unsure", "الاتصال اتقطع وقت الإرسال: مش معروف وصلت ولا لا.", "The connection dropped while sending: nobody knows whether it went.")
+
+
+def failure_reason(text):
+    """``(key, ar, en)`` for one failed message's stored reason. A reason none of ``FAIL_REASONS`` knows is its own line,
+    in Meta's words (already scrubbed of numbers and addresses when stored), so nothing is hidden under «other»."""
+    from . import services, whatsapp as wa
+
+    text = (text or "").strip()
+    if not text or text == "WhatsApp reported the message as not delivered.":
+        return _FAIL_SILENT
+    if text == services.SEND_UNSURE_AR:
+        return _FAIL_UNSURE
+    found = re.search(r"\(#(\d+)\)", text)
+    code = int(found.group(1)) if found else next(
+        (code for code, (hint_ar, hint_en) in wa.ERROR_HINTS.items() if text.startswith((hint_ar, hint_en))), None,
+    )
+    lowered = text.lower()
+    for key, codes, words, ar, en in FAIL_REASONS:
+        if code in codes:
+            return key, ar, en
+    for key, codes, words, ar, en in FAIL_REASONS:
+        if code is None and any(word in lowered for word in words):
+            return key, ar, en
+    short = text[:160]
+    return f"other:{short}", short, short
+
+
+def failure_reasons(texts):
+    """The failed messages' reasons with how many each, the most first: ``[{key, ar, en, count}]``."""
+    out = {}
+    for text in texts:
+        key, ar, en = failure_reason(text)
+        entry = out.setdefault(key, {"key": key, "ar": ar, "en": en, "count": 0})
+        entry["count"] += 1
+    return sorted(out.values(), key=lambda entry: (-entry["count"], entry["key"]))
+
+
+def _merge_reasons(rows):
+    out = {}
+    for row in rows:
+        for entry in row["failed_reasons"]:
+            out.setdefault(entry["key"], {**entry, "count": 0})["count"] += entry["count"]
+    return sorted(out.values(), key=lambda entry: (-entry["count"], entry["key"]))
+
+
 def _revenue(rows):
     """The accepted quotations' totals, one figure per currency: dollars and pounds are never added together."""
     out = {}
@@ -726,7 +800,8 @@ def kpis(user, start, end, today=None, market=Market.B2B):
     * new_leads - companies added to the person's sheets in the period;
     * contacted - companies they reached (a message that went, a call, a visit); whatsapp - of those, the ones a WhatsApp
       reached: the same rows counted the same way, so with WhatsApp the only channel the two are equal (15/10/2026); emails -
-      the letters that left their line to a company on their sheets; failed - the WhatsApp messages that did not reach it;
+      the letters that left their line to a company on their sheets; failed - the WhatsApp messages that did not reach it,
+      and failed_reasons - why, grouped (``failure_reasons``);
       calls - the calls they logged;
     * replies - companies that answered them for the first time in the period;
     * visits / won / lost - companies moved to «Visit», «Contracted» or «Refused» in the period (each company once);
@@ -758,7 +833,12 @@ def kpis(user, start, end, today=None, market=Market.B2B):
             owner=person, created_at__gte=start_at, created_at__lt=end_at, client__leads__sheet__assigned_to=person, client__leads__sheet__market=market,
         )
         sent = to_companies.filter(status=OutboundMessage.Status.SENT)
-        mine = Lead.objects.filter(sheet__assigned_to=person, sheet__market=market)
+        # The pk keeps two failures with the same words two (distinct() on the words alone would fold them).
+        failed = dict(
+            to_companies.filter(channel=Channel.WHATSAPP, status=OutboundMessage.Status.FAILED)
+            .values_list("pk", "error_message").distinct()
+        )
+        mine =Lead.objects.filter(sheet__assigned_to=person, sheet__market=market)
         done = [
             (timezone.localtime(at).date(), due)
             for at, due in acts.filter(follow_up_for__isnull=False).values_list("at", "follow_up_for")
@@ -777,7 +857,8 @@ def kpis(user, start, end, today=None, market=Market.B2B):
             "whatsapp": reached.filter(kind=LeadActivity.Kind.WHATSAPP).values("lead").distinct().count(),
             # WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by Meta
             # afterwards (15/10/2026: «contacted» and «WhatsApp» did not match and nothing said why).
-            "failed": to_companies.filter(channel=Channel.WHATSAPP, status=OutboundMessage.Status.FAILED).distinct().count(),
+            "failed": len(failed),
+            "failed_reasons": failure_reasons(failed.values()),
             "emails": sent.filter(channel=Channel.EMAIL).distinct().count(),
             "calls": ours.filter(kind=LeadActivity.Kind.CALL).count(),
             "replies": Lead.objects.filter(
@@ -801,6 +882,7 @@ def kpis(user, start, end, today=None, market=Market.B2B):
         row["revenue"] = _revenue(accepted.values_list("currency", "total"))
         rows.append(_rates(row))
     total = _rates({name: sum(row[name] for row in rows) for name in KPI_COUNTS})
+    total["failed_reasons"] = _merge_reasons(rows)
     total["revenue"] = _revenue(
         (currency, Decimal(amount)) for row in rows for currency, amount in row["revenue"].items()
     )
@@ -1078,7 +1160,8 @@ def start_whatsapp(lead, user, number=""):
         outbound.provider_id = wa.send_template(number, template, language, params, from_id=from_id)[:190]
     except wa.WhatsAppError as exc:
         outbound.status = OutboundMessage.Status.FAILED
-        outbound.error_message = scrub_contacts(exc.message_ar)
+        # With Meta's code in front when our hint does not already name it: «رسايل فشلت» groups by it.
+        outbound.error_message = scrub_contacts(exc.message_ar if exc.code in wa.ERROR_HINTS else wa.with_code(exc.message_ar, exc.code))
         outbound.save(update_fields=["status", "error_message"])
         services.log(user, "b2b.whatsapp_failed", client.code, (exc.message_en or "")[:200])
         raise Refused("send_failed", outbound.error_message or "واتساب رفض الرسالة.", exc.message_en or "WhatsApp refused the message.") from None

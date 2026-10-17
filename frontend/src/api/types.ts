@@ -676,6 +676,16 @@ export interface ChatRow {
   blocked?: boolean;
   /** The open conversation with a client only: «ترجم» is offered beside the client's words (a Claude key is saved). */
   translate?: boolean;
+  /** The open conversation with a client only, while the 24-hour window is closed: the follow-up message on offer. */
+  followup?: FollowupOffer | null;
+}
+
+/** «رسالة متابعة» (`followup.offer`): the language the client's number suggests, the words in both, as this person may read them. */
+export interface FollowupOffer {
+  language: "ar" | "en";
+  texts: { ar: string; en: string };
+  /** One already went in the last 24 hours and was not answered: it is not sent again. */
+  sent_recently: boolean;
 }
 
 export interface ChatListResponse {

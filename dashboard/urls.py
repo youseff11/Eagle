@@ -62,6 +62,7 @@ urlpatterns = [
     path("api/v1/staff/<int:user_id>/send/", api_v1.staff_send, name="v1_staff_send"),
     path("api/v1/clients/<str:client_code>/send/", api_v1.client_send, name="v1_client_send"),
     path("api/v1/clients/<str:client_code>/block/", api_v1.client_block, name="v1_client_block"),
+    path("api/v1/clients/<str:client_code>/followup/", api_v1.client_followup, name="v1_client_followup"),
     path("api/v1/clients/<str:client_code>/messages/<int:message_id>/translate/", api_v1.client_translate, name="v1_client_translate"),
     path("api/v1/chats/react/", api_v1.chat_react, name="v1_chat_react"),
     path("api/v1/chats/forward/", api_v1.chat_forward, name="v1_chat_forward"),

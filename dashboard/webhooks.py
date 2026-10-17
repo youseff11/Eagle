@@ -180,6 +180,9 @@ def whatsapp_hook(request):
                     (first.get("error_data") or {}).get("details")
                     or first.get("title") or first.get("message") or ""
                 )
+                # The code too: the details alone do not always say which failure it was (17/10/2026).
+                if reason:
+                    reason = whatsapp.with_code(reason, first.get("code"))
                 services.record_whatsapp_status(
                     event.get("id", ""), event.get("status", ""), error=reason,
                 )

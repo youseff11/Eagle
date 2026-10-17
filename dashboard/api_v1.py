@@ -641,6 +641,44 @@ def client_send(request, client_code):
     })
 
 
+#: Why a follow-up was not sent, as the page is told it (the status it answers with).
+FOLLOWUP_REFUSALS = {"bad_language": 400, "no_number": 400, "no_line": 400, "blocked": 409, "window_open": 409, "sent_recently": 409}
+
+
+@endpoint("POST")
+@api_role_required(Role.OPERATION, Role.SALES)
+def client_followup(request, client_code):
+    """The approved follow-up message, to a client whose 24-hour window is closed: ``{"language": "ar" | "en"}``.
+
+    ``followup.send`` decides everything (the line, the window, one follow-up a day). A code off this person's line
+    answers like an unknown one, as for a reply. A send Meta refused is a 200 with ``delivered`` false and the reason,
+    so the page shows the failed bubble and does not offer it again as if nothing happened.
+    """
+    from . import followup
+
+    try:
+        language = _text(_object(request), "language", 4)
+    except BadBody:
+        return _error(400, "bad_request")
+    client = api._client_or_404(request, client_code)
+    if not api.may_answer(client, request.user):
+        identity.hidden(request, "client")
+    delivered, error = True, ""
+    try:
+        followup.send(client, request.user, language)
+    except followup.Refused as refusal:
+        if refusal.code != "send_failed":
+            return _error(FOLLOWUP_REFUSALS.get(refusal.code, 400), refusal.code)
+        delivered, error = False, refusal.message_ar
+    return JsonResponse({
+        "ok": True,
+        "delivered": delivered,
+        "error": error,
+        "messages": [api._thread_entry_json(e, request.user) for e in services.client_thread(client, request.user)],
+        "client": api.open_conversation_json(client, request.user),
+    })
+
+
 #: Why a message was not translated, as the page is told it (the status it answers with).
 TRANSLATE_REFUSALS = {"empty": 400, "too_fast": 429, "unavailable": 503}
 

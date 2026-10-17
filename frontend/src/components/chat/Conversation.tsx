@@ -19,6 +19,7 @@ import { Bubble, OutgoingBubble, type FileMark, type TextMark } from "./Bubble";
 import { newFilesRun } from "../../lib/fileRun";
 import { ConvertDialog } from "./ConvertDialog";
 import { Composer, DEFAULT_LIMITS, type Written } from "./Composer";
+import { FollowupDialog } from "./FollowupDialog";
 import { ForwardDialog } from "./ForwardDialog";
 import { HandInBar } from "./HandInBar";
 import { PickBar } from "./PickBar";
@@ -63,8 +64,11 @@ export function windowClosed(row: ChatRow): boolean {
   return !row.staff && !row.team && row.channel === "whatsapp" && !row.window_open;
 }
 
-/** The notes above the messages: a blocked client, what a group reaches, and the WhatsApp 24-hour rule. */
-function Notes({ row }: { row: ChatRow }) {
+/**
+ * The notes above the messages: a blocked client, what a group reaches, and the WhatsApp 24-hour rule - with
+ * «رسالة متابعة» under it in a client's conversation, the one message WhatsApp still carries (`row.followup`).
+ */
+function Notes({ row, onFollowup }: { row: ChatRow; onFollowup: () => void }) {
   const { t } = usePreferences();
   return (
     <>
@@ -107,6 +111,12 @@ function Notes({ row }: { row: ChatRow }) {
                 "WhatsApp does not allow a free-form message more than 24h after the client's last one.",
               )}
             </div>
+            {row.followup && (
+              <button type="button" className="btn btn--sm btn--primary" style={{ marginTop: 6 }} onClick={onFollowup}>
+                <Icon name="message" size="sm" />
+                <span>{t("رسالة متابعة", "Follow-up message")}</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -393,6 +403,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
   // the client sends meanwhile is lost.
   const block = useBlockClient(code);
   const [blocking, setBlocking] = useState(false);
+  const [followingUp, setFollowingUp] = useState(false);
   const [blockProblem, setBlockProblem] = useState("");
   const mayBlock =
     kindOfCode(code) === "clients" && (account?.user.is_admin === true || account?.user.role === "operation" || account?.user.role === "sales");
@@ -627,7 +638,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               ))}
             </div>
           )}
-          <Notes row={row} />
+          <Notes row={row} onFollowup={() => setFollowingUp(true)} />
           {/* A team leader's: what the AI noticed in the translation this person handed over. Nobody else is asked. */}
           <AiNotesPanel code={code} enabled={account?.user.role === "team_lead"} />
           {notice && (
@@ -788,6 +799,7 @@ export function Conversation({ code, kind, allowed }: { code: string; kind: Chat
               }
             />
           )}
+          {followingUp && row.followup && <FollowupDialog code={code} offer={row.followup} onClose={() => setFollowingUp(false)} />}
           {converting && <ConvertDialog entries={converting} onClose={() => setConverting(null)} />}
           {receipting && <ReceiptDialog entry={receipting} code={code} onClose={() => setReceipting(null)} />}
           {forwardingFiles && pick.ids.length > 0 && (

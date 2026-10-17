@@ -1205,6 +1205,19 @@ export function useBlockClient(code: string) {
   });
 }
 
+/** «رسالة متابعة»: the approved template to a client whose 24-hour window is closed (`/api/v1/clients/<code>/followup/`). */
+export function useSendFollowup(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (language: "ar" | "en") =>
+      api<{ ok: true; delivered: boolean; error: string }>(`/api/v1/clients/${encodeURIComponent(code)}/followup/`, { json: { language } }),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.thread(code) });
+      void client.invalidateQueries({ queryKey: qk.chatLists });
+    },
+  });
+}
+
 /**
  * Take back a message you sent (`/api/v1/chats/unsend/`). Whatever the answer, the thread and the lists are asked for
  * again: a refusal changed nothing, but a dropped connection may have done either.

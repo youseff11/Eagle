@@ -88,6 +88,15 @@ def sender_id(conf, from_id=""):
     return (from_id or conf.whatsapp_phone_number_id or "").strip()
 
 
+def with_code(text, code):
+    """Meta's reason with its error code in front - ``(#131049) ...`` - so a stored failure says which one it was
+    (``b2b.failure_reason`` groups by it). Unchanged when there is no code or the text carries it already."""
+    text = text or ""
+    if code in (None, "") or f"#{code})" in text:
+        return text
+    return f"(#{code}) {text}".strip()
+
+
 def _raise_from_body(status, body):
     try:
         payload = json.loads(body)

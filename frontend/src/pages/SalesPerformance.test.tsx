@@ -15,6 +15,10 @@ function counts(over: Partial<KpiCounts> = {}): KpiCounts {
     contacted: 3,
     whatsapp: 5,
     failed: 2,
+    failed_reasons: [
+      { key: "marketing_limit", ar: "حد ميتا للتسويق", en: "Meta's marketing limit", count: 1 },
+      { key: "not_on_whatsapp", ar: "مالوش واتساب", en: "No WhatsApp", count: 1 },
+    ],
     emails: 2,
     calls: 1,
     replies: 1,
@@ -91,6 +95,49 @@ describe("SalesPerformancePage", () => {
     const at = headers.indexOf("رسايل فشلت");
     expect(at).toBe(headers.indexOf("وصلهم واتساب") + 1);
     expect(container.querySelectorAll('[data-person="7"] td')[at]).toHaveTextContent("2");
+  });
+
+  it("lists why the messages failed, for a Sales person alone", async () => {
+    serve("sales", () => jsonResponse(answer()));
+    const { container } = open();
+    expect(await screen.findByText("ليه الرسايل فشلت")).toBeInTheDocument();
+    const card = container.querySelector("#failed-reasons") as HTMLElement;
+    expect(Array.from(card.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual(["السبب", "العدد"]);
+    expect(card.querySelector('[data-reason="marketing_limit"]')).toHaveTextContent("حد ميتا للتسويق1");
+  });
+
+  it("lists each reason per Sales person and for the team", async () => {
+    const theirs = counts({ failed: 3, failed_reasons: [{ key: "not_on_whatsapp", ar: "مالوش واتساب", en: "No WhatsApp", count: 3 }] });
+    const total = counts({
+      failed: 5,
+      failed_reasons: [
+        { key: "not_on_whatsapp", ar: "مالوش واتساب", en: "No WhatsApp", count: 4 },
+        { key: "other:(#131000) Something went wrong", ar: "(#131000) Something went wrong", en: "(#131000) Something went wrong", count: 1 },
+      ],
+    });
+    const mine = counts({
+      failed: 2,
+      failed_reasons: [
+        { key: "not_on_whatsapp", ar: "مالوش واتساب", en: "No WhatsApp", count: 1 },
+        { key: "other:(#131000) Something went wrong", ar: "(#131000) Something went wrong", en: "(#131000) Something went wrong", count: 1 },
+      ],
+    });
+    serve("sales", () => jsonResponse(answer({ team: true, rows: [{ person: { id: 7, name: "Seller", active: true }, ...mine }, { person: { id: 8, name: "Other", active: true }, ...theirs }], total })));
+    const { container } = open();
+    await screen.findByText("ليه الرسايل فشلت");
+    const card = container.querySelector("#failed-reasons") as HTMLElement;
+    expect(Array.from(card.querySelectorAll("thead th")).map((th) => th.textContent)).toEqual(["السبب", "Seller", "Other", "الفريق كله"]);
+    const cells = (key: string) => Array.from(card.querySelectorAll(`[data-reason="${key}"] td`)).map((td) => td.textContent);
+    expect(cells("not_on_whatsapp")).toEqual(["مالوش واتساب", "1", "3", "4"]);
+    // A reason Sales has none of reads 0, and one the server does not know keeps Meta's words.
+    expect(cells("other:(#131000) Something went wrong")).toEqual(["(#131000) Something went wrong", "1", "0", "1"]);
+  });
+
+  it("shows no reasons card when nothing failed", async () => {
+    serve("sales", () => jsonResponse(answer({ rows: [row(7, "Seller", { failed: 0, failed_reasons: [] })], total: counts({ failed: 0, failed_reasons: [] }) })));
+    open();
+    await screen.findByText("Seller");
+    expect(screen.queryByText("ليه الرسايل فشلت")).toBeNull();
   });
 
   it("writes «مش متقاس» for a rate with nothing to measure, never 0%", async () => {

@@ -1036,8 +1036,32 @@ GUIDES = (
             "Write in «Write your reply to the client...» and press «Send».",
         ],
         note=(
-            "واتساب بيسمح بالرد خلال 24 ساعة من آخر رسالة من العميل. لو ظهر «نافذة الـ24 ساعة قفلت» مش هينفع تبعت لحد ما العميل يكتب تاني.",
-            "WhatsApp allows a reply within 24 hours of the client's last message. If you see «The 24-hour window is closed» you cannot send until the client writes again.",
+            "واتساب بيسمح بالرد خلال 24 ساعة من آخر رسالة من العميل. لو ظهر «نافذة الـ24 ساعة قفلت» ابعت «رسالة متابعة» ولما العميل يرد تكتب له عادي.",
+            "WhatsApp allows a reply within 24 hours of the client's last message. If you see «The 24-hour window is closed» send a «Follow-up message», and once the client answers you write as usual.",
+        ),
+    ),
+    _guide(
+        "chat-followup", CLIENT_DESK, "/chats",
+        ("إزاي أكمّل مع عميل عدّى على آخر رسالة منه 24 ساعة", "How do I go on with a client after 24 hours since their last message"),
+        (
+            "24 ساعة، نافذة، النافذة قفلت، رسالة متابعة، متابعة، العميل مابيردش، قالب، تمبليت، مش عارف ابعت للعميل",
+            "24 hours, window, window closed, follow-up, follow up, template, client not answering, cannot send to the client",
+        ),
+        [
+            "افتح شات العميل من «الشات» (تبويب «العملاء»).",
+            "تحت «نافذة الـ24 ساعة قفلت» اضغط «رسالة متابعة».",
+            "اختار «عربي» أو «English»، اتأكد من الكلام واضغط «ابعت».",
+            "أول ما العميل يرد، النافذة بتتفتح 24 ساعة جديدة وتكتب له عادي.",
+        ],
+        [
+            "Open the client's chat from «Chats» (the «Clients» tab).",
+            "Under «The 24-hour window is closed» press «Follow-up message».",
+            "Pick «عربي» or «English», check the words and press «Send».",
+            "Once the client answers, the window opens for another 24 hours and you write as usual.",
+        ],
+        note=(
+            "الرسالة متوافق عليها من واتساب وكلامها ثابت، وبتبدأ باسم شركة العميل. بتتبعت مرة واحدة في اليوم لحد ما العميل يرد.",
+            "The message is approved by WhatsApp and its words are fixed; it opens with the client's company name. It goes once a day until the client answers.",
         ),
     ),
     _guide(
@@ -1532,12 +1556,14 @@ GUIDES = (
             "اختار الفترة: «الشهر ده» أو «الشهر اللي فات» أو «آخر 7 أيام»، أو حط التاريخين بإيدك.",
             "فوق الإجمالي، وتحت جدول فيه الشركات الجديدة واللي اتواصلنا معاهم والواتساب والإيميلات والمكالمات واللي ردّوا والزيارات واللي اتعاقدنا معاهم واللي رفضوا.",
             "«نسبة التحويل» = اللي اتعاقدنا معاهم من الشركات اللي اتحسمت في الفترة، و«الالتزام بالمتابعة» = المتابعات اللي اتعملت في يومها.",
+            "لو فيه «رسايل فشلت»، تحت الجدول كارت «ليه الرسايل فشلت» فيه كل سبب وعدده لكل Sales (زي حد ميتا لرسايل التسويق أو رقم مالوش واتساب).",
         ],
         [
             "In the «Work» section open «Sales performance».",
             "Choose the period: «This month», «Last month» or «Last 7 days», or type the two dates.",
             "The totals are on top, and below them a table of new leads, contacted, WhatsApp, e-mails, calls, answers, visits, contracted and refused.",
             "«Conversion» = the contracted among the companies decided in the period, and «Follow-up on time» = the follow-ups done on their day.",
+            "When «Messages failed» is not zero, the «Why messages failed» card under the table gives each reason and how many, per Sales person (Meta's marketing limit, a number with no WhatsApp...).",
         ],
         note=(
             "الـSales بيشوف أرقامه هو بس، والمانجر بيشوف كل Sales والفريق كله. رقم مالوش داتا بيتكتب «مش متقاس» مش صفر.",

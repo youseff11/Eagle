@@ -1,5 +1,5 @@
 import { Navigate, useSearchParams } from "react-router";
-import { useB2bKpis, type KpiCounts } from "../api/b2b";
+import { useB2bKpis, type KpiCounts, type KpiResponse } from "../api/b2b";
 import { useMe } from "../api/queries";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
@@ -19,7 +19,7 @@ const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, s
   { key: "new_leads", ar: "شركات جديدة", en: "New leads" },
   { key: "contacted", ar: "اتواصلنا معاهم", en: "Contacted" },
   { key: "whatsapp", ar: "وصلهم واتساب", en: "Reached on WhatsApp", hint: ["الشركات اللي وصلتها رسالة واتساب في الفترة، كل شركة مرة واحدة مهما اتبعتلها. ولو التواصل كله واتساب الرقم ده بيساوي «اتواصلنا معاهم».", "The companies a WhatsApp message reached in the period, each company once however many it was sent. With WhatsApp the only channel it equals «Contacted»."] },
-  { key: "failed", ar: "رسايل فشلت", en: "Messages failed", hint: ["رسايل واتساب ماوصلتش للشركة: اترفضت وهي بتتبعت، أو واتساب قال بعدها إنها ماوصلتش (رقم مالوش واتساب، أو حد ميتا لرسايل التسويق). الشركة دي مابتتحسبش «اتواصلنا معاهم» بيها.", "WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by WhatsApp afterwards (a number with no WhatsApp, Meta's limit on marketing messages). The company is not counted as contacted by them."] },
+  { key: "failed", ar: "رسايل فشلت", en: "Messages failed", hint: ["رسايل واتساب ماوصلتش للشركة: اترفضت وهي بتتبعت، أو واتساب قال بعدها إنها ماوصلتش (رقم مالوش واتساب، أو حد ميتا لرسايل التسويق). الشركة دي مابتتحسبش «اتواصلنا معاهم» بيها. أسبابها في «ليه الرسايل فشلت» تحت الجدول.", "WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by WhatsApp afterwards (a number with no WhatsApp, Meta's limit on marketing messages). The company is not counted as contacted by them. Their reasons are under the table, in «Why messages failed»."] },
   { key: "emails", ar: "إيميلات", en: "E-mails sent" },
   { key: "calls", ar: "مكالمات", en: "Calls logged" },
   { key: "replies", ar: "ردّوا", en: "Answered" },
@@ -61,6 +61,60 @@ function Cell({ counts, name }: { counts: KpiCounts; name: keyof KpiCounts }) {
   if (RATES.has(name)) return <Rate value={value as number | null} />;
   const count = value as number;
   return <span className={name === "overdue_now" && count > 0 ? "mono deadline--late" : "mono"}>{count}</span>;
+}
+
+/**
+ * Why the WhatsApp messages failed: each reason and how many, per Sales person and for the team (17/10/2026: «رسايل فشلت»
+ * was a bare number). Shown only when something failed.
+ */
+function FailReasons({ data }: { data: KpiResponse }) {
+  const { t, lang } = usePreferences();
+  const reasons = data.total.failed_reasons;
+  if (data.total.failed === 0 || reasons.length === 0) return null;
+  const people = data.team && data.rows.length > 1 ? data.rows : [];
+  const countOf = (counts: KpiCounts, key: string) => counts.failed_reasons.find((entry) => entry.key === key)?.count ?? 0;
+  return (
+    <div className="card" id="failed-reasons" style={{ marginTop: 14 }}>
+      <div className="card__head">
+        <Icon name="alert" />
+        <h3>{t("ليه الرسايل فشلت", "Why messages failed")}</h3>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t("السبب", "Reason")}</th>
+              {people.map((person) => (
+                <th key={person.person.id}>{person.person.name}</th>
+              ))}
+              <th>{people.length ? t("الفريق كله", "The whole team") : t("العدد", "Count")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reasons.map((reason) => (
+              <tr key={reason.key} data-reason={reason.key}>
+                <td className={reason.key.startsWith("other:") ? "muted" : undefined}>{lang === "ar" ? reason.ar : reason.en}</td>
+                {people.map((person) => (
+                  <td key={person.person.id} className="mono">
+                    {countOf(person, reason.key)}
+                  </td>
+                ))}
+                <td className="mono">
+                  <strong>{reason.count}</strong>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ marginTop: 10 }}>
+        {t(
+          "السبب ده كلام ميتا عن كل رسالة، ومكتوب كمان تحت الرسالة في شات الشركة. السبب اللي مش معروف بيظهر بكلام ميتا زي ما هو.",
+          "Each reason is Meta's word on the message, also shown under it in the company's chat. A reason not known here is shown in Meta's own words.",
+        )}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -206,6 +260,8 @@ export function SalesPerformancePage() {
               )}
             </p>
           </div>
+
+          <FailReasons data={data} />
         </>
       ) : numbers.isError ? (
         <div className="card empty" role="alert">

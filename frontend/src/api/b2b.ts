@@ -270,6 +270,14 @@ export function useB2bFollowUps(enabled = true, market: Market = "b2b") {
   });
 }
 
+/** One reason WhatsApp messages failed. A reason the server does not know is its own line, `key` "other:..." in Meta's words. */
+export interface FailReason {
+  key: string;
+  ar: string;
+  en: string;
+  count: number;
+}
+
 /** The counts of one Sales person's row (or the team's total): a zero is a real zero. */
 export interface KpiCounts {
   new_leads: number;
@@ -277,6 +285,8 @@ export interface KpiCounts {
   whatsapp: number;
   /** WhatsApp messages that did not reach the company (refused, or reported not delivered afterwards). */
   failed: number;
+  /** Why they failed, grouped, the most first: the counts add up to `failed`. */
+  failed_reasons: FailReason[];
   emails: number;
   calls: number;
   replies: number;

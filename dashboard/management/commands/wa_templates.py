@@ -22,7 +22,7 @@ MARKETING, costs more, and is rejected far more often. Keep it that way. The one
 exception is the B2B opening message (``b2b.INTRO_TEMPLATE``): a first contact
 with a company that has done nothing yet can only be MARKETING. Its words live
 in ``dashboard/b2b.py``, next to the button that sends it, and are read from
-there.
+there. The chat's follow-up message (``dashboard/followup.py``) lives the same way.
 """
 
 import json
@@ -30,7 +30,7 @@ import urllib.parse
 
 from django.core.management.base import BaseCommand, CommandError
 
-from dashboard import b2b, whatsapp
+from dashboard import b2b, followup, whatsapp
 
 #: Arabic, because that is what Eagle's clients read. A template is submitted
 #: per language; an entry with ``"language"`` of its own (the English B2B
@@ -82,6 +82,8 @@ TEMPLATES = {
     },
     b2b.INTRO_TEMPLATE: b2b.INTRO_SPEC,
     b2b.INTRO_TEMPLATE_AR: b2b.INTRO_SPEC_AR,
+    followup.FOLLOWUP_TEMPLATE_AR: followup.FOLLOWUP_SPEC_AR,
+    followup.FOLLOWUP_TEMPLATE_EN: followup.FOLLOWUP_SPEC_EN,
 }
 
 
