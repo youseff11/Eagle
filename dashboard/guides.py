@@ -1170,24 +1170,30 @@ GUIDES = (
         "sales-duplicates", (Role.SALES, Role.ADMIN), "/leads",
         ("إزاي أمسح الصفوف المكررة في الشيت", "How do I delete the duplicate rows on a sheet"),
         (
-            "مكرر، المكرر، صفوف مكررة، شركة متكررة، اتكررت مرتين، نفس الرقم، نفس الايميل، امسح المكرر، duplicate، duplicates",
-            "duplicate, duplicates, duplicate rows, same company twice, same number, same e-mail, delete duplicates, remove copies",
+            "مكرر، المكرر، صفوف مكررة، شركة متكررة، اتكررت مرتين، نفس الرقم، نفس الايميل، امسح المكرر، الرقم ده مكرر، ابحث عن رقم، امسح صف، مش مجال ترجمة، duplicate، duplicates",
+            "duplicate, duplicates, duplicate rows, same company twice, same number, same e-mail, delete duplicates, remove copies, is this number there twice, delete a row",
         ),
         [
             "افتح الشيت واضغط «الصفوف المكررة».",
             "هتطلعلك كل شركة موجودة أكتر من مرة (نفس الرقم أو الإيميل أو اسم الشركة) في مجموعة، ومكتوب جنبها اتكررت بإيه.",
             "في كل مجموعة اختار من «يفضل» الصف اللي هيفضل، وشيل علامة «امسح» من أي صف مش مكرر فعلًا.",
             "اضغط «امسح» تحت المجموعة، أو «امسح كل المكرر» مرة واحدة.",
+            "عايز تعرف رقم أو شركة مكررة ولا لا؟ اكتب الرقم أو الاسم في البحث فوق: كل صف بيطلع مكتوب جنبه «مكرر» أو «مش مكرر».",
+            "صف مش مكرر وعايز تمسحه (مثلًا طلع مش مجال ترجمة)؟ دوّر عليه واضغط «امسح الصف» وبعدها «أكّد المسح».",
         ],
         [
             "Open the sheet and press «Duplicate rows».",
             "Every company that is on it more than once (the same number, e-mail or company name) shows in a group, with what they share.",
             "In each group pick under «Stays» the row that stays, and untick «Delete» on any row that is not really a copy.",
             "Press «Delete» on the group, or «Delete all duplicates» at once.",
+            "To know whether a number or a company is there twice, type it in the search on top: each row found says «Twice» or «Not twice».",
+            "To delete a row that is not a copy (a company that turned out to be no translation work), find it and press «Delete the row», then «Confirm delete».",
         ],
         note=(
-            "مفيش حاجة بتضيع: ملاحظات الصف اللي اتمسح وسجله وعروض أسعاره بتتنقل للصف اللي فضل، والخانة الفاضية فيه بتاخد اللي كان في المكرر.",
-            "Nothing is lost: the deleted row's notes, timeline and quotations move to the row that stays, and an empty cell of it takes what the copy had.",
+            "مفيش حاجة بتضيع: ملاحظات الصف اللي اتمسح وسجله وعروض أسعاره بتتنقل للصف اللي فضل، والخانة الفاضية فيه بتاخد اللي كان في المكرر. "
+            "الشركة اللي اتواصلنا معاها مابتتمسحش بـ«امسح الصف»: غيّر حالتها لـLost.",
+            "Nothing is lost: the deleted row's notes, timeline and quotations move to the row that stays, and an empty cell of it takes what the copy had. "
+            "A company already contacted is not deleted with «Delete the row»: set it to Lost.",
         ),
     ),
     _guide(
