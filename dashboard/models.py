@@ -2583,6 +2583,13 @@ class AppSettings(models.Model):
         default=False,
         help_text="Also e-mail each Sales person their daily follow-up reminder (to the e-mail on their account).",
     )
+    #: The most opening templates (the WhatsApp button on a sheet) one WhatsApp number sends in a day, Cairo's day. Meta
+    #: restricted the account for spam on 17/10/2026 after about 500 in three days, and the review request promised 50 a
+    #: day from each number. 0 = the button sends no template at all.
+    b2b_whatsapp_daily_limit = models.PositiveIntegerField(
+        default=50,
+        help_text="Most WhatsApp opening messages one number sends in a day. 0 = none.",
+    )
     # -- B2C (15/10/2026) ------------------------------------------------------------------------------------------
     #: The B2C requirements' section 5: 220 verified visits a month for each field Sales person, over 22 working days;
     #: a visit counts when the press at the company is within this many metres of it, and the phone was this sure.
@@ -2792,6 +2799,8 @@ class OutboundMessage(models.Model):
     #: its way back to the same conversation.
     subject = models.CharField(max_length=250, blank=True)
     thread_key = models.CharField(max_length=32, blank=True, db_index=True)
+    #: The WhatsApp template it went out as, when it was one (the sheet's opening message): what the daily limit counts.
+    template = models.CharField(max_length=60, blank=True)
     created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

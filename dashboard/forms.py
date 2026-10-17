@@ -932,7 +932,7 @@ class SettingsForm(forms.ModelForm):
         fields = (
             "ai_check_enabled", "claude_api_key", "claude_model", "helpbot_ai_enabled", "helpbot_actions_enabled",
             "chat_translate_enabled",
-            "b2b_auto_leads", "b2b_reminder_email",
+            "b2b_auto_leads", "b2b_reminder_email", "b2b_whatsapp_daily_limit",
             "b2c_visit_target", "b2c_work_days", "b2c_visit_radius_m", "b2c_gps_accuracy_m",
             "response_window_seconds", "deadline_warning_minutes",
             "penalty_value", "max_rating", "rate_keywords",

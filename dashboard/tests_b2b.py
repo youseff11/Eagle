@@ -1223,3 +1223,106 @@ class TaskFromQuotationTests(_Quotes):
         self.assertEqual((row["quotations"], row["quotes_accepted"]), (2, 2))
         self.assertEqual(row["revenue"], {"EUR": "100.00", "USD": "72.00"})
         self.assertEqual(body["total"]["revenue"], {"EUR": "100.00", "USD": "72.00"})
+
+
+class DailyLimitTests(_B2b):
+    """The opening message's daily limit for each WhatsApp number (``AppSettings.b2b_whatsapp_daily_limit``).
+
+    Meta restricted the account for spam on 17/10/2026 after about 500 opening messages in three days; the review request
+    promised 50 a day from each number.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from .models import AppSettings
+
+        self.settings = AppSettings
+        # The row is made on first read: an update before it changes nothing.
+        AppSettings.load()
+        AppSettings.objects.update(b2b_whatsapp_daily_limit=2)
+
+    def company(self, n):
+        return Lead.objects.create(sheet=self.sheet, company_name=f"Company {n}", country="Germany", whatsapp=f"+44 7700 91{n:04d}")
+
+    def press(self, lead, user=None):
+        return self.post(user or self.sales, "v1_b2b_lead_whatsapp", {}, lead.pk)
+
+    def test_it_is_fifty_unless_the_admin_changes_it(self):
+        self.settings.objects.all().delete()
+        self.assertEqual(self.settings.load().b2b_whatsapp_daily_limit, 50)
+
+    def test_the_number_stops_at_the_limit_and_the_refused_press_leaves_nothing(self):
+        for n in (1, 2):
+            self.assertTrue(_json(self.press(self.company(n)))["sent"])
+        third = self.company(3)
+        answer = self.press(third)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "daily_limit"))
+        self.assertIn("2 رسالة تعارف النهارده", _json(answer)["message"])
+        self.assertEqual(self.template.call_count, 2)
+        # Nothing of the refused press is kept: no client made for the company, no message, the row not marked.
+        third.refresh_from_db()
+        self.assertEqual((third.client, third.whatsapp_at), (None, None))
+        self.assertEqual(OutboundMessage.objects.count(), 2)
+        self.assertEqual(set(OutboundMessage.objects.values_list("template", flat=True)), {b2b.INTRO_TEMPLATE})
+
+    def test_each_number_has_its_own_day(self):
+        for n in (1, 2):
+            self.press(self.company(n))
+        theirs = LeadSheet.objects.create(title="Theirs", assigned_to=self.other, created_by=self.manager)
+        lead = Lead.objects.create(sheet=theirs, company_name="Elsewhere", country="Germany", whatsapp="+44 7700 919999")
+        self.assertTrue(_json(self.press(lead, self.other))["sent"])
+        self.assertEqual(self.template.call_args.kwargs, {"from_id": "900003"})
+
+    def test_failed_yesterdays_and_other_messages_do_not_count(self):
+        self.template.side_effect = whatsapp.WhatsAppError("مرفوض", "refused")
+        for n in (1, 2):
+            self.assertEqual(_json(self.press(self.company(n)))["error"], "send_failed")
+        self.template.side_effect = None
+        self.assertTrue(_json(self.press(self.company(3)))["sent"])
+        OutboundMessage.objects.filter(status="sent").update(created_at=timezone.now() - timedelta(days=1))
+        # A message written in the chat is not an opening message.
+        client = Client.objects.create(name="Someone", phone="+201000000000")
+        OutboundMessage.objects.create(client=client, kind="chat", owner=self.sales, channel=Channel.WHATSAPP, status="sent")
+        OutboundMessage.objects.create(client=client, kind="chat", owner=self.sales, channel=Channel.WHATSAPP, status="sent")
+        for n in (4, 5):
+            self.assertTrue(_json(self.press(self.company(n)))["sent"], n)
+        self.assertEqual(_json(self.press(self.company(6)))["error"], "daily_limit")
+
+    def test_the_day_is_cairos(self):
+        for n in (1, 2):
+            self.press(self.company(n))
+        # Sent just before Cairo's midnight: yesterday, though it may still be the same day in UTC.
+        midnight = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+        OutboundMessage.objects.update(created_at=midnight - timedelta(minutes=1))
+        self.assertTrue(_json(self.press(self.company(3)))["sent"])
+        # And sent at one past Cairo's midnight is today, though in UTC it is still yesterday evening.
+        OutboundMessage.objects.update(created_at=midnight + timedelta(hours=1))
+        self.assertEqual(_json(self.press(self.company(4)))["error"], "daily_limit")
+
+    def test_zero_switches_the_opening_message_off(self):
+        self.settings.objects.update(b2b_whatsapp_daily_limit=0)
+        answer = self.press(self.company(1))
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "intros_off"))
+        self.template.assert_not_called()
+
+    def test_a_company_that_wrote_today_still_opens_its_chat(self):
+        self.settings.objects.update(b2b_whatsapp_daily_limit=0)
+        client = Client.objects.create(name="Anna", phone="+447700900123")
+        InboundMessage.objects.create(client=client, channel=Channel.WHATSAPP, body="hi", external_id="wamid.in.limit", owner=self.sales)
+        body = _json(self.press(self.lead))
+        self.assertEqual((body["ok"], body["sent"], body["chat"]), (True, False, client.code))
+        self.template.assert_not_called()
+
+    def test_the_admin_sets_it_on_the_settings_page_and_nobody_else_can(self):
+        page = _json(self.get(self.admin, "v1_admin_settings"))
+        self.assertIn("b2b_whatsapp_daily_limit", [field["name"] for field in page["fields"]])
+        b2b_section = next(section for section in page["sections"] if section["key"] == "b2b")
+        self.assertIn("b2b_whatsapp_daily_limit", b2b_section["groups"][0]["fields"])
+        save = reverse("dashboard:v1_admin_settings_save")
+        answer = self.browser(self.admin).post(save, json.dumps({"values": {"b2b_whatsapp_daily_limit": 30}}), content_type="application/json")
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(self.settings.load().b2b_whatsapp_daily_limit, 30)
+        for person in (self.manager, self.sales, self.ops):
+            answer = self.browser(person).post(save, json.dumps({"values": {"b2b_whatsapp_daily_limit": 500}}), content_type="application/json")
+            self.assertEqual(answer.status_code, 403, person.username)
+        self.assertEqual(self.settings.load().b2b_whatsapp_daily_limit, 30)

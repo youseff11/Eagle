@@ -50,7 +50,7 @@ SECTIONS = (
     },
     {
         "key": "b2b", "icon": "building", "ar": "المبيعات (B2B)", "en": "Sales (B2B)",
-        "groups": ({"fields": ("b2b_auto_leads", "b2b_reminder_email")},),
+        "groups": ({"fields": ("b2b_auto_leads", "b2b_reminder_email", "b2b_whatsapp_daily_limit")},),
     },
     {
         "key": "b2c", "icon": "map-pin", "ar": "المبيعات (B2C) والزيارات", "en": "Sales (B2C) and visits",
@@ -136,6 +136,18 @@ TEXTS = {
         "hint": (
             "بيروح على الإيميل المكتوب في حساب الـSales (من صفحة الموظف)، مش على عنوانه على ميل الشركة. اللي مالوش إيميل مابيوصلوش غير التنبيه جوه السيستم.",
             "It goes to the e-mail on the Sales person's account (the employee page), not their company-mailbox address. Somebody with none gets the in-app notice only.",
+        ),
+    },
+    "b2b_whatsapp_daily_limit": {
+        "label": ("أقصى رسايل تعارف واتساب في اليوم لكل رقم", "Most WhatsApp opening messages a day from each number"),
+        "hint": (
+            "زرار واتساب في الشيت بيبعت رسالة التعارف لحد العدد ده من كل رقم في اليوم (يوم مصر)، وبعده بيقول «خلص عدد النهارده». "
+            "ميتا قيّدت الحساب 30 يوم بسبب السبام لما اتبعت حوالي 500 في 3 أيام، ووعدناهم بـ50 في اليوم من كل رقم. "
+            "0 = الزرار مايبعتش رسالة تعارف خالص. الشات مع شركة كلّمتنا في آخر 24 ساعة مابيتحسبش.",
+            "The WhatsApp button on a sheet sends the opening message up to this many times a day from each number (Cairo's day), "
+            "then says today's count is used up. Meta restricted the account for 30 days for spam after about 500 in three days, "
+            "and we promised them 50 a day from each number. 0 = the button sends no opening message at all. Opening the chat of a "
+            "company that wrote to us within 24 hours does not count.",
         ),
     },
     "b2c_visit_target": {

@@ -1096,6 +1096,42 @@ def _client_for(lead, channel, value):
 
 #: Two presses on the WhatsApp button send one template: another one goes only after this long without an answer.
 INTRO_REPEAT = timedelta(hours=24)
+#: Every name the opening message goes out as, in any language: what ``AppSettings.b2b_whatsapp_daily_limit`` counts.
+INTRO_NAMES = tuple(name for name, _spec in INTRO_TEMPLATES.values())
+
+
+def intros_today(from_id):
+    """How many opening messages left this WhatsApp number today, Cairo's day. One still on its way counts; a failed one
+    does not. A number belongs to one person, so its sends are found through whoever holds it now."""
+    start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    return OutboundMessage.objects.filter(
+        owner__wa_phone_number_id=from_id, channel=Channel.WHATSAPP, template__in=INTRO_NAMES, created_at__gte=start,
+        status__in=(OutboundMessage.Status.SENDING, OutboundMessage.Status.SENT),
+    ).count()
+
+
+def _within_daily_limit(from_id):
+    """``Refused`` when this number has sent its day's opening messages (``AppSettings.b2b_whatsapp_daily_limit``).
+
+    Meta restricted the account for spam on 17/10/2026, after about 500 in three days. Called inside the send's
+    transaction, after the rows of whoever holds the number are locked, so two presses at once cannot both take the last
+    one.
+    """
+    from .models import AppSettings
+
+    limit = AppSettings.load().b2b_whatsapp_daily_limit
+    if limit <= 0:
+        raise Refused(
+            "intros_off",
+            "رسايل التعارف على واتساب مقفولة من الإعدادات دلوقتي. كلّم الشركة بالميل.",
+            "WhatsApp opening messages are switched off in the settings for now. Write to the company by e-mail.",
+        )
+    if intros_today(from_id) >= limit:
+        raise Refused(
+            "daily_limit",
+            f"رقمك بعت {limit} رسالة تعارف النهارده، وده الحد اليومي. كمّل بكرة، أو كلّم الشركة بالميل.",
+            f"Your number has sent {limit} opening messages today, the daily limit. Carry on tomorrow, or write to the company by e-mail.",
+        )
 
 
 def start_whatsapp(lead, user, number=""):
@@ -1147,13 +1183,16 @@ def start_whatsapp(lead, user, number=""):
         )
         if recent.exists():
             return client, False
+        # The rows alone, no join, as above. Whoever holds the number: a second press on it waits here for the count.
+        list(User.objects.select_for_update().filter(wa_phone_number_id=from_id).values_list("pk", flat=True))
+        _within_daily_limit(from_id)
         language = intro_language(number)
         template = INTRO_TEMPLATES[language][0]
         params = intro_params(lead, user, language)
         outbound = OutboundMessage.objects.create(
             client=client, kind=OutboundMessage.Kind.CHAT, created_by=user, owner=user,
             channel=Channel.WHATSAPP, to_identity=number, body=intro_text(params, language),
-            status=OutboundMessage.Status.SENDING,
+            status=OutboundMessage.Status.SENDING, template=template,
         )
 
     try:
