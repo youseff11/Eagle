@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 
 FOLLOWUP_TEMPLATE_AR = "chat_followup_ar"
 FOLLOWUP_TEMPLATE_EN = "chat_followup_en"
-#: UTILITY: an answer to a request the client already made with us, not an offer. Meta may still file it under MARKETING
-#: (it did so to ``translation_quote_ready``); it is sent all the same, at that price.
+#: MARKETING: submitted 17/10/2026, and Meta's form said a follow-up tied to no particular order would be refused as
+#: UTILITY. The owner chose MARKETING (approved more easily, each message costs more).
 FOLLOWUP_SPEC_AR = {
-    "category": "UTILITY",
+    "category": "MARKETING",
     "language": "ar",
     "body": "أهلًا {{1}}، معاك فريق EagleLingua بخصوص طلبك معانا. "
             "رد على الرسالة دي عشان نكمّل معاك.",
@@ -37,7 +37,7 @@ FOLLOWUP_SPEC_AR = {
     "purpose": "Opens a client chat again after the 24-hour window closed, from the chat's «رسالة متابعة» button.",
 }
 FOLLOWUP_SPEC_EN = {
-    "category": "UTILITY",
+    "category": "MARKETING",
     "language": "en",
     "body": "Hello {{1}}, this is the EagleLingua team following up on your request with us. "
             "Please reply to this message so we can continue.",
