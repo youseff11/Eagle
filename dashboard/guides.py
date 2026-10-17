@@ -1178,7 +1178,7 @@ GUIDES = (
             "هتطلعلك كل شركة موجودة أكتر من مرة (نفس الرقم أو الإيميل أو اسم الشركة) في مجموعة، ومكتوب جنبها اتكررت بإيه.",
             "في كل مجموعة اختار من «يفضل» الصف اللي هيفضل، وشيل علامة «امسح» من أي صف مش مكرر فعلًا.",
             "اضغط «امسح» تحت المجموعة، أو «امسح كل المكرر» مرة واحدة.",
-            "عايز تعرف رقم أو شركة مكررة ولا لا؟ اكتب الرقم أو الاسم في البحث فوق: كل صف بيطلع مكتوب جنبه «مكرر» أو «مش مكرر».",
+            "عايز تعرف رقم أو شركة مكررة ولا لا؟ اكتب الرقم أو الاسم في البحث فوق: كل صف بيطلع مكتوب جنبه إنه مكرر ومع كام صف، أو «مش مكرر».",
             "صف مش مكرر وعايز تمسحه (مثلًا طلع مش مجال ترجمة)؟ دوّر عليه واضغط «امسح الصف» وبعدها «أكّد المسح».",
         ],
         [
@@ -1186,7 +1186,7 @@ GUIDES = (
             "Every company that is on it more than once (the same number, e-mail or company name) shows in a group, with what they share.",
             "In each group pick under «Stays» the row that stays, and untick «Delete» on any row that is not really a copy.",
             "Press «Delete» on the group, or «Delete all duplicates» at once.",
-            "To know whether a number or a company is there twice, type it in the search on top: each row found says «Twice» or «Not twice».",
+            "To know whether a number or a company is there twice, type it in the search on top: each row found says it is there twice (and in how many rows), or «Not twice».",
             "To delete a row that is not a copy (a company that turned out to be no translation work), find it and press «Delete the row», then «Confirm delete».",
         ],
         note=(

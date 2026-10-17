@@ -16,13 +16,14 @@ detail. So they live here instead, next to the code that sends them.
 refuses a name that already exists, and this command reports that as "already
 there" rather than treating it as a failure.
 
-Every template below is UTILITY — a reply to something the client already did.
+A template should be UTILITY — a reply to something the client already did.
 Anything that advertises, upsells, or greets without a triggering action is
-MARKETING, costs more, and is rejected far more often. Keep it that way. The one
-exception is the B2B opening message (``b2b.INTRO_TEMPLATE``): a first contact
-with a company that has done nothing yet can only be MARKETING. Its words live
-in ``dashboard/b2b.py``, next to the button that sends it, and are read from
-there. The chat's follow-up message (``dashboard/followup.py``) lives the same way.
+MARKETING, costs more, and is rejected far more often. The B2B opening message
+(``b2b.INTRO_TEMPLATE``) is MARKETING because a first contact with a company that
+has done nothing yet can be nothing else; about 500 of them in three days got the
+account restricted for spam on 17/10/2026. Its words live in ``dashboard/b2b.py``,
+next to the button that sends it, and are read from there. The chat's follow-up
+message (``dashboard/followup.py``) lives the same way.
 """
 
 import json
@@ -45,41 +46,12 @@ LANGUAGE = "ar"
 #:   * **a body containing variables must ship sample values**. The first
 #:     submission left ``example`` out and every template came back rejected
 #:     or refused outright, which is the only signal Meta gives for it.
+#:
+#: The four task-cycle UTILITY templates (translation_order_received, translation_quote_ready,
+#: translation_missing_info, order_delivered) were never sent by any code and were retired on 17/10/2026, when Meta
+#: restricted the account for spam. Their names stay burned at Meta for 30 days after deletion: bring one back under
+#: a new name.
 TEMPLATES = {
-    "translation_order_received": {
-        "category": "UTILITY",
-        "body": "مرحبًا {{1}}، استلمنا طلب الترجمة رقم {{2}}. "
-                "عدد الصفحات: {{3}}، والتسليم المتوقع: {{4}}. "
-                "هنبلغك أول ما يخلص.",
-        "footer": "Eagle Translation",
-        "example": ["أحمد", "T-1042", "12", "الخميس 18 سبتمبر"],
-        "purpose": "Sent the moment a request is logged, so the client has a reference number.",
-    },
-    "translation_quote_ready": {
-        "category": "UTILITY",
-        "body": "مرحبًا {{1}}، عرض السعر لطلب الترجمة رقم {{2}} جاهز. "
-                "الإجمالي {{3}} جنيه ومدة التنفيذ {{4}}. "
-                "لو موافق رد على الرسالة دي ونبدأ على طول.",
-        "footer": "Eagle Translation",
-        "example": ["أحمد", "T-1042", "850", "يومين"],
-        "purpose": "Sent when pricing is decided and the client has to approve before work starts.",
-    },
-    "translation_missing_info": {
-        "category": "UTILITY",
-        "body": "مرحبًا {{1}}، عشان نكمّل طلب الترجمة رقم {{2}} ناقصنا: {{3}}. "
-                "ابعتها هنا ونكمّل على طول.",
-        "footer": "Eagle Translation",
-        "example": ["أحمد", "T-1042", "صورة واضحة للصفحة الأخيرة"],
-        "purpose": "Sent when a request is blocked waiting on the client.",
-    },
-    "order_delivered": {
-        "category": "UTILITY",
-        "body": "مرحبًا {{1}}، طلب الترجمة رقم {{2}} اتسلّم والملفات موجودة في المحادثة. "
-                "لو محتاج أي تعديل رد على الرسالة دي خلال {{3}} من استلامك للملفات.",
-        "footer": "Eagle Translation",
-        "example": ["أحمد", "T-1042", "48 ساعة"],
-        "purpose": "Sent on delivery, and it reopens the 24h window for revisions.",
-    },
     b2b.INTRO_TEMPLATE: b2b.INTRO_SPEC,
     b2b.INTRO_TEMPLATE_AR: b2b.INTRO_SPEC_AR,
     followup.FOLLOWUP_TEMPLATE_AR: followup.FOLLOWUP_SPEC_AR,
