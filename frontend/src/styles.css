@@ -403,12 +403,16 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 /* The way from the assistant to technical support: a quiet button between the conversation and the box. */
 .help__support { margin: 0 12px; align-self: flex-start; }
 
-/* Photos sent together, as one block (WhatsApp's): up to four tiles, the fourth carries «+N» when there are more. */
+/* Photos sent together, as one block (WhatsApp's): up to four tiles, the fourth carries «+N» when there are more.
+   A plain width with a percentage cap, not `min(280px, 100%)`: the bubble sizes itself to its content, and there the
+   percentage counts as nothing, so the photos' own size stretched the bubble to its widest with an empty strip beside
+   the grid. */
 .imggrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;
-  width: min(280px, 100%);
+  width: 280px;
+  max-width: 100%;
   margin-block-start: 5px;
   border-radius: 8px;
   overflow: hidden;
