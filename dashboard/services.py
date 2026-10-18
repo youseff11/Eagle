@@ -401,8 +401,8 @@ def inbox_queryset(user, state="", query=""):
     ).select_related(
         "client", "claimed_by", "task"
     ).prefetch_related("attachments")
-    # Rate talk never reaches the operation role.
-    if not user.is_admin_role:
+    # Rate talk never reaches the operation role (the admin and Sales read it).
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
 
     if state == "unclaimed":
@@ -472,7 +472,7 @@ def _visible_mail(user):
     ).select_related(
         "client", "claimed_by", "task"
     ).prefetch_related("attachments")
-    if not user.is_admin_role:
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
     return qs
 
@@ -650,9 +650,9 @@ def unclaimed_conversation_count(user=None):
     """
     from . import lines
 
-    qs = InboundMessage.objects.filter(
-        channel=Channel.EMAIL, claimed_by__isnull=True, is_rate_blocked=False
-    )
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL, claimed_by__isnull=True)
+    if user is None or not user.is_sales:
+        qs = qs.filter(is_rate_blocked=False)
     if user is not None:
         qs = qs.filter(lines.line_q(user))
     return _conversation_count(qs)
@@ -667,9 +667,12 @@ def unseen_conversation_count(user):
     """
     from . import lines
 
-    return _conversation_count(InboundMessage.objects.filter(
-        channel=Channel.EMAIL, is_rate_blocked=False
-    ).filter(lines.line_q(user)).exclude(reads__user=user))
+    qs = InboundMessage.objects.filter(channel=Channel.EMAIL)
+    # A rate letter is on a Sales person's own line and theirs to answer, so it rings for them. The admin is told
+    # about rate letters apart (``api_mail``'s "blocked").
+    if not user.is_sales:
+        qs = qs.filter(is_rate_blocked=False)
+    return _conversation_count(qs.filter(lines.line_q(user)).exclude(reads__user=user))
 
 
 def seen_letter_ids(user, messages):
@@ -839,7 +842,7 @@ def confirm_receipt(message, user):
     """
     if not message.client_id:
         return False, "الرسالة دي مش مربوطة بعميل معروف."
-    if message.is_rate_blocked and not user.is_admin_role:
+    if message.is_rate_blocked and not user.sees_rate_talk:
         return False, "الرسالة دي محجوبة."
 
     is_mail = message.channel == Channel.EMAIL
@@ -3859,7 +3862,7 @@ def client_conversations(user, query=""):
     on_line = lines.list_q(user, "messages__owner")
     # WhatsApp only — this list is the WhatsApp line. A client we have only
     # ever e-mailed belongs on the mail page, not in a chat with no thread.
-    if user.is_admin_role:
+    if user.sees_rate_talk:
         rows = Client.objects.filter(on_line, messages__channel=Channel.WHATSAPP)
     else:
         # One filter, one join: the operation never sees a conversation made
@@ -3906,7 +3909,7 @@ def _visible_inbound(client, user):
     qs = client.messages.filter(channel=Channel.WHATSAPP).filter(
         lines.line_q(user)
     ).prefetch_related("attachments")
-    if not user.is_admin_role:
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
     return qs
 
@@ -4369,7 +4372,7 @@ def _wa_inbound(client, user):
     qs = InboundMessage.objects.filter(client=client, channel=Channel.WHATSAPP).filter(
         lines.line_q(user)
     )
-    if not user.is_admin_role:
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
     return qs
 
@@ -4460,7 +4463,7 @@ def unread_by_client(user, client_ids=None):
     qs = InboundMessage.objects.filter(
         channel=Channel.WHATSAPP, client__isnull=False
     ).filter(lines.line_q(user))
-    if not user.is_admin_role:
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
     if client_ids is not None:
         qs = qs.filter(client_id__in=list(client_ids))

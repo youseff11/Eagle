@@ -55,7 +55,7 @@ def source_messages(user, raw_ids):
     if not wanted:
         return []
     qs = InboundMessage.objects.filter(pk__in=wanted).select_related("client")
-    if not user.is_admin_role:
+    if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
     # The line as well: a Sales person's own number is theirs alone, and an id is only a number. ``visible_to`` is
     # the rule ``lines.line_q`` applies to every list, for a row in hand.

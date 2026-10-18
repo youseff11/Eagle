@@ -679,6 +679,12 @@ class User(AbstractUser):
         return self.role == Role.SALES
 
     @property
+    def sees_rate_talk(self):
+        """Reads a client message that names a rate (``InboundMessage.is_rate_blocked``). The rate words keep prices from the
+        operation; the admin and Sales quote prices, so nothing is hidden from them, in the chats or the mail."""
+        return self.is_admin_role
+
+    @property
     def sales_market(self):
         """``"b2c"`` for a Sales person of the B2C team, ``"b2b"`` for anybody else: whose sheets they hold or run."""
         return Market.B2C if self.is_sales and self.sales_track in B2C_TRACKS else Market.B2B
@@ -1338,7 +1344,7 @@ class InboundMessage(models.Model):
     def visible_to(self, user):
         if user.is_admin_role:
             return True
-        if self.is_rate_blocked:
+        if self.is_rate_blocked and not user.sees_rate_talk:
             return False
         # A Sales line is its owner's alone; the company line is the
         # operation's; a letter to someone's address is theirs. The same rule

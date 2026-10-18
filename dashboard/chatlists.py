@@ -62,7 +62,7 @@ def client_facts(user, clients, previews=True):
     }
     if previews:
         said = InboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.list_q(user))
-        if not user.is_admin_role:
+        if not user.sees_rate_talk:
             said = said.filter(is_rate_blocked=False)
         sent = OutboundMessage.objects.filter(channel=Channel.WHATSAPP).filter(lines.list_q(user))
         notes["f_in"] = Subquery(said.filter(client=OuterRef("pk")).order_by("-received_at", "-id").values("pk")[:1])
