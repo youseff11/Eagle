@@ -682,7 +682,7 @@ class User(AbstractUser):
     def sees_rate_talk(self):
         """Reads a client message that names a rate (``InboundMessage.is_rate_blocked``). The rate words keep prices from the
         operation; the admin and Sales quote prices, so nothing is hidden from them, in the chats or the mail."""
-        return self.is_admin_role
+        return self.is_admin_role or self.is_sales
 
     @property
     def sales_market(self):
