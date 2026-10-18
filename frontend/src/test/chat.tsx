@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router";
 import { vi } from "vitest";
 import type { ChatKind, ChatRow, ThreadEntry, ThreadFile } from "../api/types";
+import { cairoToday } from "../lib/clock";
 import { ChatsPage } from "../pages/ChatsPage";
 import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "./helpers";
 
@@ -20,7 +21,8 @@ export function row(code: string, overrides: Partial<ChatRow> = {}): ChatRow {
     status: "",
     receipt: "",
     time: "8:05 PM",
-    date: "2026-10-01",
+    // Today in Cairo: the list says the time only for today (an older row says «أمس», a weekday or a date).
+    date: cairoToday(),
     channel: "whatsapp",
     window_open: true,
     minutes_left: 600,

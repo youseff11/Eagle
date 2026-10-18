@@ -10,6 +10,7 @@ import { jsonResponse } from "../test/helpers";
 import { entry, renderChats as render, row, visible, file } from "../test/chat";
 import { newestShown } from "../components/chat/Conversation";
 import { kindOfCode } from "./ChatsPage";
+import { cairoToday } from "../lib/clock";
 
 beforeEach(() => visible("visible"));
 afterEach(() => {
@@ -103,6 +104,18 @@ describe("the lists", () => {
     await screen.findByText("CL-0001");
     expect(screen.getByText("8:05 PM")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Clients" })).toBeInTheDocument();
+  });
+
+  it("says yesterday or the date, as WhatsApp does, for a conversation that last moved before today", async () => {
+    const yesterday = new Date(Date.now() - 86_400_000);
+    render("/chats", {
+      lists: { clients: [row("CL-0001", { date: cairoToday(yesterday), time: "4:51 PM" }), row("CL-0002", { date: "2025-11-27", time: "2:08 PM" })] },
+    });
+    await screen.findByText("CL-0002");
+    expect(screen.getByText("أمس")).toBeInTheDocument();
+    expect(screen.getByText("27/11/2025")).toHaveAttribute("title", "2025-11-27 2:08 PM");
+    expect(screen.queryByText("4:51 PM")).not.toBeInTheDocument();
+    expect(screen.queryByText("2:08 PM")).not.toBeInTheDocument();
   });
 
   it("says 99+ for a long queue and nothing for none", async () => {

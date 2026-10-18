@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { ChatKind, ChatRow } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
-import { clockText } from "../../lib/clock";
+import { clockText, listStamp } from "../../lib/clock";
 import { useOutboxProblems } from "../../lib/outbox";
 import { Avatar } from "../Avatar";
 import { Icon } from "../Icon";
@@ -67,7 +67,11 @@ function Row({ row, kind, active, problem }: { row: ChatRow; kind: ChatKind; act
               <Icon name="bell-off" size="sm" />
             </span>
           )}
-          {row.time && <span className="muted mono cthread__time">{clockText(row.time, lang)}</span>}
+          {row.time && (
+            <span className="muted mono cthread__time" title={row.date ? `${row.date} ${clockText(row.time, lang)}` : undefined}>
+              {listStamp(row.time, row.date, lang)}
+            </span>
+          )}
         </span>
         {row.reaches_client && (
           <span className="cthread__tags">
