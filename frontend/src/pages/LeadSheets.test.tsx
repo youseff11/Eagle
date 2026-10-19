@@ -443,6 +443,45 @@ describe("LeadSheetPage", () => {
     expect((again.container.querySelector("table.sheet") as HTMLElement).dataset.zoom).toBe("1");
   });
 
+  // 20/10/2026: «فلتر بالناس المهتمة».
+  it("shows only the companies whose last call was «مهتم» when asked", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [
+          lead({ call_outcome: "interested", reached: true }),
+          lead({ id: 6, company_name: "Busy Ltd", call_outcome: "no_answer", reached: true }),
+          lead({ id: 7, company_name: "Silent Ltd" }),
+        ])),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    await user.selectOptions(screen.getByLabelText("اعرض"), "interested");
+    expect(screen.getByDisplayValue("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Busy Ltd")).toBeNull();
+    expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
+  });
+
+  // 20/10/2026: a company written to before opens its chat from the row.
+  it("opens the chat of a company written to before, for the sheet's Sales person", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ client_code: "C-0042" }), lead({ id: 6, company_name: "Silent Ltd" })])),
+    });
+    const { container } = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(within(container.querySelector('[data-lead="6"]') as HTMLElement).queryByRole("link", { name: /افتح الشات/ })).toBeNull();
+    await user.click(screen.getByRole("link", { name: "افتح الشات · Lingua GmbH" }));
+    expect(await screen.findByText("chat page")).toBeInTheDocument();
+  });
+
+  it("does not offer the chat to a manager who does not hold the sheet", async () => {
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({ can_contact: false, can_manage: true }, [lead({ client_code: "C-0042" })])) });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(screen.queryByRole("link", { name: /افتح الشات/ })).toBeNull();
+  });
+
   it("marks a company that answered, and shows only those when asked", async () => {
     const user = userEvent.setup();
     serve("sales", {

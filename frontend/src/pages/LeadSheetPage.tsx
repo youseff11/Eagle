@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
-import { Navigate, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
 import {
   refusalCode,
   refusalText,
@@ -883,13 +883,15 @@ function PlanVisit({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
 }
 
 /** Which rows the sheet shows: all of them, or the ones that need something. */
-type Only = "all" | "due" | "replied" | "untouched";
+type Only = "all" | "due" | "replied" | "untouched" | "interested";
 const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   all: () => true,
   due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
   replied: (lead) => lead.replied_at !== "",
   // A stage set by hand («call», «whatsapp»...) is a company we talked to, from the Sales person's own phone (19/10/2026).
   untouched: (lead) => !lead.reached,
+  // The companies whose last call ended «مهتم» (20/10/2026: the ones worth a follow-up first).
+  interested: (lead) => lead.call_outcome === "interested",
 };
 
 type Open =
@@ -976,6 +978,8 @@ export function LeadSheetPage() {
   if (!data) return <Loading />;
 
   const contact = data.sheet.can_contact;
+  // The company's chat is on the sheet's own Sales person's line: theirs to open, and the owner's (`lines.sees`).
+  const opensChats = contact || Boolean(me.data?.user.is_admin);
   // The B2C team's sheet has its own columns and stages (15/10/2026).
   const columns = data.sheet.market === "b2c" ? B2C_GRID_COLUMNS : GRID_COLUMNS;
   const words = stageWords(data);
@@ -1095,6 +1099,7 @@ export function LeadSheetPage() {
             <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
             <option value="replied">{t("ردّوا علينا", "They answered")}</option>
             <option value="untouched">{t("لسه ماتواصلناش", "Not contacted yet")}</option>
+            <option value="interested">{t("المهتمين", "Interested")}</option>
           </select>
           <div className="field-icon" style={{ margin: 0 }}>
             <Icon name="search" className="ic--lead" />
@@ -1175,6 +1180,16 @@ export function LeadSheetPage() {
                         >
                           <Icon name="send" />
                         </button>
+                      )}
+                      {opensChats && lead.client_code && (
+                        <Link
+                          className="icon-btn is-done"
+                          to={`/chats/${encodeURIComponent(lead.client_code)}`}
+                          title={t("افتح الشات", "Open the chat")}
+                          aria-label={`${t("افتح الشات", "Open the chat")} · ${lead.company_name}`}
+                        >
+                          <Icon name="message" />
+                        </Link>
                       )}
                       {contact && (
                         <button

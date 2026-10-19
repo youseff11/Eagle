@@ -1100,7 +1100,7 @@ GUIDES = (
             "في آخر الصف زرار «ابعت رسالة»: اختار الرقم أو الإيميل، اكتب الرسالة واضغط «ابعت»، والرسالة بتتسجل في الصف لوحدها.",
             "الشركة اللي لسه ماكلّمتكش على واتساب في آخر 24 ساعة مابيوصلهاش غير الرسالة الافتتاحية: اضغط «ابعت الرسالة الافتتاحية» والشات بيتفتح.",
             "أي رسالة توصل للشركة من رقمك أو إيميلك بتتعلّم في الصف لوحدها بالوقت. المكالمة بتسجّلها انت من «سجّل مكالمة»، ونتيجة آخر مكالمة بتبان في الصف، ولو اخترت «تم التعاقد» الحالة بتبقى «تم التعاقد» لوحدها.",
-            "لو كلّمت الشركة من موبايلك أو واتسابك برّه السيستم، غيّر حالتها (زي «call» أو «whatsapp») وهي بتتحسب إنك اتواصلت معاها. وتكبّر وتصغّر الشيت من زرار «كبّر» و«صغّر» فوقه.",
+            "لو كلّمت الشركة من موبايلك أو واتسابك برّه السيستم، غيّر حالتها (زي «call» أو «whatsapp») وهي بتتحسب إنك اتواصلت معاها. وتكبّر وتصغّر الشيت من زرار «كبّر» و«صغّر» فوقه. والشركة اللي بعتلها رسالة قبل كدا تفتح الشات بتاعها من زرار «افتح الشات» في صفها.",
         ],
         [
             "In the «Work» section open «Company sheets» and press «Open» on the sheet your manager sent you.",
@@ -1110,7 +1110,7 @@ GUIDES = (
             "At the end of the row is «Send a message»: pick the number or the address, write the message and press «Send»; it is marked on the row by itself.",
             "A company that has not written to you on WhatsApp in the last 24 hours gets only the opening message: press «Send the opening message» and the chat opens.",
             "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call»; the last call's outcome shows on the row, and «Contracted» sets the status to Contracted by itself.",
-            "If you called or wrote to the company from your own phone outside the system, set its status (such as «call» or «whatsapp») and it counts as contacted. Make the sheet bigger or smaller with «Zoom in» and «Zoom out» above it.",
+            "If you called or wrote to the company from your own phone outside the system, set its status (such as «call» or «whatsapp») and it counts as contacted. Make the sheet bigger or smaller with «Zoom in» and «Zoom out» above it. A company you wrote to before opens its chat with «Open the chat» on its row.",
         ],
         note=(
             "واتساب مابيوصّلش لشركة عمرها ما كلمتنا غير الرسالة الافتتاحية المتوافق عليها. أول ما يردّوا تكلمهم عادي من الشات. والشركة اللي تكلّمك أول مرة ومش في أي شيت بتتضاف لوحدها لشيت «شركات كلّمتنا (تلقائي)» بتاعك.",
@@ -1154,14 +1154,14 @@ GUIDES = (
             "كل يوم الساعة 9 الصبح بيوصلك تنبيه بعدد متابعاتك النهارده والمتأخرة.",
             "افتح «شيتات الشركات»: فوق خالص «متابعاتك النهارده والمتأخرة»، وكل واحدة جنبها «افتح الشيت».",
             "المتابعة بتبقى «اتعملت» لوحدها أول ما تبعتلهم رسالة أو تسجّل مكالمة في يومها أو بعده. ردّهم هم مابيقفلهاش.",
-            "جوه الشيت اختار من «اعرض»: «متابعة النهارده أو متأخرة» أو «ردّوا علينا» أو «لسه ماتواصلناش».",
+            "جوه الشيت اختار من «اعرض»: «متابعة النهارده أو متأخرة» أو «ردّوا علينا» أو «لسه ماتواصلناش» أو «المهتمين» (آخر مكالمة معاهم نتيجتها «مهتم»).",
         ],
         [
             "Set the company's «Next follow-up» from «Edit» on its row, or while logging a call.",
             "Every day at 9 in the morning a notice tells you how many follow-ups are due today and overdue.",
             "Open «Company sheets»: at the top is «Your follow-ups: today and overdue», each with «Open the sheet».",
             "A follow-up turns «Done» by itself once you message them or log a call on its day or after. Their own answer does not close it.",
-            "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered» or «Not contacted yet».",
+            "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered», «Not contacted yet» or «Interested» (the last call's outcome was «Interested»).",
         ],
         note=(
             "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة، ومتابعات شيته هو لو عمل شيت لنفسه.",
