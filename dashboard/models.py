@@ -4922,6 +4922,22 @@ class Lead(models.Model):
     def contacted(self):
         return bool(self.whatsapp_at or self.email_at or self.call_at)
 
+    @property
+    def reached(self):
+        """We talked to the company: a message or a call went from the sheet, or its stage says so - the Sales person who
+        called from their own phone or wrote on WhatsApp outside Eagle sets «call», «whatsapp»... by hand (19/10/2026). What
+        «لسه ماتواصلناش» and «x of y contacted» count; a row is still deleted by ``contacted`` (the system's own record)."""
+        return self.contacted or self.status != LeadStatus.NEW
+
+    @staticmethod
+    def reached_q(prefix=""):
+        """``reached`` as a filter; ``prefix`` for a relation ("leads__")."""
+        return (
+            models.Q(**{f"{prefix}whatsapp_at__isnull": False}) | models.Q(**{f"{prefix}email_at__isnull": False})
+            | models.Q(**{f"{prefix}call_at__isnull": False})
+            | models.Q(**{f"{prefix}status__in": [value for value in LeadStatus.values if value != LeadStatus.NEW]})
+        )
+
 
 class LeadNote(models.Model):
     """A note on a company, with the day it was written and who wrote it (12/10/2026): a row keeps as many as are written,
@@ -4957,6 +4973,8 @@ class LeadActivity(models.Model):
         INTERESTED = "interested", "Interested"
         FOLLOW_UP = "follow_up", "Follow-up"
         QUOTATION = "quotation", "Quotation requested"
+        #: The company signed on the call (19/10/2026): the row moves to «Contracted» by itself (``b2b.log_call``).
+        CONTRACTED = "contracted", "Contracted"
         NO_ANSWER = "no_answer", "No answer"
         NOT_INTERESTED = "not_interested", "Not interested"
 

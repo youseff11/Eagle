@@ -74,7 +74,8 @@ def _sheet_json(sheet, user, rows=None, contacted=None):
         "created_by": _person(sheet.created_by),
         "created_at": _stamp(sheet.created_at),
         "rows": rows if rows is not None else sheet.leads.count(),
-        "contacted": contacted if contacted is not None else sheet.leads.filter(_contacted_q()).count(),
+        # Companies we talked to: by a message or a call from the sheet, or a stage set by hand (``Lead.reached``).
+        "contacted": contacted if contacted is not None else sheet.leads.filter(Lead.reached_q()).count(),
         # The B2B team's or the B2C team's: its columns and its stages.
         "market": sheet.market,
         "can_manage": b2b.manages(user, sheet),
@@ -91,8 +92,20 @@ def _contacted_q():
     return Q(whatsapp_at__isnull=False) | Q(email_at__isnull=False) | Q(call_at__isnull=False)
 
 
-def _lead_json(lead, today=None):
+def _call_outcomes(where):
+    """Each row's last call outcome, ``{lead id: outcome}``, in one query: the rows ``where`` picks (a ``LeadActivity``
+    filter)."""
+    out = {}
+    calls = LeadActivity.objects.filter(where, kind=LeadActivity.Kind.CALL).order_by("lead_id", "-at", "-id")
+    for lead_id, outcome in calls.values_list("lead_id", "outcome"):
+        out.setdefault(lead_id, outcome)
+    return out
+
+
+def _lead_json(lead, today=None, outcomes=None):
     state = b2b.follow_up_state(lead, today)
+    if outcomes is None:
+        outcomes = _call_outcomes(Q(lead_id=lead.pk))
     return {
         "id": lead.pk,
         **{name: getattr(lead, name) for name, *_rest in b2b.ALL_COLUMNS},
@@ -113,6 +126,10 @@ def _lead_json(lead, today=None):
         "whatsapp_at": _stamp(lead.whatsapp_at),
         "email_at": _stamp(lead.email_at),
         "call_at": _stamp(lead.call_at),
+        # The last call's outcome (19/10/2026: what the Sales person chose in «سجّل مكالمة» showed only in the timeline).
+        "call_outcome": outcomes.get(lead.pk, ""),
+        # Talked to, by the sheet or by a stage set by hand: «لسه ماتواصلناش» is the rows without it.
+        "reached": lead.reached,
         "last_contact_at": _stamp(lead.last_contact_at),
         "replied_at": _stamp(lead.replied_at),
         "last_outreach_at": _stamp(lead.last_outreach_at),
@@ -191,8 +208,7 @@ def sheets(request):
     market = _market(request, request.GET.get("market"))
     rows = b2b.sheets_for(user, market).annotate(
         row_count=Count("leads", distinct=True),
-        contacted_count=Count("leads", filter=Q(leads__whatsapp_at__isnull=False) | Q(leads__email_at__isnull=False)
-                              | Q(leads__call_at__isnull=False), distinct=True),
+        contacted_count=Count("leads", filter=Lead.reached_q("leads__"), distinct=True),
     )
     manager = b2b.manages_market(user, market)
     return JsonResponse({
@@ -297,7 +313,8 @@ def sheet(request, sheet_id):
     """One sheet and all of its rows."""
     sheet = _sheet_or_404(request, sheet_id)
     leads = list(sheet.leads.select_related("client").prefetch_related("quotations", "note_items__by"))
-    contacted = sum(1 for lead in leads if lead.contacted)
+    contacted = sum(1 for lead in leads if lead.reached)
+    outcomes = _call_outcomes(Q(lead__sheet=sheet))
     # The companies and their people are drawn here: one row in the log for the sheet, as for a page of client names.
     if leads:
         identity.audit(request, request.user, identity.IDENTITY_LIST, f"sheet {sheet.pk}", f"{len(leads)} companies")
@@ -313,7 +330,7 @@ def sheet(request, sheet_id):
             {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
             for other in b2b.sheets_for(request.user, sheet.market).exclude(pk=sheet.pk).filter(assigned_to__in=holders)
         ] if manager else [],
-        "leads": [_lead_json(lead, today) for lead in leads],
+        "leads": [_lead_json(lead, today, outcomes) for lead in leads],
         **_choices(sheet.market),
     })
 
@@ -327,12 +344,13 @@ def follow_ups(request):
     rows = b2b.follow_ups_for(request.user, today, _market(request, request.GET.get("market")))
     if rows:
         identity.audit(request, request.user, identity.IDENTITY_LIST, "b2b follow-ups", f"{len(rows)} companies")
+    outcomes = _call_outcomes(Q(lead_id__in=[lead.pk for lead in rows]))
     return JsonResponse({
         "ok": True,
         "today": today.isoformat(),
         "items": [
             {
-                **_lead_json(lead, today),
+                **_lead_json(lead, today, outcomes),
                 "sheet": {"id": lead.sheet_id, "title": lead.sheet.title},
                 "sales": _person(lead.sheet.assigned_to),
             }

@@ -17,14 +17,14 @@ function Rate({ value }: { value: number | null }) {
 /** The columns of the table, in the order of the B2B requirements' section 11. */
 const COLUMNS: { key: keyof KpiCounts; ar: string; en: string; hint?: [string, string] }[] = [
   { key: "new_leads", ar: "شركات جديدة", en: "New leads" },
-  { key: "contacted", ar: "اتواصلنا معاهم", en: "Contacted" },
+  { key: "contacted", ar: "اتواصلنا معاهم", en: "Contacted", hint: ["الشركات اللي وصلتها رسالة أو مكالمة أو زيارة في الفترة، أو اللي غيّرت حالتها بإيدك لحالة بتقول إنك كلّمتها («call» أو «whatsapp» مثلًا)، كل شركة مرة واحدة.", "The companies a message, a call or a visit reached in the period, or whose stage you set by hand to one that says you talked to them («call», «whatsapp»...), each company once."] },
   { key: "whatsapp", ar: "وصلهم واتساب", en: "Reached on WhatsApp", hint: ["الشركات اللي وصلتها رسالة واتساب في الفترة، كل شركة مرة واحدة مهما اتبعتلها. ولو التواصل كله واتساب الرقم ده بيساوي «اتواصلنا معاهم».", "The companies a WhatsApp message reached in the period, each company once however many it was sent. With WhatsApp the only channel it equals «Contacted»."] },
   { key: "failed", ar: "رسايل فشلت", en: "Messages failed", hint: ["رسايل واتساب ماوصلتش للشركة: اترفضت وهي بتتبعت، أو واتساب قال بعدها إنها ماوصلتش (رقم مالوش واتساب، أو حد ميتا لرسايل التسويق). الشركة دي مابتتحسبش «اتواصلنا معاهم» بيها. أسبابها في «ليه الرسايل فشلت» تحت الجدول.", "WhatsApp messages that did not reach the company: refused on sending, or reported not delivered by WhatsApp afterwards (a number with no WhatsApp, Meta's limit on marketing messages). The company is not counted as contacted by them. Their reasons are under the table, in «Why messages failed»."] },
   { key: "emails", ar: "إيميلات", en: "E-mails sent" },
   { key: "calls", ar: "مكالمات", en: "Calls logged" },
   { key: "replies", ar: "ردّوا", en: "Answered" },
   { key: "visits", ar: "زيارات", en: "Visits" },
-  { key: "quotations", ar: "عروض اتبعتت", en: "Quotations sent" },
+  { key: "quotations", ar: "عروض اتبعتت", en: "Quotations sent", hint: ["عروض الأسعار اللي اتبعتت في الفترة، والشركات اللي اتسجّل لها مكالمة نتيجتها «طلب عرض سعر» (كل شركة مرة، ومش بتتحسب تاني لو عرضها اتبعت في نفس الفترة).", "The quotations sent in the period, and the companies with a logged call whose outcome is «Quotation requested» (each company once, not again when its quotation was sent in the same period)."] },
   { key: "quotes_accepted", ar: "عروض اتقبلت", en: "Quotations accepted" },
   { key: "revenue", ar: "الإيراد", en: "Revenue", hint: ["إجمالي العروض اللي اتقبلت في الفترة، كل عملة لوحدها.", "The accepted quotations' totals in the period, each currency on its own."] },
   { key: "won", ar: "تم التعاقد", en: "Contracted" },

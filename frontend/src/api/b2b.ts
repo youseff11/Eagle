@@ -72,6 +72,10 @@ export interface B2bLead extends B2bRow {
   whatsapp_at: string;
   email_at: string;
   call_at: string;
+  /** The last call's outcome ("interested", "quotation", "contracted"...), "" when no call was logged. */
+  call_outcome: string;
+  /** We talked to the company: a message or a call from the sheet, or a stage set by hand («call», «whatsapp»...). */
+  reached: boolean;
   last_contact_at: string;
   /** The first time the company answered on the Sales person's line. */
   replied_at: string;
@@ -346,8 +350,8 @@ function useWrite<V, R>(run: (values: V) => Promise<R>) {
   });
 }
 
-/** Whether a company was reached on any channel: what the sheet's "contacted" count counts. */
-const isContacted = (lead: B2bLead) => Boolean(lead.whatsapp_at || lead.email_at || lead.call_at);
+/** Whether we talked to a company (the server's `Lead.reached`): what the sheet's "contacted" count counts. */
+const isContacted = (lead: B2bLead) => lead.reached;
 
 /**
  * A write on one company that answers with its row: the row is put in place in the sheet already loaded, and the sheet is

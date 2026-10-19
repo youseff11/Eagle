@@ -1099,7 +1099,8 @@ GUIDES = (
             "في خانة رقم الهاتف وخانة الواتساب اكتب كل رقم في سطر (Enter). وفي الملاحظات اكتب في «+ ملاحظة جديدة» واضغط Enter: كل ملاحظة بتتسجل لوحدها بتاريخها.",
             "في آخر الصف زرار «ابعت رسالة»: اختار الرقم أو الإيميل، اكتب الرسالة واضغط «ابعت»، والرسالة بتتسجل في الصف لوحدها.",
             "الشركة اللي لسه ماكلّمتكش على واتساب في آخر 24 ساعة مابيوصلهاش غير الرسالة الافتتاحية: اضغط «ابعت الرسالة الافتتاحية» والشات بيتفتح.",
-            "أي رسالة توصل للشركة من رقمك أو إيميلك بتتعلّم في الصف لوحدها بالوقت. المكالمة بتسجّلها انت من «سجّل مكالمة».",
+            "أي رسالة توصل للشركة من رقمك أو إيميلك بتتعلّم في الصف لوحدها بالوقت. المكالمة بتسجّلها انت من «سجّل مكالمة»، ونتيجة آخر مكالمة بتبان في الصف، ولو اخترت «تم التعاقد» الحالة بتبقى «تم التعاقد» لوحدها.",
+            "لو كلّمت الشركة من موبايلك أو واتسابك برّه السيستم، غيّر حالتها (زي «call» أو «whatsapp») وهي بتتحسب إنك اتواصلت معاها. وتكبّر وتصغّر الشيت من زرار «كبّر» و«صغّر» فوقه.",
         ],
         [
             "In the «Work» section open «Company sheets» and press «Open» on the sheet your manager sent you.",
@@ -1108,7 +1109,8 @@ GUIDES = (
             "In the phone and WhatsApp cells write each number on its own line (Enter). In the notes write in «+ New note» and press Enter: each note is kept on its own with its date.",
             "At the end of the row is «Send a message»: pick the number or the address, write the message and press «Send»; it is marked on the row by itself.",
             "A company that has not written to you on WhatsApp in the last 24 hours gets only the opening message: press «Send the opening message» and the chat opens.",
-            "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call».",
+            "Any message that reaches the company from your number or address marks the row by itself, with the time. A call you log yourself with «Log a call»; the last call's outcome shows on the row, and «Contracted» sets the status to Contracted by itself.",
+            "If you called or wrote to the company from your own phone outside the system, set its status (such as «call» or «whatsapp») and it counts as contacted. Make the sheet bigger or smaller with «Zoom in» and «Zoom out» above it.",
         ],
         note=(
             "واتساب مابيوصّلش لشركة عمرها ما كلمتنا غير الرسالة الافتتاحية المتوافق عليها. أول ما يردّوا تكلمهم عادي من الشات. والشركة اللي تكلّمك أول مرة ومش في أي شيت بتتضاف لوحدها لشيت «شركات كلّمتنا (تلقائي)» بتاعك.",

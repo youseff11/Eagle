@@ -551,6 +551,87 @@ class CallTests(_B2b):
         self.assertFalse(body["can_contact"])
 
 
+class CallOutcomeOnTheSheetTests(_B2b):
+    """19/10/2026, the owner's four asks: the outcome chosen in «سجّل مكالمة» shows on the row (it showed only in the
+    timeline); «تم التعاقد» is an outcome and moves the row to Contracted; «طلب عرض سعر» counts in «عروض اتبعتت»; a stage
+    set by hand that says we talked to the company («call», «whatsapp»...) is not «لسه ماتواصلناش»."""
+
+    def call(self, outcome, lead=None, at=None):
+        body = {"outcome": outcome}
+        if at:
+            body["at"] = at
+        answer = self.post(self.sales, "v1_b2b_lead_call", body, (lead or self.lead).pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        return _json(answer)
+
+    def kpi_row(self):
+        today = timezone.localdate()
+        period = {"from": (today - timedelta(days=30)).isoformat(), "to": today.isoformat()}
+        body = _json(self.browser(self.sales).get(reverse("dashboard:v1_b2b_kpis"), period))
+        return next(row for row in body["rows"] if row["person"]["id"] == self.sales.pk)
+
+    def test_the_sheet_shows_each_rows_last_call_outcome(self):
+        quiet = Lead.objects.create(sheet=self.sheet, company_name="Quiet AG")
+        earlier = (timezone.localtime() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+        self.assertEqual(self.call("quotation")["lead"]["call_outcome"], "quotation")
+        # Written later but made earlier: the last call is the one made last, not the one written last.
+        self.call("no_answer", at=earlier)
+        rows = {row["id"]: row for row in _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["leads"]}
+        self.assertEqual((rows[self.lead.pk]["call_outcome"], rows[quiet.pk]["call_outcome"]), ("quotation", ""))
+        self.lead.next_follow_up = timezone.localdate()
+        self.lead.save()
+        items = _json(self.get(self.sales, "v1_b2b_follow_ups"))["items"]
+        self.assertEqual([item["call_outcome"] for item in items], ["quotation"])
+
+    def test_contracted_is_an_outcome_and_moves_the_row_to_contracted(self):
+        sheet = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))
+        self.assertIn("contracted", [choice["value"] for choice in sheet["outcomes"]])
+        self.assertEqual(self.call("contracted")["lead"]["status"], "won")
+        self.call("contracted")
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "won")
+        stages = self.lead.activities.filter(kind=LeadActivity.Kind.STATUS)
+        self.assertEqual([(a.status, a.by, a.automatic) for a in stages], [("won", self.sales, False)])
+        self.assertEqual(self.kpi_row()["won"], 1)
+
+    def test_any_other_outcome_leaves_the_stage(self):
+        for outcome in ("interested", "follow_up", "quotation", "no_answer", "not_interested"):
+            self.call(outcome)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.status, "new")
+
+    def test_a_quotation_requested_call_counts_in_quotations_sent_once_per_company(self):
+        other = Lead.objects.create(sheet=self.sheet, company_name="Other AG")
+        self.call("quotation")
+        self.call("quotation")
+        self.call("interested", lead=other)
+        self.assertEqual(self.kpi_row()["quotations"], 1)
+        self.call("quotation", lead=other)
+        self.assertEqual(self.kpi_row()["quotations"], 2)
+        # Its quotation sent in the same period: the company is not counted twice.
+        Quotation.objects.create(
+            lead=self.lead, owner=self.sales, created_by=self.sales, source_lang="German", target_lang="Arabic", quantity=1000,
+            rate=Decimal("0.1"), status=Quotation.Status.SENT, sent_at=timezone.now(),
+        )
+        self.assertEqual(self.kpi_row()["quotations"], 2)
+
+    def test_a_stage_set_by_hand_is_a_company_we_talked_to(self):
+        Lead.objects.create(sheet=self.sheet, company_name="Untouched AG")
+        values = {name: getattr(self.lead, name) for name, *_r in b2b.COLUMNS}
+        values.update(status="call", next_follow_up="")
+        answer = _json(self.post(self.sales, "v1_b2b_lead_save", values, self.lead.pk))
+        self.assertTrue(answer["lead"]["reached"])
+        sheet = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))
+        self.assertEqual(sheet["sheet"]["contacted"], 1)
+        self.assertEqual({row["company_name"]: row["reached"] for row in sheet["leads"]}, {"Lingua GmbH": True, "Untouched AG": False})
+        listed = _json(self.get(self.sales, "v1_b2b_sheets"))["sheets"]
+        self.assertEqual([(s["id"], s["contacted"]) for s in listed], [(self.sheet.pk, 1)])
+        row = self.kpi_row()
+        self.assertEqual((row["contacted"], row["untouched"]), (1, 1))
+        # Nothing went from the sheet, so the row is still the Sales person's to delete.
+        self.assertEqual(self.post(self.sales, "v1_b2b_lead_delete", {}, self.lead.pk).status_code, 200)
+
+
 class SalesManagerMarkTests(TestCase):
     def test_the_mark_is_a_sales_persons_only(self):
         person = User.objects.create_user("x", password="pw", role=Role.SALES, is_sales_manager=True)

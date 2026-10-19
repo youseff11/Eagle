@@ -46,6 +46,7 @@ const OUTCOME_AR: Record<string, string> = {
   interested: "مهتم",
   follow_up: "نتابع معاه",
   quotation: "طلب عرض سعر",
+  contracted: "تم التعاقد",
   no_answer: "مردّش",
   not_interested: "مش مهتم",
 };
@@ -63,6 +64,25 @@ function Problem({ text }: { text: string }) {
       <div>{text}</div>
     </div>
   );
+}
+
+/** How big the sheet is drawn (19/10/2026: «زوم إن / زوم آوت»), kept in this browser for every sheet. */
+const ZOOM_KEY = "eagle.sheetZoom";
+const ZOOM_STEPS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5];
+function readZoom(): number {
+  try {
+    const saved = Number(localStorage.getItem(ZOOM_KEY));
+    return ZOOM_STEPS.includes(saved) ? saved : 1;
+  } catch {
+    return 1;
+  }
+}
+function keepZoom(value: number) {
+  try {
+    localStorage.setItem(ZOOM_KEY, String(value));
+  } catch {
+    // A browser that keeps nothing draws the sheet at 100% next time.
+  }
 }
 
 /** The time a channel first reached the company, under its number or address. */
@@ -868,7 +888,8 @@ const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   all: () => true,
   due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
   replied: (lead) => lead.replied_at !== "",
-  untouched: (lead) => !lead.whatsapp_at && !lead.email_at && !lead.call_at,
+  // A stage set by hand («call», «whatsapp»...) is a company we talked to, from the Sales person's own phone (19/10/2026).
+  untouched: (lead) => !lead.reached,
 };
 
 type Open =
@@ -900,6 +921,13 @@ export function LeadSheetPage() {
   const top = useRef<HTMLDivElement>(null);
   const toasts = useToasts();
   const readRows = useReadRows(sheetId);
+  const [zoom, setZoom] = useState(readZoom);
+  const zoomTo = (step: number) => {
+    const at = ZOOM_STEPS.indexOf(zoom);
+    const next = step === 0 ? 1 : ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, (at < 0 ? ZOOM_STEPS.indexOf(1) : at) + step))];
+    setZoom(next);
+    keepZoom(next);
+  };
   const saveCell = useSaveCell();
   const addNote = useAddNote();
 
@@ -1046,6 +1074,17 @@ export function LeadSheetPage() {
             </button>
           )}
           <div className="grow" />
+          <div className="row row--tight sheet-zoom" role="group" aria-label={t("حجم الشيت", "Sheet size")}>
+            <button className="btn" type="button" title={t("صغّر", "Zoom out")} aria-label={t("صغّر", "Zoom out")} disabled={zoom <= ZOOM_STEPS[0]} onClick={() => zoomTo(-1)}>
+              −
+            </button>
+            <button className="btn mono" type="button" title={t("رجّعه 100%", "Back to 100%")} aria-label={t("رجّعه 100%", "Back to 100%")} onClick={() => zoomTo(0)}>
+              {Math.round(zoom * 100)}%
+            </button>
+            <button className="btn" type="button" title={t("كبّر", "Zoom in")} aria-label={t("كبّر", "Zoom in")} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} onClick={() => zoomTo(1)}>
+              +
+            </button>
+          </div>
           <select className="input" style={{ width: "auto" }} value={only} aria-label={t("اعرض", "Show")} onChange={(event) => {
               const next = event.target.value as Only;
               setOnly(next);
@@ -1068,7 +1107,7 @@ export function LeadSheetPage() {
         </div>
 
         <div className="sheet-wrap">
-          <table className="sheet">
+          <table className="sheet" style={zoom === 1 ? undefined : { zoom }} data-zoom={zoom}>
             <colgroup>
               {columns.map((column) => (
                 <col key={column.name} style={{ width: column.width }} />
@@ -1183,6 +1222,12 @@ export function LeadSheetPage() {
                     <Reached at={lead.whatsapp_at} label={t("واتساب", "WhatsApp")} />
                     <Reached at={lead.email_at} label={t("إيميل", "E-mail")} />
                     <Reached at={lead.call_at} label={t("مكالمة", "Call")} />
+                    {lead.call_outcome && (
+                      <div className="chip chip--sm chip--outcome" data-call-outcome={lead.call_outcome} style={{ marginTop: 4 }}>
+                        <Icon name="phone" size="sm" />
+                        {t("آخر مكالمة:", "Last call:")} <strong>{lang === "ar" ? (OUTCOME_AR[lead.call_outcome] ?? lead.call_outcome) : (data.outcomes.find((choice) => choice.value === lead.call_outcome)?.label ?? lead.call_outcome)}</strong>
+                      </div>
+                    )}
                     {lead.replied_at && (
                       <div className="chip chip--sm chip--replied" title={lead.replied_at} style={{ marginTop: 4 }}>
                         <Icon name="reply" size="sm" />

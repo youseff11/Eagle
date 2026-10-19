@@ -56,6 +56,8 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     whatsapp_at: "",
     email_at: "",
     call_at: "",
+    call_outcome: "",
+    reached: false,
     last_contact_at: "",
     replied_at: "",
     last_outreach_at: "",
@@ -105,7 +107,11 @@ function sheetAnswer(over: Partial<B2bSheetResponse["sheet"]> = {}, leads: B2bLe
       { value: "medium", label: "Medium" },
       { value: "low", label: "Low" },
     ],
-    outcomes: [{ value: "no_answer", label: "No answer" }],
+    outcomes: [
+      { value: "quotation", label: "Quotation requested" },
+      { value: "contracted", label: "Contracted" },
+      { value: "no_answer", label: "No answer" },
+    ],
     lost_reasons: [
       { value: "price", label: "Price" },
       { value: "other", label: "Other" },
@@ -385,6 +391,58 @@ describe("LeadSheetPage", () => {
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/call/")[0]).toMatchObject({ outcome: "no_answer", notes: "busy", duration_minutes: null });
   });
 
+  // 19/10/2026: the outcome chosen in «سجّل مكالمة» showed only in the timeline, never on the sheet.
+  it("shows the last call's outcome on the row, and offers «تم التعاقد»", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [lead({ call_at: "10/10/2026 2:00 PM", call_outcome: "quotation", reached: true }), lead({ id: 6, company_name: "Silent Ltd" })])),
+    });
+    const { container } = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(container.querySelector('[data-lead="5"] [data-call-outcome="quotation"]')).toHaveTextContent("آخر مكالمة: طلب عرض سعر");
+    expect(container.querySelector('[data-lead="6"] [data-call-outcome]')).toBeNull();
+    await user.click(within(container.querySelector('[data-lead="5"]') as HTMLElement).getByRole("button", { name: "سجّل مكالمة" }));
+    expect(within(screen.getByLabelText("النتيجة")).getByRole("option", { name: "تم التعاقد" })).toHaveValue("contracted");
+  });
+
+  // 19/10/2026: a company called from the Sales person's own phone, its stage set to «call» by hand, is not «not contacted».
+  it("leaves a row whose stage says we talked out of «لسه ماتواصلناش»", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [lead({ status: "call", reached: true }), lead({ id: 6, company_name: "Silent Ltd" })])),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    await user.selectOptions(screen.getByLabelText("اعرض"), "untouched");
+    expect(screen.queryByDisplayValue("Lingua GmbH")).toBeNull();
+    expect(screen.getByDisplayValue("Silent Ltd")).toBeInTheDocument();
+  });
+
+  it("zooms the sheet in and out, and keeps the size", async () => {
+    const user = userEvent.setup();
+    serve("sales", { "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()) });
+    const { container, unmount } = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    const table = () => container.querySelector("table.sheet") as HTMLElement;
+    expect(table().dataset.zoom).toBe("1");
+    await user.click(screen.getByRole("button", { name: "كبّر" }));
+    await user.click(screen.getByRole("button", { name: "كبّر" }));
+    expect(table().dataset.zoom).toBe("1.25");
+    expect(table().style.zoom).toBe("1.25");
+    await user.click(screen.getByRole("button", { name: "صغّر" }));
+    await user.click(screen.getByRole("button", { name: "صغّر" }));
+    await user.click(screen.getByRole("button", { name: "صغّر" }));
+    expect(table().dataset.zoom).toBe("0.9");
+    unmount();
+    const again = open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect((again.container.querySelector("table.sheet") as HTMLElement).dataset.zoom).toBe("0.9");
+    await user.click(screen.getByRole("button", { name: "رجّعه 100%" }));
+    expect((again.container.querySelector("table.sheet") as HTMLElement).dataset.zoom).toBe("1");
+  });
+
   it("marks a company that answered, and shows only those when asked", async () => {
     const user = userEvent.setup();
     serve("sales", {
@@ -574,7 +632,7 @@ describe("LeadSheetPage", () => {
     jsonResponse({
       ok: true,
       rows: [{ ...lead({ company_name: "A2Z Traducciones", phone: "34637563743", email: "info@a2z.es", country: "", industry: "", contact_person: "", position: "", whatsapp: "", languages: "" }), notes: "22-9" }].map(
-        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, ...row }) => row,
+        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, call_outcome: _co, reached: _rc, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, ...row }) => row,
       ),
       mapped: {},
       more: false,
@@ -768,7 +826,7 @@ describe("LeadSheetPage", () => {
   it("puts a saved cell's row in place without asking for the whole sheet again", async () => {
     const user = userEvent.setup();
     const mocked = serve("sales", {
-      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ contact_person: "Anna Weber", call_at: "13/10/2026 1:00 PM" }) }),
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ contact_person: "Anna Weber", call_at: "13/10/2026 1:00 PM", reached: true }) }),
       "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
     });
     open("/leads/3");

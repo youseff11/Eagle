@@ -798,7 +798,8 @@ def kpis(user, start, end, today=None, market=Market.B2B):
     """``(rows, total)`` for the days ``start``..``end`` (Cairo, both included).
 
     * new_leads - companies added to the person's sheets in the period;
-    * contacted - companies they reached (a message that went, a call, a visit); whatsapp - of those, the ones a WhatsApp
+    * contacted - companies they reached (a message that went, a call, a visit, or a stage they set by hand that says they
+      talked to it: «call», «whatsapp»... - 19/10/2026, the call made from their own phone); whatsapp - of those, the ones a WhatsApp
       reached: the same rows counted the same way, so with WhatsApp the only channel the two are equal (15/10/2026); emails -
       the letters that left their line to a company on their sheets; failed - the WhatsApp messages that did not reach it,
       and failed_reasons - why, grouped (``failure_reasons``);
@@ -807,8 +808,9 @@ def kpis(user, start, end, today=None, market=Market.B2B):
     * visits / won / lost - companies moved to «Visit», «Contracted» or «Refused» in the period (each company once);
     * follow-ups that fell due in the period: done on the day, done later, or still not done;
     * overdue_now, holding, untouched - today, whatever the period: late follow-ups, companies on their sheets, and of those
-      the ones nobody contacted yet;
-    * quotations - the quotations they sent in the period; quotes_accepted and revenue - the ones accepted in the period,
+      the ones nobody contacted yet (``Lead.reached``);
+    * quotations - the quotations they sent in the period, and the companies that asked for a price on a call they logged
+      («طلب عرض سعر», 19/10/2026) and got no quotation sent in the period (each company once, never twice with its quotation); quotes_accepted and revenue - the ones accepted in the period,
       and their totals per currency (part 4).
 
     Counted for the person who held the company when it happened (``LeadActivity.owner``).
@@ -850,7 +852,10 @@ def kpis(user, start, end, today=None, market=Market.B2B):
         row = {
             "person": {"id": person.pk, "name": person.get_full_name() or person.username, "active": person.is_active},
             "new_leads": mine.filter(created_at__gte=start_at, created_at__lt=end_at).count(),
-            "contacted": reached.values("lead").distinct().count(),
+            "contacted": len(
+                set(reached.values_list("lead_id", flat=True))
+                | set(stage.filter(automatic=False).exclude(status=LeadStatus.NEW).values_list("lead_id", flat=True))
+            ),
             # Companies, not messages (15/10/2026: «contacted» 286 next to «WhatsApp» 256 with WhatsApp the only channel):
             # counted as messages, a reply in the chat added one, a message that marked two rows of the same company
             # counted once, and a row moved to another sheet lost its message.
@@ -873,11 +878,15 @@ def kpis(user, start, end, today=None, market=Market.B2B):
             "follow_ups_missed": len(missed),
             "overdue_now": sum(1 for lead in _open_follow_ups(mine, today) if lead.next_follow_up < today),
             "holding": mine.count(),
-            "untouched": mine.filter(whatsapp_at__isnull=True, email_at__isnull=True, call_at__isnull=True).count(),
+            "untouched": mine.exclude(Lead.reached_q()).count(),
         }
         quotes = Quotation.objects.filter(owner=person, lead__sheet__market=market)
         accepted = quotes.filter(status=Quotation.Status.ACCEPTED, decided_at__gte=start_at, decided_at__lt=end_at)
-        row["quotations"] = quotes.filter(sent_at__gte=start_at, sent_at__lt=end_at).count()
+        sent_quotes = quotes.filter(sent_at__gte=start_at, sent_at__lt=end_at)
+        asked = set(
+            ours.filter(kind=LeadActivity.Kind.CALL, outcome=LeadActivity.Outcome.QUOTATION).values_list("lead_id", flat=True)
+        ) - set(sent_quotes.values_list("lead_id", flat=True))
+        row["quotations"] = sent_quotes.count() + len(asked)
         row["quotes_accepted"] = accepted.count()
         row["revenue"] = _revenue(accepted.values_list("currency", "total"))
         rows.append(_rates(row))
@@ -1324,7 +1333,8 @@ def send_whatsapp_text(lead, user, number, body):
 
 
 def log_call(lead, user, *, outcome, notes="", duration=None, at=None, next_follow_up=None):
-    """A phone call, written by hand: it marks the row like a message does, and may set the next follow-up."""
+    """A phone call, written by hand: it marks the row like a message does, and may set the next follow-up. A call that
+    ended in a contract («تم التعاقد») moves the row to «Contracted», counted as won like a stage set in the cell."""
     from . import services
 
     if not may_contact(user, lead.sheet):
@@ -1340,9 +1350,18 @@ def log_call(lead, user, *, outcome, notes="", duration=None, at=None, next_foll
         activity = _record(
             lead, LeadActivity.Kind.CALL, user, at=at, outcome=outcome, notes=notes, duration_minutes=duration,
         )
+        fields = []
         if next_follow_up is not None:
             lead.next_follow_up = next_follow_up
-            lead.save(update_fields=["next_follow_up", "updated_at"])
+            fields.append("next_follow_up")
+        before = lead.status
+        if outcome == LeadActivity.Outcome.CONTRACTED and before != LeadStatus.WON:
+            lead.status = LeadStatus.WON
+            fields.append("status")
+        if fields:
+            lead.save(update_fields=fields + ["updated_at"])
+        if "status" in fields:
+            note_status(lead, before, LeadStatus.WON, user, at=at)
     services.log(user, "b2b.call", f"lead {lead.pk}", outcome)
     return activity
 

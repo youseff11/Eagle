@@ -290,6 +290,10 @@ button.nav-tools__btn { appearance: none; }
 .sheet__tools .muted, .sheet__under .muted { color: var(--sheet-soft); }
 .sheet .chip { color: var(--sheet-soft); background: color-mix(in srgb, var(--sheet-ink) 7%, transparent); border-color: var(--sheet-line); }
 .sheet .chip--replied { color: var(--sheet-done); }
+/* The last call's outcome (19/10/2026): in ink, so it reads like the stage; a contract in the green of done. */
+.sheet .chip--outcome { color: var(--sheet-ink); }
+.sheet .chip--outcome[data-call-outcome="contracted"] { color: var(--sheet-done); border-color: var(--sheet-done); }
+.sheet-zoom .btn { min-width: 38px; justify-content: center; }
 .sheet .chip--last { color: #7f6000; background: #ffe599; border-color: #bf9000; }
 .sheet .deadline--late { color: var(--sheet-high); }
 .sheet .empty { color: var(--sheet-soft); padding: 24px; }
