@@ -107,21 +107,57 @@ def _pull_media(message):
     }]
 
 
+def _words(value):
+    return str(value).strip() if isinstance(value, (str, int, float)) else ""
+
+
+def _contact_text(card):
+    """One shared contact card as the lines a person would copy: name, company, numbers, e-mails, links."""
+    if not isinstance(card, dict):
+        return ""
+    name = card.get("name") if isinstance(card.get("name"), dict) else {}
+    org = card.get("org") if isinstance(card.get("org"), dict) else {}
+    found = [
+        _words(name.get("formatted_name"))
+        or " ".join(_words(name.get(part)) for part in ("first_name", "last_name") if _words(name.get(part))),
+        " - ".join(_words(org.get(part)) for part in ("company", "title") if _words(org.get(part))),
+    ]
+    for key, field in (("phones", "phone"), ("emails", "email"), ("urls", "url")):
+        for entry in card.get(key) or []:
+            if isinstance(entry, dict):
+                found.append(_words(entry.get(field)) or (_words(entry.get("wa_id")) if key == "phones" else ""))
+    return "\n".join(line for line in found if line)
+
+
+def _location_text(block):
+    """A shared place: its name and address, and a map link built from the coordinates."""
+    lat, lng = _words(block.get("latitude")), _words(block.get("longitude"))
+    found = [_words(block.get("name")), _words(block.get("address"))]
+    if lat and lng:
+        found.append(f"https://maps.google.com/?q={lat},{lng}")
+    return "\n".join(line for line in found if line)
+
+
 def _body_of(message):
     kind = message.get("type")
     if kind == "text":
         return (message.get("text") or {}).get("body", "")
     block = message.get(kind) or {}
+    if kind == "contacts":
+        # A list of cards, not a block: reading it as one raised, the hook answered 500 and the card was
+        # never stored - a client's "check above, I sent you her number" pointed at nothing (19/10/2026).
+        cards = block if isinstance(block, list) else [block]
+        return "\n\n".join(text for text in map(_contact_text, cards) if text) or "[contacts]"
+    if not isinstance(block, dict):
+        return f"[{kind}]"
+    if kind == "location":
+        return _location_text(block) or "[location]"
     caption = block.get("caption") or ""
     if caption:
         return caption
     if kind in AUDIO_TYPES:
         # The bubble shows a player; a "[audio]" line next to it is just noise.
         return ""
-    if kind in MEDIA_TYPES:
-        return f"[{kind}]"
-    if kind == "location":
-        return "[location]"
     return f"[{kind}]"
 
 
