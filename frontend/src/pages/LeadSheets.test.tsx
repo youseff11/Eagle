@@ -462,6 +462,25 @@ describe("LeadSheetPage", () => {
     expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
   });
 
+  // 20/10/2026: «زود فلتر تم التعاقد».
+  it("shows only the companies at «تم التعاقد» when asked", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [
+          lead({ status: "won", reached: true }),
+          lead({ id: 6, company_name: "Busy Ltd", status: "contacted", call_outcome: "contracted", reached: true }),
+          lead({ id: 7, company_name: "Silent Ltd" }),
+        ])),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    await user.selectOptions(screen.getByLabelText("اعرض"), "won");
+    expect(screen.getByDisplayValue("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Busy Ltd")).toBeNull();
+    expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
+  });
+
   // 20/10/2026: a company written to before opens its chat from the row.
   it("opens the chat of a company written to before, for the sheet's Sales person", async () => {
     const user = userEvent.setup();

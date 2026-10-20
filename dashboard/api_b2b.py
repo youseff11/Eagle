@@ -460,7 +460,11 @@ def _parse_date(value):
 @api_gate(b2b.has_door)
 def rows_add(request, sheet_id):
     """``{"rows": [{column: value, ...}, ...]}`` - one row typed, or a block pasted from a spreadsheet. Rows with no company
-    name are skipped (an empty line at the end of a paste), and the answer says how many went in."""
+    name are skipped (an empty line at the end of a paste), and the answer says how many went in.
+
+    ``"typed": true`` with one row is the «شركة جديدة» form: a company added at a stage («تم التعاقد», «زيارة»...) moved there
+    now, counted in the Sales numbers like a stage set in the cell (20/10/2026: one added contracted was not in «تم التعاقد»).
+    A block uploaded keeps the stages it brings without counting them: an old sheet's contracts are not this month's."""
     sheet = _sheet_or_404(request, sheet_id)
     if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_PASTE_BODY:
         return _error(400, "too_big")
@@ -512,6 +516,8 @@ def rows_add(request, sheet_id):
         LeadNote.objects.bulk_create(
             [LeadNote(lead=lead, text=note, by=request.user) for lead, note in zip(made, notes) if note]
         )
+        if body.get("typed") is True and len(made) == 1:
+            b2b.note_status(made[0], LeadStatus.NEW, made[0].status, request.user)
     services.log(request.user, "b2b.rows_add", f"sheet {sheet.pk}", f"{len(made)} row(s)")
     return JsonResponse({"ok": True, "added": len(made)})
 

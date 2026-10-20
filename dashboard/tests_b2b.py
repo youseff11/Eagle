@@ -594,6 +594,28 @@ class CallOutcomeOnTheSheetTests(_B2b):
         self.assertEqual([(a.status, a.by, a.automatic) for a in stages], [("won", self.sales, False)])
         self.assertEqual(self.kpi_row()["won"], 1)
 
+    # 20/10/2026: a company added in «شركة جديدة» already at «تم التعاقد» was on the sheet and not in «تم التعاقد».
+    def test_a_company_typed_in_at_contracted_counts_as_won(self):
+        self.assertEqual(self.kpi_row()["won"], 0)
+        answer = self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": "Signed AG", "status": "won"}], "typed": True}, self.sheet.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        signed = Lead.objects.get(company_name="Signed AG")
+        stages = signed.activities.filter(kind=LeadActivity.Kind.STATUS)
+        self.assertEqual([(a.status, a.by, a.owner, a.automatic) for a in stages], [("won", self.sales, self.sales, False)])
+        self.assertEqual(self.kpi_row()["won"], 1)
+        # A company typed in new is no stage moved.
+        self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": "Fresh AG"}], "typed": True}, self.sheet.pk)
+        self.assertFalse(Lead.objects.get(company_name="Fresh AG").activities.exists())
+
+    def test_an_uploaded_block_keeps_its_stages_without_counting_them(self):
+        rows = [{"company_name": "Old AG", "status": "won"}, {"company_name": "Older AG", "status": "won"}]
+        self.assertEqual(self.post(self.sales, "v1_b2b_rows_add", {"rows": rows}, self.sheet.pk).status_code, 200)
+        # Marked typed, a block is still an upload: an old sheet's contracts are not this month's.
+        self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": "Oldest AG", "status": "won"}, {"company_name": "Last AG"}], "typed": True}, self.sheet.pk)
+        self.assertEqual(Lead.objects.filter(status="won").count(), 3)
+        self.assertFalse(LeadActivity.objects.filter(kind=LeadActivity.Kind.STATUS).exists())
+        self.assertEqual(self.kpi_row()["won"], 0)
+
     def test_any_other_outcome_leaves_the_stage(self):
         for outcome in ("interested", "follow_up", "quotation", "no_answer", "not_interested"):
             self.call(outcome)

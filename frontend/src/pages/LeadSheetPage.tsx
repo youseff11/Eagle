@@ -883,7 +883,7 @@ function PlanVisit({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
 }
 
 /** Which rows the sheet shows: all of them, or the ones that need something. */
-type Only = "all" | "due" | "replied" | "untouched" | "interested";
+type Only = "all" | "due" | "replied" | "untouched" | "interested" | "won";
 const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   all: () => true,
   due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
@@ -892,6 +892,8 @@ const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   untouched: (lead) => !lead.reached,
   // The companies whose last call ended «مهتم» (20/10/2026: the ones worth a follow-up first).
   interested: (lead) => lead.call_outcome === "interested",
+  // The companies at «تم التعاقد» (20/10/2026), however they got there: the cell, a call, or an accepted quotation.
+  won: (lead) => lead.status === "won",
 };
 
 type Open =
@@ -1100,6 +1102,7 @@ export function LeadSheetPage() {
             <option value="replied">{t("ردّوا علينا", "They answered")}</option>
             <option value="untouched">{t("لسه ماتواصلناش", "Not contacted yet")}</option>
             <option value="interested">{t("المهتمين", "Interested")}</option>
+            <option value="won">{t("تم التعاقد", "Contracted")}</option>
           </select>
           <div className="field-icon" style={{ margin: 0 }}>
             <Icon name="search" className="ic--lead" />

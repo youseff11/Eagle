@@ -406,8 +406,9 @@ export function useDeleteSheet(id: number) {
 
 type NewRow = Partial<LeadValues> & { notes?: string };
 
+/** One company typed in the «شركة جديدة» form: a stage it is added at counts in the Sales numbers (`typed`), an upload's does not. */
 export function useAddRows(sheetId: number) {
-  return useWrite((rows: NewRow[]) => api<{ ok: boolean; added: number }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows } }));
+  return useWrite((rows: NewRow[]) => api<{ ok: boolean; added: number }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows, typed: true } }));
 }
 
 /** The most rows one request adds (`b2b.MAX_PASTE_ROWS`): a bigger upload goes in parts of this many. */

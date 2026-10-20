@@ -70,6 +70,8 @@ describe("ImportRows", () => {
     await user.click(screen.getByRole("button", { name: "ضيفهم" }));
     await waitFor(() => expect(posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/")).toHaveLength(1));
     const body = JSON.parse(String(posts(mocked.calls, "/api/v1/b2b/sheets/3/rows/")[0]?.init?.body));
+    // An upload's stages are not counted in the Sales numbers: only the «شركة جديدة» form says `typed`.
+    expect(body.typed).toBeUndefined();
     expect(body.rows.map((r: B2bRow) => [r.company_name, r.phone])).toEqual([
       ["Alpha Ltd", "01012345678"],
       ["Beta", ""],
