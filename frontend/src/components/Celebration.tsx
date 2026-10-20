@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { usePreferences } from "../i18n/Preferences";
 import { CELEBRATE_EVENT, type CelebrateDetail } from "../lib/celebrate";
 import { cheer } from "../lib/chime";
-import { Icon } from "./Icon";
 
+export const STICKER = "/static/img/celebrate.webp";
 /** How long the card stays: the confetti is down by then. */
 const SHOW_MS = 5500;
 const PIECES = 160;
@@ -99,10 +99,11 @@ export function Celebration() {
     <div className="celebrate" role="status" onClick={() => setCompany(null)}>
       <canvas ref={canvas} className="celebrate__confetti" aria-hidden="true" />
       <div className="celebrate__card" key={round}>
-        <Icon name="sparkles" size="xl" />
+        {/* The owner's sticker (20/10/2026), moving: an animated WebP, served beside the logo. */}
+        <img className="celebrate__sticker" src={STICKER} alt="" width={180} height={180} />
         <strong className="celebrate__title">{t("مبروك! تعاقد جديد", "Congratulations! A new contract")}</strong>
         {company && <span className="celebrate__company">{company}</span>}
-        <span className="celebrate__line">{t("شغل عظيم، كمّل كده", "Great work, keep it up")}</span>
+        <span className="celebrate__line">{t("ايوا كدا يا معلم هو ده الشغل", "That's it, boss! That's how it's done")}</span>
       </div>
     </div>
   );

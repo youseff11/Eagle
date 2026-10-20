@@ -344,6 +344,7 @@ textarea.help__input { resize: none; min-height: 38px; max-height: 110px; line-h
   border: 2px solid var(--brand); box-shadow: 0 18px 50px rgba(0, 0, 0, .28); color: var(--brand);
   animation: celebrate-pop .5s cubic-bezier(.2, 1.4, .4, 1) both;
 }
+.celebrate__sticker { width: 180px; height: 180px; max-width: 60vw; max-height: 60vw; object-fit: cover; border-radius: 14px; }
 .celebrate__title { font-size: calc(24px * var(--fs, 1)); font-weight: 800; color: var(--heading); }
 .celebrate__company { font-size: calc(17px * var(--fs, 1)); font-weight: 650; color: var(--brand); overflow-wrap: anywhere; }
 .celebrate__line { color: var(--muted); }

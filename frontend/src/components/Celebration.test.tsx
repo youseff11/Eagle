@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { celebrate } from "../lib/celebrate";
 import * as sound from "../lib/chime";
 import { renderWithProviders } from "../test/helpers";
-import { Celebration } from "./Celebration";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { Celebration, STICKER } from "./Celebration";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -20,6 +22,10 @@ describe("Celebration", () => {
     act(() => celebrate("Lingua GmbH"));
     expect(screen.getByRole("status")).toHaveTextContent("مبروك! تعاقد جديد");
     expect(screen.getByText("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.getByText("ايوا كدا يا معلم هو ده الشغل")).toBeInTheDocument();
+    // The owner's sticker, from the file that is there.
+    expect(screen.getByRole("status").querySelector("img")).toHaveAttribute("src", STICKER);
+    expect(existsSync(resolve(__dirname, "../../..", STICKER.slice(1)))).toBe(true);
     expect(cheer).toHaveBeenCalledTimes(1);
   });
 
