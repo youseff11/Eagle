@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
 import { qk } from "./keys";
+import { celebrate } from "../lib/celebrate";
 
 /**
  * The B2B company sheets (`/api/v1/b2b/`, `dashboard/api_b2b.py`). The Sales manager makes a sheet and gives it to a Sales
@@ -358,12 +359,14 @@ const isContacted = (lead: B2bLead) => lead.reached;
  * not asked again (13/10/2026: a sheet holds 5000 companies, and it came down whole after every cell typed). Everything
  * else (the list of sheets, the follow-ups, the numbers) is asked again as after any write.
  */
-function useLeadWrite<V, R extends { lead?: B2bLead; last_sent?: number }>(run: (values: V) => Promise<R>) {
+function useLeadWrite<V, R extends { lead?: B2bLead; last_sent?: number; won_now?: boolean }>(run: (values: V) => Promise<R>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: run,
     onSettled: (answer) => {
       const lead = answer?.lead;
+      // The server says this write moved the company to «تم التعاقد» (the cell, the edit form, a call): the party.
+      if (lead && answer?.won_now) celebrate(lead.company_name);
       if (lead) {
         // A message that left from the row makes it the sheet's marked row (`last_sent`).
         const lastSent = answer?.last_sent;
@@ -408,7 +411,11 @@ type NewRow = Partial<LeadValues> & { notes?: string };
 
 /** One company typed in the «شركة جديدة» form: a stage it is added at counts in the Sales numbers (`typed`), an upload's does not. */
 export function useAddRows(sheetId: number) {
-  return useWrite((rows: NewRow[]) => api<{ ok: boolean; added: number }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows, typed: true } }));
+  return useWrite(async (rows: NewRow[]) => {
+    const answer = await api<{ ok: boolean; added: number; won_now?: boolean }>(`/api/v1/b2b/sheets/${sheetId}/rows/`, { json: { rows, typed: true } });
+    if (answer.won_now) celebrate(rows[0]?.company_name ?? "");
+    return answer;
+  });
 }
 
 /** The most rows one request adds (`b2b.MAX_PASTE_ROWS`): a bigger upload goes in parts of this many. */
@@ -501,7 +508,7 @@ export function useQuotations(leadId: number) {
   });
 }
 
-type QuoteAnswer = { ok: boolean; quotation: Quotation };
+type QuoteAnswer = { ok: boolean; quotation: Quotation; won_now?: boolean; company?: string };
 
 export function useCreateQuotation(leadId: number) {
   return useWrite((values: QuotationValues) => api<QuoteAnswer>(`/api/v1/b2b/leads/${leadId}/quotations/new/`, { json: values }));
@@ -515,9 +522,12 @@ export function useSaveQuotation() {
 
 /** Send, copy or delete a quotation, or write down the company's answer: one door each, the quotation's id in the address. */
 export function useQuotationAction() {
-  return useWrite(({ id, action, accepted }: { id: number; action: "send" | "copy" | "delete" | "decide"; accepted?: boolean }) =>
-    api<QuoteAnswer>(`/api/v1/b2b/quotations/${id}/${action}/`, { json: action === "decide" ? { accepted } : {} }),
-  );
+  return useWrite(async ({ id, action, accepted }: { id: number; action: "send" | "copy" | "delete" | "decide"; accepted?: boolean }) => {
+    const answer = await api<QuoteAnswer>(`/api/v1/b2b/quotations/${id}/${action}/`, { json: action === "decide" ? { accepted } : {} });
+    // An accepted quotation that moved the company to «تم التعاقد».
+    if (answer.won_now) celebrate(answer.company ?? "");
+    return answer;
+  });
 }
 
 /** One company that is on the sheet more than once: its rows (the oldest first), the one suggested to stay, and why they are one. */

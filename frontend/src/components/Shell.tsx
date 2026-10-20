@@ -14,6 +14,7 @@ import { useRealtimeStatus } from "../realtime/RealtimeProvider";
 import { AssignmentModal } from "./AssignmentModal";
 import { AttendanceGate } from "./AttendanceGate";
 import { CallOverlay } from "./CallOverlay";
+import { Celebration } from "./Celebration";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { HelpBot } from "./HelpBot";
 import { Icon } from "./Icon";
@@ -366,6 +367,8 @@ export function Shell() {
       <AttendanceGate />
       {/* A call from a colleague, ringing or in progress: on every page, because it can come in anywhere. */}
       <CallOverlay />
+      {/* A contract won on this screen: confetti and a cheer for whoever won it. */}
+      <Celebration />
     </ToastProvider>
   );
 }

@@ -607,6 +607,31 @@ class CallOutcomeOnTheSheetTests(_B2b):
         self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": "Fresh AG"}], "typed": True}, self.sheet.pk)
         self.assertFalse(Lead.objects.get(company_name="Fresh AG").activities.exists())
 
+    # 20/10/2026: «لما حالة تتغير لـ تم التعاقد حط تسقيف واحتفال»: the answer says when this write is the move.
+    def test_the_answer_says_when_the_write_moved_the_company_to_contracted(self):
+        save = lambda status: _json(self.post(self.sales, "v1_b2b_lead_save", {"status": status}, self.lead.pk))["won_now"]
+        self.assertFalse(save("contacted"))
+        self.assertTrue(save("won"))
+        self.assertFalse(save("won"))  # already there: no second party
+        self.assertFalse(save("lost"))
+        self.assertTrue(self.call("contracted")["won_now"])
+        self.assertFalse(self.call("contracted")["won_now"])
+        added = lambda status: _json(self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": f"{status} AG", "status": status}], "typed": True}, self.sheet.pk))["won_now"]
+        self.assertTrue(added("won"))
+        self.assertFalse(added("contacted"))
+        # A block uploaded is no party: its stages are old.
+        self.assertFalse(_json(self.post(self.sales, "v1_b2b_rows_add", {"rows": [{"company_name": "Up AG", "status": "won"}]}, self.sheet.pk))["won_now"])
+
+    def test_an_accepted_quotation_says_it_moved_the_company_to_contracted(self):
+        sent = lambda: Quotation.objects.create(
+            lead=self.lead, owner=self.sales, created_by=self.sales, source_lang="German", target_lang="Arabic", quantity=1000,
+            rate=Decimal("0.1"), status=Quotation.Status.SENT, sent_at=timezone.now(),
+        )
+        answer = _json(self.post(self.sales, "v1_b2b_quotation_decide", {"accepted": True}, sent().pk))
+        self.assertEqual((answer["won_now"], answer["company"]), (True, self.lead.company_name))
+        again = _json(self.post(self.sales, "v1_b2b_quotation_decide", {"accepted": True}, sent().pk))
+        self.assertEqual((again["won_now"], "company" in again), (False, False))
+
     def test_an_uploaded_block_keeps_its_stages_without_counting_them(self):
         rows = [{"company_name": "Old AG", "status": "won"}, {"company_name": "Older AG", "status": "won"}]
         self.assertEqual(self.post(self.sales, "v1_b2b_rows_add", {"rows": rows}, self.sheet.pk).status_code, 200)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { armSound, chime, resetSound } from "./chime";
+import { armSound, cheer, chime, resetSound } from "./chime";
 
 /** Just enough of WebAudio to count what was played. */
 class FakeContext {
@@ -10,6 +10,8 @@ class FakeContext {
   currentTime = 10;
   destination = {};
   oscillators: { hz: number; start: number }[] = [];
+  claps: number[] = [];
+  sampleRate = 8000;
   resumes = 0;
   constructor() {
     FakeContext.made.push(this);
@@ -32,6 +34,16 @@ class FakeContext {
   createGain() {
     const param = { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() };
     return { gain: param, connect: (next: unknown) => next };
+  }
+  createBuffer(_channels: number, length: number) {
+    const data = new Float32Array(length);
+    return { getChannelData: () => data };
+  }
+  createBufferSource() {
+    return { buffer: null, connect: (next: unknown) => next, start: (at: number) => void this.claps.push(at) };
+  }
+  createBiquadFilter() {
+    return { type: "", frequency: { value: 0 }, Q: { value: 0 }, connect: (next: unknown) => next };
   }
   createOscillator() {
     const record: { hz: number; start: number } = { hz: 0, start: 0 };
@@ -130,5 +142,27 @@ describe("chime", () => {
     gesture();
     await settle();
     expect(FakeContext.made).toHaveLength(0);
+  });
+});
+
+// 20/10/2026: «تسقيف واحتفال ... وصوت تشجيع» for a contract won.
+describe("cheer", () => {
+  it("plays a rising fanfare, then a room clapping that dies away", async () => {
+    gesture();
+    await settle();
+    cheer();
+    const ctx = FakeContext.made[0]!;
+    // Four notes, each a sine with its octave, going up.
+    const fundamentals = ctx.oscillators.filter((_, i) => i % 2 === 0).map((one) => one.hz);
+    expect(fundamentals).toEqual([523.25, 659.25, 783.99, 1046.5]);
+    expect(ctx.claps.length).toBeGreaterThan(100);
+    // The claps start after the fanfare and are over within three seconds.
+    expect(Math.min(...ctx.claps)).toBeGreaterThan(ctx.oscillators[0]!.start);
+    expect(Math.max(...ctx.claps) - ctx.currentTime).toBeLessThan(3.2);
+  });
+
+  it("is quiet, and throws nothing, where the browser has no WebAudio", () => {
+    vi.stubGlobal("AudioContext", undefined);
+    expect(() => cheer()).not.toThrow();
   });
 });

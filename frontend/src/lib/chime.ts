@@ -86,6 +86,50 @@ export function chime(times = 1, frequency = 880, soft = false): void {
   }
 }
 
+/** One hand clap: a short burst of noise through a band-pass, the way a clap sounds on a laptop speaker. */
+function clap(ctx: AudioContext, out: AudioNode, noise: AudioBuffer, start: number, level: number): void {
+  const source = ctx.createBufferSource();
+  source.buffer = noise;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.frequency.value = 900 + Math.random() * 1600;
+  band.Q.value = 0.9;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(level, start + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.09);
+  source.connect(band).connect(gain).connect(out);
+  source.start(start, Math.random() * 0.5, 0.1);
+}
+
+/**
+ * The cheer for a contract (20/10/2026: «تسقيف واحتفال ... وصوت تشجيع»): a short rising fanfare, then a room clapping for
+ * about two and a half seconds, loud at first and dying away. Made with WebAudio like the chime, no audio file. It plays
+ * right after the person's own click, so the context may be made here.
+ */
+export function cheer(): void {
+  const ctx = wake(true);
+  if (!ctx || ctx.state === "closed") return;
+  try {
+    const out = compressor(ctx);
+    const now = ctx.currentTime + 0.03;
+    // C E G C: the fanfare.
+    [523.25, 659.25, 783.99, 1046.5].forEach((hz, i) => note(ctx, out, hz, now + i * 0.12, i === 3 ? 0.7 : 0.22, 0.6));
+    const noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.6), ctx.sampleRate);
+    const samples = noise.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    // Many hands, each at its own pace: claps scattered thickly over the first second, thinning out after it.
+    const clapsAt = now + 0.45;
+    const length = 2.6;
+    for (let i = 0; i < 140; i++) {
+      const at = length * Math.pow(Math.random(), 1.6);
+      clap(ctx, out, noise, clapsAt + at, 0.5 * (1 - at / length) + 0.05);
+    }
+  } catch {
+    /* a sound that cannot play is not worth an error */
+  }
+}
+
 const GESTURES = ["pointerdown", "keydown", "touchstart"] as const;
 
 /**

@@ -516,10 +516,11 @@ def rows_add(request, sheet_id):
         LeadNote.objects.bulk_create(
             [LeadNote(lead=lead, text=note, by=request.user) for lead, note in zip(made, notes) if note]
         )
-        if body.get("typed") is True and len(made) == 1:
+        typed = body.get("typed") is True and len(made) == 1
+        if typed:
             b2b.note_status(made[0], LeadStatus.NEW, made[0].status, request.user)
     services.log(request.user, "b2b.rows_add", f"sheet {sheet.pk}", f"{len(made)} row(s)")
-    return JsonResponse({"ok": True, "added": len(made)})
+    return JsonResponse({"ok": True, "added": len(made), "won_now": typed and _won_now(LeadStatus.NEW, made[0].status)})
 
 
 #: The longest pasted text read: as long as a file may be.
@@ -621,7 +622,12 @@ def lead_save(request, lead_id):
         services.log(request.user, "b2c.lead_place", f"lead {lead.pk}", f"{placed} -> {lead.latitude},{lead.longitude}")
     # On the timeline and in the log: what the Sales numbers count visits, won and lost by.
     b2b.note_status(lead, before, lead.status, request.user)
-    return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+    return JsonResponse({"ok": True, "lead": _lead_json(lead), "won_now": _won_now(before, lead.status)})
+
+
+def _won_now(before, after):
+    """This write moved the company to «تم التعاقد» (20/10/2026): the page that made it celebrates (`Celebration`)."""
+    return before != LeadStatus.WON and after == LeadStatus.WON
 
 
 def _period(request):
@@ -867,12 +873,13 @@ def lead_call(request, lead_id):
             at = None
     except BadBody:
         return _error(400, "bad_request")
+    before = lead.status
     try:
         b2b.log_call(lead, request.user, outcome=outcome, notes=notes, duration=duration, at=at, next_follow_up=follow_up)
     except b2b.Refused as refusal:
         return _refused(refusal)
     lead.refresh_from_db()
-    return JsonResponse({"ok": True, "lead": _lead_json(lead)})
+    return JsonResponse({"ok": True, "lead": _lead_json(lead), "won_now": _won_now(before, lead.status)})
 
 
 # ---------------------------------------------------------------------------
@@ -1000,9 +1007,9 @@ def quotations(request, lead_id):
     })
 
 
-def _quote_answer(quote):
+def _quote_answer(quote, **extra):
     quote.refresh_from_db()
-    return JsonResponse({"ok": True, "quotation": _quote_json(quote)})
+    return JsonResponse({"ok": True, "quotation": _quote_json(quote), **extra})
 
 
 @endpoint("POST")
@@ -1072,11 +1079,17 @@ def quotation_decide(request, quote_id):
         return _error(400, "bad_request")
     if not isinstance(accepted, bool):
         return _error(400, "bad_request")
+    before = quote.lead.status
     try:
         b2b.decide_quotation(quote, request.user, accepted)
     except b2b.Refused as refusal:
         return _refused(refusal)
-    return _quote_answer(quote)
+    quote.lead.refresh_from_db()
+    # Accepted moved the company to «تم التعاقد»: the page celebrates it, by the company's name (theirs to read: the
+    # one who may record the answer holds the sheet, manages it, or is the owner).
+    if _won_now(before, quote.lead.status):
+        return _quote_answer(quote, won_now=True, company=quote.lead.company_name)
+    return _quote_answer(quote, won_now=False)
 
 
 @endpoint("POST")

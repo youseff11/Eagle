@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type B2bFollowUpsResponse, type B2bLead, type B2bSheetResponse, type B2bSheetsResponse } from "../api/b2b";
 import type { Role } from "../api/types";
 import { ToastProvider } from "../components/Toasts";
+import { CELEBRATE_EVENT } from "../lib/celebrate";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { LeadSheetPage } from "./LeadSheetPage";
 import { LeadSheetsPage } from "./LeadSheetsPage";
@@ -615,6 +616,27 @@ describe("LeadSheetPage", () => {
     await user.selectOptions(await screen.findByLabelText("الحالة · Lingua GmbH"), "won");
     await user.selectOptions(screen.getByLabelText("الأولوية · Lingua GmbH"), "high");
     await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/5/save/")).toEqual([{ status: "won" }, { priority: "high" }]));
+  });
+
+  // 20/10/2026: «لما حالة تتغير لـ تم التعاقد حط تسقيف واحتفال».
+  it("celebrates when the server says the cell moved the company to «تم التعاقد», and only then", async () => {
+    const user = userEvent.setup();
+    const parties: string[] = [];
+    const on = (event: Event) => parties.push((event as CustomEvent<{ company: string }>).detail.company);
+    window.addEventListener(CELEBRATE_EVENT, on);
+    let won = true;
+    serve("sales", {
+      "/api/v1/b2b/leads/5/save/": () => jsonResponse({ ok: true, lead: lead({ status: "won" }), won_now: won }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.selectOptions(await screen.findByLabelText("الحالة · Lingua GmbH"), "won");
+    await waitFor(() => expect(parties).toEqual(["Lingua GmbH"]));
+    won = false;
+    await user.selectOptions(screen.getByLabelText("الأولوية · Lingua GmbH"), "high");
+    await waitFor(() => expect(screen.getByLabelText("الأولوية · Lingua GmbH")).toHaveValue("high"));
+    expect(parties).toEqual(["Lingua GmbH"]);
+    window.removeEventListener(CELEBRATE_EVENT, on);
   });
 
   it("puts a refused cell back and says why", async () => {
