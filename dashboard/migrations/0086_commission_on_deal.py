@@ -1,4 +1,4 @@
-"""Commissions per deal, part two: every line has its deal now (0084), so the invoice and the share leave the line."""
+"""Commissions per deal, part two: every line has its deal now (0085), so the invoice and the share leave the line."""
 
 import django.db.models.deletion
 from django.db import migrations, models
@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('dashboard', '0084_deals'),
+        ('dashboard', '0085_deals_backfill'),
     ]
 
     operations = [
