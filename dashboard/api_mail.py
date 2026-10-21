@@ -16,7 +16,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.text import Truncator
 
-from . import identity, services
+from . import identity, lines, services
 from .api_v1 import _error, _stamp, endpoint
 from .models import AppSettings, Channel, InboundMessage, Role
 from .permissions import api_role_required
@@ -88,7 +88,8 @@ def _row_json(thread, user):
 @endpoint("GET")
 @api_role_required(Role.OPERATION, Role.SALES)
 def threads(request):
-    """The conversations, newest first: ``?state=unclaimed|mine|notask`` and ``?q=`` (the newest 100).
+    """The conversations, newest first: ``?state=unclaimed|mine|notask`` and ``?q=`` (the newest 100), and for the admin
+    ``?alias=`` - one address of the company mailbox (``lines.alias_choices``, sent back as ``aliases``).
 
     The two numbers over the list answer two questions: ``unseen`` is the badge (conversations this person has not
     opened, and it falls as they read), ``unclaimed`` does not move until somebody presses "received".
@@ -98,12 +99,18 @@ def threads(request):
     query = request.GET.get("q", "").strip()
     if state not in STATES or len(query) > MAX_QUERY or "\x00" in query:
         return _error(400, "bad_filter")
+    alias = request.GET.get("alias", "").strip().lower()
+    # A choice of the admin's alone, and only one of the addresses offered: anything else is a 400, not a list that looks empty.
+    if alias and not (user.is_admin_role and alias in lines.alias_addresses()):
+        return _error(400, "bad_filter")
     conf = AppSettings.load()
     return JsonResponse({
         "ok": True,
         "state": state,
         "q": query,
-        "threads": [_row_json(thread, user) for thread in services.inbox_threads(user, state, query, limit=100)],
+        "alias": alias,
+        "aliases": lines.alias_choices() if user.is_admin_role else [],
+        "threads": [_row_json(thread, user) for thread in services.inbox_threads(user, state, query, limit=100, alias=alias)],
         "unseen": services.unseen_conversation_count(user),
         "unclaimed": services.unclaimed_conversation_count(user),
         # Letters hidden from the operation by the rate rule: the admin is told how many.

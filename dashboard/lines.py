@@ -171,6 +171,64 @@ def owner_for_addresses(addresses):
     return None
 
 
+def alias_addresses():
+    """Every address of the company mailbox the admin can narrow the mailbox to, in order: the aliases the mailbox has
+    (``AppSettings.alias_list``, Google's own list once connected) and any address a person holds, without the hidden ones."""
+    from .models import AppSettings, User
+
+    conf = AppSettings.load()
+    hidden = set(conf.hidden_alias_list)
+    out = [address for address in conf.alias_list if address not in hidden]
+    for held in User.objects.exclude(mail_alias="").order_by("mail_alias").values_list("mail_alias", flat=True):
+        address = held.strip().lower()
+        if address and address not in out and address not in hidden:
+            out.append(address)
+    return out
+
+
+def alias_for_addresses(addresses):
+    """The company alias, out of the addresses a letter was sent to, that it came in on (``InboundMessage.to_alias``), or ``""``.
+
+    The hidden ones count too: the letter did come in on them, it is only the list of choices that leaves them out.
+    """
+    from .models import AppSettings, User
+
+    wanted = [a.strip().lower() for a in addresses or () if a and "@" in a]
+    if not wanted:
+        return ""
+    conf = AppSettings.load()
+    known = set(conf.alias_list) | set(conf.hidden_alias_list)
+    known |= {held.strip().lower() for held in User.objects.exclude(mail_alias="").values_list("mail_alias", flat=True)}
+    return next((address for address in wanted if address in known), "")
+
+
+def alias_choices():
+    """The addresses the admin picks from on the mailbox, each with who holds it (``None`` = nobody: the company's)."""
+    from .models import User
+
+    holders = {
+        person.mail_alias.strip().lower(): person
+        for person in User.objects.exclude(mail_alias="").only("mail_alias", "first_name", "last_name", "username", "is_active")
+    }
+    return [
+        {"address": address, "holder": holders[address].short_name if address in holders else None}
+        for address in alias_addresses()
+    ]
+
+
+def alias_q(address):
+    """The letters that came in on this address, as a ``Q``: the ones stamped with it, and - for a letter from before the stamp -
+    the ones of the person who holds it. A view the admin picks on the mailbox, never a permission."""
+    from .models import User
+
+    address = (address or "").strip().lower()
+    match = Q(to_alias=address)
+    holder = User.objects.filter(mail_alias__iexact=address).first()
+    if holder is not None:
+        match |= Q(owner=holder)
+    return match
+
+
 def reply_line(client, user, channel):
     """Whose line an answer to this client leaves from. ``None`` = the company's.
 

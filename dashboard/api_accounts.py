@@ -1,7 +1,7 @@
 """``/api/v1/accounts/`` - the money screens: the month's sheet, a payslip, attendance and output, violations, salaries, the rules.
 
-The pages are ``views.accounts_*``. Accounting and the admin run the month; the translator reads their own payslip; the rules
-are the admin's alone. Every number comes from the same functions the classic pages ask (``payroll.*``), and every write goes
+The pages are ``views.accounts_*``. Accounting and the admin run the month; HR reads it, reads a salary history, and proposes
+and decides the deductions (21/10/2026); the translator reads their own payslip; the rules are the admin's alone. Every number comes from the same functions the classic pages ask (``payroll.*``), and every write goes
 through the classic forms (``api_forms``) or functions, so what they refuse is refused here and what the classic pages wrote
 down is written down here.
 
@@ -131,7 +131,7 @@ def _line_row(line, conf):
 
 
 @endpoint("GET")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ACCOUNTING, Role.HR)
 def overview(request):
     """The month: its lines and totals, what waits for approval, and what to settle before locking it."""
     user = request.user
@@ -174,8 +174,9 @@ def overview(request):
                 word_count_state__in=(WordCountState.EMPTY, WordCountState.REVIEW, WordCountState.MANUAL_NEEDED),
             ).select_related("translator")[:MAX_UNSETTLED]
         ],
-        # The classic page lets the admin alone open a payslip's detail and open a task from here.
-        "can": {"line": user.is_admin_role, "task": user.is_admin_role},
+        # The classic page lets the admin alone open a payslip's detail and open a task from here. HR reads the month and decides
+        # the deductions; running, approving and locking it stay with accounting and the admin.
+        "can": {"line": user.is_admin_role, "task": user.is_admin_role, "run": user.is_admin_role or user.is_accounting},
     })
 
 
@@ -449,7 +450,7 @@ def attendance_save(request):
 # ---------------------------------------------------------------------------
 
 @endpoint("GET")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ACCOUNTING, Role.HR)
 def violations(request):
     """What waits for a decision, everything that was decided, the star penalties (late answers, accepted review notes) in every
     state, the defaults, and the form that proposes a deduction.
@@ -488,7 +489,7 @@ def violations(request):
 
 
 @endpoint("POST")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ACCOUNTING, Role.HR)
 def violation_create(request):
     """Propose a deduction. It is worth nothing until a person approves it."""
     form, refused = api_forms.filled(request, ViolationForm)
@@ -502,7 +503,7 @@ def violation_create(request):
 
 
 @endpoint("POST")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ACCOUNTING, Role.HR)
 def violation_decide(request, pk, action):
     """Approve or reject a deduction that is waiting. One that has been decided is not decided again from here."""
     if action not in ("approve", "reject"):
@@ -526,7 +527,7 @@ def violation_decide(request, pk, action):
 # ---------------------------------------------------------------------------
 
 @endpoint("GET")
-@api_role_required(Role.ACCOUNTING)
+@api_role_required(Role.ACCOUNTING, Role.HR)
 def salary(request, pk):
     """A person's salary history (append-only) and the months computed on it."""
     person = get_object_or_404(User, pk=pk)

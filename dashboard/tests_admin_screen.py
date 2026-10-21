@@ -1,4 +1,4 @@
-"""The admin panel in the new app, first part: the overview and the audit log.
+"""The admin panel in the new app, first part: the overview (the audit log is still written but has no page since 21/10/2026).
 
 Only the admin is answered; everybody else is a 403 with a row in the log. A GET writes nothing (not even an audit row),
 the answers match what the classic pages show, and no secret of the settings page rides in any of them. The pages hand
@@ -23,7 +23,6 @@ from .models import (
 from .tests_api_v1 import _json, _Site
 
 OVERVIEW = "dashboard:v1_admin_overview"
-AUDIT = "dashboard:v1_admin_audit"
 
 #: Written into the settings page's secret columns: found nowhere in an answer.
 SECRETS = {
@@ -192,86 +191,21 @@ class OverviewDoorTests(_Admin):
         self.assertEqual(questions(), few)
 
 
-class AuditDoorTests(_Admin):
-    def entry(self, action, actor=None, target="", detail="", ip="203.0.113.7", path="/somewhere/"):
-        return AuditLog.objects.create(actor=actor, action=action, target=target, detail=detail, ip=ip, path=path)
+class AuditLogWithoutAPageTests(_Admin):
+    """21/10/2026: the audit log has no page (the owner did not use it), but everything is still written to it."""
 
-    def test_the_admin_is_answered_and_everybody_else_is_refused(self):
-        answer = self.get(self.admin, AUDIT)
-        self.assertEqual((answer.status_code, answer["Cache-Control"]), (200, "private, no-store"))
-        for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
-            denied = self.get(user, AUDIT)
-            self.assertEqual((denied.status_code, _json(denied)), (403, {"ok": False, "error": "forbidden"}), user.username)
-        self.assertEqual(self.get(None, AUDIT).status_code, 401)
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        self.assertEqual(browser.post(reverse(AUDIT)).status_code, 405)
+    def test_the_door_is_gone_for_everybody(self):
+        for user in (self.admin, self.ops, None):
+            browser = DjangoClient()
+            if user is not None:
+                browser.force_login(user)
+            self.assertEqual(browser.get("/api/v1/admin/audit/").status_code, 404)
 
-    def test_a_refusal_here_is_itself_in_the_log_the_admin_reads(self):
-        self.get(self.ops, AUDIT)
-        rows = _json(self.get(self.admin, AUDIT, only="denied"))["rows"]
-        self.assertTrue(any(row["actor"] == self.ops.short_name and "audit" in row["detail"] for row in rows))
-
-    def test_an_entry_carries_who_what_where_and_when(self):
-        self.entry("client.identity.view", actor=self.admin, target="CL-0001", detail="client_detail", path="/clients/CL-0001/")
-        row = _json(self.get(self.admin, AUDIT))["rows"][0]
-        self.assertEqual(
-            {key: row[key] for key in ("actor", "action", "target", "detail", "ip", "path")},
-            {"actor": self.admin.short_name, "action": "client.identity.view", "target": "CL-0001",
-             "detail": "client_detail", "ip": "203.0.113.7", "path": "/clients/CL-0001/"},
-        )
-        self.assertRegex(row["at"]["en"], r"^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2} (AM|PM)$")
-
-    def test_an_entry_with_no_person_or_address_is_still_a_row(self):
-        AuditLog.objects.create(action="system.sweep", target="x")
-        row = _json(self.get(self.admin, AUDIT))["rows"][0]
-        self.assertEqual((row["actor"], row["ip"], row["path"]), (None, "", ""))
-
-    def test_the_newest_come_first_and_at_most_two_hundred(self):
-        for index in range(210):
-            self.entry("test.entry", target=f"t{index}")
-        rows = _json(self.get(self.admin, AUDIT))["rows"]
-        self.assertEqual(len(rows), 200)
-        ids = [row["id"] for row in rows]
-        self.assertEqual(ids, sorted(ids, reverse=True))
-
-    def test_a_filter_that_is_not_one_is_a_400_and_not_a_full_log(self):
-        for value in ("everything", "SECURITY", "denied;", "x" * 500):
-            answer = self.get(self.admin, AUDIT, only=value)
-            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_filter"), value)
-
-    def test_a_long_detail_is_cut(self):
-        self.entry("test.entry", detail="d" * 2000)
-        self.assertLessEqual(len(_json(self.get(self.admin, AUDIT))["rows"][0]["detail"]), 300)
-
-    def test_reading_the_log_writes_nothing_to_it(self):
-        self.entry("test.entry")
+    def test_a_refusal_is_still_written_down(self):
         before = AuditLog.objects.count()
-        self.get(self.admin, AUDIT)
-        self.get(self.admin, AUDIT, only="security")
-        self.assertEqual(AuditLog.objects.count(), before)
-
-    def test_no_secret_of_the_settings_page_is_in_the_answer(self):
-        conf = AppSettings.load()
-        for name, value in SECRETS.items():
-            setattr(conf, name, value)
-        conf.save()
-        self.entry("test.entry")
-        text = self.get(self.admin, AUDIT).content.decode("utf-8")
-        for value in SECRETS.values():
-            self.assertNotIn(value, text, value)
-
-    def test_the_number_of_questions_does_not_grow_with_the_entries(self):
-        def questions():
-            with CaptureQueriesContext(connection) as seen:
-                self.assertEqual(self.get(self.admin, AUDIT).status_code, 200)
-            return len(seen)
-
-        self.entry("test.entry", actor=self.admin)
-        few = questions()
-        for index, person in enumerate(self.everyone * 8):
-            self.entry("test.entry", actor=person, target=str(index))
-        self.assertEqual(questions(), few)
+        denied = self.get(self.ops, "dashboard:v1_admin_overview")
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(AuditLog.objects.count(), before + 1)
 
 
 class HandOnTests(_Admin):
@@ -279,20 +213,15 @@ class HandOnTests(_Admin):
         self.turn_on()
         answer = self.get(self.admin, "dashboard:admin_overview")
         self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin"))
-        answer = self.get(self.admin, "dashboard:admin_audit")
-        self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin/audit"))
-
-    def test_the_audit_filter_goes_along_when_it_is_a_real_one_and_only_then(self):
-        self.turn_on()
-        for value in ("security", "denied"):
-            self.assertEqual(self.get(self.admin, "dashboard:admin_audit", only=value)["Location"], f"/app/admin/audit?only={value}")
-        for value in ("", "bogus", "se curity", "<script>"):
-            self.assertEqual(self.get(self.admin, "dashboard:admin_audit", only=value)["Location"], "/app/admin/audit", value)
+        # The audit log has no page: an old link to it lands on the overview, whatever filter it carried.
+        for value in ("", "security", "denied"):
+            answer = self.get(self.admin, "dashboard:admin_audit", only=value)
+            self.assertEqual((answer.status_code, answer["Location"]), (302, "/app/admin"), value)
 
     def test_every_page_of_the_classic_panel_goes_on(self):
         """The whole panel is in the new app: nothing the admin used to open is left only in the classic interface."""
         pages = {
-            "dashboard:admin_overview": "/app/admin", "dashboard:admin_audit": "/app/admin/audit",
+            "dashboard:admin_overview": "/app/admin", "dashboard:admin_audit": "/app/admin",
             "dashboard:admin_users": "/app/hr/employees", "dashboard:admin_user_new": "/app/hr/employees/new",
             "dashboard:admin_clients": "/app/admin/clients", "dashboard:admin_client_new": "/app/admin/clients/new",
             "dashboard:admin_settings": "/app/admin/settings", "dashboard:admin_simulate": "/app/admin/simulate",
@@ -309,7 +238,7 @@ class HandOnTests(_Admin):
 
     def test_the_new_address_serves_the_app_to_the_admin(self):
         self.turn_on()
-        for address in ("/app/admin", "/app/admin/audit"):
+        for address in ("/app/admin",):
             browser = DjangoClient()
             browser.force_login(self.admin)
             self.assertEqual(browser.get(address).status_code, 200, address)

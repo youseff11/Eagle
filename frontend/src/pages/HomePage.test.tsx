@@ -12,8 +12,8 @@ const PLACES: Record<string, string> = {
   operation: "the operation mailbox",
   team_lead: "the leader board",
   translator: "the translator desk",
-  hr: "the recruitment board",
-  reviewer: "the reviewer queue",
+  hr: "the employee files",
+  reviewer: "the chats",
   accounting: "the money sheet",
   sales: "the client codes",
   support: "the support tasks",
@@ -29,8 +29,8 @@ function renderHome(role: Role) {
       <Route path="inbox" element={<div>{PLACES.operation}</div>} />
       <Route path="lead" element={<div>{PLACES.team_lead}</div>} />
       <Route path="translator" element={<div>{PLACES.translator}</div>} />
-      <Route path="hr/recruitment" element={<div>{PLACES.hr}</div>} />
-      <Route path="reviewer/tests" element={<div>{PLACES.reviewer}</div>} />
+      <Route path="hr/employees" element={<div>{PLACES.hr}</div>} />
+      <Route path="chats" element={<div>{PLACES.reviewer}</div>} />
       <Route path="accounts" element={<div>{PLACES.accounting}</div>} />
       <Route path="clients" element={<div>{PLACES.sales}</div>} />
       <Route path="tasks" element={<div>{PLACES.support}</div>} />

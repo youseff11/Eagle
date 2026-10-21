@@ -467,7 +467,6 @@ describe("Shell: the team leader's screen", () => {
           <Route path="tasks/:code" element={<div>task</div>} />
           <Route path="clients" element={<div>clients</div>} />
           <Route path="clients/:code" element={<div>client</div>} />
-          <Route path="reviewer/*" element={<div>tests</div>} />
         </Route>
       </Routes>,
       { route },
@@ -475,11 +474,11 @@ describe("Shell: the team leader's screen", () => {
   };
   const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
 
-  it("lists their tasks, who is free, the chats and the client codes in the classic menu's order, the candidate tests under recruitment", async () => {
+  it("lists their tasks, who is free, the chats and the client codes in the classic menu's order, and no candidate tests (21/10/2026)", async () => {
     const view = at("/lead", ["lead", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/chats", "/clients", "/reviewer/tests"]);
-    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["الشغل", "التوظيف"]);
+    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/chats", "/clients"]);
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["الشغل"]);
     expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
   });
@@ -498,8 +497,6 @@ describe("Shell: the team leader's screen", () => {
       ["/tasks/TSK-00001", "تاسكاتي", "/lead"],
       ["/clients", "أكواد العملاء", "/clients"],
       ["/clients/CL-0001", "أكواد العملاء", "/clients"],
-      ["/reviewer/tests", "اختبارات المرشحين", "/reviewer/tests"],
-      ["/reviewer/tests/5", "اختبارات المرشحين", "/reviewer/tests"],
     ];
     for (const [route, title, lit] of pages) {
       const view = at(route, ["lead"]);
@@ -539,13 +536,13 @@ describe("Shell: the admin's panel", () => {
 
   it("lists every page of the panel in the classic menu's sections and words, the two that delete last and in red", async () => {
     const view = at("/admin", ["admin", "chats"]);
-    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/audit"]')).not.toBeNull());
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/simulate"]')).not.toBeNull());
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
       "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance", "/b2c", "/b2c/visits", "/b2c/performance", "/price-list",
       "/commissions",
-      "/admin/settings", "/admin/simulate", "/admin/audit",
+      "/admin/settings", "/admin/simulate",
       "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
@@ -554,7 +551,7 @@ describe("Shell: the admin's panel", () => {
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
       ["/b2c", "شيتات B2C"], ["/b2c/visits", "الزيارات"], ["/b2c/performance", "أداء B2C"], ["/commissions", "العمولات"], ["/price-list", "قايمة الأسعار"],
-      ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"], ["/admin/audit", "سجل النشاط"],
+      ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];
     for (const [href, label] of words) {
@@ -564,8 +561,9 @@ describe("Shell: the admin's panel", () => {
       expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toHaveClass("nav__item--danger");
     }
     expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toHaveClass("nav__item--danger");
-    // The staff panel is the employee files now: it has no line of its own on the panel.
+    // The staff panel is the employee files now: it has no line of its own on the panel. The audit log has no page (21/10/2026).
     expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/admin/audit"]')).toBeNull();
   });
 
   it("has no client codes line: the codes are in the client records, which a client's profile lights", async () => {
@@ -583,7 +581,6 @@ describe("Shell: the admin's panel", () => {
   it("titles every page and lights exactly one line on each", async () => {
     for (const [route, title, lit] of [
       ["/admin", "نظرة عامة", "/admin"],
-      ["/admin/audit", "سجل النشاط", "/admin/audit"],
       ["/admin/clients/CL-0001/edit", "بيانات العملاء", "/admin/clients"],
       ["/admin/settings", "الإعدادات و AI", "/admin/settings"],
       ["/admin/simulate", "محاكاة رسالة", "/admin/simulate"],
@@ -675,6 +672,7 @@ describe("Shell: human resources", () => {
       <Routes>
         <Route element={<Shell />}>
           <Route path="hr/*" element={<div>an HR page</div>} />
+          <Route path="accounts/*" element={<div>a money page</div>} />
           <Route path="reviewer/*" element={<div>a reviewer page</div>} />
         </Route>
       </Routes>,
@@ -682,26 +680,28 @@ describe("Shell: human resources", () => {
     );
   };
   const links = (container: HTMLElement) => Array.from(container.querySelectorAll(".sidebar .nav__item")).map((a) => a.getAttribute("href"));
+  const RECRUITMENT = [
+    "/hr/recruitment", "/hr/vacancies", "/hr/candidates", "/hr/questions", "/hr/recruitment/settings", "/hr/approvals", "/hr/probation",
+    "/reviewer/tests",
+  ];
 
-  it("lists the pages for HR in the classic menu's groups: recruitment, the people, then the settings", async () => {
+  it("lists the pages for HR: the people, the money they read and decide, then the settings - and no recruitment (21/10/2026)", async () => {
     const view = at("/hr/attendance", ["hr", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/devices"]')).not.toBeNull());
     expect(links(view.container)).toEqual([
       "/chats",
-      "/hr/recruitment", "/hr/vacancies", "/hr/candidates",
-      "/hr/employees", "/hr/attendance", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/report", "/hr/probation",
+      "/hr/employees", "/hr/attendance", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/report",
       "/hr/performance", "/hr/complaints", "/hr/salary-requests",
-      "/hr/offices", "/hr/devices", "/hr/recruitment/settings", "/hr/questions",
+      "/accounts/violations", "/accounts",
+      "/hr/offices", "/hr/devices",
     ]);
     // Each group has its heading, and the heading comes before the group's first line.
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
-      "الشغل", "التوظيف", "الموظفين", "الإعدادات",
+      "الشغل", "الموظفين", "الحسابات", "الإعدادات",
     ]);
     // The salary plans move money: the admin's line, not HR's.
     expect(links(view.container)).not.toContain("/hr/salary-plans");
-    // The hiring decision and the tests are the owner's: HR does not have those lines.
-    expect(links(view.container)).not.toContain("/hr/approvals");
-    expect(links(view.container)).not.toContain("/reviewer/tests");
+    for (const href of RECRUITMENT) expect(links(view.container), href).not.toContain(href);
   });
 
   it("titles every page and lights exactly one line on each", async () => {
@@ -713,7 +713,6 @@ describe("Shell: human resources", () => {
       ["/hr/shifts", "الشيفتات", "/hr/shifts"],
       ["/hr/employees", "ملفات الموظفين", "/hr/employees"],
       ["/hr/employees/7", "ملفات الموظفين", "/hr/employees"],
-      ["/hr/probation", "فترة الاختبار", "/hr/probation"],
       ["/hr/performance", "الأداء", "/hr/performance"],
       ["/hr/complaints", "شكاوى العملاء", "/hr/complaints"],
       ["/hr/salary-requests", "طلبات تغيير الراتب", "/hr/salary-requests"],
@@ -721,15 +720,9 @@ describe("Shell: human resources", () => {
       ["/hr/overtime", "الأوفرتايم", "/hr/overtime"],
       ["/hr/offices", "مواقع المكاتب", "/hr/offices"],
       ["/hr/devices", "أجهزة الحضور", "/hr/devices"],
-      ["/hr/recruitment", "لوحة التوظيف", "/hr/recruitment"],
-      ["/hr/recruitment/settings", "إعدادات التوظيف", "/hr/recruitment/settings"],
-      ["/hr/vacancies", "الوظائف", "/hr/vacancies"],
-      ["/hr/vacancies/VAC-0001", "الوظائف", "/hr/vacancies"],
-      ["/hr/questions", "بنك الأسئلة", "/hr/questions"],
-      ["/hr/candidates", "المرشحين", "/hr/candidates"],
-      ["/hr/candidates/CAN-0007", "المرشحين", "/hr/candidates"],
-      ["/hr/candidates/CAN-0007/hire", "المرشحين", "/hr/candidates"],
-      ["/hr/interviews/21", "المرشحين", "/hr/candidates"],
+      ["/accounts", "كشف الشهر", "/accounts"],
+      ["/accounts/salary/7", "كشف الشهر", "/accounts"],
+      ["/accounts/violations", "المخالفات والخصومات", "/accounts/violations"],
     ] as const) {
       const view = at(route, ["hr"]);
       await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
@@ -742,45 +735,24 @@ describe("Shell: human resources", () => {
   it("draws none of it for HR that has not been switched on", async () => {
     const view = at("/hr/attendance", ["chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
-    for (const href of ["/hr/attendance", "/hr/report", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/offices", "/hr/devices", "/hr/employees", "/hr/probation", "/hr/recruitment", "/hr/vacancies", "/hr/questions", "/hr/recruitment/settings", "/hr/candidates"]) {
+    for (const href of ["/hr/attendance", "/hr/report", "/hr/schedules", "/hr/shifts", "/hr/leave", "/hr/overtime", "/hr/offices", "/hr/devices", "/hr/employees", "/accounts", "/accounts/violations"]) {
       expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toBeNull();
     }
   });
 
-  it("gives the admin the same lines once ticked", async () => {
+  it("gives the admin the same lines once ticked, and the salary plans, and no recruitment either", async () => {
     const view = at("/hr/report", ["hr"], "admin");
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/hr/report"]')).not.toBeNull());
-    expect(links(view.container).slice(0, 5)).toEqual(["/hr/recruitment", "/hr/vacancies", "/hr/candidates", "/reviewer/tests", "/hr/approvals"]);
+    expect(links(view.container)[0]).toBe("/hr/employees");
     // ...and the owner's own line, the salary plans, which HR does not have.
     expect(links(view.container)).toContain("/hr/salary-plans");
-    // ...and the owner's hiring decisions and the candidate tests, which are theirs too.
-    expect(links(view.container)).toContain("/hr/approvals");
-    expect(links(view.container)).toContain("/reviewer/tests");
+    for (const href of RECRUITMENT) expect(links(view.container), href).not.toContain(href);
   });
 
-  it("titles the owner's pages and lights one line on each", async () => {
-    for (const [route, title, lit] of [
-      ["/hr/approvals", "موافقات التعيين", "/hr/approvals"],
-      ["/reviewer/tests", "اختبارات المرشحين", "/reviewer/tests"],
-      ["/reviewer/tests/5", "اختبارات المرشحين", "/reviewer/tests"],
-    ] as const) {
-      const view = at(route, ["hr"], "admin");
-      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent(title));
-      await waitFor(() => expect(view.container.querySelector(`.sidebar a[href="${lit}"].is-active`), route).not.toBeNull());
-      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active"), route).toHaveLength(1);
-      view.unmount();
-    }
-  });
-
-  it("gives the reviewer one page, lit on the queue and on a test", async () => {
-    for (const route of ["/reviewer/tests", "/reviewer/tests/5"]) {
-      const view = at(route, ["reviewer"], "reviewer");
-      await waitFor(() => expect(view.container.querySelector(".topbar__title")).toHaveTextContent("اختبارات المرشحين"));
-      expect(links(view.container).filter((href) => href?.startsWith("/reviewer") || href?.startsWith("/hr"))).toEqual(["/reviewer/tests"]);
-      await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/reviewer/tests"].is-active')).not.toBeNull());
-      expect(view.container.querySelectorAll(".sidebar .nav__item.is-active")).toHaveLength(1);
-      view.unmount();
-    }
+  it("gives the reviewer no candidate tests: recruitment is done by hand", async () => {
+    const view = at("/hr/performance", ["chats", "performance"], "reviewer");
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/chats"]')).not.toBeNull());
+    expect(links(view.container).filter((href) => href?.startsWith("/reviewer") || href?.startsWith("/hr/") && href !== "/hr/performance")).toEqual([]);
   });
 });
 

@@ -4,7 +4,8 @@
 * A bonus the owner released stays released when the month is run again.
 * Whoever holds the attendance right does not decide their own leave, overtime, browser or day: the owner does.
 * An approved permission is minutes off a day, not a day worked: it makes no row, and the day reads it when it is computed.
-* The audit log cannot be flooded: a refusal that repeats is one row with a count, and the log pages back past two hundred.
+* The audit log cannot be flooded: a refusal that repeats is one row with a count. (Its page, which paged back past two hundred,
+  was removed on 21/10/2026; the log is still written.)
 """
 
 from datetime import datetime, time, timedelta
@@ -19,7 +20,7 @@ from .models import (
     ApprovalStatus, AuditLog, AuthorizedDevice, LeaveRequest, LeaveStatus, OvertimeClaim, PayrollSettings, User, WorkDay,
 )
 from .tests_accounts_screen import _Accounts
-from .tests_admin_screen import AUDIT, _Admin
+from .tests_admin_screen import _Admin
 from .tests_api_v1 import _json
 from .tests_hr_people import _People
 
@@ -165,6 +166,10 @@ class PermissionIsNotADayTests(_People):
         self.assertEqual(day.excused_minutes, 120)
 
 
+#: A door the admin alone may open: refusing anybody else there is what the log counts.
+AUDIT = "dashboard:v1_admin_overview"
+
+
 class AuditFloodTests(_Admin):
     def setUp(self):
         super().setUp()
@@ -179,14 +184,14 @@ class AuditFloodTests(_Admin):
         rows = self.denied()
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0].detail.endswith(" (x30)"), rows[0].detail)
-        self.assertEqual((rows[0].actor, rows[0].path), (self.ops, "/api/v1/admin/audit/"))
+        self.assertEqual((rows[0].actor, rows[0].path), (self.ops, "/api/v1/admin/overview/"))
 
     def test_another_person_another_page_or_another_reason_is_its_own_row(self):
         self.get(self.ops, AUDIT)
         self.get(self.tr, AUDIT)
         self.get(self.ops, "dashboard:v1_admin_settings")
         self.assertEqual(len(self.denied()), 3)
-        request = type("R", (), {"user": self.ops, "META": {}, "get_full_path": lambda self: "/api/v1/admin/audit/"})()
+        request = type("R", (), {"user": self.ops, "META": {}, "get_full_path": lambda self: "/api/v1/admin/overview/"})()
         identity.record_denied(request, "a different reason")
         self.assertEqual(len(self.denied()), 4)
 
@@ -222,62 +227,3 @@ class AuditFloodTests(_Admin):
         for _ in range(4):
             self.assertEqual(self.get(self.ops, "dashboard:v1_admin_client", [self.client_obj.code]).status_code, 403)
         self.assertEqual(len(self.denied()), 1)
-
-
-class AuditPagingTests(_Admin):
-    def setUp(self):
-        super().setUp()
-        AuditLog.objects.all().delete()
-        AuditLog.objects.bulk_create([AuditLog(action="test.entry", target=f"t{index}") for index in range(450)])
-
-    def page(self, **query):
-        answer = self.get(self.admin, AUDIT, **query)
-        self.assertEqual(answer.status_code, 200)
-        return _json(answer)
-
-    def test_the_log_pages_back_with_no_gap_and_no_repeat(self):
-        seen, before, pages = [], None, 0
-        # Bounded: a cursor that is ignored must fail this test, not loop on the first page for ever.
-        while pages < 6:
-            body = self.page(before=before) if before else self.page()
-            ids = [row["id"] for row in body["rows"]]
-            seen += ids
-            pages += 1
-            if not body["more"]:
-                break
-            before = ids[-1]
-        self.assertEqual((pages, len(seen), len(set(seen))), (3, 450, 450))
-        self.assertEqual(seen, sorted(seen, reverse=True))
-
-    def test_more_is_true_only_while_older_rows_exist(self):
-        first = self.page()
-        self.assertEqual((len(first["rows"]), first["more"]), (200, True))
-        last = self.page(before=first["rows"][-1]["id"] + 0)
-        self.assertTrue(last["more"])
-        end = self.page(before=last["rows"][-1]["id"])
-        self.assertEqual((len(end["rows"]), end["more"]), (50, False))
-
-    def test_exactly_two_hundred_rows_is_one_page_with_nothing_more(self):
-        AuditLog.objects.filter(pk__in=list(AuditLog.objects.values_list("pk", flat=True)[:250])).delete()
-        body = self.page()
-        self.assertEqual((len(body["rows"]), body["more"]), (200, False))
-
-    def test_the_cursor_works_with_a_filter(self):
-        AuditLog.objects.all().delete()
-        AuditLog.objects.bulk_create([AuditLog(action=identity.ACCESS_DENIED, target=f"d{index}") for index in range(230)])
-        AuditLog.objects.bulk_create([AuditLog(action="test.entry", target="other") for _ in range(10)])
-        first = self.page(only="denied")
-        self.assertEqual((len(first["rows"]), first["more"]), (200, True))
-        second = self.page(only="denied", before=first["rows"][-1]["id"])
-        self.assertEqual((len(second["rows"]), second["more"]), (30, False))
-        self.assertTrue(all(row["action"] == identity.ACCESS_DENIED for row in first["rows"] + second["rows"]))
-
-    def test_a_cursor_that_is_not_a_number_is_a_400_and_not_the_newest_page(self):
-        for value in ("x", "-1", "1e3", "1.5", " 5", "9" * 20, "5;"):
-            answer = self.get(self.admin, AUDIT, before=value)
-            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_cursor"), value)
-
-    def test_reading_a_later_page_writes_nothing(self):
-        before = AuditLog.objects.count()
-        self.page(before=AuditLog.objects.latest("pk").pk)
-        self.assertEqual(AuditLog.objects.count(), before)

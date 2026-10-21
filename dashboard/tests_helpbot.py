@@ -121,9 +121,9 @@ class IconTests(SimpleTestCase):
 class WhoSeesWhatTests(SimpleTestCase):
     #: Guides that are the owner's alone: nobody else is told how, and the prompt of nobody else carries them.
     OWNER_ONLY = (
-        "admin-overview", "admin-employee-new", "admin-mail-alias", "admin-identity-access", "admin-hire-approve",
+        "admin-overview", "admin-employee-new", "admin-mail-alias", "admin-identity-access",
         "admin-settings", "admin-ai-assistant", "admin-assistant-orders", "admin-google", "admin-clients", "admin-requirement", "admin-delete-clients", "admin-simulate",
-        "admin-audit", "admin-reset", "acc-rules", "admin-support-account",
+        "admin-reset", "acc-rules", "admin-support-account",
     )
 
     def ids(self, role, **flags):
@@ -163,9 +163,19 @@ class WhoSeesWhatTests(SimpleTestCase):
     def test_a_capability_opens_the_guides_it_belongs_to(self):
         self.assertNotIn("hr-board", self.ids(Role.OPERATION))
         self.assertIn("hr-board", self.ids(Role.OPERATION, attendance_manager=True))
-        self.assertNotIn("hr-candidates", self.ids(Role.OPERATION, attendance_manager=True))
-        self.assertIn("reviewer-mark-test", self.ids(Role.TEAM_LEAD))
-        self.assertNotIn("reviewer-mark-test", self.ids(Role.OPERATION))
+        self.assertNotIn("hr-employee-file", self.ids(Role.OPERATION, attendance_manager=True))
+
+    def test_recruitment_and_the_audit_log_have_no_guide_hr_decides_deductions_and_reads_the_month(self):
+        # 21/10/2026: recruitment is done by hand and the audit log has no page, so nobody is told how to use either.
+        every = {guide.id for guide in guides.GUIDES}
+        for gone in ("hr-vacancy", "hr-candidates", "hr-hire", "hr-probation", "hr-questions", "admin-hire-approve", "reviewer-mark-test", "admin-audit"):
+            self.assertNotIn(gone, every)
+        hr = self.ids(Role.HR)
+        for guide_id in ("acc-violation", "hr-month", "hr-star-penalties", "hr-employee-file"):
+            self.assertIn(guide_id, hr)
+        # Running and locking the month is not HR's.
+        self.assertNotIn("acc-month", hr)
+        self.assertNotIn("hr-month", self.ids(Role.ACCOUNTING))
 
     def test_everybody_on_the_companys_rules_is_told_how_to_check_in_and_the_owner_and_support_are_not(self):
         for role in ROLES:
@@ -209,7 +219,8 @@ class SearchTests(SimpleTestCase):
             (Role.OPERATION, "عايز ابعت الشغل للعميل", "ops-deliver"),
             (Role.TEAM_LEAD, "ازاي اوزع تاسك على مترجم", "lead-assign-translator"),
             (Role.TEAM_LEAD, "راجع الترجمة", "lead-review"),
-            (Role.HR, "ازاي اعين مرشح", "hr-hire"),
+            (Role.HR, "عايز اراجع مرتبات الموظفين", "hr-month"),
+            (Role.HR, "ازاي احط مخالفة لموظف", "acc-violation"),
             (Role.HR, "عايز اوافق على اجازة", "hr-leave"),
             (Role.ACCOUNTING, "ازاي اقفل الشهر", "acc-month"),
             (Role.SALES, "ازاي اظبط رقمي", "sales-line"),

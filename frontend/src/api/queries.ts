@@ -42,7 +42,6 @@ import type {
   HrVacancies,
   HrVacancy,
   MyLeave,
-  AdminAudit,
   AdminSettings,
   AdminSimulate,
   AdminClientForm,
@@ -137,13 +136,14 @@ export const hrRegisterOptions = (search: string) => ({
   queryKey: qk.hrRegister(search),
   queryFn: () => api<HrRegister>(`/api/v1/hr/employees/${search ? `?${search}` : ""}`),
 });
-export const mailThreadsOptions = (state: string, query: string) => {
+export const mailThreadsOptions = (state: string, query: string, alias = "") => {
   const params = new URLSearchParams();
   if (state) params.set("state", state);
   if (query) params.set("q", query);
+  if (alias) params.set("alias", alias);
   const text = params.toString();
   return {
-    queryKey: qk.mail(state, query),
+    queryKey: qk.mail(state, query, alias),
     queryFn: () => api<MailListResponse>(`/api/v1/mail/threads/${text ? `?${text}` : ""}`),
   };
 };
@@ -325,14 +325,6 @@ export function useAdminOverview(enabled = true) {
   });
 }
 
-/** The audit log (`only` is `security`, `denied` or empty for all). Read when opened, not watched; a tab never shows another tab's rows while it loads. */
-export function useAdminAudit(only: string, enabled = true) {
-  return useQuery({
-    queryKey: qk.adminAudit(only),
-    queryFn: () => api<AdminAudit>(`/api/v1/admin/audit/${only ? `?only=${encodeURIComponent(only)}` : ""}`),
-    enabled,
-  });
-}
 
 /**
  * The client records. Asked for when the page opens and when a search is sent - never on a clock, a doorbell or a return
@@ -867,10 +859,11 @@ export function useClient(code: string, enabled = true) {
  */
 export const MAIL_POLL_MS = 20000;
 
-/** The conversations, newest first: `state` is `""`, `unclaimed`, `mine` or `notask`, `query` a word or two. */
-export function useMailThreads(state: string, query: string, enabled = true) {
+/** The conversations, newest first: `state` is `""`, `unclaimed`, `mine` or `notask`, `query` a word or two, `alias` (the
+ * admin's) one address of the company mailbox. */
+export function useMailThreads(state: string, query: string, enabled = true, alias = "") {
   return useQuery({
-    ...mailThreadsOptions(state, query),
+    ...mailThreadsOptions(state, query, alias),
     refetchInterval: MAIL_POLL_MS,
     // Keep the list on screen while a new search is on its way: a list that blinks away at every key is not a search.
     placeholderData: (previous) => previous,

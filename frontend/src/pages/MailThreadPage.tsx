@@ -398,7 +398,7 @@ export function MailThreadPage() {
 
   // Back to the list as the person left it: the filters came along in the address.
   const back = new URLSearchParams();
-  for (const name of ["state", "q"]) {
+  for (const name of ["state", "q", "alias"]) {
     const value = params.get(name);
     if (value) back.set(name, value);
   }

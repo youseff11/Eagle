@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "accounts" | "hr" | "reviewer" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "support" | "attendance" | "chats" | "performance";
+export type ScreenKey = "admin" | "accounts" | "hr" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "support" | "attendance" | "chats" | "performance";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -890,6 +890,10 @@ export interface MailListResponse {
   ok: true;
   state: string;
   q: string;
+  /** The address of the company mailbox the admin narrowed the list to, `""` for all of them. */
+  alias: string;
+  /** The addresses the admin can narrow it to, with who holds each (`null` = nobody). Empty for anybody else. */
+  aliases: { address: string; holder: string | null }[];
   threads: MailRow[];
   /** Conversations this person has not opened: the badge. */
   unseen: number;
@@ -1160,26 +1164,6 @@ export interface AdminOverview {
   recent: { code: string; title: string; origin: (Labelled & { icon: string }) | null; status: Labelled & { tone: string } }[];
 }
 
-export type AuditFilter = "" | "security" | "denied";
-
-/** GET /api/v1/admin/audit/?only=: the log, newest first (`api_admin.audit`). */
-export interface AdminAudit {
-  ok: true;
-  only: AuditFilter;
-  /** Older rows exist: ask again with `before` set to the id of the last row shown. */
-  more: boolean;
-  rows: {
-    id: number;
-    at: Stamp | null;
-    /** `null` is the system itself (a command, the worker). */
-    actor: string | null;
-    action: string;
-    target: string;
-    detail: string;
-    ip: string;
-    path: string;
-  }[];
-}
 
 /** How a form field is drawn (`api_forms.kind_of`). */
 export type FormFieldKind =
@@ -1500,7 +1484,8 @@ export interface AccountsOverview {
   pending_violations: AccountsViolation[];
   missing_salary: { id: number; name: string; username: string; initials: string }[];
   unsettled_tasks: { code: string; translator: string | null; translator_gone?: boolean }[];
-  can: { line: boolean; task: boolean };
+  /** `run`: may compute, approve and lock the month (accounting and the admin; HR reads it). */
+  can: { line: boolean; task: boolean; run: boolean };
 }
 
 /** GET /api/v1/accounts/lines/<id>/: a payslip in full. */

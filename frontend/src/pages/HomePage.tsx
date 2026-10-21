@@ -8,8 +8,9 @@ export const LANDING: Record<Role, string> = {
   operation: "/inbox",
   team_lead: "/lead",
   translator: "/translator",
-  hr: "/hr/recruitment",
-  reviewer: "/reviewer/tests",
+  hr: "/hr/employees",
+  // The reviewer marked the candidate tests; recruitment is done by hand since 21/10/2026, so the chats are where they start.
+  reviewer: "/chats",
   accounting: "/accounts",
   sales: "/clients",
   support: "/tasks",

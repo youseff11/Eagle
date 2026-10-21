@@ -72,10 +72,12 @@ export function AccountsOverviewPage() {
             onChange={(next) => setParams(next ? { period: next } : {})}
           />
         )}
-        <button className="btn btn--primary" type="button" disabled={!data || run.isPending} onClick={runMonth}>
-          <Icon name="refresh" size="sm" />
-          <span>{t("احسب الشهر", "Run the month")}</span>
-        </button>
+        {data?.can.run && (
+          <button className="btn btn--primary" type="button" disabled={run.isPending} onClick={runMonth}>
+            <Icon name="refresh" size="sm" />
+            <span>{t("احسب الشهر", "Run the month")}</span>
+          </button>
+        )}
       </div>
 
       {data ? (
@@ -160,12 +162,12 @@ export function AccountsOverviewPage() {
                   <span className={`badge ${data.period.status.value === "locked" ? "badge--dead" : data.period.status.value === "approved" ? "badge--ok" : "badge--wait"}`}>
                     {name(data.period.status)}
                   </span>
-                  {data.period.status.value === "draft" && (
+                  {data.can.run && data.period.status.value === "draft" && (
                     <button className="btn btn--sm btn--ok" type="button" disabled={approve.isPending} onClick={() => approveMonth(false)}>
                       {t("اعتماد", "Approve")}
                     </button>
                   )}
-                  {data.period.status.value === "approved" && (
+                  {data.can.run && data.period.status.value === "approved" && (
                     <button className="btn btn--sm" type="button" disabled={approve.isPending} onClick={() => setLocking(true)}>
                       {t("قفل الشهر", "Lock the month")}
                     </button>

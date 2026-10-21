@@ -139,8 +139,9 @@ class QueryTests(_Door):
         self.lands(self.sales, "client_list", "/app/clients?q=abc", q=" abc ")
         self.lands(self.admin, "admin_clients", "/app/admin/clients?show=robots&q=abc", show="robots", q="abc")
         self.lands(self.admin, "admin_clients", "/app/admin/clients", show="all")
-        self.lands(self.admin, "admin_audit", "/app/admin/audit?only=denied", only="denied")
-        self.lands(self.admin, "admin_audit", "/app/admin/audit", only="everything")
+        # The audit log has no page since 21/10/2026: its old address lands on the overview, with no filter.
+        self.lands(self.admin, "admin_audit", "/app/admin", only="denied")
+        self.lands(self.admin, "admin_audit", "/app/admin", only="everything")
 
     def test_a_code_goes_into_an_address_only_when_it_looks_like_one(self):
         self.lands(self.hr, "hr_candidate", "/app/hr/candidates/CAN-0001", ["CAN-0001"])
@@ -190,7 +191,8 @@ class AnOldAddressOpenedByTheWrongPersonIsWrittenDownTests(_Door):
             (self.tr, "ops_inbox", None), (self.tr, "ops_tasks", None), (self.tr, "client_list", None),
             (self.tr, "client_detail", ["CL-0001"]), (self.sales, "ops_team", None), (self.hr, "ops_mail_thread", [7]),
             (self.tr, "admin_users", None), (self.ops, "admin_overview", None), (self.tr, "hr_candidates", None),
-            (self.sales, "accounts_overview", None), (self.ops, "accounts_rules", None), (self.tr, "reviewer_tests", None),
+            # The candidate tests have no screen since 21/10/2026 (recruitment is by hand), so their old address guards nothing.
+            (self.sales, "accounts_overview", None), (self.ops, "accounts_rules", None),
             (self.sales, "task_detail", ["TSK-00001"]), (self.hr, "task_detail", ["TSK-00001"]),
             (self.accounting, "task_detail", ["TSK-00001"]), (self.reviewer, "task_detail", ["TSK-00001"]),
             (self.ops, "translator_home", None), (self.tr, "lead_home", None), (self.ops, "sales_line", None),

@@ -124,11 +124,6 @@ def _robots(request):
     return [("show", "robots")] if request.GET.get("show") == "robots" else []
 
 
-def _audit(request):
-    only = request.GET.get("only")
-    return [("only", only)] if only in ("security", "denied") else []
-
-
 def _payslip(request):
     period = request.GET.get("period", "")
     return [("period", period)] if payroll.parse_period(period) else []
@@ -136,7 +131,7 @@ def _payslip(request):
 
 #: The screens whose pages are the whole of an address prefix. A payslip (``/accounts/lines/<id>``) is also the translator's own,
 #: so it is not gated by the accounts screen.
-SCREEN_OF = {"/admin": "admin", "/hr": "hr", "/reviewer": "reviewer", "/accounts": "accounts"}
+SCREEN_OF = {"/admin": "admin", "/hr": "hr", "/accounts": "accounts"}
 
 
 #: The roles each page was for, where no screen says it (``SCREEN_OF``) and ``only`` does not (it also moves the redirect). Used to
@@ -223,7 +218,8 @@ PAGES = (
     ("panel/clients/new/", "admin_client_new", "/admin/clients/new", None, None),
     ("panel/clients/<str:code>/edit/", "admin_client_edit", "/admin/clients/{code}/edit", None, None),
     ("panel/simulate/", "admin_simulate", "/admin/simulate", None, None),
-    ("panel/audit/", "admin_audit", "/admin/audit", _audit, None),
+    # The audit log has no page since 21/10/2026 (it is still written): an old link to it lands on the overview.
+    ("panel/audit/", "admin_audit", "/admin", None, None),
     ("panel/reset-tasks/", "admin_reset_tasks", "/admin/reset-tasks", None, None),
     ("panel/reset-mail/", "admin_reset_mail", "/admin/reset-mail", None, None),
     # -- accounts -------------------------------------------------------------

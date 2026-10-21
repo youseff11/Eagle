@@ -284,10 +284,6 @@ export function HrEmployeePage() {
                   <LeaveStatusBadge status={row.outcome} />
                 </div>
               ))}
-              <Link className="btn btn--sm btn--block mt" to="/hr/probation">
-                <Icon name="arrow-right" size="sm" />
-                <span>{t("لوحة فترة الاختبار", "Probation board")}</span>
-              </Link>
             </div>
           )}
 
@@ -352,7 +348,8 @@ export function HrEmployeePage() {
                 <h3>{t("طلب التوظيف", "The application")}</h3>
               </div>
               <div className="kv">
-                <Link to={`/hr/candidates/${data.application.code}`}>{data.application.code}</Link>
+                {/* Recruitment has no page since 21/10/2026: the code is a record, not a link. */}
+                <span className="mono">{data.application.code}</span>
                 <span className="muted">{data.application.applied_on}</span>
               </div>
               <small className="muted">{t("الطلب اللي الموظف ده اتعيّن منه — محفوظ كامل بإجاباته.", "The application this employee came from, kept whole.")}</small>

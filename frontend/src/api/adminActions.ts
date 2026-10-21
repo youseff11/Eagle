@@ -3,7 +3,7 @@ import { download } from "../lib/download";
 import { ApiError, api, apiDownload } from "./client";
 import { qk } from "./keys";
 import type {
-  AdminAudit, ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced, WaLineFailure, WaNumber,
+  ClientDeletePlan, ClientsDeleted, ConnectionReport, FormErrors, FormValue, GoogleSynced, WaLineFailure, WaNumber,
 } from "./types";
 
 /** The words of a refusal from the number buttons, or `null` when it was not one (no answer, a server error). */
@@ -142,20 +142,6 @@ export function useDeleteClients() {
   });
 }
 
-/**
- * The next page of the audit log, older than the row with id `before`. Kept out of the query cache on purpose: the first page
- * is what the refresh button asks again, and older pages are only ever added under it.
- */
-export function useOlderAudit(only: string) {
-  return useMutation({
-    mutationFn: (before: number) => {
-      const query = new URLSearchParams();
-      if (only) query.set("only", only);
-      query.set("before", String(before));
-      return api<AdminAudit>(`/api/v1/admin/audit/?${query.toString()}`);
-    },
-  });
-}
 
 /** A message sent as if a client sent it (multipart, so it can carry files). */
 export function useSimulateSend() {

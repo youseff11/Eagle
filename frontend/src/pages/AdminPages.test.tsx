@@ -2,9 +2,8 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AdminAudit, AdminOverview, Role } from "../api/types";
+import type { AdminOverview, Role } from "../api/types";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
-import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminOverviewPage } from "./AdminOverviewPage";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -42,30 +41,9 @@ function overview(over: Partial<AdminOverview> = {}): AdminOverview {
   };
 }
 
-function audit(over: Partial<AdminAudit> = {}): AdminAudit {
-  return {
-    ok: true,
-    only: "",
-    more: false,
-    rows: [
-      { id: 12, at: stamp("2026-10-02 4:10"), actor: "Mona", action: "client.identity.view", target: "CL-0001", detail: "client_detail", ip: "203.0.113.7", path: "/clients/CL-0001/" },
-      { id: 11, at: stamp("2026-10-02 4:00"), actor: null, action: "system.sweep", target: "", detail: "", ip: "", path: "" },
-    ],
-    ...over,
-  };
-}
-
-function serve(
-  who: Role,
-  body: () => AdminOverview | Response,
-  auditBody: (only: string, before: string) => AdminAudit | Response = (only) => audit({ only: only as AdminAudit["only"] }),
-) {
+function serve(who: Role, body: () => AdminOverview | Response) {
   const mocked = mockFetch({
     "/api/v1/me/": () => jsonResponse(me({ role: who, is_admin: who === "admin" })),
-    "/api/v1/admin/audit/": (url) => {
-      const answer = auditBody(url.searchParams.get("only") ?? "", url.searchParams.get("before") ?? "");
-      return answer instanceof Response ? answer : jsonResponse(answer);
-    },
     "/api/v1/admin/overview/": () => {
       const answer = body();
       return answer instanceof Response ? answer : jsonResponse(answer);
@@ -79,7 +57,6 @@ function open(route: string, lang: "ar" | "en" = "ar") {
   return renderWithProviders(
     <Routes>
       <Route path="/admin" element={<AdminOverviewPage />} />
-      <Route path="/admin/audit" element={<AdminAuditPage />} />
       <Route path="/tasks/:code" element={<div>one task page</div>} />
       <Route path="/" element={<div>home page</div>} />
     </Routes>,
@@ -181,168 +158,6 @@ describe("AdminOverviewPage", () => {
   it("says so when the board cannot be read", async () => {
     serve("admin", () => jsonResponse({ ok: false, error: "server" }, 500));
     open("/admin");
-    expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في التحميل.");
-  });
-});
-
-describe("AdminAuditPage", () => {
-  it("lists the entries with who, what, on what, the detail and where from", async () => {
-    serve("admin", () => overview());
-    const { container } = open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    const row = container.querySelector('[data-entry="12"]') as HTMLElement;
-    expect(within(row).getByText("2026-10-02 4:10 PM")).toBeInTheDocument();
-    expect(within(row).getByText("Mona")).toBeInTheDocument();
-    expect(within(row).getByText("CL-0001")).toHaveClass("mono");
-    expect(within(row).getByText("client_detail")).toBeInTheDocument();
-    expect(within(row).getByText("203.0.113.7")).toBeInTheDocument();
-    expect(within(row).getByText("/clients/CL-0001/")).toBeInTheDocument();
-  });
-
-  it("calls an entry nobody made 'system'", async () => {
-    serve("admin", () => overview());
-    const { container } = open("/admin/audit");
-    await screen.findByText("system.sweep");
-    expect(within(container.querySelector('[data-entry="11"]') as HTMLElement).getByText("system")).toBeInTheDocument();
-  });
-
-  it("asks for the whole log first, and a filter in the address asks for that filter", async () => {
-    const mocked = serve("admin", () => overview());
-    open("/admin/audit?only=denied");
-    await screen.findByText("client.identity.view");
-    const audits = mocked.calls.filter((call) => call.url.startsWith("/api/v1/admin/audit/")).map((call) => call.url);
-    expect(audits).toEqual(["/api/v1/admin/audit/?only=denied"]);
-  });
-
-  it("marks the filter that is on and moves to another one with its link", async () => {
-    const mocked = serve("admin", () => overview());
-    const user = userEvent.setup();
-    open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    expect(screen.getByRole("link", { name: "الكل" })).toHaveClass("btn--primary");
-    await user.click(screen.getByRole("link", { name: "محاولات مرفوضة" }));
-    await screen.findByText("client.identity.view");
-    expect(screen.getByRole("link", { name: "محاولات مرفوضة" })).toHaveClass("btn--primary");
-    expect(screen.getByRole("link", { name: "الكل" })).not.toHaveClass("btn--primary");
-    expect(mocked.calls.some((call) => call.url === "/api/v1/admin/audit/?only=denied")).toBe(true);
-  });
-
-  it("treats a filter that is not one as the whole log, as the classic page does", async () => {
-    const mocked = serve("admin", () => overview());
-    open("/admin/audit?only=%3Cscript%3E");
-    await screen.findByText("client.identity.view");
-    expect(mocked.calls.filter((call) => call.url.startsWith("/api/v1/admin/audit/")).map((call) => call.url)).toEqual(["/api/v1/admin/audit/"]);
-  });
-
-  it("does not show one filter's rows under another's name while it loads", async () => {
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    const mocked = mockFetch({
-      "/api/v1/me/": () => jsonResponse(me({ role: "admin", is_admin: true })),
-      "/api/v1/admin/audit/": async (url) => {
-        if (url.searchParams.get("only") === "security") await gate;
-        return jsonResponse(audit({ only: (url.searchParams.get("only") ?? "") as AdminAudit["only"] }));
-      },
-    });
-    vi.stubGlobal("fetch", mocked.fn);
-    const user = userEvent.setup();
-    open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    await user.click(screen.getByRole("link", { name: "هوية العملاء والصلاحيات" }));
-    expect(await screen.findByText("بيحمّل...")).toBeInTheDocument();
-    expect(screen.queryByText("client.identity.view")).toBeNull();
-    release?.();
-    expect(await screen.findByText("client.identity.view")).toBeInTheDocument();
-  });
-
-  it("asks again on the refresh button", async () => {
-    const mocked = serve("admin", () => overview());
-    const user = userEvent.setup();
-    open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    await user.click(screen.getByRole("button", { name: "حدّث" }));
-    await vi.waitFor(() => expect(mocked.calls.filter((call) => call.url.startsWith("/api/v1/admin/audit/"))).toHaveLength(2));
-  });
-
-  it("offers no older button when there is nothing older", async () => {
-    serve("admin", () => overview());
-    const { container } = open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    expect(container.querySelector("[data-older]")).toBeNull();
-  });
-
-  it("loads the older entries under the first page, from the last row shown, until there are none", async () => {
-    const entry = (id: number) => ({ id, at: stamp("2026-10-01 4:00"), actor: "Mona", action: `old.entry.${id}`, target: "", detail: "", ip: "", path: "" });
-    const mocked = serve(
-      "admin",
-      () => overview(),
-      (only, before) => {
-        if (before === "11") return audit({ only: only as AdminAudit["only"], more: true, rows: [entry(10), entry(9)] });
-        if (before === "9") return audit({ only: only as AdminAudit["only"], more: false, rows: [entry(8)] });
-        return audit({ only: only as AdminAudit["only"], more: true });
-      },
-    );
-    const user = userEvent.setup();
-    const { container } = open("/admin/audit?only=denied");
-    await screen.findByText("client.identity.view");
-    await user.click(container.querySelector("[data-older]") as HTMLElement);
-    expect(await screen.findByText("old.entry.9")).toBeInTheDocument();
-    expect(screen.getByText("client.identity.view")).toBeInTheDocument();
-    expect(mocked.calls.map((call) => call.url)).toContain("/api/v1/admin/audit/?only=denied&before=11");
-    await user.click(container.querySelector("[data-older]") as HTMLElement);
-    expect(await screen.findByText("old.entry.8")).toBeInTheDocument();
-    expect(mocked.calls.map((call) => call.url)).toContain("/api/v1/admin/audit/?only=denied&before=9");
-    expect(container.querySelector("[data-older]")).toBeNull();
-    expect(container.querySelectorAll("[data-entry]")).toHaveLength(5);
-  });
-
-  it("starts from the newest again on the refresh button", async () => {
-    const entry = { id: 10, at: stamp("2026-10-01 4:00"), actor: "Mona", action: "old.entry.10", target: "", detail: "", ip: "", path: "" };
-    serve(
-      "admin",
-      () => overview(),
-      (only, before) => (before ? audit({ only: only as AdminAudit["only"], rows: [entry] }) : audit({ only: only as AdminAudit["only"], more: true })),
-    );
-    const user = userEvent.setup();
-    const { container } = open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    await user.click(container.querySelector("[data-older]") as HTMLElement);
-    await screen.findByText("old.entry.10");
-    await user.click(screen.getByRole("button", { name: "حدّث" }));
-    await vi.waitFor(() => expect(screen.queryByText("old.entry.10")).toBeNull());
-    expect(container.querySelector("[data-older]")).not.toBeNull();
-  });
-
-  it("says so when the older ones cannot be loaded, and keeps what is shown", async () => {
-    serve(
-      "admin",
-      () => overview(),
-      (only, before) => (before ? jsonResponse({ ok: false, error: "server" }, 500) : audit({ only: only as AdminAudit["only"], more: true })),
-    );
-    const user = userEvent.setup();
-    const { container } = open("/admin/audit");
-    await screen.findByText("client.identity.view");
-    await user.click(container.querySelector("[data-older]") as HTMLElement);
-    expect(await screen.findByRole("alert")).toHaveTextContent("ماقدرناش نحمّل الأقدم.");
-    expect(screen.getByText("client.identity.view")).toBeInTheDocument();
-  });
-
-  it("says when the log is empty", async () => {
-    serve("admin", () => overview(), () => audit({ rows: [] }));
-    open("/admin/audit");
-    expect(await screen.findByText("السجل فاضي.")).toBeInTheDocument();
-  });
-
-  it("sends anybody who is not the admin home, and asks the server for nothing", async () => {
-    const mocked = serve("hr", () => overview());
-    open("/admin/audit");
-    expect(await screen.findByText("home page")).toBeInTheDocument();
-    expect(mocked.calls.some((call) => call.url.startsWith("/api/v1/admin/"))).toBe(false);
-  });
-
-  it("says so when the log cannot be read", async () => {
-    serve("admin", () => overview(), () => jsonResponse({ ok: false, error: "server" }, 500));
-    open("/admin/audit");
     expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في التحميل.");
   });
 });

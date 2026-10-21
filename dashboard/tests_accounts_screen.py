@@ -83,14 +83,23 @@ class DoorMatrixTests(_Accounts):
         self.line = self.line_of()
         self.violation_row = self.violation()
 
-    def money_doors(self):
-        """Open to Accounting and the admin."""
+    def run_doors(self):
+        """Open to Accounting and the admin: running, approving and locking the month, and the attendance sheet."""
         return [
-            ("GET", OVERVIEW, None), ("POST", RECALC, None), ("POST", APPROVE, [self.line.period_id]),
+            ("POST", RECALC, None), ("POST", APPROVE, [self.line.period_id]),
             ("GET", SHEET, None), ("POST", REFRESH, None), ("POST", DAY_SAVE, None),
+        ]
+
+    def read_doors(self):
+        """Open to Accounting, HR (21/10/2026) and the admin: the month to read, the deductions to write and decide, a salary."""
+        return [
+            ("GET", OVERVIEW, None),
             ("GET", VIOLATIONS, None), ("POST", VIOLATION_NEW, None), ("POST", DECIDE, [self.violation_row.pk, "approve"]),
             ("GET", SALARY, [self.tr.pk]),
         ]
+
+    def money_doors(self):
+        return self.run_doors() + self.read_doors()
 
     def admin_doors(self):
         """The admin's alone."""
@@ -107,12 +116,21 @@ class DoorMatrixTests(_Accounts):
         return browser.get(url) if method == "GET" else browser.post(url, "{}", content_type="application/json")
 
     def test_accounting_and_the_admin_are_answered_and_nobody_else(self):
-        for method, name, args in self.money_doors():
+        for method, name, args in self.run_doors():
             for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.sales):
                 denied = self.call(user, method, name, args)
                 self.assertEqual((denied.status_code, _json(denied)), (403, {"ok": False, "error": "forbidden"}), (name, user.username))
             self.assertEqual(self.call(None, method, name, args).status_code, 401, name)
             for user in (self.admin, self.accounting):
+                self.assertNotIn(self.call(user, method, name, args).status_code, (401, 403), (name, user.username))
+
+    def test_hr_reads_the_month_and_decides_the_deductions_too(self):
+        for method, name, args in self.read_doors():
+            for user in (self.ops, self.lead, self.tr, self.reviewer, self.sales):
+                denied = self.call(user, method, name, args)
+                self.assertEqual((denied.status_code, _json(denied)), (403, {"ok": False, "error": "forbidden"}), (name, user.username))
+            self.assertEqual(self.call(None, method, name, args).status_code, 401, name)
+            for user in (self.admin, self.accounting, self.hr):
                 self.assertNotIn(self.call(user, method, name, args).status_code, (401, 403), (name, user.username))
 
     def test_the_rules_and_the_bonuses_are_the_admins_alone(self):
@@ -178,8 +196,19 @@ class OverviewTests(_Accounts):
         self.assertEqual(rows, [{"code": self.task.code, "translator": self.tr.short_name, "translator_gone": False}])
 
     def test_only_the_admin_is_told_they_may_open_a_payslip_or_a_task(self):
-        self.assertEqual(_json(self.get(self.admin, OVERVIEW))["can"], {"line": True, "task": True})
-        self.assertEqual(_json(self.get(self.accounting, OVERVIEW))["can"], {"line": False, "task": False})
+        self.assertEqual(_json(self.get(self.admin, OVERVIEW))["can"], {"line": True, "task": True, "run": True})
+        self.assertEqual(_json(self.get(self.accounting, OVERVIEW))["can"], {"line": False, "task": False, "run": True})
+
+    def test_hr_reads_the_month_but_is_told_it_may_not_run_it(self):
+        line = self.line_of()
+        body = _json(self.get(self.hr, OVERVIEW))
+        self.assertEqual(body["can"], {"line": False, "task": False, "run": False})
+        self.assertIn(line.pk, [row["id"] for row in body["lines"]])
+
+    def test_a_deductions_reason_hides_the_client_from_hr_too(self):
+        self.violation(task=self.task, reason=f"Complaint from {CLIENT_NAME} about page 3")
+        for name in (OVERVIEW, VIOLATIONS):
+            self.assertNotIn(CLIENT_NAME, self.get(self.hr, name).content.decode("utf-8"), name)
 
     def test_a_deductions_reason_hides_the_client_from_who_may_not_know_it_and_not_from_the_admin(self):
         self.violation(task=self.task, reason=f"Complaint from {CLIENT_NAME} about page 3")
@@ -527,6 +556,25 @@ class ViolationTests(_Accounts):
         self.assertEqual([(row["id"], row["decided_by"]) for row in body["decided"]], [(done.pk, self.admin.short_name)])
         self.assertEqual(body["pending"][0]["penalty_days"], "1.00")
         self.assertEqual(body["pending"][0]["kind"]["en"], "Translation error")
+
+    def test_hr_writes_a_violation_and_decides_one(self):
+        # 21/10/2026: HR gives a violation, and approves or lets go of one waiting (the late arrivals land here).
+        answer = self.post(self.hr, VIOLATION_NEW, {"values": {
+            "user": str(self.tr.pk), "date": self.today.isoformat(), "kind": "quality", "penalty_days": "0.5", "reason": "Late twice",
+        }})
+        self.assertEqual(answer.status_code, 200, answer.content)
+        written = Violation.objects.get(pk=_json(answer)["id"])
+        self.assertEqual((written.user, written.created_by, written.status), (self.tr, self.hr, ApprovalStatus.PENDING))
+        waiting = self.violation()
+        self.assertEqual(self.post(self.hr, DECIDE, {}, args=[waiting.pk, "reject"]).status_code, 200)
+        waiting.refresh_from_db()
+        self.assertEqual((waiting.status, waiting.approved_by), (ApprovalStatus.REJECTED, self.hr))
+        self.assertEqual(self.post(self.hr, DECIDE, {}, args=[written.pk, "approve"]).status_code, 200)
+        written.refresh_from_db()
+        self.assertEqual(written.status, ApprovalStatus.APPROVED)
+
+    def test_hr_is_told_it_may_decide_the_star_penalties_here(self):
+        self.assertEqual(_json(self.get(self.hr, VIOLATIONS))["stars"]["can"], {"decide": True, "change": False})
 
     def test_the_defaults_are_the_rules_numbers(self):
         conf = PayrollSettings.load()

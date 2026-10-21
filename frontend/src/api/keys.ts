@@ -39,7 +39,7 @@ export const qk = {
   /** What technical support has announced: asked again after each send. */
   announce: ["announce"] as const,
   /** The mailbox: the conversations (by the filter and the search), and one conversation. Under `boards`: a doorbell asks again. */
-  mail: (state: string, query: string) => ["boards", "mail", "list", state, query] as const,
+  mail: (state: string, query: string, alias = "") => ["boards", "mail", "list", state, query, alias] as const,
   mailLists: ["boards", "mail", "list"] as const,
   mailThread: (id: number) => ["boards", "mail", "thread", id] as const,
   /** The client codes (by the search), and one client: under `boards`, so a doorbell asks again. */
@@ -61,7 +61,6 @@ export const qk = {
   /** The admin's overview: with the boards, so a beat that says something moved asks again. */
   adminOverview: ["boards", "admin", "overview"] as const,
   /** The audit log, by filter: outside the boards on purpose, a log that moves under the eye is harder to read (it has a refresh button). */
-  adminAudit: (only: string) => ["admin-audit", only] as const,
   /** The staff table: with the boards (who is here moves). A person's file and the new-person form are outside them, so a doorbell never refills a form being typed in. */
   adminUser: (id: number) => ["admin-user", id] as const,
   adminUserNew: ["admin-user-new"] as const,

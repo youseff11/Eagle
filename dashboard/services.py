@@ -230,6 +230,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
 
     if owner is None and channel == Channel.EMAIL and recipients:
         owner = lines.owner_for_addresses(recipients)
+    to_alias = lines.alias_for_addresses(recipients) if channel == Channel.EMAIL else ""
 
     if external_id:
         existing = InboundMessage.objects.filter(external_id=external_id).first()
@@ -280,6 +281,7 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
         is_rate_blocked=bool(keyword),
         blocked_keyword=keyword,
         owner=owner,
+        to_alias=to_alias,
     )
 
     # A company on the Sales person's B2B sheet answered: the row says so. In a savepoint of its own, so a mark that breaks
@@ -385,12 +387,15 @@ def ingest_message(*, channel, body="", subject="", sender_identity="",
     return message
 
 
-def inbox_queryset(user, state="", query=""):
+def inbox_queryset(user, state="", query="", alias=""):
     """The e-mail inbox, filtered identically for the page and the live feed.
 
     E-mail only, on purpose. WhatsApp is a conversation and lives in the client
     chat; a mailbox is a list of letters and lives here. A message that is in
     both places is a message two people answer twice.
+
+    ``alias`` narrows the admin's list to the letters of one address on the
+    company mailbox (``lines.alias_q``); it means nothing for anybody else.
     """
     from django.db.models import Q
 
@@ -404,6 +409,9 @@ def inbox_queryset(user, state="", query=""):
     # Rate talk never reaches the operation role (the admin and Sales read it).
     if not user.sees_rate_talk:
         qs = qs.filter(is_rate_blocked=False)
+
+    if alias and user.is_admin_role:
+        qs = qs.filter(lines.alias_q(alias))
 
     if state == "unclaimed":
         qs = qs.filter(claimed_by__isnull=True)
@@ -607,14 +615,14 @@ def _build_threads(user, idents):
     return threads
 
 
-def inbox_threads(user, state="", query="", limit=100):
+def inbox_threads(user, state="", query="", limit=100, alias=""):
     """The mail page as conversations, filtered like :func:`inbox_queryset`.
 
     A conversation is on the list when *any* letter in it matches — a search
     for "word count" finds the conversation that has it — and the row then
     carries the whole conversation, as Gmail's does.
     """
-    matching = inbox_queryset(user, state, query)
+    matching = inbox_queryset(user, state, query, alias)
 
     idents = []
     for pk, key in matching.order_by("-received_at", "-id").values_list(

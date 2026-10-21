@@ -358,7 +358,7 @@ describe("the menu's search", () => {
   it("finds nothing of a page the person has no line for", async () => {
     const { container } = renderMenu();
     await waitFor(() => expect(group(container, "mine")).not.toBeNull());
-    await userEvent.type(box(container), "سجل النشاط");
+    await userEvent.type(box(container), "محاكاة رسالة");
     expect(await screen.findByText("مفيش حاجة بالاسم ده.")).toBeInTheDocument();
     expect(rows(container)).toHaveLength(0);
   });

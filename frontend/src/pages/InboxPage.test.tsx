@@ -35,6 +35,8 @@ function list(over: Partial<MailListResponse> = {}): MailListResponse {
     ok: true,
     state: "",
     q: "",
+    alias: "",
+    aliases: [],
     threads: [row("k1", { id: 12, count: 3, unread: true }), row("k2", { id: 21, from: "", code: "" })],
     unseen: 1,
     unclaimed: 2,
@@ -285,6 +287,35 @@ describe("InboxPage", () => {
       expect(listCalls(mocked.calls), role).toEqual([]);
       unmount();
     }
+  });
+
+  it("lets the admin narrow the mail to one address, keeps it in the address and takes it into a conversation", async () => {
+    const aliases = [
+      { address: "operation1@eagle.test", holder: "Mona" },
+      { address: "info@eagle.test", holder: null },
+    ];
+    const { calls } = serve(() => jsonResponse(list({ aliases })), "admin");
+    const user = userEvent.setup();
+    const { container } = open();
+    await screen.findByText("Subject of k1");
+    const picker = screen.getByRole("combobox", { name: "العنوان" });
+    expect(within(picker).getByRole("option", { name: "operation1@eagle.test (Mona)" })).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "info@eagle.test" })).toBeInTheDocument();
+    await user.selectOptions(picker, "info@eagle.test");
+    await waitFor(() => expect(listCalls(calls)).toContain("/api/v1/mail/threads/?alias=info%40eagle.test"));
+    expect(screen.getByTestId("where")).toHaveTextContent("/inbox?alias=info%40eagle.test");
+    await user.selectOptions(screen.getByRole("combobox", { name: "الفلتر" }), "unclaimed");
+    await waitFor(() => expect(listCalls(calls)).toContain("/api/v1/mail/threads/?state=unclaimed&alias=info%40eagle.test"));
+    const link = container.querySelector('[data-thread="k1"] a') as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/inbox/thread/12?state=unclaimed&alias=info%40eagle.test");
+  });
+
+  it("shows no address picker to the operation, and sends no address it was typed", async () => {
+    const { calls } = serve(() => jsonResponse(list()));
+    open("/inbox?alias=info%40eagle.test");
+    await screen.findByText("Subject of k1");
+    expect(screen.queryByRole("combobox", { name: "العنوان" })).toBeNull();
+    expect(listCalls(calls).every((url) => !url.includes("alias"))).toBe(true);
   });
 
   it("says it could not load, and says it in English too", async () => {

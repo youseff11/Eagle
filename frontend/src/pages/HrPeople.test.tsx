@@ -167,7 +167,11 @@ describe("HrEmployeePage", () => {
     expect(within(roster).getByRole("link", { name: /عدّل الجدول/ })).toHaveAttribute("href", "/hr/schedules?user=11");
     expect(container.querySelector('[data-card="probation"]')).toHaveTextContent("مراجعة 30 يوم");
     expect(container.querySelector('[data-card="leave"]')).toHaveTextContent("إجازة اعتيادية");
-    expect(within(container.querySelector('[data-card="application"]') as HTMLElement).getByRole("link", { name: "CAN-0007" })).toHaveAttribute("href", "/hr/candidates/CAN-0007");
+    // Recruitment has no page since 21/10/2026: the application is named, not linked, and the probation card has no board to go to.
+    const application = container.querySelector('[data-card="application"]') as HTMLElement;
+    expect(within(application).getByText("CAN-0007")).toBeInTheDocument();
+    expect(within(application).queryByRole("link")).toBeNull();
+    expect(container.querySelector('[data-card="probation"] a')).toBeNull();
     expect(container.querySelector('[data-card="salary"]')).toHaveTextContent("3500.50");
   });
 

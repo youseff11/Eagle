@@ -25,10 +25,15 @@ class WhatEachPersonHasTests(_Site):
         self.assertEqual(self.keys(self.sales), ["sales", "attendance", "leave", "performance", "chats"])
         self.assertEqual(self.keys(self.accounting), ["accounts", "attendance", "leave", "performance", "chats"])
         self.assertEqual(self.keys(self.hr), ["hr", "attendance", "leave", "performance", "chats"])
-        self.assertEqual(self.keys(self.reviewer), ["reviewer", "attendance", "leave", "performance", "chats"])
+        # The reviewer marked the candidate tests; recruitment is done by hand since 21/10/2026, so there is no screen of it.
+        self.assertEqual(self.keys(self.reviewer), ["attendance", "leave", "performance", "chats"])
 
-    def test_a_team_leader_also_has_the_candidate_tests_they_may_mark(self):
-        self.assertEqual(self.keys(self.lead), ["lead", "reviewer", "attendance", "leave", "performance", "chats"])
+    def test_a_team_leader_has_no_candidate_tests_any_more(self):
+        self.assertEqual(self.keys(self.lead), ["lead", "attendance", "leave", "performance", "chats"])
+        self.assertNotIn("reviewer", newui.SCREENS)
+
+    def test_the_hr_screen_opens_on_the_employee_files_not_on_recruitment(self):
+        self.assertEqual(newui.SCREENS["hr"].path, "/hr/employees")
 
     def test_the_admin_has_the_panel_the_money_hr_and_the_operation_and_not_another_roles_desk(self):
         self.assertEqual(self.keys(self.admin), ["admin", "accounts", "hr", "operation", "chats"])

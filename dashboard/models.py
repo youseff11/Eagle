@@ -1311,6 +1311,9 @@ class InboundMessage(models.Model):
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="line_messages",
     )
+    #: The address on the company mailbox (an alias) a letter was sent to, lower-case. Empty for the main address, for WhatsApp,
+    #: and for a letter from before 21/10/2026. The admin's mailbox can be narrowed to one address (``lines.alias_q``).
+    to_alias = models.CharField(max_length=190, blank=True, default="", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

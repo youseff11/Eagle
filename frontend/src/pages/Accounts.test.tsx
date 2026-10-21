@@ -87,7 +87,7 @@ function overview(over: Partial<AccountsOverview> = {}): AccountsOverview {
     pending_violations: [violation(5, { escalated: true, task: "TSK-00009" })],
     missing_salary: [{ id: 41, name: "Newbie", username: "newbie", initials: "NE" }],
     unsettled_tasks: [{ code: "TSK-00004", translator: "Sam" }, { code: "TSK-00005", translator: null }],
-    can: { line: true, task: true },
+    can: { line: true, task: true, run: true },
     ...over,
   };
 }
@@ -177,11 +177,24 @@ describe("AccountsOverviewPage", () => {
   });
 
   it("offers no detail link to accounting", async () => {
-    serve("accounting", { "/api/v1/accounts/overview/": () => jsonResponse(overview({ can: { line: false, task: false } })) });
+    serve("accounting", { "/api/v1/accounts/overview/": () => jsonResponse(overview({ can: { line: false, task: false, run: true } })) });
     open("/accounts");
     await screen.findByText("كشف الشهر");
     expect(screen.queryByRole("link", { name: "التفاصيل" })).toBeNull();
     expect(screen.getByText("TSK-00004").closest("a")).toBeNull();
+  });
+
+  it("shows HR the month to read, without running, approving or locking it (21/10/2026)", async () => {
+    const served = serve("hr", { "/api/v1/accounts/overview/": () => jsonResponse(overview({ can: { line: false, task: false, run: false } })) });
+    const { container } = open("/accounts");
+    await screen.findByText("كشف الشهر");
+    expect(container.querySelector('[data-line="1"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "احسب الشهر" })).toBeNull();
+    // The month's own approve is not offered; the deductions waiting still are (HR decides them).
+    const month = screen.getByRole("heading", { name: "كشف الشهر" }).closest(".card") as HTMLElement;
+    expect(within(month).queryByRole("button", { name: "اعتماد" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "اعتماد" }).length).toBeGreaterThan(0);
+    expect(served.calls.some((call) => call.url.startsWith("/api/v1/accounts/overview/"))).toBe(true);
   });
 
   it("names the translators with no salary, linking to their salary page", async () => {
@@ -311,7 +324,7 @@ describe("AccountsOverviewPage", () => {
   });
 
   it("sends anybody else home and asks the server for nothing", async () => {
-    for (const who of ["operation", "translator", "hr", "sales"] as const) {
+    for (const who of ["operation", "translator", "sales"] as const) {
       const served = serve(who);
       const view = open("/accounts");
       expect(await screen.findByText("home page"), who).toBeInTheDocument();

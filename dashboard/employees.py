@@ -673,5 +673,9 @@ def restore_employee(person, actor):
 # ---------------------------------------------------------------------------
 
 def sweep(now=None):
-    """Everything in this module that is time-based rather than click-based."""
-    return {"probation": probation_sweep(now)}
+    """Everything in this module that is time-based rather than click-based.
+
+    Nothing, since 21/10/2026: the probation reviews belonged to recruitment, which is done by hand now and has no page, so a
+    review coming due is not rung to HR any more. ``probation_sweep`` stays for the day it comes back.
+    """
+    return {"probation": 0}

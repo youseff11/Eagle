@@ -417,3 +417,61 @@ class MailHandOnTests(_Mail):
         # The hand-on is only an address: the new page asks the door, which answers 404 for it.
         self.assertEqual(self.get(self.ops, "dashboard:ops_mail_thread", [sales_letter.pk]).status_code, 302)
         self.assertEqual(self.get(self.ops, THREAD, [sales_letter.pk]).status_code, 404)
+
+
+class MailAliasViewTests(_Mail):
+    """21/10/2026: the admin narrows the mailbox to the letters of one address of the company mailbox. A view, never a permission."""
+
+    def setUp(self):
+        super().setUp()
+        conf = AppSettings.load()
+        conf.mail_aliases = "info@eagle.test\nops1@eagle.test\nhr@eagle.test"
+        conf.mail_aliases_hidden = "hr@eagle.test"
+        conf.save()
+        self.ops.mail_alias = "ops1@eagle.test"
+        self.ops.save(update_fields=["mail_alias"])
+
+    def keys(self, user, **query):
+        return [row["key"] for row in self.rows(user, **query)]
+
+    def test_the_admin_is_offered_every_address_with_who_holds_it_and_not_the_hidden_ones(self):
+        body = _json(self.get(self.admin, LIST))
+        self.assertEqual(body["aliases"], [
+            {"address": "info@eagle.test", "holder": None},
+            {"address": "ops1@eagle.test", "holder": self.ops.short_name},
+        ])
+        self.assertEqual(body["alias"], "")
+
+    def test_the_admin_sees_only_the_letters_that_came_in_on_the_address_picked(self):
+        self.first.to_alias = "info@eagle.test"
+        self.first.save(update_fields=["to_alias"])
+        self.assertEqual(sorted(self.keys(self.admin)), ["k1", "k2"])
+        self.assertEqual(self.keys(self.admin, alias="info@eagle.test"), ["k1"])
+        # Typed in capitals, it is the same address.
+        self.assertEqual(self.keys(self.admin, alias="INFO@eagle.test"), ["k1"])
+        self.assertEqual(self.keys(self.admin, alias="ops1@eagle.test"), [])
+
+    def test_a_letter_from_before_the_stamp_is_found_by_who_holds_the_address(self):
+        self.single.owner = self.ops
+        self.single.save(update_fields=["owner"])
+        self.assertEqual(self.keys(self.admin, alias="ops1@eagle.test"), ["k2"])
+
+    def test_nobody_else_may_pick_and_an_address_not_offered_is_refused(self):
+        for user, address in ((self.ops, "info@eagle.test"), (self.admin, "nobody@eagle.test"), (self.admin, "hr@eagle.test")):
+            answer = self.get(user, LIST, alias=address)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "bad_filter"), (user.username, address))
+        self.assertEqual(_json(self.get(self.ops, LIST))["aliases"], [])
+
+    def test_a_letter_is_stamped_with_the_company_address_it_came_in_on(self):
+        def arrive(n, recipients):
+            return services.ingest_message(
+                channel=Channel.EMAIL, subject=f"Hello {n}", body="Body", sender_identity="new.buyer@client.test",
+                external_id=f"<alias{n}@mail.test>", recipients=recipients,
+            )
+
+        self.assertEqual(arrive(1, ["someone@else.test", "INFO@eagle.test"]).to_alias, "info@eagle.test")
+        held = arrive(2, ["ops1@eagle.test"])
+        self.assertEqual((held.to_alias, held.owner), ("ops1@eagle.test", self.ops))
+        # The hidden ones are still stamped: the letter did come in on them.
+        self.assertEqual(arrive(3, ["hr@eagle.test"]).to_alias, "hr@eagle.test")
+        self.assertEqual(arrive(4, ["main@eagle.test"]).to_alias, "")

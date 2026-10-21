@@ -1788,34 +1788,6 @@ GUIDES = (
         ],
     ),
     # ------------------------------------------------------------------------------------------------------------------
-    # The reviewer (and whoever marks candidate tests).
-    # ------------------------------------------------------------------------------------------------------------------
-    _guide(
-        "reviewer-mark-test", (Role.REVIEWER, Role.TEAM_LEAD, Role.ADMIN), "/reviewer/tests",
-        ("إزاي أصحّح اختبار مرشح", "How do I mark a candidate's test"),
-        (
-            "صحّح اختبار، تصحيح الاختبار، اختبارات المرشحين، قيّم الاختبار، درجة المرشح، مراجع",
-            "mark a test, marking, candidate tests, score the test, candidate's grade, reviewer",
-        ),
-        [
-            "افتح «اختبارات المرشحين» (قسم «التوظيف»).",
-            "في «مستنية تصحيح» اضغط «صحّح» على الاختبار.",
-            "نزّل «ملف تسليم المرشح» وقارنه بالمطلوب.",
-            "اكتب درجة كل بند من 10 واضغط «احفظ التقييم». الإجمالي بيتحسب لوحده.",
-        ],
-        [
-            "Open «Candidate tests» (the «Recruitment» section).",
-            "Under «Waiting to be marked» press «Mark» on the test.",
-            "Download «The candidate's submission» and compare it with what was asked.",
-            "Write each item's score out of 10 and press «Save». The total is computed for you.",
-        ],
-        note=(
-            "ماتعرفش مين المرشح: بتشوف كود وشغله بس.",
-            "You do not see who the candidate is: only a code and the work.",
-        ),
-        starter=True,
-    ),
-    # ------------------------------------------------------------------------------------------------------------------
     # HR (and the owner, who can do it all). The attendance guides also open to an attendance manager of another role.
     # ------------------------------------------------------------------------------------------------------------------
     _guide(
@@ -1997,69 +1969,6 @@ GUIDES = (
         cap="can_manage_attendance",
     ),
     _guide(
-        "hr-vacancy", (Role.HR, Role.ADMIN), "/hr/vacancies",
-        ("إزاي أفتح وظيفة جديدة", "How do I open a new vacancy"),
-        (
-            "وظيفة جديدة، الوظائف، اعلان وظيفة، افتح وظيفة، وظيفة، أسئلة البوت للوظيفة",
-            "new vacancy, vacancies, job ad, open a vacancy, job, the bot's questions for the vacancy",
-        ),
-        [
-            "من قسم «التوظيف» افتح «الوظائف».",
-            "اضغط «وظيفة جديدة»، اكتب «المسمى» واختار «القسم» و«النظام» واضغط «احفظ».",
-            "بعد الحفظ افتح الوظيفة واختار «أسئلة البوت للوظيفة دي» بـ«ضيف سؤال» ورتّبها واضغط «احفظ الترتيب».",
-        ],
-        [
-            "In the «Recruitment» section open «Vacancies».",
-            "Press «New vacancy», write the «Title», pick the «Department» and «Mode» and press «Save».",
-            "After saving open the vacancy and choose «The bot's questions» with «Add a question», order them and press «Save the order».",
-        ],
-        cap="can_recruit",
-        starter=True,
-    ),
-    _guide(
-        "hr-candidates", (Role.HR, Role.ADMIN), "/hr/candidates",
-        ("إزاي أتابع مرشح (حالة ورسالة واختبار ومقابلة)", "How do I handle a candidate (status, message, test, interview)"),
-        (
-            "مرشح، المرشحين، متقدم، اتابع مرشح، غيّر حالة المرشح، ابعت رسالة لمرشح، اختبار مرشح، مقابلة، حدد مقابلة، لوحة التوظيف",
-            "candidate, candidates, applicant, handle a candidate, change the candidate's status, message a candidate, test, interview, schedule an interview",
-        ),
-        [
-            "من قسم «التوظيف» افتح «المرشحين» (أو «لوحة التوظيف» لآخر المتقدمين) وادخل على المرشح.",
-            "لتغيير حالته اختار «الحالة الجديدة» واضغط «انقل».",
-            "لرسالة اضغط «ابعتله رسالة» واكتبها واضغط «ابعت». الرسالة بتخرج من رقم التوظيف وبتعدي على فلتر إخفاء هوية الشركة.",
-            "لاختبار اضغط «اضبط اختبار»، ولمقابلة اضغط «حدّد مقابلة»، وبعد المقابلة اضغط «قيّم» وسجّل الدرجات.",
-        ],
-        [
-            "In the «Recruitment» section open «Candidates» (or the «Recruitment board» for the latest applicants) and go into the candidate.",
-            "To change the status pick the «New status» and press «Move».",
-            "For a message press «Message the candidate», write it and press «Send». It leaves from the recruitment number and passes the company-identity filter.",
-            "For a test press «Set a test», for an interview press «Schedule an interview», and after it press «Score» and record the marks.",
-        ],
-        cap="can_recruit",
-        starter=True,
-    ),
-    _guide(
-        "hr-hire", (Role.HR, Role.ADMIN), "/hr/candidates",
-        ("إزاي أعيّن مرشح موظف", "How do I hire a candidate"),
-        (
-            "عيّن مرشح، تعيين، حوّله لموظف، وظّف، موافقة المالك، عيّنه، تعيين موظف جديد",
-            "hire a candidate, hiring, make an employee, take on, owner approval",
-        ),
-        [
-            "التعيين مابيحصلش تلقائي: لازم المالك يوافق الأول من «موافقات التعيين».",
-            "بعد الموافقة افتح المرشح من «المرشحين» واضغط «حوّله لموظف».",
-            "راجع «بيانات التعاقد» (الشيفت والقسم والراتب المتفق عليه) واضغط «عيّنه».",
-            "هتلاقيه بعد كده في «ملفات الموظفين» وبتفتحله «ملف الموظف».",
-        ],
-        [
-            "Hiring is never automatic: the owner must approve first under «Hiring approvals».",
-            "After approval open the candidate from «Candidates» and press «Make an employee».",
-            "Check the «Contract details» (shift, department and agreed salary) and press «Hire».",
-            "You will then find them in «Employee files» and open their «Employee file».",
-        ],
-        cap="can_recruit",
-    ),
-    _guide(
         "hr-employee-file", (Role.HR, Role.ADMIN), "/hr/employees",
         ("إزاي أفتح ملف موظف", "How do I open an employee's file"),
         (
@@ -2094,25 +2003,6 @@ GUIDES = (
             "Open «Employees». Above the register you will find «Star penalties waiting for a decision» with the employee, the stars, the reason and the task.",
             "The stars are already off. Press «Apply it» to keep the penalty, or «Forgive and give the stars back» to return the stars to the employee, who is told.",
             "You may write a note first. A penalty is decided once, and stays on the employee's file under «Rating penalties» with who decided it.",
-        ],
-        cap="can_recruit",
-    ),
-    _guide(
-        "hr-probation", (Role.HR, Role.ADMIN), "/hr/probation",
-        ("إزاي أتابع فترة اختبار موظف", "How do I follow an employee's probation"),
-        (
-            "فترة الاختبار، فترة تجربة، مراجعة الموظف الجديد، قرّر في الموظف، تحت الاختبار",
-            "probation, trial period, review a new employee, decide on an employee, on probation",
-        ),
-        [
-            "من قسم «الموظفين» افتح «فترة الاختبار».",
-            "«تحت الاختبار» فيها كل اللي لسه في الفترة؛ افتح المراجعات المستحقة بـ«افتح المراجعات».",
-            "اضغط «قرّر» وسجّل التقييم والنتيجة واضغط «احفظ».",
-        ],
-        [
-            "In the «People» section open «Probation».",
-            "«On probation» lists everybody still in the period; open the due ones with «Open the reviews».",
-            "Press «Decide», record the score and the outcome and press «Save».",
         ],
         cap="can_recruit",
     ),
@@ -2154,25 +2044,6 @@ GUIDES = (
         ],
         cap="can_recruit",
     ),
-    _guide(
-        "hr-questions", (Role.HR, Role.ADMIN), "/hr/questions",
-        ("إزاي أضيف سؤال لبنك أسئلة التوظيف", "How do I add a question to the recruitment question bank"),
-        (
-            "بنك الأسئلة، سؤال جديد، أسئلة التوظيف، أسئلة البوت، ضيف قسم",
-            "question bank, new question, recruitment questions, the bot's questions, add a department",
-        ),
-        [
-            "من قسم «الإعدادات» افتح «بنك الأسئلة».",
-            "اضغط «سؤال جديد» واكتب السؤال واختار القسم والنوع واضغط «احفظ».",
-            "لقسم جديد استخدم «ضيف قسم». السؤال بيتختار بعد كده لأي وظيفة.",
-        ],
-        [
-            "In the «Settings» section open «Question bank».",
-            "Press «New question», write the question, pick the department and type and press «Save».",
-            "For a new department use «Add». The question can then be chosen for any vacancy.",
-        ],
-        cap="can_recruit",
-    ),
     # ------------------------------------------------------------------------------------------------------------------
     # Accounting.
     # ------------------------------------------------------------------------------------------------------------------
@@ -2202,25 +2073,48 @@ GUIDES = (
         starter=True,
     ),
     _guide(
-        "acc-violation", (Role.ACCOUNTING, Role.ADMIN), "/accounts/violations",
+        "acc-violation", (Role.ACCOUNTING, Role.HR, Role.ADMIN), "/accounts/violations",
         ("إزاي أسجّل مخالفة أو خصم وأعتمده", "How do I record a violation or deduction and approve it"),
         (
-            "مخالفة، خصم، المخالفات والخصومات، سجل مخالفة، اعتمد الخصم، ارفض الخصم، خصم من المترجم",
-            "violation, deduction, violations and deductions, record a violation, approve the deduction, reject the deduction",
+            "مخالفة، خصم، المخالفات والخصومات، سجل مخالفة، احط مخالفة، مخالفة لموظف، جزاء، اعتمد الخصم، ارفض الخصم، سامح التأخير، خصم من المترجم، خصم من موظف",
+            "violation, deduction, violations and deductions, record a violation, give an employee a violation, penalty, approve the deduction, reject the deduction",
         ),
         [
             "من قسم «الحسابات» افتح «المخالفات والخصومات».",
-            "اضغط «سجل مخالفة» واختار المترجم والنوع والتاريخ والتاسك (بالكود) والسبب، واضغط «سجل». بتتسجل «مستنية الاعتماد».",
+            "اضغط «سجل مخالفة» واختار الموظف والنوع والتاريخ والتاسك (بالكود) والسبب، واضغط «سجل». بتتسجل «مستنية الاعتماد».",
             "في «مستنية الاعتماد» اضغط «اعتماد» أو «رفض».",
         ],
         [
             "In the «Accounts» section open «Violations».",
-            "Press «Record a violation» and pick the translator, kind, date, task (by code) and reason, then press «Record». It is saved «Awaiting approval».",
+            "Press «Record a violation» and pick the employee, kind, date, task (by code) and reason, then press «Record». It is saved «Awaiting approval».",
             "Under «Awaiting approval» press «Approve» or «Reject».",
         ],
         note=(
             "مفيش خصم بيتطبق قبل اعتماده.",
             "No deduction applies before it is approved.",
+        ),
+        starter=True,
+    ),
+    _guide(
+        "hr-month", (Role.HR,), "/accounts",
+        ("إزاي أراجع مرتبات الموظفين", "How do I review the employees' pay"),
+        (
+            "مرتبات الموظفين، المرتبات، كشف الشهر، راجع المرتبات، صافي المرتب، خصومات الموظف، راتب موظف، سجل الراتب",
+            "employees' pay, salaries, the month's sheet, review the pay, net pay, an employee's deductions, salary history",
+        ),
+        [
+            "من قسم «الحسابات» افتح «كشف الشهر» واختار الشهر.",
+            "هتلاقي سطر لكل مترجم فيه الراتب والأيام والكلمات والبونص والخصومات والصافي، والخصومات اللي مستنية قرار تحت.",
+            "سجل راتب أي موظف في ملفه: من قسم «الموظفين» افتح «ملفات الموظفين» وادخل عليه، هتلاقي «سجل الراتب».",
+        ],
+        [
+            "In the «Accounts» section open «Monthly payroll» and pick the month.",
+            "Each translator has a line with the salary, the days, the words, the bonus, the deductions and the net, and the deductions waiting are below.",
+            "Anyone's salary history is on their file: in the «People» section open «Employee files» and go into theirs, under «Salary history».",
+        ],
+        note=(
+            "الكشف عندك للمراجعة: حسابه واعتماده وقفله شغل الحسابات والمالك.",
+            "The sheet is yours to review: running, approving and locking it is accounting's and the owner's.",
         ),
         starter=True,
     ),
@@ -2383,35 +2277,17 @@ GUIDES = (
         [
             "افتح «ملفات الموظفين» وادخل على الشخص.",
             "في «الحساب والصلاحيات» علّم خانة يشوف هوية العميل الحقيقية.",
-            "اضغط «حفظ». كل تغيير وكل فتح بعده بيتسجل في «سجل النشاط».",
+            "اضغط «حفظ». كل تغيير وكل فتح بعده بيتسجل في سجل السيستم.",
         ],
         [
             "Open «Employee files» and go into the person.",
             "In «Account and access» tick the box that lets them see the client's real identity.",
-            "Press «Save». Every change and every opening afterwards is written to the «Audit log».",
+            "Press «Save». Every change and every opening afterwards is written to the system's log.",
         ],
         note=(
             "الصلاحية دي لـAccounting بس. الأوبريشن والتيم ليدر والمترجم مستحيل يشوفوا الهوية حتى لو الخانة معلّمة، والـSales بيشوفها دايمًا.",
             "It is for Accounting only. Operation, team leaders and translators can never see it even if the box is ticked, and Sales always do.",
         ),
-    ),
-    _guide(
-        "admin-hire-approve", (Role.ADMIN,), "/hr/approvals",
-        ("إزاي أوافق على تعيين مرشح", "How do I approve hiring a candidate"),
-        (
-            "موافقات التعيين، وافق على التعيين، ارفض مرشح، قرار التعيين، المالك يوافق",
-            "hiring approvals, approve the hire, reject a candidate, hiring decision, owner approval",
-        ),
-        [
-            "من قسم «التوظيف» افتح «موافقات التعيين».",
-            "في «مستني قرارك» راجع «توصية HR:» ودرجة الاختبار والمقابلة والـCV والراتب المتوقع.",
-            "اضغط «وافق على التعيين»، أو «ارفض» واكتب «سبب الرفض».",
-        ],
-        [
-            "In the «Recruitment» section open «Hiring approvals».",
-            "Under «Waiting for you» check the «HR recommendation:», the test and interview scores, the CV and the expected salary.",
-            "Press «Approve», or «Reject» and write the «Reason for rejecting».",
-        ],
     ),
     _guide(
         "admin-settings", (Role.ADMIN,), "/admin/settings",
@@ -2474,8 +2350,8 @@ GUIDES = (
             "The orders it can take: make a shift, record a deduction, a day off or other hours for one day, decide a leave request, cancel a task, give a task to a team leader, add a client requirement, switch an account off or on, and give an employee a mail address.",
         ],
         note=(
-            "ماينفّذش حاجة من غير ضغطتك. الخصم بيتسجل «مستنية الاعتماد» زي أي خصم ومابيتعتمدش لوحده. كل أمر بيتنفّذ بيتسجل في «سجل النشاط»، والخيار ده ليك انت بس.",
-            "Nothing runs without your press. A deduction is recorded as waiting for approval like any other and is never approved by itself. Every order that ran is written to the «Audit log», and this works for you alone.",
+            "ماينفّذش حاجة من غير ضغطتك. الخصم بيتسجل «مستنية الاعتماد» زي أي خصم ومابيتعتمدش لوحده. كل أمر بيتنفّذ بيتسجل في سجل السيستم، والخيار ده ليك انت بس.",
+            "Nothing runs without your press. A deduction is recorded as waiting for approval like any other and is never approved by itself. Every order that ran is written to the system's log, and this works for you alone.",
         ),
     ),
     _guide(
@@ -2520,8 +2396,8 @@ GUIDES = (
             "Press «Edit» to change a client, or «New client» to add one, and save.",
         ],
         note=(
-            "الصفحة دي للأدمن بس وفيها الأسماء والأرقام الحقيقية. كل فتح للهوية بيتسجل في «سجل النشاط».",
-            "This page is the admin's only and holds the real names and numbers. Every opening of an identity is written to the «Audit log».",
+            "الصفحة دي للأدمن بس وفيها الأسماء والأرقام الحقيقية. كل فتح للهوية بيتسجل في سجل السيستم.",
+            "This page is the admin's only and holds the real names and numbers. Every opening of an identity is written to the system's log.",
         ),
     ),
     _guide(
@@ -2585,24 +2461,6 @@ GUIDES = (
             "لو النص فيه كلمة rate الرسالة بتتحجب عن الأوبريشن وتظهر للأدمن بس.",
             "If the text contains the word rate the message is hidden from Operation and shown to the admin only.",
         ),
-    ),
-    _guide(
-        "admin-audit", (Role.ADMIN,), "/admin/audit",
-        ("فين سجل النشاط", "Where is the audit log"),
-        (
-            "سجل النشاط، اللوج، مين فتح، مين عمل إيه، سجل الأمان، مراقبة، رفض صلاحية",
-            "audit log, the log, who opened, who did what, security log, monitoring, denied access",
-        ),
-        [
-            "من قسم «الإعدادات» افتح «سجل النشاط».",
-            "كل صف فيه «الشخص» و«الحدث» و«الهدف» و«من فين» والوقت.",
-            "«حدّث» بيجيب الجديد و«الأقدم» بيجيب الأقدم.",
-        ],
-        [
-            "In the «Settings» section open «Audit log».",
-            "Each row has the «Actor», «Action», «Target», «From» and the time.",
-            "«Refresh» brings the new ones and «Older» brings the older.",
-        ],
     ),
     _guide(
         "admin-reset", (Role.ADMIN,), "/admin",

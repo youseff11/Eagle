@@ -76,15 +76,14 @@ export interface ScreenEntry {
 
 /**
  * The menu is drawn in the classic menu's sections (`dashboard/nav.py`), in this order, each under a heading that folds: the
- * work itself first, then recruitment, the people and their attendance, the money, the places and rules that are set once,
+ * work itself first, then the people and their attendance, the money, the places and rules that are set once,
  * the person's own things, and the two that delete for good last of all. A person has the lines of their screens, and a
  * section with none of their lines is not drawn: a translator's menu is three short sections, the admin's all of them.
  */
-export type Section = "work" | "hiring" | "people" | "accounts" | "settings" | "mine" | "danger";
+export type Section = "work" | "people" | "accounts" | "settings" | "mine" | "danger";
 
 export const SECTIONS: { key: Section; label: [string, string] }[] = [
   { key: "work", label: ["الشغل", "Work"] },
-  { key: "hiring", label: ["التوظيف", "Recruitment"] },
   { key: "people", label: ["الموظفين", "People"] },
   { key: "accounts", label: ["الحسابات", "Accounts"] },
   { key: "settings", label: ["الإعدادات", "Settings"] },
@@ -92,7 +91,8 @@ export const SECTIONS: { key: Section; label: [string, string] }[] = [
   { key: "danger", label: ["منطقة خطر", "Danger zone"] },
 ];
 
-/** A line some people see only because of what they were given: the recruitment pages are HR's, the attendance pages are anybody's who manages it.
+/** A line some people see only because of what they were given: the employee files and the people's money are HR's (`recruit`, the
+ * name the server still gives HR's rights), the attendance pages are anybody's who manages it.
  * A Sales person's sheets are their team's (15/10/2026): the B2B sheets, or the B2C sheets and - for the field people and the
  * B2C manager - the visits. */
 type Need = "recruit" | "manage" | "b2b" | "b2c" | "visits";
@@ -103,7 +103,7 @@ type Badge = "mail_unseen" | "tasks_new" | "tasks_open";
 
 export const SCREENS: Record<ScreenKey, ScreenEntry> = {
   // The admin's panel: the overview first (it opens the work), then the records in the work, the people and the settings in
-  // theirs, and the log. The two that delete for good are last of all, in red, in a section of their own: out of the way of
+  // theirs. The two that delete for good are last of all, in red, in a section of their own: out of the way of
   // everyday clicking.
   admin: {
     path: "/admin",
@@ -129,7 +129,6 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/price-list", icon: "list-checks", label: ["قايمة الأسعار", "Price list"], order: 110 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
       { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
-      { path: "/admin/audit", icon: "history", label: ["سجل النشاط", "Audit log"], section: "settings", order: 100 },
       { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true, section: "danger" },
       { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true, section: "danger" },
       { path: "/admin/reset-staff", icon: "users", label: ["ريستارت الموظفين", "Reset all staff"], danger: true, section: "danger" },
@@ -150,47 +149,34 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/accounts/rules", icon: "list-checks", label: ["قواعد الحساب", "Payroll rules"], adminOnly: true, section: "settings", order: 30 },
     ],
   },
-  // Human resources, in the classic menu's sections: recruitment (where HR starts), the people and their attendance, and the
-  // places and rules HR sets once (under settings). The owner's own lines (the hiring decisions, the tests, the pay plans) are
-  // drawn for the owner only. The lines that answer to a capability (`needs`) are also drawn for a person of another role who
-  // was given it.
+  // Human resources (21/10/2026): the people already hired, their attendance and performance, the deductions and star penalties to
+  // apply or forgive (and new ones to write), and the month's pay to read; the places and rules HR sets once are under settings.
+  // Recruitment is done by hand and has no page. The owner's own line (the pay plans) is drawn for the owner only. The lines that
+  // answer to a capability (`needs`) are also drawn for a person of another role who was given it.
   hr: {
-    path: "/hr/recruitment",
-    icon: "chart",
-    label: ["لوحة التوظيف", "Recruitment board"],
-    section: "hiring",
+    path: "/hr/employees",
+    icon: "users",
+    label: ["ملفات الموظفين", "Employee files"],
+    section: "people",
     needs: "recruit",
+    order: 10,
     extra: [
-      { path: "/hr/vacancies", icon: "building", label: ["الوظائف", "Vacancies"], needs: "recruit" },
-      { path: "/hr/candidates", icon: "contact", label: ["المرشحين", "Candidates"], also: ["/hr/interviews"], needs: "recruit" },
-      // The owner marks tests too, from the candidate's file: the reviewer's pages, under the owner's own line.
-      { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"], adminOnly: true },
-      // The owner decides a hire; HR does not see the queue (it is the owner's page).
-      { path: "/hr/approvals", icon: "user-check", label: ["موافقات التعيين", "Hiring approvals"], adminOnly: true },
-      { path: "/hr/employees", icon: "users", label: ["ملفات الموظفين", "Employee files"], needs: "recruit", section: "people" },
-      { path: "/hr/attendance", icon: "users", label: ["لوحة الحضور", "Attendance board"], needs: "manage", section: "people" },
-      { path: "/hr/schedules", icon: "calendar", label: ["جداول العمل", "Schedules"], needs: "manage", section: "people" },
-      { path: "/hr/shifts", icon: "clock", label: ["الشيفتات", "Shifts"], needs: "manage", section: "people" },
-      { path: "/hr/leave", icon: "hand", label: ["طلبات الإجازة", "Leave requests"], needs: "manage", section: "people" },
-      { path: "/hr/overtime", icon: "clock", label: ["الأوفرتايم", "Overtime"], needs: "manage", section: "people" },
-      { path: "/hr/report", icon: "chart", label: ["التقرير الشهري", "Monthly report"], needs: "manage", section: "people" },
-      { path: "/hr/probation", icon: "eye", label: ["فترة الاختبار", "Probation"], needs: "recruit", section: "people" },
-      { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"], needs: "recruit", section: "people" },
-      { path: "/hr/complaints", icon: "thumbs-down", label: ["شكاوى العملاء", "Complaints"], needs: "recruit", section: "people" },
-      { path: "/hr/salary-requests", icon: "refresh", label: ["طلبات تغيير الراتب", "Salary requests"], needs: "recruit", section: "people" },
+      { path: "/hr/attendance", icon: "users", label: ["لوحة الحضور", "Attendance board"], needs: "manage", order: 20 },
+      { path: "/hr/schedules", icon: "calendar", label: ["جداول العمل", "Schedules"], needs: "manage", order: 30 },
+      { path: "/hr/shifts", icon: "clock", label: ["الشيفتات", "Shifts"], needs: "manage", order: 40 },
+      { path: "/hr/leave", icon: "hand", label: ["طلبات الإجازة", "Leave requests"], needs: "manage", order: 50 },
+      { path: "/hr/overtime", icon: "clock", label: ["الأوفرتايم", "Overtime"], needs: "manage", order: 60 },
+      { path: "/hr/report", icon: "chart", label: ["التقرير الشهري", "Monthly report"], needs: "manage", order: 70 },
+      { path: "/hr/performance", icon: "target", label: ["الأداء", "Performance"], needs: "recruit", order: 80 },
+      { path: "/hr/complaints", icon: "thumbs-down", label: ["شكاوى العملاء", "Complaints"], needs: "recruit", order: 90 },
+      { path: "/hr/salary-requests", icon: "refresh", label: ["طلبات تغيير الراتب", "Salary requests"], needs: "recruit", order: 100 },
+      // The money HR reads and the deductions HR decides: the same pages accounting has (for the admin, the accounts screen draws them).
+      { path: "/accounts/violations", icon: "alert", label: ["المخالفات والخصومات", "Violations"], needs: "recruit", section: "accounts", order: 10 },
+      { path: "/accounts", icon: "calendar", label: ["كشف الشهر", "Monthly payroll"], also: ["/accounts/salary"], needs: "recruit", section: "accounts", order: 20 },
       { path: "/hr/salary-plans", icon: "layers", label: ["خطط الرواتب", "Salary plans"], adminOnly: true, section: "settings", order: 40 },
       { path: "/hr/offices", icon: "map-pin", label: ["مواقع المكاتب", "Offices"], needs: "manage", section: "settings", order: 50 },
       { path: "/hr/devices", icon: "shield-check", label: ["أجهزة الحضور", "Devices"], needs: "manage", section: "settings", order: 60 },
-      { path: "/hr/recruitment/settings", icon: "sliders", label: ["إعدادات التوظيف", "Recruitment settings"], needs: "recruit", section: "settings", order: 70 },
-      { path: "/hr/questions", icon: "list-checks", label: ["بنك الأسئلة", "Question bank"], needs: "recruit", section: "settings", order: 80 },
     ],
-  },
-  // The reviewer has this one page and nothing else (section 24), under recruitment like the classic menu has it.
-  reviewer: {
-    path: "/reviewer/tests",
-    icon: "check-circle",
-    label: ["اختبارات المرشحين", "Candidate tests"],
-    section: "hiring",
   },
   translator_home: {
     path: "/translator",
@@ -229,8 +215,6 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/lead/translators", icon: "users", label: ["حالة المترجمين", "Translator status"], order: 15 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
-      // A team leader marks the candidate tests assigned to them (and the ones nobody has taken): the reviewer's pages.
-      { path: "/reviewer/tests", icon: "check-circle", label: ["اختبارات المرشحين", "Candidate tests"], section: "hiring" },
     ],
   },
   // A Sales person's own line: their mail, their number and address, the client codes.
@@ -470,7 +454,7 @@ function Frame() {
     [SCREENS[key].path, ...(SCREENS[key].extra ?? []).flatMap((entry) => [entry.path, ...(entry.also ?? [])])].some(startsWith);
   // A screen's own pages first; the addresses it only shares (`also`) when no other screen of the person's owns them.
   const here = looked.find(own) ?? looked.find((key) => (SCREENS[key].also ?? []).some(startsWith));
-  // The longest address wins: `/hr/recruitment/settings` is its own page, not the board's.
+  // The longest address wins: `/accounts/violations` is its own page, not the month's.
   const extraHere = looked
     .flatMap((key) => SCREENS[key].extra ?? [])
     .filter((entry) => !(isAdmin && entry.notAdmin))

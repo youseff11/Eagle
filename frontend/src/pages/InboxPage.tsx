@@ -12,10 +12,11 @@ import { usePreferences } from "../i18n/Preferences";
 const STATES = ["unclaimed", "mine", "notask"];
 
 /** The address of a conversation, carrying the list's filters so that "back" lands where the person was. */
-export function threadPath(id: number, state: string, query: string): string {
+export function threadPath(id: number, state: string, query: string, alias = ""): string {
   const params = new URLSearchParams();
   if (state) params.set("state", state);
   if (query) params.set("q", query);
+  if (alias) params.set("alias", alias);
   const text = params.toString();
   return `/inbox/thread/${id}${text ? `?${text}` : ""}`;
 }
@@ -72,14 +73,14 @@ function Notes({ data }: { data: MailListResponse }) {
   );
 }
 
-function Row({ row, state, query }: { row: MailRow; state: string; query: string }) {
+function Row({ row, state, query, alias }: { row: MailRow; state: string; query: string; alias: string }) {
   const { t } = usePreferences();
   return (
     <article
       className={`mail mail--thread${row.unread ? " is-unread" : ""}${row.blocked ? " is-blocked" : ""}`}
       data-thread={row.key}
     >
-      <Link className="mail__row" to={threadPath(row.id, state, query)} title={t("افتح المحادثة", "Open the conversation")}>
+      <Link className="mail__row" to={threadPath(row.id, state, query, alias)} title={t("افتح المحادثة", "Open the conversation")}>
         <span className="avatar avatar--brand mail__avatar">
           {row.code ? row.code.slice(3) : <Icon name="mail" size="sm" />}
         </span>
@@ -142,6 +143,27 @@ function Row({ row, state, query }: { row: MailRow; state: string; query: string
   );
 }
 
+/**
+ * The admin's choice of address (21/10/2026): every letter, or only the ones that came in on one alias of the company mailbox.
+ * A view on the list, never a permission: a letter opened by its address is still the admin's whole.
+ */
+function AliasPicker({ value, aliases, onChange }: { value: string; aliases: MailListResponse["aliases"]; onChange: (alias: string) => void }) {
+  const { t } = usePreferences();
+  return (
+    <div className="row mt" data-picker="alias">
+      <Icon name="mail" size="sm" />
+      <select className="input grow" value={value} onChange={(event) => onChange(event.target.value)} aria-label={t("العنوان", "Address")}>
+        <option value="">{t("كل العناوين", "Every address")}</option>
+        {aliases.map((alias) => (
+          <option key={alias.address} value={alias.address}>
+            {alias.holder ? `${alias.address} (${alias.holder})` : alias.address}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /** The search and the filter. The address holds both, so a reload, a link and the way back from a conversation keep them. */
 function Filters({ state, query, onChange }: { state: string; query: string; onChange: (state: string, query: string) => void }) {
   const { t } = usePreferences();
@@ -193,10 +215,12 @@ export function InboxPage() {
   const state = STATES.includes(askedState) ? askedState : "";
   const asked = (params.get("q") ?? "").trim();
   const query = asked.length <= 200 ? asked : "";
+  // The admin's alone, and checked by the server against the addresses it offers: a wrong one is refused there.
+  const alias = me.data?.user.is_admin ? (params.get("alias") ?? "").trim().toLowerCase().slice(0, 190) : "";
   const role = me.data?.user.role;
   // The same people the server lets in (`api_role_required`: the operation and the Sales, and the admin).
   const allowed = me.data !== undefined && (role === "operation" || role === "sales" || me.data.user.is_admin);
-  const list = useMailThreads(state, query, allowed);
+  const list = useMailThreads(state, query, allowed, alias);
   const fetchNow = useFetchMail();
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
@@ -204,10 +228,11 @@ export function InboxPage() {
   const data = list.data;
   // Polling the mailbox and making tasks are the operation's (and the admin's): the Sales' mail arrives on its own.
   const operation = role !== "sales";
-  const change = (nextState: string, nextQuery: string) => {
+  const change = (nextState: string, nextQuery: string, nextAlias = alias) => {
     const next: Record<string, string> = {};
     if (nextState) next.state = nextState;
     if (nextQuery) next.q = nextQuery;
+    if (nextAlias) next.alias = nextAlias;
     setParams(next);
   };
   const fetched = fetchNow.data;
@@ -259,7 +284,10 @@ export function InboxPage() {
       )}
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <Filters key={query} state={state} query={query} onChange={change} />
+        <Filters key={query} state={state} query={query} onChange={(nextState, nextQuery) => change(nextState, nextQuery)} />
+        {data && data.aliases.length > 0 && (
+          <AliasPicker value={alias} aliases={data.aliases} onChange={(nextAlias) => change(state, query, nextAlias)} />
+        )}
         {data && <Notes data={data} />}
       </div>
 
@@ -272,7 +300,7 @@ export function InboxPage() {
             </div>
           )}
           {data.threads.map((row) => (
-            <Row key={row.key} row={row} state={state} query={query} />
+            <Row key={row.key} row={row} state={state} query={query} alias={alias} />
           ))}
         </div>
       ) : list.isError ? (

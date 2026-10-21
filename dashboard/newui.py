@@ -54,12 +54,14 @@ SCREENS = {
             "Accounts (the month, violations, attendance and output, salaries, payroll rules)",
             path="/accounts", roles=(Role.ACCOUNTING,),
         ),
-        # Human resources: attendance and schedules, leave, recruitment, the people already hired, and the places and rules HR
-        # keeps. A person who was only given the attendance flag (``attendance_manager``) has the attendance pages of it.
+        # Human resources: the people already hired, their attendance and schedules, leave, their performance, the deductions and
+        # star penalties to apply or forgive, the month's pay to read, and the places and rules HR keeps. Recruitment is done by
+        # hand since 21/10/2026 and has no page. A person who was only given the attendance flag (``attendance_manager``) has the
+        # attendance pages of it.
         Screen(
-            "hr", "الموارد البشرية (الحضور والجداول، الإجازات، التوظيف، ملفات الموظفين، الإعدادات)",
-            "Human resources (attendance and schedules, leave, recruitment, employee files, settings)",
-            path="/hr/recruitment", roles=(Role.HR,), capability="can_manage_attendance",
+            "hr", "الموارد البشرية (ملفات الموظفين، الحضور والجداول، الإجازات، الأداء، المخالفات والخصومات، المرتبات)",
+            "Human resources (employee files, attendance and schedules, leave, performance, violations, pay)",
+            path="/hr/employees", roles=(Role.HR,), capability="can_manage_attendance",
         ),
         Screen(
             "translator_home", "شغل المترجم", "The translator's desk",
@@ -77,14 +79,6 @@ SCREENS = {
         Screen(
             "sales", "شاشة المبيعات (ميلاتي، رقمي وإيميلي، أكواد العملاء)", "The Sales screen (my mail, my number and mail, client codes)",
             path="/line", roles=(Role.SALES,), admin_menu=False,
-        ),
-        # The reviewer's one page: the candidate tests waiting to be marked, and the page that marks one. The reviewer is blind to
-        # who the candidate is, so this screen carries a code and the work and nothing else. A team leader or the owner may
-        # mark a test too; they reach it from the candidate's file and their own menu.
-        Screen(
-            "reviewer", "اختبارات المرشحين (للمراجع)", "Candidate tests (the reviewer)",
-            path="/reviewer/tests", roles=(Role.REVIEWER,), admin_menu=False,
-            capability="can_review_tests",
         ),
         Screen(
             "attendance", "الحضور والانصراف (الكارت وشاشة التسجيل)", "Attendance (the card and the check-in screen)",

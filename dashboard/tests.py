@@ -2108,6 +2108,16 @@ class ProbationTests(TestCase):
         employees.open_probation(self.person, actor=self.hr)
         self.assertEqual(self.person.probation_reviews.count(), 3)
 
+    def test_the_sweep_no_longer_rings_hr_about_a_review_that_came_due(self):
+        # 21/10/2026: recruitment is done by hand and the probation page is gone, so a due review is not rung to anybody.
+        from . import employees
+        from .models import Notification
+
+        employees.open_probation(self.person, actor=self.hr)
+        before = Notification.objects.filter(user=self.hr).count()
+        self.assertEqual(employees.sweep(now=self.date(2027, 1, 1)), {"probation": 0})
+        self.assertEqual(Notification.objects.filter(user=self.hr).count(), before)
+
     def test_only_the_final_review_confirms_somebody(self):
         from . import employees
         from .models import ProbationOutcome, ProbationStage
@@ -7403,12 +7413,13 @@ class ClientIdentityMaskingTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("client_identity_access", form.errors)
 
-    def test_the_audit_page_filters_the_security_rows(self):
+    def test_a_refused_page_is_written_down_as_a_security_row(self):
+        # The audit log has no page since 21/10/2026; the row is still written.
+        from .models import AuditLog
+
         self.client.force_login(self.tr)
         self.client.get("/api/v1/clients/")
-        self.client.force_login(self.admin)
-        page = self.client.get("/api/v1/admin/audit/?only=denied").content.decode()
-        self.assertIn("security.denied", page)
+        self.assertTrue(AuditLog.objects.filter(action="security.denied", actor=self.tr).exists())
 
 
 class ProtectedFilesTests(TestCase):

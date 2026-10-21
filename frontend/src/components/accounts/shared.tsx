@@ -9,7 +9,8 @@ import { hasMoney } from "../../lib/payroll";
 export function useMayRunTheMonth() {
   const me = useMe();
   const user = me.data?.user;
-  return { me, allowed: user !== undefined && (user.role === "accounting" || user.is_admin) };
+  // HR reads the month and decides the deductions too (21/10/2026); running and locking the month is the server's `can.run`.
+  return { me, allowed: user !== undefined && (user.role === "accounting" || user.role === "hr" || user.is_admin) };
 }
 
 /** What a refused write says: the server's words when it gave some. */

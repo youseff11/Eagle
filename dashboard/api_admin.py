@@ -1,8 +1,8 @@
-"""``/api/v1/`` - the admin panel (phase 5, screen 8): the overview and the audit log, both read only.
+"""``/api/v1/`` - the admin panel (phase 5, screen 8): the overview, read only.
 
-The pages are ``views.admin_overview`` and ``views.admin_audit``, and the answers are the same questions they ask. Only the
-admin is answered: anybody else is a 403 and a row in the audit log (``api_role_required``). A GET changes nothing here -
-not even an audit row, because an admin reading the log must not write into it every time a board refreshes.
+The page is ``views.admin_overview``, and the answers are the same questions it asks. Only the admin is answered: anybody else
+is a 403 and a row in the audit log (``api_role_required``). A GET changes nothing here. The audit log is still written
+(``AuditLog``) but has no page since 21/10/2026: the owner did not use it.
 
 Two things are shown to the admin that nobody else may read, as on the classic overview: the address a hidden letter came
 from, and the words of a letter the operation is kept from (``is_rate_blocked``). Nothing here is a secret of the
@@ -14,11 +14,10 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.text import Truncator
 
-from . import identity
 from .api_mail import _file_json
-from .api_v1 import _error, _origin_json, _stamp, _status_json, endpoint
+from .api_v1 import _origin_json, _stamp, _status_json, endpoint
 from .models import (
-    ACTIVE_TASK_STATUSES, Assignment, AssignmentStatus, AuditLog, Client, InboundMessage, Role, Task, TaskStatus,
+    ACTIVE_TASK_STATUSES, Assignment, AssignmentStatus, Client, InboundMessage, Role, Task, TaskStatus,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import strip_image_tags
@@ -30,13 +29,6 @@ MAX_LATE = 20
 MAX_RECENT = 15
 #: How much of a hidden letter the card quotes.
 BLOCKED_BODY = 200
-#: How many entries the log lists, newest first.
-MAX_AUDIT = 200
-#: How much of a log entry's detail is sent: a sentence, not a document.
-AUDIT_DETAIL = 300
-
-#: The filters of the log. Anything else is a 400, not a full log that looks like "the filter found everything".
-AUDIT_FILTERS = ("", "security", "denied")
 
 
 def _counters():
@@ -109,46 +101,5 @@ def overview(request):
                 "status": _status_json(task.status),
             }
             for task in recent
-        ],
-    })
-
-
-@endpoint("GET")
-@api_role_required(Role.ADMIN)
-def audit(request):
-    """The log, newest first: ``?only=security`` (who saw an identity, was refused, was given access) or ``?only=denied``.
-
-    Two hundred rows a time: ``more`` says there are older ones, and ``?before=<id of the oldest row shown>`` is the next page.
-    """
-    only = request.GET.get("only", "")
-    if only not in AUDIT_FILTERS:
-        return _error(400, "bad_filter")
-    rows = AuditLog.objects.select_related("actor").order_by("-pk")
-    before = request.GET.get("before", "")
-    if before:
-        if not before.isdecimal() or len(before) > 12:
-            return _error(400, "bad_cursor")
-        rows = rows.filter(pk__lt=int(before))
-    if only == "security":
-        rows = rows.filter(action__in=identity.SECURITY_ACTIONS)
-    elif only == "denied":
-        rows = rows.filter(action=identity.ACCESS_DENIED)
-    page = list(rows[:MAX_AUDIT + 1])
-    return JsonResponse({
-        "ok": True,
-        "only": only,
-        "more": len(page) > MAX_AUDIT,
-        "rows": [
-            {
-                "id": entry.pk,
-                "at": _stamp(entry.created_at, "%Y-%m-%d"),
-                "actor": entry.actor.short_name if entry.actor_id else None,
-                "action": entry.action,
-                "target": entry.target,
-                "detail": Truncator(entry.detail).chars(AUDIT_DETAIL),
-                "ip": entry.ip or "",
-                "path": entry.path,
-            }
-            for entry in page[:MAX_AUDIT]
         ],
     })

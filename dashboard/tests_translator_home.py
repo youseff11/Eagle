@@ -195,9 +195,9 @@ class SwitchTests(_Desk):
     def test_me_lists_the_screens_of_that_persons_role_and_the_admins_overview(self):
         self.assertEqual(_json(self.get(self.tr, "v1_me"))["screens"], ["translator_home", "attendance", "leave", "performance", "chats"])
         self.assertEqual(_json(self.get(self.ops, "v1_me"))["screens"], ["operation", "attendance", "leave", "performance", "chats"])
-        self.assertEqual(_json(self.get(self.lead, "v1_me"))["screens"], ["lead", "reviewer", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(_json(self.get(self.lead, "v1_me"))["screens"], ["lead", "attendance", "leave", "performance", "chats"])
         self.assertEqual(_json(self.get(self.sales, "v1_me"))["screens"], ["sales", "attendance", "leave", "performance", "chats"])
-        self.assertEqual(_json(self.get(self.reviewer, "v1_me"))["screens"], ["reviewer", "attendance", "leave", "performance", "chats"])
+        self.assertEqual(_json(self.get(self.reviewer, "v1_me"))["screens"], ["attendance", "leave", "performance", "chats"])
         self.assertEqual(_json(self.get(self.accounting, "v1_me"))["screens"], ["accounts", "attendance", "leave", "performance", "chats"])
         self.assertEqual(_json(self.get(self.hr, "v1_me"))["screens"], ["hr", "attendance", "leave", "performance", "chats"])
         # The admin oversees: the panel, the money, HR, the operation, and not another role's own desk.
