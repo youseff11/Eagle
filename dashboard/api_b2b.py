@@ -767,21 +767,31 @@ def lead_whatsapp(request, lead_id):
 def lead_send(request, lead_id):
     """``{"channel": "whatsapp", "to", "body"}`` or ``{"channel": "email", "subject", "body"}`` - a message written on the
     sheet to one of the company's numbers or to its address, from this person's own line. It is marked on the row by itself
-    once it has left (``b2b.note_outbound``)."""
+    once it has left (``b2b.note_outbound``).
+
+    A letter with files is the same fields as a multipart form, the files under ``files``: e-mail only."""
     lead = _lead_or_404(request, lead_id)
+    files = []
     try:
-        body = _object(request)
+        if (request.content_type or "").startswith("multipart/form-data"):
+            body = request.POST.dict()
+            files = request.FILES.getlist("files")
+        else:
+            body = _object(request)
         channel = _text(body, "channel", 10)
         to = _text(body, "to", 40)
         subject = _text(body, "subject", b2b.MAX_SUBJECT)
         words = _text(body, "body", b2b.MAX_LETTER)
     except BadBody:
         return _error(400, "bad_request")
+    # A file is a letter's: the WhatsApp text from the sheet carries words only.
+    if files and channel != "email":
+        return _error(400, "bad_request")
     try:
         if channel == "whatsapp":
             client, _sent = b2b.send_whatsapp_text(lead, request.user, to, words)
         elif channel == "email":
-            client, _sent = b2b.send_email(lead, request.user, subject, words)
+            client, _sent = b2b.send_email(lead, request.user, subject, words, files)
         else:
             return _error(400, "bad_request")
     except b2b.Refused as refusal:

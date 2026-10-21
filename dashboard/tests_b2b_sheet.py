@@ -355,6 +355,80 @@ class SendTests(_B2b):
         self.assertEqual(self.lead.status, "contacted")
 
 
+class LetterFilesTests(_B2b):
+    """The e-mail from the sheet's send button carries files (21/10/2026): the same fields as a multipart form, the files
+    stored under a random name and opened from ``/files/`` only, and sent as real attachments of the letter."""
+
+    def send(self, files, channel="email", **extra):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        form = {"channel": channel, "to": PHONE if channel == "whatsapp" else "", "subject": "Rates", "body": "Dear Anna", **extra}
+        form["files"] = [SimpleUploadedFile(name, content) for name, content in files]
+        return self.browser(self.sales).post(reverse("dashboard:v1_b2b_lead_send", args=[self.lead.pk]), form)
+
+    def test_the_files_leave_attached_and_are_kept_on_the_letter(self):
+        answer = self.send([("rates.pdf", b"%PDF rates"), ("logo.png", b"PNG logo")])
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.mail.assert_called_once()
+        attached = self.mail.call_args.kwargs["attachments"]
+        self.assertEqual([(name, content) for name, content, _mime in attached], [("rates.pdf", b"%PDF rates"), ("logo.png", b"PNG logo")])
+        self.assertEqual(self.mail.call_args.kwargs["from_email"], "seller@eagle.test")
+        sent = OutboundMessage.objects.get(channel=Channel.EMAIL)
+        self.assertEqual((sent.status, sent.subject, sent.body), ("sent", "Rates", "Dear Anna"))
+        stored = list(sent.uploads.order_by("pk"))
+        self.assertEqual([u.original_name for u in stored], ["rates.pdf", "logo.png"])
+        for upload in stored:
+            # The path says nothing of the name it came with, and the link is the project's own door, never the CDN.
+            self.assertNotIn("rates", upload.file.name)
+            self.assertNotIn("logo", upload.file.name)
+            self.assertTrue(upload.file.url.startswith("/files/"), upload.file.url)
+        self.lead.refresh_from_db()
+        self.assertIsNotNone(self.lead.email_at)
+
+    def test_a_letter_without_files_still_goes_as_json(self):
+        answer = self.post(self.sales, "v1_b2b_lead_send", {"channel": "email", "subject": "Rates", "body": "Dear Anna"}, self.lead.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(self.mail.call_args.kwargs["attachments"], [])
+
+    def test_too_many_files_are_refused_in_arabic_and_nothing_is_sent(self):
+        answer = self.send([(f"f{index}.pdf", b"x") for index in range(11)])
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(_json(answer)["error"], "too_many_files")
+        self.assertIn("10 ملفات", _json(answer)["message"])
+        self.mail.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+
+    def test_files_over_what_a_mail_takes_are_refused(self):
+        with mock.patch.object(services, "MAX_MAIL_BYTES", 5):
+            answer = self.send([("a.pdf", b"1234"), ("b.pdf", b"1234")])
+        self.assertEqual(_json(answer)["error"], "files_too_big")
+        self.assertIn("25 ميجا", _json(answer)["message"])
+        self.mail.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+
+    def test_an_empty_file_is_refused(self):
+        answer = self.send([("empty.pdf", b"")])
+        self.assertEqual(_json(answer)["error"], "empty_file")
+        self.mail.assert_not_called()
+
+    def test_whatsapp_from_the_sheet_takes_no_files(self):
+        answer = self.send([("a.pdf", b"x")], channel="whatsapp")
+        self.assertEqual(answer.status_code, 400)
+        self.text.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+
+    def test_another_persons_sheet_is_refused_before_the_files_are_kept(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        answer = self.browser(self.manager).post(
+            reverse("dashboard:v1_b2b_lead_send", args=[self.lead.pk]),
+            {"channel": "email", "subject": "x", "body": "x", "files": [SimpleUploadedFile("a.pdf", b"x")]},
+        )
+        self.assertEqual(_json(answer)["error"], "not_yours")
+        self.mail.assert_not_called()
+        self.assertFalse(OutboundMessage.objects.exists())
+
+
 class LastSentTests(_B2b):
     """The sheet marks the last row a message left from with its send button (15/10/2026), so its Sales person opens it
     where they stopped and writes to the next one."""

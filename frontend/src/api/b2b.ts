@@ -477,12 +477,22 @@ export function useDeleteNote() {
   return useLeadWrite((id: number) => api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/notes/${id}/delete/`, { json: {} }));
 }
 
-/** A message written on the sheet, by WhatsApp to one of the company's numbers or by e-mail; the row is marked by itself. */
+/**
+ * A message written on the sheet, by WhatsApp to one of the company's numbers or by e-mail; the row is marked by itself.
+ * A letter with files goes as a multipart form (the same fields, the files under `files`); everything else as JSON.
+ */
 export function useSendMessage() {
-  return useLeadWrite((values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string }) => {
-    const { id, ...rest } = values;
-    return api<{ ok: boolean; chat: string; lead: B2bLead; last_sent?: number }>(`/api/v1/b2b/leads/${id}/send/`, { json: rest });
-  });
+  return useLeadWrite(
+    (values: { id: number; channel: "whatsapp" | "email"; to: string; subject: string; body: string; files?: File[] }) => {
+      const { id, files = [], ...rest } = values;
+      const url = `/api/v1/b2b/leads/${id}/send/`;
+      if (files.length === 0) return api<{ ok: boolean; chat: string; lead: B2bLead; last_sent?: number }>(url, { json: rest });
+      const form = new FormData();
+      for (const [name, value] of Object.entries(rest)) form.append(name, value);
+      for (const file of files) form.append("files", file);
+      return api<{ ok: boolean; chat: string; lead: B2bLead; last_sent?: number }>(url, { multipart: form });
+    },
+  );
 }
 
 /** The short code of a refusal (`window_closed`, `not_yours`...), or "". */

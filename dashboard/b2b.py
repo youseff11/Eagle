@@ -1229,11 +1229,36 @@ def start_whatsapp(lead, user, number=""):
 #: The longest subject and letter the e-mail button sends.
 MAX_SUBJECT = 250
 MAX_LETTER = 20000
+#: The most files one letter carries. Together they stay under what a mail server takes (``services.MAX_MAIL_BYTES``).
+MAX_LETTER_FILES = 10
 
 
-def send_email(lead, user, subject, body):
-    """The e-mail button: a letter from this person's own address. ``client``, or ``Refused``."""
+def letter_files_refusal(files):
+    """What is wrong with the files of a letter, as a ``Refused``, or ``None``."""
     from . import services
+
+    if len(files) > MAX_LETTER_FILES:
+        return Refused(
+            "too_many_files", f"أقصى حاجة {MAX_LETTER_FILES} ملفات في الإيميل الواحد.",
+            f"At most {MAX_LETTER_FILES} files in one e-mail.",
+        )
+    if any(not item.size for item in files):
+        return Refused("empty_file", "فيه ملف فاضي. شيله واختاره تاني.", "One of the files is empty. Remove it and pick it again.")
+    if sum(item.size for item in files) > services.MAX_MAIL_BYTES:
+        return Refused(
+            "files_too_big", "الملفات مع بعض أكبر من 25 ميجا — الإيميل مش هيقبلها.",
+            "The files together are over 25 MB - e-mail will not take them.",
+        )
+    return None
+
+
+def send_email(lead, user, subject, body, files=()):
+    """The e-mail button: a letter from this person's own address, with ``files`` (uploads) attached to it. ``client``, or
+    ``Refused``. The files are stored the way every file sent to a client is (``OutboundAttachment``, a random name, opened
+    from ``/files/`` only) and leave as real attachments of the letter."""
+    from . import services
+
+    files = list(files or ())
 
     if not may_contact(user, lead.sheet):
         raise Refused("not_yours", "الشيت ده مش بتاعك: صاحبه بس هو اللي بيتواصل منه.", "Only the sheet's own Sales person contacts from it.")
@@ -1246,6 +1271,9 @@ def send_email(lead, user, subject, body):
         raise Refused("no_line", "مفيش إيميل متحدد ليك. الأدمن يحدده من صفحة الموظف.", "You have no mail address yet. The admin sets it on your employee page.")
     if not subject or not body:
         raise Refused("empty", "اكتب العنوان والرسالة.", "Write a subject and a message.")
+    refusal = letter_files_refusal(files)
+    if refusal is not None:
+        raise refusal
     with transaction.atomic():
         Lead.objects.select_for_update().filter(pk=lead.pk).first()
         lead.refresh_from_db()
@@ -1254,10 +1282,10 @@ def send_email(lead, user, subject, body):
             lead.client = client
             lead.save(update_fields=["client", "updated_at"])
     # The row is marked by ``note_outbound``, which the send calls when the letter has left.
-    ok, outbound, error = services.send_client_message(client, user, body, force_channel=Channel.EMAIL, subject=subject)
+    ok, outbound, error = services.send_client_message(client, user, body, uploads=files, force_channel=Channel.EMAIL, subject=subject)
     if not ok:
         raise Refused("send_failed", error or "الإيميل ماتبعتش.", "The e-mail was not sent.")
-    services.log(user, "b2b.email", client.code, f"lead {lead.pk}")
+    services.log(user, "b2b.email", client.code, f"lead {lead.pk}" + (f" {len(files)} file(s)" if files else ""))
     return client, outbound
 
 

@@ -349,6 +349,47 @@ describe("LeadSheetPage", () => {
     expect(posted(mocked.calls, "/api/v1/b2b/leads/5/send/")[0].body).toContain("Dear Anna");
   });
 
+  it("attaches files to the e-mail, takes one off, and sends the letter as one form", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: true, chat: "CL-0042", lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    await user.click(screen.getByRole("radio", { name: "anna@lingua.test" }));
+    await user.upload(screen.getByTestId("lead-mail-pick"), [new File(["x"], "rates.pdf"), new File(["y"], "logo.png", { type: "image/png" })]);
+    expect(screen.getByText("rates.pdf")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "شيل الملف: logo.png" }));
+    expect(screen.queryByText("logo.png")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    const sent = () => mocked.calls.filter((call) => call.url === "/api/v1/b2b/leads/5/send/");
+    await waitFor(() => expect(sent()).toHaveLength(1));
+    const data = (sent()[0] as unknown as { init: RequestInit }).init.body as FormData;
+    expect(data).toBeInstanceOf(FormData);
+    expect(data.get("channel")).toBe("email");
+    expect(data.get("to")).toBe("anna@lingua.test");
+    expect(String(data.get("body"))).toContain("Dear Anna");
+    expect((data.getAll("files") as File[]).map((one) => one.name)).toEqual(["rates.pdf"]);
+  });
+
+  it("refuses more than 10 files before anything is sent, and WhatsApp has no attach button", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/leads/5/send/": () => jsonResponse({ ok: true, chat: "CL-0042", lead: lead() }),
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer()),
+    });
+    open("/leads/3");
+    await user.click(await screen.findByRole("button", { name: "ابعت رسالة" }));
+    expect(screen.queryByRole("button", { name: "ارفق ملفات" })).toBeNull();
+    await user.click(screen.getByRole("radio", { name: "anna@lingua.test" }));
+    const many = Array.from({ length: 11 }, (_, index) => new File(["x"], `f${index}.pdf`));
+    await user.upload(screen.getByTestId("lead-mail-pick"), many);
+    await user.click(screen.getByRole("button", { name: "ابعت" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("أقصى حاجة 10 ملفات في الإيميل الواحد.");
+    expect(mocked.calls.filter((call) => call.url === "/api/v1/b2b/leads/5/send/")).toHaveLength(0);
+  });
+
   it("shows the server's reason when the send is refused, and stays", async () => {
     const user = userEvent.setup();
     serve("sales", {

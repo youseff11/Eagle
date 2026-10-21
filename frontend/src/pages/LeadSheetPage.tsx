@@ -31,6 +31,7 @@ import { FollowUpBadge } from "../components/b2b/FollowUpBadge";
 import { ImportRows } from "../components/b2b/ImportRows";
 import { PAGE_ROWS, Pages, pageWithin } from "../components/b2b/Pages";
 import { keepPlace, readPlace } from "../lib/sheetPlace";
+import { prettySize } from "../lib/size";
 import { filledValues, isCopiedRow } from "../components/b2b/pastedRow";
 import { QuoteStatus, QuotesModal } from "../components/b2b/QuotesModal";
 import { B2C_GRID_COLUMNS, B2C_STATUS_AR, ChoiceCell, GRID_COLUMNS, LOST_AR, NotesCell, PRIORITY_AR, STATUS_AR, TextCell } from "../components/b2b/SheetGrid";
@@ -65,6 +66,11 @@ function Problem({ text }: { text: string }) {
     </div>
   );
 }
+
+/** What one letter from the sheet carries (`b2b.MAX_LETTER_FILES`, `services.MAX_MAIL_BYTES`): the server refuses more, this
+ * only says so before the upload. */
+const MAX_LETTER_FILES = 10;
+const MAX_MAIL_BYTES = 25 * 1024 * 1024;
 
 /** How big the sheet is drawn (19/10/2026: «زوم إن / زوم آوت»), kept in this browser for every sheet. */
 const ZOOM_KEY = "eagle.sheetZoom";
@@ -481,6 +487,8 @@ function SendMessage({ lead, sender, onClose }: { lead: B2bLead; sender: string;
   const [words, setWords] = useState("");
   const [subject, setSubject] = useState("Translation partnership with EagleLingua");
   const [letter, setLetter] = useState(() => letterFor(lead, sender));
+  const [files, setFiles] = useState<File[]>([]);
+  const pickFiles = useRef<HTMLInputElement>(null);
   const [closed, setClosed] = useState(false);
   const [problem, setProblem] = useState("");
   const busy = send.isPending || intro.isPending;
@@ -497,8 +505,23 @@ function SendMessage({ lead, sender, onClose }: { lead: B2bLead; sender: string;
     if (busy || !target) return;
     setProblem("");
     const mail = target.channel === "email";
+    if (mail && files.length > MAX_LETTER_FILES) {
+      setProblem(t(`أقصى حاجة ${MAX_LETTER_FILES} ملفات في الإيميل الواحد.`, `At most ${MAX_LETTER_FILES} files in one e-mail.`));
+      return;
+    }
+    if (mail && files.reduce((sum, file) => sum + file.size, 0) > MAX_MAIL_BYTES) {
+      setProblem(t("الملفات مع بعض أكبر من 25 ميجا — الإيميل مش هيقبلها.", "The files together are over 25 MB - e-mail will not take them."));
+      return;
+    }
     send.mutate(
-      { id: lead.id, channel: target.channel, to: target.to, subject: mail ? subject.trim() : "", body: (mail ? letter : words).trim() },
+      {
+        id: lead.id,
+        channel: target.channel,
+        to: target.to,
+        subject: mail ? subject.trim() : "",
+        body: (mail ? letter : words).trim(),
+        files: mail ? files : [],
+      },
       {
         onSuccess: () => {
           toasts.push({ level: "success", title: t("الرسالة اتبعتت واتسجلت في الصف", "The message was sent and marked on the row") });
@@ -584,6 +607,42 @@ function SendMessage({ lead, sender, onClose }: { lead: B2bLead; sender: string;
             <div className="field">
               <label htmlFor="mailBody">{t("الرسالة", "Message")}</label>
               <textarea className="input" id="mailBody" dir="ltr" rows={10} maxLength={20000} value={letter} onChange={(event) => setLetter(event.target.value)} />
+            </div>
+            <div className="files mail-reply__files">
+              {files.map((file, index) => (
+                <span key={`${file.name}-${index}`} className="file-pill">
+                  <Icon name="paperclip" size="sm" />
+                  {file.name} <small>{prettySize(file.size)}</small>
+                  <button
+                    type="button"
+                    className="file-pill__x"
+                    aria-label={t("شيل الملف", "Remove the file") + `: ${file.name}`}
+                    onClick={() => setFiles((now) => now.filter((_, at) => at !== index))}
+                  >
+                    <Icon name="x" size="sm" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button className="btn btn--sm" type="button" onClick={() => pickFiles.current?.click()} disabled={busy}>
+                <Icon name="paperclip" size="sm" />
+                {t("ارفق ملفات", "Attach files")}
+              </button>
+              <input
+                ref={pickFiles}
+                type="file"
+                multiple
+                hidden
+                data-testid="lead-mail-pick"
+                onChange={(event) => {
+                  const chosen = Array.from(event.target.files ?? []);
+                  if (chosen.length > 0) setFiles((now) => [...now, ...chosen]);
+                  // The same file chosen again must still fire a change.
+                  event.target.value = "";
+                }}
+              />
+              <small className="muted">{t("ملفات أو صور، لحد 10 ملفات و25 ميجا مع بعض.", "Files or pictures, up to 10 files and 25 MB together.")}</small>
             </div>
             <small className="muted">{t("بتطلع من إيميلك، وردّهم بيوصل لـ«ميلاتي».", "It leaves from your address; their answer arrives in «My mail».")}</small>
           </>
