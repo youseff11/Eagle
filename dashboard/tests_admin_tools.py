@@ -1,4 +1,4 @@
-"""The admin panel's tools in the new app: the message simulator and the two clear-outs.
+"""The admin panel's tools in the new app: the clear-outs (the message simulator went on 21/10/2026).
 
 The clear-outs delete real data for good, so what is held here is that nothing gets easier: a GET only counts, the run needs
 the admin's own password and the explicit yes, a wrong password or a missing yes deletes nothing, only the admin is answered
@@ -12,7 +12,7 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client as DjangoClient
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from . import identity, services
@@ -22,8 +22,6 @@ from .models import (
 from .tests_admin_screen import _Admin
 from .tests_api_v1 import _json
 
-SIMULATE = "dashboard:v1_admin_simulate"
-SEND = "dashboard:v1_admin_simulate_send"
 TASKS = "dashboard:v1_admin_reset_tasks"
 TASKS_RUN = "dashboard:v1_admin_reset_tasks_run"
 MAIL = "dashboard:v1_admin_reset_mail"
@@ -48,7 +46,7 @@ class _Tools(_Admin):
 
 class DoorMatrixTests(_Tools):
     def doors(self):
-        return [("GET", SIMULATE), ("POST", SEND), ("GET", TASKS), ("POST", TASKS_RUN), ("GET", MAIL), ("POST", MAIL_RUN)]
+        return [("GET", TASKS), ("POST", TASKS_RUN), ("GET", MAIL), ("POST", MAIL_RUN)]
 
     def call(self, user, method, name):
         browser = DjangoClient()
@@ -75,73 +73,24 @@ class DoorMatrixTests(_Tools):
             self.assertEqual(self.call(self.admin, method, name)["Cache-Control"], "private, no-store", name)
 
 
-class SimulateTests(_Tools):
-    def send(self, **over):
-        fields = {"channel": "whatsapp", "sender_identity": "+201110002222", "subject": "", "body": "Hello from a client"}
-        fields.update(over)
+class SimulatorGoneTests(_Tools):
+    """The simulator was taken out on 21/10/2026: no door answers, and an old link to its page lands on the overview."""
+
+    def test_its_doors_are_not_routed(self):
+        for name in ("dashboard:v1_admin_simulate", "dashboard:v1_admin_simulate_send"):
+            with self.assertRaises(NoReverseMatch):
+                reverse(name)
+
+    def test_the_old_api_address_makes_no_message(self):
         browser = DjangoClient()
         browser.force_login(self.admin)
-        return browser.post(reverse(SEND), fields)
-
-    def test_the_form_choices_and_the_latest_messages_are_listed(self):
-        body = _json(self.get(self.admin, SIMULATE))
-        self.assertEqual([choice["value"] for choice in body["channels"]], ["whatsapp", "email"])
-        self.assertEqual([row["code"] for row in body["recent"]], [self.client_obj.code])
-        self.assertEqual(body["recent"][0]["body"], "hello there")
-
-    def test_the_latest_twenty_are_listed_newest_first_with_a_start_of_the_words(self):
-        for index in range(25):
-            InboundMessage.objects.create(channel=Channel.EMAIL, sender_identity=f"a{index}@x.example", body=f"{index} " + "w" * 200)
-        rows = _json(self.get(self.admin, SIMULATE))["recent"]
-        self.assertEqual(len(rows), 20)
-        ids = [row["id"] for row in rows]
-        self.assertEqual(ids, sorted(ids, reverse=True))
-        self.assertLessEqual(max(len(row["body"]) for row in rows), 60)
-
-    def test_a_held_back_message_is_marked(self):
-        conf = AppSettings.load()
-        conf.rate_keywords = "price"
-        conf.save()
-        self.send(body="What is the price")
-        self.assertTrue(_json(self.get(self.admin, SIMULATE))["recent"][0]["blocked"])
-
-    def test_a_message_arrives_as_if_a_client_sent_it(self):
-        answer = self.send()
-        body = _json(answer)
-        self.assertEqual((answer.status_code, body["ok"], body["blocked"]), (200, True, False))
-        letter = InboundMessage.objects.get(pk=body["id"])
-        self.assertEqual((letter.body, letter.sender_identity, letter.channel), ("Hello from a client", "+201110002222", "whatsapp"))
-        self.assertEqual(letter.client.code, body["code"])
-
-    def test_the_operation_is_told_as_for_any_message(self):
-        before = self.ops.notifications.count()
-        self.send()
-        self.assertEqual(self.ops.notifications.count(), before + 1)
-
-    def test_files_go_with_it(self):
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        answer = browser.post(reverse(SEND), {
-            "channel": "email", "sender_identity": "files@example.com", "subject": "Docs", "body": "See files",
-            "files": [SimpleUploadedFile("a.pdf", b"aaa"), SimpleUploadedFile("b.pdf", b"bbbb")],
-        })
-        self.assertEqual(answer.status_code, 200)
-        letter = InboundMessage.objects.get(pk=_json(answer)["id"])
-        self.assertEqual(sorted(a.original_name for a in letter.attachments.all()), ["a.pdf", "b.pdf"])
-
-    def test_what_the_form_refuses_is_refused_with_its_messages_and_nothing_arrives(self):
         before = InboundMessage.objects.count()
-        for over, field in (({"channel": "fax"}, "channel"), ({"sender_identity": ""}, "sender_identity"), ({"body": ""}, "body")):
-            answer = self.send(**over)
-            body = _json(answer)
-            self.assertEqual((answer.status_code, body["error"]), (400, "invalid"), over)
-            self.assertIn(field, body["errors"])
+        sent = browser.post("/api/v1/admin/simulate/send/", {"channel": "whatsapp", "sender_identity": "+201110002222", "body": "hi"})
+        self.assertEqual(sent.status_code, 404)
+        self.assertEqual(browser.get("/api/v1/admin/simulate/").status_code, 404)
         self.assertEqual(InboundMessage.objects.count(), before)
-
-    def test_a_get_changes_nothing(self):
-        before = (InboundMessage.objects.count(), AuditLog.objects.count())
-        self.get(self.admin, SIMULATE)
-        self.assertEqual((InboundMessage.objects.count(), AuditLog.objects.count()), before)
+        # The same browser reaches a door that is still there, so the 404 is the address and not the session.
+        self.assertEqual(browser.get(reverse(TASKS)).status_code, 200)
 
 
 class CountsTests(_Tools):
@@ -307,7 +256,7 @@ class HandOnTests(_Tools):
     def test_the_pages_go_on_with_the_switch(self):
         self.turn_on()
         for name, target in (
-            ("dashboard:admin_simulate", "/app/admin/simulate"),
+            ("dashboard:admin_simulate", "/app/admin"),
             ("dashboard:admin_reset_tasks", "/app/admin/reset-tasks"),
             ("dashboard:admin_reset_mail", "/app/admin/reset-mail"),
         ):

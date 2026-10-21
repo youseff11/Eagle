@@ -354,6 +354,11 @@ def assign_translator(request, code):
     # A share can be added while the others are being translated (one fell through, or the job grew), so a job in progress is open to this.
     if task.status not in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS):
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
+    # The AI is translating it (21/10/2026): one or the other, not both at once.
+    from . import ai_translate
+
+    if ai_translate.running(task) is not None:
+        return JsonResponse({"ok": False, "error": ai_translate.PROBLEMS_AR["running"], "code": "ai_running"}, status=400)
 
     # The date the leader is handing over with the job is his choice, and it is asked every time (07/10/2026): the same as the operation
     # gave (``tdeadline_mode=same``), or a shorter one he types (``shorter``), which has to be shorter - that is what choosing it means.

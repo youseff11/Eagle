@@ -54,7 +54,6 @@ export const WARM: Record<string, Warm> = {
  */
 export const WARM_URLS: Record<string, readonly string[]> = {
   "/admin/settings": ["/api/v1/admin/settings/"],
-  "/admin/simulate": ["/api/v1/admin/simulate/"],
   "/admin/reset-mail": ["/api/v1/admin/reset/mail/"],
   "/admin/reset-tasks": ["/api/v1/admin/reset/tasks/"],
   "/admin/reset-staff": ["/api/v1/admin/reset/staff/"],

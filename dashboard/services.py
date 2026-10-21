@@ -3447,6 +3447,11 @@ def mark_reviewed(task, user):
         return False
     # A second press on a reviewed task must not post the files again.
     already = task.status == TaskStatus.REVIEWED
+    if not already:
+        # Translated by the AI and not corrected by hand: its file is what goes on (21/10/2026).
+        from . import ai_translate
+
+        ai_translate.promote(task, task.team_lead or user)
     task.status = TaskStatus.REVIEWED
     task.reviewed_at = timezone.now()
     task.save(update_fields=["status", "reviewed_at", "updated_at"])
@@ -3578,6 +3583,11 @@ def send_back_for_revision(task, user, reason=""):
     if task.team_lead_id != user.id and not user.is_admin_role:
         return False
     if task.status not in (TaskStatus.UNDER_REVIEW, TaskStatus.REVIEWED):
+        return False
+    # The AI translated it: there is no translator to send it back to (the leader corrects it himself).
+    from . import ai_translate
+
+    if ai_translate.made_by_ai(task):
         return False
 
     task.status = TaskStatus.IN_PROGRESS

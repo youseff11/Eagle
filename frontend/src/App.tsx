@@ -32,7 +32,6 @@ import { AdminClientsPage } from "./pages/AdminClientsPage";
 import { AdminOverviewPage } from "./pages/AdminOverviewPage";
 import { AdminResetPage } from "./pages/AdminResetPage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
-import { AdminSimulatePage } from "./pages/AdminSimulatePage";
 import { AssignmentPage } from "./pages/AssignmentPage";
 import { AttendancePage } from "./pages/AttendancePage";
 import { ClientPage } from "./pages/ClientPage";
@@ -117,7 +116,6 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="admin/clients/new" element={<AdminClientFormPage />} />
         <Route path="admin/clients/:code/edit" element={<AdminClientFormPage />} />
         <Route path="admin/settings" element={<AdminSettingsPage />} />
-        <Route path="admin/simulate" element={<AdminSimulatePage />} />
         <Route path="admin/reset-tasks" element={<AdminResetPage kind="tasks" />} />
         <Route path="admin/reset-staff" element={<AdminResetPage kind="staff" />} />
         <Route path="admin/reset-mail" element={<AdminResetPage kind="mail" />} />

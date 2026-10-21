@@ -46,26 +46,6 @@ from .models import (
 DATETIME_INPUT_FORMATS = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"]
 
 
-class MultipleFileInput(forms.ClearableFileInput):
-    """Django refuses ``multiple`` on the stock widget; opt in explicitly."""
-
-    allow_multiple_selected = True
-
-
-class MultipleFileField(forms.FileField):
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault(
-            "widget", MultipleFileInput(attrs={"class": "input", "multiple": True})
-        )
-        super().__init__(*args, **kwargs)
-
-    def clean(self, data, initial=None):
-        single = super().clean
-        if isinstance(data, (list, tuple)):
-            return [single(item, initial) for item in data]
-        return single(data, initial)
-
-
 class DateTimeLocalField(forms.DateTimeField):
     widget = forms.DateTimeInput(attrs={"type": "datetime-local", "class": "input"})
 
@@ -931,7 +911,7 @@ class SettingsForm(forms.ModelForm):
         model = AppSettings
         fields = (
             "ai_check_enabled", "claude_api_key", "claude_model", "helpbot_ai_enabled", "helpbot_actions_enabled",
-            "chat_translate_enabled",
+            "chat_translate_enabled", "ai_translate_enabled",
             "b2b_auto_leads", "b2b_reminder_email", "b2b_whatsapp_daily_limit",
             "b2c_visit_target", "b2c_work_days", "b2c_visit_radius_m", "b2c_gps_accuracy_m",
             "response_window_seconds", "deadline_warning_minutes",
@@ -946,7 +926,7 @@ class SettingsForm(forms.ModelForm):
             "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
             "mail_aliases_hidden", "google_client_id", "google_client_secret",
             "sales_mail_website", "sales_mail_footer",
-            "simulation_enabled", "poll_ms",
+            "poll_ms",
             "group_creator_roles",
         )
         widgets = {
@@ -1023,23 +1003,6 @@ class SettingsForm(forms.ModelForm):
         if instance is not None and instance.google_refresh_token \
                 and instance.google_client_id and instance.google_client_secret:
             self.fields["mail_aliases"].disabled = True
-
-
-class SimulateMessageForm(forms.Form):
-    CHANNELS = (("whatsapp", "WhatsApp"), ("email", "Email"))
-
-    channel = forms.ChoiceField(
-        choices=CHANNELS, widget=forms.Select(attrs={"class": "input"})
-    )
-    sender_identity = forms.CharField(
-        label="Phone / Email",
-        widget=forms.TextInput(attrs={"class": "input", "dir": "ltr", "placeholder": "+201000000000"}),
-    )
-    subject = forms.CharField(
-        required=False, widget=forms.TextInput(attrs={"class": "input"})
-    )
-    body = forms.CharField(widget=forms.Textarea(attrs={"class": "input", "rows": 4}))
-    files = MultipleFileField(required=False)
 
 
 class AICheckForm(forms.Form):

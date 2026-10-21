@@ -12,7 +12,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
-from . import api, identity, services, taskstart, wordcount
+from . import ai_translate, api, identity, services, taskstart, wordcount
 from .api_v1 import (
     BadBody, BadIds, _clean_id, _error, _gone, _kind_json, _list, _object, _origin_json, _stamp, _status_json, _task_file_json,
     _text, _two, endpoint,
@@ -279,8 +279,10 @@ def _lead_json(task, user):
         return None
     if user.is_team_lead and not user.is_admin_role and task.team_lead_id != user.id:
         return None
-    # While it is being translated too: a share can be added (one fell through, or the job grew) without touching the others.
-    can_assign = task.status in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS)
+    # While it is being translated too: a share can be added (one fell through, or the job grew) without touching the others. Not while
+    # the AI is translating it: one or the other.
+    in_flight = ai_translate.running(task)
+    can_assign = task.status in (TaskStatus.LEAD_ACCEPTED, TaskStatus.AWAITING_TRANSLATOR, TaskStatus.IN_PROGRESS) and in_flight is None
     translators = []
     lead_id = user.pk if user.is_team_lead and not user.is_admin_role else task.team_lead_id
     if can_assign and lead_id:
@@ -306,6 +308,10 @@ def _lead_json(task, user):
         "can_close_translation": services.lead_may_close(task, user),
         # His own corrected file: asked while the task is under review and (if he notices late) after it, until it reaches the client.
         "can_upload_reviewed": services.can_upload_reviewed(task, user),
+        # The other way forward (21/10/2026): the AI translates it and he reviews it. Said only where it could be pressed, and why not.
+        "ai_translate": _ai_translate_json(task, user, in_flight),
+        # The AI translated it: there is no translator to send it back to, he corrects it himself.
+        "made_by_ai": ai_translate.made_by_ai(task),
         "client_due": _stamp(task.deadline, "%Y-%m-%d"),
         "extension": {
             "id": pending.pk,
@@ -315,6 +321,38 @@ def _lead_json(task, user):
             "new_due": _stamp(state.get("extension_new_due"), "%Y-%m-%d"),
         } if pending else None,
     }
+
+
+def _ai_translate_json(task, user, in_flight):
+    """«ترجمها بالـAI» on the leader's card: ``None`` where it has no place (switched off, or the task is past the point of choosing),
+    else whether it can be pressed now, or why not (a sentence), or that the AI is at it."""
+    if not ai_translate.available():
+        return None
+    if in_flight is not None:
+        return {"running": True, "can_start": False, "problem": None, "since": _stamp(in_flight.created_at, "%H:%M")}
+    if task.status != TaskStatus.LEAD_ACCEPTED:
+        return None
+    code = ai_translate.problem(task, user)
+    failed = task.ai_translations.first()
+    return {
+        "running": False,
+        "can_start": code == "",
+        "problem": ai_translate.PROBLEMS_AR.get(code) if code else None,
+        # The last try came back without a translation: said, so the leader knows to try again or send it to a translator.
+        "failed": failed is not None and failed.status == failed.Status.ERROR,
+    }
+
+
+def _ai_files_json(task):
+    """The AI's translations of the task that came back, newest first, with whether the model stopped before the end."""
+    return [
+        dict(
+            _task_file_json(row), at=_stamp(row.finished_at or row.created_at, "%m-%d"), cut_short=row.cut_short,
+            skipped=list(row.skipped or []), instructions=row.instructions,
+        )
+        for row in task.ai_translations.filter(status="done")[:5]
+        if row.file
+    ]
 
 
 @endpoint("GET")
@@ -401,6 +439,8 @@ def task(request, code):
                          by=a.message.sender.short_name if a.message.sender_id else None)
                     for a in services.translator_files(task)
                 ],
+                # The AI's translation, when the leader gave it to the AI instead of a translator (21/10/2026).
+                "ai": [] if watching else _ai_files_json(task),
                 # The leader's own corrected version, which the review sends on in its place.
                 "reviewed": [] if watching else [
                     dict(_task_file_json(a), at=_stamp(a.message.created_at, "%m-%d"))
@@ -809,3 +849,25 @@ def task_lead_files(request, code):
     if error:
         return _error(403 if error == "forbidden" else 400, error)
     return JsonResponse({"ok": True, "files": [_task_file_json(row) for row in rows]})
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def task_ai_translate(request, code):
+    """«ترجمها بالـAI» (21/10/2026): the task's own leader (or the admin) gives it to the AI instead of a translator.
+
+    The answer comes at once and the translation later: the page says the AI is at it, and the leader is told when the file is in and
+    the task is his to review (``ai_translate``). A task this person may not open is a logged 404; one of theirs that cannot be given to
+    the AI now is a 400 with the reason in their words (``error``) and its ``code``. ``instructions`` (a form field, optional) is what the
+    leader asks of the AI - the tone, the terms, what to keep in the source language - and goes with the files.
+    """
+    task = get_object_or_404(Task.objects.select_related("client", "team_lead"), code=code)
+    user = request.user
+    if not task.can_view(user):
+        identity.hidden(request, "task")
+    try:
+        # What he wants of it, in his words (``instructions``, optional): sent with the files.
+        row = ai_translate.start(task, user, request.POST.get("instructions", ""))
+    except ai_translate.Problem as refused:
+        return JsonResponse({"ok": False, "error": refused.text, "code": refused.code}, status=403 if refused.code == "forbidden" else 400)
+    return JsonResponse({"ok": True, "id": row.pk})

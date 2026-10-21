@@ -143,26 +143,6 @@ export function useDeleteClients() {
 }
 
 
-/** A message sent as if a client sent it (multipart, so it can carry files). */
-export function useSimulateSend() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (message: { channel: string; sender_identity: string; subject: string; body: string; files: File[] }) => {
-      const form = new FormData();
-      form.append("channel", message.channel);
-      form.append("sender_identity", message.sender_identity);
-      form.append("subject", message.subject);
-      form.append("body", message.body);
-      for (const file of message.files) form.append("files", file);
-      return api<{ ok: true; id: number; code: string; blocked: boolean }>("/api/v1/admin/simulate/send/", { multipart: form });
-    },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: qk.adminSimulate });
-      void client.invalidateQueries({ queryKey: qk.boards });
-    },
-  });
-}
-
 /** What a clear-out did: how many rows went, how many stored files, and the name of the backup that was saved. */
 export interface ResetDone {
   deleted: number;

@@ -8,7 +8,7 @@ import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
-import { AssignTranslatorBox, CloseTranslationButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
+import { AiTranslateBox, AssignTranslatorBox, CloseTranslationButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
 import { DeliveriesCard, HistoryCard, LanguagesCard, MessagesCard, PartsCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
@@ -49,7 +49,8 @@ function Files({ task }: { task: OpsTask }) {
   const { t, lang } = usePreferences();
   const { original, translation } = task.files;
   const reviewed = task.files.reviewed ?? [];
-  if (original.length === 0 && !task.people.translator) return null;
+  const ai = task.files.ai ?? [];
+  if (original.length === 0 && !task.people.translator && ai.length === 0) return null;
   return (
     <div className="task-files mt">
       {original.length > 0 && (
@@ -89,6 +90,43 @@ function Files({ task }: { task: OpsTask }) {
           )}
         </div>
       )}
+      {ai.length > 0 && (
+        <div className="task-files__set task-files__set--translation" data-box="ai-files">
+          <div className="label">
+            <Icon name="sparkles" size="sm" />
+            <span>{t("ترجمة الـAI (مسودة للمراجعة)", "The AI's translation (a draft to review)")}</span> <span className="chip chip--sm">{ai.length}</span>
+          </div>
+          <div className="files">
+            {ai.map((file) => (
+              <FileLink key={file.id} file={file} detail={file.at ? (lang === "ar" ? file.at.ar : file.at.en) : undefined} />
+            ))}
+          </div>
+          {ai[0]!.instructions && (
+            <div className="muted mt" style={{ whiteSpace: "pre-wrap", fontSize: ".84rem" }} data-box="ai-instructions">
+              <strong>{t("اللي اتطلب من الـAI:", "What the AI was asked:")}</strong> {ai[0]!.instructions}
+            </div>
+          )}
+          {ai[0]!.cut_short && (
+            <div className="note note--warn mt" role="alert">
+              <Icon name="alert" />
+              <div>
+                {t(
+                  "الـAI وقف قبل آخر الملف الأصلي: الباقي مش مترجم. كمّله بنفسك أو ابعت الباقي لمترجم.",
+                  "The AI stopped before the end of the source: the rest is not translated. Finish it yourself or give the rest to a translator.",
+                )}
+              </div>
+            </div>
+          )}
+          {ai[0]!.skipped.length > 0 && (
+            <div className="note note--warn mt">
+              <Icon name="alert" />
+              <div>
+                {t("ملفات الـAI ماقدرش يقراها ومتترجمتش:", "Files the AI could not read, not translated:")} <span dir="ltr">{ai[0]!.skipped.join(", ")}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {reviewed.length > 0 && (
         <div className="task-files__set task-files__set--reviewed">
           <div className="label">
@@ -116,7 +154,7 @@ function Task({ task }: { task: OpsTask }) {
   const leadTools =
     task.can_add_files === true ||
     (lead !== null &&
-      (lead.can_assign || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null));
+      (lead.can_assign || Boolean(lead.ai_translate) || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null));
   const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
@@ -165,7 +203,12 @@ function Task({ task }: { task: OpsTask }) {
               gone={task.people.gone?.includes("operation")}
             />
             <Person label={t("التيم ليدر", "Team leader")} name={task.people.team_lead} gone={task.people.gone?.includes("team_lead")} />
-            <Person label={t("المترجم", "Translator")} name={task.people.translator} gone={task.people.gone?.includes("translator")} />
+            {/* Translated by the AI with no translator on it: who did the work is said, not left as a dash. */}
+            <Person
+              label={t("المترجم", "Translator")}
+              name={task.people.translator ?? ((task.files.ai ?? []).length > 0 ? t("الـAI", "The AI") : null)}
+              gone={task.people.gone?.includes("translator")}
+            />
           </div>
         </div>
         {task.description && (
@@ -233,6 +276,7 @@ function Task({ task }: { task: OpsTask }) {
               {can.set_deadline && <DeadlineBox task={task} />}
               <AddMemberBox task={task} />
               <CancelButton task={task} />
+              <AiTranslateBox task={task} />
               <AssignTranslatorBox task={task} />
               <LeadSourceFilesBox task={task} />
               <TranslatorDeadlineBox task={task} />

@@ -69,8 +69,7 @@ export const qk = {
   adminClientsAll: ["admin-clients"] as const,
   adminClient: (code: string) => ["admin-client", code] as const,
   adminClientNew: ["admin-client-new"] as const,
-  /** The simulator's latest messages and the clear-outs' counts: read when opened (a count that moves under the eye is a count to doubt). */
-  adminSimulate: ["admin-simulate"] as const,
+  /** The clear-outs' counts: read when opened (a count that moves under the eye is a count to doubt). */
   adminResetCounts: (kind: "tasks" | "mail" | "staff") => ["admin-reset", kind] as const,
   /** The settings page: outside the boards, read when opened and after a save (a form being typed in is not refilled). */
   adminSettings: ["admin-settings"] as const,

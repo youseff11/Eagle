@@ -230,7 +230,7 @@ def owner_of(name):
     that lets this person in.
     """
     from .models import (
-        Candidate, CandidateAnswer, CandidateTest, ChatAttachment,
+        AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment,
         MessageAttachment, OutboundAttachment, TaskUpload, User,
     )
 
@@ -244,6 +244,7 @@ def owner_of(name):
     found += [("chat", r) for r in _rows(ChatAttachment, name, "message", "message__room")]
     found += [("outbound", r) for r in _rows(OutboundAttachment, name, "message", "message__task")]
     found += [("task_upload", r) for r in _rows(TaskUpload, name, "task", "task__client")]
+    found += [("ai_translation", r) for r in _rows(AITranslation, name, "task", "task__client")]
     found += [("cv", r) for r in Candidate.objects.filter(cv=name)[:5]]
     found += [("answer", r) for r in CandidateAnswer.objects.filter(file=name)[:5]]
     found += [("test", r) for r in CandidateTest.objects.filter(assignment=name)[:5]]
@@ -267,6 +268,10 @@ def may_open(user, name):
             return True, (kind, row)
         # A file a team leader uploaded on a task he made: the task's, so whoever may open the task (or is offered it) may.
         if kind == "task_upload" and (user.is_admin_role or _task_open_to(user, row.task)):
+            return True, (kind, row)
+        # The AI's translation of a task (21/10/2026): whoever may open the task - its leader reviews it, the operation reads it as it
+        # reads a translator's file. Not someone merely offered the job: there is nothing of it to translate in this file.
+        if kind == "ai_translation" and (user.is_admin_role or row.task.can_view(user)):
             return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)
@@ -295,7 +300,7 @@ def client_of(kind, row):
         return row.origin_client or row.message.room.relay_client
     if kind == "outbound":
         return row.message.client
-    if kind == "task_upload":
+    if kind in ("task_upload", "ai_translation"):
         return row.task.client
     return None
 

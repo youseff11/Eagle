@@ -14,8 +14,8 @@ fixed (it is listed in HANDOFF.md).
 * Money, days and minutes are never below zero (a negative penalty pays); a draft the engine no longer raises is not left waiting
   to be approved; a day recorded over an existing day keeps what was not sent; an overtime claim for a corrected day is not paid.
 * A leave range, a date on the board, an office on the map, a username and a job title have the limits the rest of the system has.
-* The owner cannot close the last owner's account; a pilot who has gone does not block the settings; the simulation switch is
-  read; the owner's edits and test sends leave rows in the log.
+* The owner cannot close the last owner's account; a pilot who has gone does not block the settings; the owner's
+  edits and test sends leave rows in the log.
 * What a stranger calls a file never leaves the folder it is stored in.
 * What a client's name was not masked against when a file arrived is masked when the client is named, and what a client said
   goes when the client goes (the copies forwarded into other chats, the files shared for a task that is reset).
@@ -453,24 +453,6 @@ class AdminPanelFixTests(_Admin):
         second = User.objects.create_user("second_owner", password="pw", role="admin")
         again = self.post_json("dashboard:v1_admin_user_save", {"values": {"is_active": False}}, [second.pk])
         self.assertEqual(again.status_code, 200, again.content)
-
-    def test_the_simulation_switch_is_read(self):
-        conf = AppSettings.load()
-        conf.simulation_enabled = False
-        conf.save()
-        browser = DjangoClient()
-        browser.force_login(self.admin)
-        body = {"channel": "whatsapp", "sender_identity": "201099900111", "body": "hello", "subject": ""}
-        before = InboundMessage.objects.count()
-        answer = browser.post(reverse("dashboard:v1_admin_simulate_send"), body)
-        self.assertEqual((answer.status_code, _json(answer)["error"]), (409, "simulation_off"))
-        self.assertEqual(InboundMessage.objects.count(), before)
-        conf.simulation_enabled = True
-        conf.save()
-        sent = browser.post(reverse("dashboard:v1_admin_simulate_send"), body)
-        self.assertEqual(sent.status_code, 200, sent.content)
-        entry = AuditLog.objects.get(action="admin.simulate")
-        self.assertNotIn("hello", entry.detail + entry.target)
 
     def test_a_save_of_a_persons_file_says_which_boxes_changed(self):
         answer = self.post_json("dashboard:v1_admin_user_save", {"values": {"attendance_manager": True}}, [self.ops.pk])

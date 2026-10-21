@@ -122,7 +122,7 @@ class WhoSeesWhatTests(SimpleTestCase):
     #: Guides that are the owner's alone: nobody else is told how, and the prompt of nobody else carries them.
     OWNER_ONLY = (
         "admin-overview", "admin-employee-new", "admin-mail-alias", "admin-identity-access",
-        "admin-settings", "admin-ai-assistant", "admin-assistant-orders", "admin-google", "admin-clients", "admin-requirement", "admin-delete-clients", "admin-simulate",
+        "admin-settings", "admin-ai-assistant", "admin-assistant-orders", "admin-google", "admin-clients", "admin-requirement", "admin-delete-clients",
         "admin-reset", "acc-rules", "admin-support-account",
     )
 

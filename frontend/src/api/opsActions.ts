@@ -318,6 +318,13 @@ export function useCloseTranslation(code: string) {
   return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/translated/`, { form: {} }));
 }
 
+/** «ترجمها بالـAI»: the task goes to the AI instead of a translator, with what the leader asks of it; the answer is at once, the translation later (`api_ops.task_ai_translate`). */
+export function useAiTranslate(code: string) {
+  return useOpsAction<string, { ok: boolean; id: number }>(code, (instructions) =>
+    api<{ ok: boolean; id: number }>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-translate/`, { form: { instructions } }),
+  );
+}
+
 /** «تمت المراجعة»: the review is done and the task goes on to the operation. */
 export function useFinishReview(code: string) {
   return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/reviewed/`, { form: {} }));

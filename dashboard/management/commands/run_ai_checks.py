@@ -16,7 +16,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from dashboard import ai
+from dashboard import ai, ai_translate
 from dashboard.models import AICheckResult
 
 
@@ -46,3 +46,6 @@ class Command(BaseCommand):
             if ai.finish_check(result.pk) is not None:
                 done += 1
         self.stdout.write(self.style.SUCCESS(f"finished={done} of {len(stuck)}"))
+        # The AI translations a leader asked for (21/10/2026) die the same way, and are finished the same way.
+        translated = ai_translate.finish_stuck(options["minutes"])
+        self.stdout.write(self.style.SUCCESS(f"translations finished={translated}"))

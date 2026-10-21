@@ -536,13 +536,13 @@ describe("Shell: the admin's panel", () => {
 
   it("lists every page of the panel in the classic menu's sections and words, the two that delete last and in red", async () => {
     const view = at("/admin", ["admin", "chats"]);
-    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/simulate"]')).not.toBeNull());
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toBeNull());
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
       "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance", "/b2c", "/b2c/visits", "/b2c/performance", "/price-list",
       "/commissions",
-      "/admin/settings", "/admin/simulate",
+      "/admin/settings",
       "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
     ]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual([
@@ -551,7 +551,7 @@ describe("Shell: the admin's panel", () => {
     const words: [string, string][] = [
       ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
       ["/b2c", "شيتات B2C"], ["/b2c/visits", "الزيارات"], ["/b2c/performance", "أداء B2C"], ["/commissions", "العمولات"], ["/price-list", "قايمة الأسعار"],
-      ["/admin/settings", "الإعدادات و AI"], ["/admin/simulate", "محاكاة رسالة"],
+      ["/admin/settings", "الإعدادات و AI"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],
     ];
     for (const [href, label] of words) {
@@ -561,9 +561,11 @@ describe("Shell: the admin's panel", () => {
       expect(view.container.querySelector(`.sidebar a[href="${href}"]`), href).toHaveClass("nav__item--danger");
     }
     expect(view.container.querySelector('.sidebar a[href="/admin/settings"]')).not.toHaveClass("nav__item--danger");
-    // The staff panel is the employee files now: it has no line of its own on the panel. The audit log has no page (21/10/2026).
+    // The staff panel is the employee files now: it has no line of its own on the panel. The audit log has no page (21/10/2026), nor the message simulator.
     expect(view.container.querySelector('.sidebar a[href="/admin/users"]')).toBeNull();
     expect(view.container.querySelector('.sidebar a[href="/admin/audit"]')).toBeNull();
+    expect(view.container.querySelector('.sidebar a[href="/admin/simulate"]')).toBeNull();
+    expect(view.container.textContent).not.toContain("محاكاة رسالة");
   });
 
   it("has no client codes line: the codes are in the client records, which a client's profile lights", async () => {
@@ -583,7 +585,6 @@ describe("Shell: the admin's panel", () => {
       ["/admin", "نظرة عامة", "/admin"],
       ["/admin/clients/CL-0001/edit", "بيانات العملاء", "/admin/clients"],
       ["/admin/settings", "الإعدادات و AI", "/admin/settings"],
-      ["/admin/simulate", "محاكاة رسالة", "/admin/simulate"],
       ["/admin/reset-tasks", "ريستارت التاسكات", "/admin/reset-tasks"],
       ["/admin/reset-staff", "ريستارت الموظفين", "/admin/reset-staff"],
     ] as const) {

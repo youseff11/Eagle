@@ -1662,6 +1662,34 @@ GUIDES = (
         starter=True,
     ),
     _guide(
+        "lead-ai-translate", (Role.TEAM_LEAD, Role.ADMIN), "/lead",
+        ("إزاي أترجم تاسك بالـAI بدل المترجم", "How do I have the AI translate a task instead of a translator"),
+        (
+            "ترجمها بالـAI، ترجمة بالذكاء الاصطناعي، ابعتها للـAI، من غير مترجم، الـAI يترجم، ترجمة آلية، كلود يترجم",
+            "translate with the AI, AI translation, send it to the AI, without a translator, machine translation, Claude translates",
+        ),
+        [
+            "افتح التاسك من «تاسكاتي». لو الأدمن فاتح الترجمة بالـAI هتلاقي في الإجراءات «ترجمها بالـAI» وتحتها «أو ابعتها لمترجم من فريقك:».",
+            "لو عايز حاجة معيّنة اكتبها في «عايز إيه من الـAI» (مثلًا ترجمة قانونية رسمية، أو سيب أسماء الشركات بالإنجليزي، أو مصطلح بعينه). اختياري.",
+            "اضغط «ترجمها بالـAI» وأكّد «أيوه، ترجمها». الملفات الأصلية بتتبعت لـ Claude بلغة الترجمة اللي الأوبريشن حددها، ولحد ما يخلص مينفعش تبعتها لمترجم.",
+            "هيوصلك تنبيه أول ما يخلص، والتاسك بتبقى عندك للمراجعة. هتلاقي ملف Word منسّق زي الأصل (عناوين وبولد وقوايم وجداول وفواصل صفحات) تحت «ترجمة الـAI (مسودة للمراجعة)»: نزّله وراجعه.",
+            "لو عدّلت فيه: من «الملف اللي ظبطته» اختار ملفك واضغط «احفظ الملف المعدّل». لو ماعدّلتش هيروح ملف الـAI زي ما هو.",
+            "لما تبقى تمام اضغط «تمت المراجعة» وأكّد «أيوه، خلصت». التاسك بتروح للأوبريشن تسلّمها للعميل.",
+        ],
+        [
+            "Open the task from «My tasks». If the admin has the AI translation on, the actions have «Translate it with the AI» with «Or send it to a translator of your team:» under it.",
+            "If you want something particular write it in «What you want from the AI» (a formal legal translation, keep company names in English, a given term). Optional.",
+            "Press «Translate it with the AI» and confirm «Yes, translate it». The source files go to Claude with the language pair the operation set, and until it is done the task cannot go to a translator.",
+            "You are told as soon as it is done, and the task is yours to review. A Word file laid out like the source (headings, bold, lists, tables, page breaks) is under «The AI's translation (a draft to review)»: download it and review it.",
+            "If you change it: under «The file you corrected» choose your file and press «Save the corrected file». If you do not, the AI's file goes as it is.",
+            "When it is right press «Review completed» and confirm «Yes, it is done». The task goes to the operation to deliver to the client.",
+        ],
+        note=(
+            "لو الـAI وقف قبل آخر الملف أو فيه ملف ماقدرش يقراه، الصفحة بتقولك: كمّل الناقص بنفسك أو ابعته لمترجم. التاسك اللي اتترجمت بالـAI ماينفعش ترجع لمترجم بعد المراجعة، ومحدش بيتحسب له كلمات عليها.",
+            "If the AI stopped before the end, or could not read a file, the page says so: finish what is missing yourself or give it to a translator. A task the AI translated cannot be sent back to a translator after the review, and nobody is paid words for it.",
+        ),
+    ),
+    _guide(
         "lead-extension", (Role.TEAM_LEAD, Role.ADMIN), "/lead",
         ("إزاي أرد على طلب وقت إضافي من مترجم", "How do I answer a translator's request for more time"),
         (
@@ -2438,28 +2466,6 @@ GUIDES = (
         note=(
             "مفيش رجوع. العميل اللي عليه تاسكات شغالة مش بيتمسح.",
             "There is no undo. A client with running tasks is not deleted.",
-        ),
-    ),
-    _guide(
-        "admin-simulate", (Role.ADMIN,), "/admin/simulate",
-        ("إزاي أجرّب رسالة عميل من غير واتساب", "How do I try a client message without WhatsApp"),
-        (
-            "محاكاة رسالة، جرّب رسالة، رسالة تجريبية، محاكاة عميل، اختبار الفلو",
-            "simulate a message, try a message, test message, simulate a client, test the flow",
-        ),
-        [
-            "من قسم «الإعدادات» افتح «محاكاة رسالة».",
-            "اختار «القناة» واكتب «رقم / إيميل العميل» و«نص الرسالة» (و«الموضوع» للإيميل).",
-            "اضغط «ابعت». الرسالة بتنزل زي رسالة عميل حقيقي.",
-        ],
-        [
-            "In the «Settings» section open «Simulate message».",
-            "Pick the «Channel» and write the «Client phone / email» and the «Message body» (and the «Subject» for e-mail).",
-            "Press «Send». The message arrives like a real client's.",
-        ],
-        note=(
-            "لو النص فيه كلمة rate الرسالة بتتحجب عن الأوبريشن وتظهر للأدمن بس.",
-            "If the text contains the word rate the message is hidden from Operation and shown to the admin only.",
         ),
     ),
     _guide(

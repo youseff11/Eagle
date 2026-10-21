@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useAddLeadFiles,
+  useAiTranslate,
   useAssignTranslator,
   useCloseTranslation,
   useDecideExtension,
@@ -72,6 +73,138 @@ const seconds = (value: TranslatorDate) => {
   const part = (raw: string) => (/^\d+$/.test(raw.trim()) ? Number(raw.trim()) : 0);
   return part(value.days) * 86400 + part(value.hours) * 3600 + part(value.minutes) * 60;
 };
+
+/**
+ * «ترجمها بالـAI» (21/10/2026): the other way forward from «ابعتها للمترجم». The task's source files go to the AI with the pair the
+ * operation said, a Word file comes back, and the task is his to review - he corrects it if it needs it, uploads his version, and finishes
+ * the review as with any task. Asked first: it sends the client's files out to the AI. While it runs, the task cannot also go to a
+ * translator (the server refuses it too), and the page says so; when it is done he is told, and the page asks again on its own.
+ */
+export function AiTranslateBox({ task }: { task: OpsTask }) {
+  const { t, lang } = usePreferences();
+  const { push } = useToasts();
+  const start = useAiTranslate(task.code);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [wish, setWish] = useState("");
+  const choice = task.lead?.ai_translate;
+  if (!choice) return null;
+
+  if (choice.running) {
+    const since = choice.since ? (lang === "ar" ? choice.since.ar : choice.since.en) : null;
+    return (
+      <div className="note note--info" role="status" data-box="ai-translating">
+        <Icon name="sparkles" />
+        <div>
+          <strong>{t("الـAI بيترجم التاسك دي دلوقتي", "The AI is translating this task now")}</strong>
+          {since && <span className="muted mono"> · {since}</span>}
+          <div className="muted">
+            {t(
+              "هيوصلك تنبيه أول ما يخلص، والتاسك هتبقى عندك للمراجعة. لحد ما يخلص مينفعش تبعتها لمترجم.",
+              "You will be told as soon as it is done, and the task will be yours to review. Until then it cannot go to a translator.",
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pair = task.source_lang && task.target_lang ? `${task.source_lang} → ${task.target_lang}` : "";
+  // The other way is right below it: said only when it is really there.
+  const translatorsToo = task.lead?.can_assign === true && task.lead.translators.length > 0;
+  return (
+    <div className="field" data-box="ai-translate">
+      <div className="label">
+        <Icon name="sparkles" size="sm" /> {t("ترجمها بالـAI", "Translate it with the AI")}
+      </div>
+      <small className="muted">
+        {t(
+          "بدل ما تبعتها لمترجم: الـAI بيترجم الملفات الأصلية ويرجعلك ملف Word، والتاسك بتيجي عندك للمراجعة. لو عدّلت فيه ارفع النسخة اللي ظبطتها، وبعدين «تمت المراجعة».",
+          "Instead of a translator: the AI translates the source files and gives you back a Word file, and the task comes to you for review. If you change it, upload your corrected version, then «Review completed».",
+        )}
+      </small>
+      {choice.failed && (
+        <div className="note note--warn mt" data-box="ai-failed">
+          <Icon name="alert" />
+          <div>{t("آخر محاولة مخلصتش. جرّب تاني أو ابعتها لمترجم.", "The last try did not finish. Try again, or send it to a translator.")}</div>
+        </div>
+      )}
+      {choice.problem && (
+        <div className="note note--warn mt" role="alert">
+          <Icon name="alert" />
+          <div>{choice.problem}</div>
+        </div>
+      )}
+      <label className="label mt" htmlFor="ai-instructions">
+        {t("عايز إيه من الـAI", "What you want from the AI")} <small className="muted">({t("اختياري", "optional")})</small>
+      </label>
+      <textarea
+        id="ai-instructions"
+        className="input"
+        rows={3}
+        maxLength={AI_INSTRUCTIONS_MAX}
+        disabled={!choice.can_start}
+        placeholder={t(
+          "مثلًا: ترجمة قانونية رسمية، سيب أسماء الشركات بالإنجليزي، واستخدم «المستأجر» مش «الساكن».",
+          "For example: a formal legal translation, keep company names in English, and use \"tenant\" not \"occupant\".",
+        )}
+        value={wish}
+        onChange={(event) => setWish(event.target.value)}
+      />
+      <small className="muted">
+        {t(
+          "الملف اللي هيرجع Word منسّق زي الأصل: العناوين والبولد والقوايم والجداول وفواصل الصفحات.",
+          "The file that comes back is a Word file laid out like the source: headings, bold, lists, tables and page breaks.",
+        )}
+      </small>
+      <button
+        className="btn btn--block mt"
+        type="button"
+        disabled={!choice.can_start || start.isPending}
+        onClick={() => {
+          setProblem("");
+          setAsking(true);
+        }}
+      >
+        <Icon name="sparkles" size="sm" />
+        <span>{t("ترجمها بالـAI", "Translate it with the AI")}</span>
+        {pair && (
+          <span className="mono" dir="ltr">
+            ({pair})
+          </span>
+        )}
+      </button>
+      {asking && (
+        <Confirm
+          title={t("تبعت التاسك دي للـAI يترجمها؟", "Send this task to the AI to translate?")}
+          body={t(
+            "الملفات الأصلية بتتبعت لـ Claude يترجمها. اللي بيرجع مسودة: انت اللي بتراجعها قبل ما توصل للأوبريشن.",
+            "The source files are sent to Claude to translate. What comes back is a draft: you review it before it reaches the operation.",
+          )}
+          yes={t("أيوه، ترجمها", "Yes, translate it")}
+          icon="sparkles"
+          busy={start.isPending}
+          problem={problem}
+          onNo={() => setAsking(false)}
+          onYes={() =>
+            start.mutate(wish.trim(), {
+              onSuccess: () => {
+                setAsking(false);
+                setWish("");
+                push({ level: "success", title: t("الـAI بدأ يترجم. هيوصلك تنبيه لما يخلص", "The AI has started. You will be told when it is done") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
+      {translatorsToo && <div className="label mt">{t("أو ابعتها لمترجم من فريقك:", "Or send it to a translator of your team:")}</div>}
+    </div>
+  );
+}
+
+/** The most of the leader's words to the AI the server keeps (`ai_translate.MAX_INSTRUCTIONS`). */
+const AI_INSTRUCTIONS_MAX = 2000;
 
 /** Keys for the rows the leader adds; the first row of an untouched form is key 0. */
 let nextKey = 1;
@@ -581,8 +714,12 @@ export function ReviewedFilesBox({ task }: { task: OpsTask }) {
       </button>
       <small className="muted">
         {reviewed.length > 0
-          ? t(`هيتبعت للأوبريشن ملفك (${reviewed.length}) مش ملف المترجم.`, `The operation gets your file (${reviewed.length}), not the translator's.`)
-          : t("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف المترجم زي ما هو.", "With none put here, the operation gets the translator's file as it is.")}
+          ? task.lead.made_by_ai
+            ? t(`هيتبعت للأوبريشن ملفك (${reviewed.length}) مش ملف الـAI.`, `The operation gets your file (${reviewed.length}), not the AI's.`)
+            : t(`هيتبعت للأوبريشن ملفك (${reviewed.length}) مش ملف المترجم.`, `The operation gets your file (${reviewed.length}), not the translator's.`)
+          : task.lead.made_by_ai
+            ? t("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف الـAI زي ما هو.", "With none put here, the operation gets the AI's file as it is.")
+            : t("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف المترجم زي ما هو.", "With none put here, the operation gets the translator's file as it is.")}
       </small>
       {reviewed.length > 0 && (
         <ul className="muted" style={{ margin: "6px 0 0", paddingInlineStart: 18 }}>

@@ -8,6 +8,7 @@ What the team leader does with the notes is theirs: the ones they accept are
 mistakes of the translator, and cost the translator stars (:func:`accept_notes`).
 """
 
+import html
 import json
 import logging
 import re
@@ -138,7 +139,8 @@ def _docx_text(raw):
         return ""
     xml = xml.replace("</w:p>", "\n")
     xml = re.sub(r"<w:tab[^>]*/>", "\t", xml)
-    return _TAG_RE.sub("", xml)
+    # The words come out of XML: "&amp;" and "&lt;" are what Word stores for "&" and "<", and the model is given the characters.
+    return html.unescape(_TAG_RE.sub("", xml))
 
 
 # ---------------------------------------------------------------------------

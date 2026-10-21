@@ -2435,6 +2435,48 @@ def upload_revision(instance, filename):
     return storage_name("revisions", instance, filename)
 
 
+def upload_ai_translation(instance, filename):
+    from .files import storage_name
+
+    return storage_name("ai", instance, filename)
+
+
+class AITranslation(PlayableFile, models.Model):
+    """A translation Claude made of a task's source files, asked for by the task's team leader instead of a translator (21/10/2026).
+
+    It is a draft for the leader to review: the task goes to «under review» when it comes back, and he corrects it (or not) and
+    finishes the review as with a translator's file (``ai_translate.py``). Nobody is paid for it and nobody's stars ride on it.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+        ERROR = "error", "Error"
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="ai_translations")
+    requested_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    #: What the leader asked of the AI in his own words (the tone, the terms, what to keep in the source language), sent with the files.
+    instructions = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
+    file = models.FileField(upload_to=upload_ai_translation, blank=True)
+    original_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    #: The model stopped before the end of the source (its longest answer was not long enough): the rest is not in the file.
+    cut_short = models.BooleanField(default=False)
+    #: Source files the model could not be given (a kind it does not read, or too big for one request), by their shown names.
+    skipped = models.JSONField(default=list, blank=True)
+    error_message = models.TextField(blank=True)
+    model_used = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.task.code} · AI · {self.status}"
+
+
 class HelpQuestion(models.Model):
     """A question put to the help assistant (``helpbot.py``).
 
@@ -2523,6 +2565,9 @@ class AppSettings(models.Model):
     #: «ترجم» beside a client's message in the chat (``translate.py``): the client's words go to Claude. Off until the owner
     #: turns it on, and it needs the key above.
     chat_translate_enabled = models.BooleanField(default=False)
+    #: «ترجمها بالـAI» on a task the team leader holds (``ai_translate.py``): the task's source files go to Claude, the translation
+    #: comes back as a Word file, and the leader reviews it instead of a translator. Off until the owner turns it on; needs the key.
+    ai_translate_enabled = models.BooleanField(default=False)
 
     response_window_seconds = models.PositiveIntegerField(default=60)
     deadline_warning_minutes = models.PositiveIntegerField(default=15)
@@ -2683,6 +2728,7 @@ class AppSettings(models.Model):
         help_text="Roles allowed to create a client group, comma-separated.",
     )
 
+    #: The message simulator's switch. The simulator went on 21/10/2026; the column stays so no migration is needed.
     simulation_enabled = models.BooleanField(default=True)
     poll_ms = models.PositiveIntegerField(default=3000)
 

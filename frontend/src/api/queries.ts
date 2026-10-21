@@ -43,7 +43,6 @@ import type {
   HrVacancy,
   MyLeave,
   AdminSettings,
-  AdminSimulate,
   AdminClientForm,
   AdminClients,
   AdminOverview,
@@ -349,16 +348,6 @@ export function useAdminClient(code: string, enabled = true) {
   return useQuery({
     queryKey: code ? qk.adminClient(code) : qk.adminClientNew,
     queryFn: () => api<AdminClientForm>(code ? `/api/v1/admin/clients/${encodeURIComponent(code)}/` : "/api/v1/admin/clients/new/"),
-    refetchOnWindowFocus: false,
-    enabled,
-  });
-}
-
-/** The simulator: its choices and the latest messages. */
-export function useAdminSimulate(enabled = true) {
-  return useQuery({
-    queryKey: qk.adminSimulate,
-    queryFn: () => api<AdminSimulate>("/api/v1/admin/simulate/"),
     refetchOnWindowFocus: false,
     enabled,
   });

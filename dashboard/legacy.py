@@ -217,7 +217,8 @@ PAGES = (
     ("panel/clients/", "admin_clients", "/admin/clients", _both(_robots, _search), None),
     ("panel/clients/new/", "admin_client_new", "/admin/clients/new", None, None),
     ("panel/clients/<str:code>/edit/", "admin_client_edit", "/admin/clients/{code}/edit", None, None),
-    ("panel/simulate/", "admin_simulate", "/admin/simulate", None, None),
+    # The message simulator has no page since 21/10/2026: an old link to it lands on the overview.
+    ("panel/simulate/", "admin_simulate", "/admin", None, None),
     # The audit log has no page since 21/10/2026 (it is still written): an old link to it lands on the overview.
     ("panel/audit/", "admin_audit", "/admin", None, None),
     ("panel/reset-tasks/", "admin_reset_tasks", "/admin/reset-tasks", None, None),

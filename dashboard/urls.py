@@ -214,8 +214,6 @@ urlpatterns = [
     path("api/v1/admin/settings/whatsapp/numbers/", api_admin_settings.wa_numbers_refresh, name="v1_admin_wa_numbers"),
     path("api/v1/admin/settings/whatsapp/send-code/", api_admin_settings.wa_send_code, name="v1_admin_wa_send_code"),
     path("api/v1/admin/settings/whatsapp/link/", api_admin_settings.wa_link, name="v1_admin_wa_link"),
-    path("api/v1/admin/simulate/", api_admin_tools.simulate, name="v1_admin_simulate"),
-    path("api/v1/admin/simulate/send/", api_admin_tools.simulate_send, name="v1_admin_simulate_send"),
     path("api/v1/admin/reset/tasks/", api_admin_tools.reset_tasks_counts, name="v1_admin_reset_tasks"),
     path("api/v1/admin/reset/tasks/run/", api_admin_tools.reset_tasks_run, name="v1_admin_reset_tasks_run"),
     path("api/v1/admin/reset/mail/", api_admin_tools.reset_mail_counts, name="v1_admin_reset_mail"),
@@ -319,6 +317,7 @@ urlpatterns = [
     path("api/v1/tasks/<str:code>/part-words/", api_ops.task_part_words, name="v1_task_part_words"),
     path("api/v1/tasks/<str:code>/requirements/", api_ops.task_requirement, name="v1_task_requirement"),
     path("api/v1/tasks/<str:code>/lead-files/", api_ops.task_lead_files, name="v1_task_lead_files"),
+    path("api/v1/tasks/<str:code>/ai-translate/", api_ops.task_ai_translate, name="v1_task_ai_translate"),
 
     # -- /app/: the page that carries the React app (dashboard/spa.py) --------------
     path("app/", spa.shell, name="app"),

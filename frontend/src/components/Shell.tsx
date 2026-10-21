@@ -128,7 +128,6 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       // The price list, its versions, the discount limits and the discounts waiting (part 4, 15/10/2026).
       { path: "/price-list", icon: "list-checks", label: ["قايمة الأسعار", "Price list"], order: 110 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },
-      { path: "/admin/simulate", icon: "beaker", label: ["محاكاة رسالة", "Simulate message"], section: "settings", order: 90 },
       { path: "/admin/reset-mail", icon: "trash", label: ["مسح الميلات", "Delete all mail"], danger: true, section: "danger" },
       { path: "/admin/reset-tasks", icon: "refresh", label: ["ريستارت التاسكات", "Reset all tasks"], danger: true, section: "danger" },
       { path: "/admin/reset-staff", icon: "users", label: ["ريستارت الموظفين", "Reset all staff"], danger: true, section: "danger" },

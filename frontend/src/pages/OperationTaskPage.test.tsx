@@ -1407,6 +1407,115 @@ describe("OperationTaskPage: the team leader's page", () => {
     });
   });
 
+  describe("giving it to the AI instead (21/10/2026)", () => {
+    const DOOR_AI = `/api/v1/tasks/${CODE}/ai-translate/`;
+    const TRANSLATORS = [{ id: 21, name: "Nada", state: "free", rating: 4.5 }];
+    const choice = (over: object = {}) => ({ running: false, can_start: true, problem: null, failed: false, ...over });
+    const held = (ai: object | null, lead: object = {}) =>
+      leaderTask(
+        { can_assign: true, translators: TRANSLATORS, ai_translate: ai, ...lead },
+        { translator_due: null, people: { operation: "Nour", team_lead: "Mona", translator: null } },
+      );
+    const button = () => screen.getByRole("button", { name: /ترجمها بالـAI/ });
+
+    it("offers both ways forward: the AI, or a translator of the team", async () => {
+      serve(held(choice()), {}, "team_lead");
+      open();
+      await loaded();
+      expect(button()).toBeEnabled();
+      expect(button()).toHaveTextContent("English → Arabic");
+      expect(screen.getByText("أو ابعتها لمترجم من فريقك:")).toBeInTheDocument();
+      expect(screen.getByLabelText("اعمل assign لمترجم من فريقك")).toBeInTheDocument();
+    });
+
+    it("asks first, says the files go to Claude, then sends it with what the leader asked and says the AI started", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(held(choice()), { [DOOR_AI]: () => jsonResponse({ ok: true, id: 7 }) }, "team_lead");
+      open();
+      await loaded();
+      expect(screen.getByText(/Word منسّق زي الأصل/)).toBeInTheDocument();
+      await user.type(screen.getByLabelText(/عايز إيه من الـAI/), "  ترجمة قانونية رسمية ");
+      await user.click(button());
+      expect(calls(mocked, DOOR_AI)).toHaveLength(0);
+      expect(screen.getByText(/الملفات الأصلية بتتبعت لـ Claude/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "أيوه، ترجمها" }));
+      expect(await screen.findByText("الـAI بدأ يترجم. هيوصلك تنبيه لما يخلص")).toBeInTheDocument();
+      expect(calls(mocked, DOOR_AI)).toHaveLength(1);
+      expect(form(calls(mocked, DOOR_AI)[0]!)).toEqual({ instructions: "ترجمة قانونية رسمية" });
+      // The box is empty again for the next time.
+      expect(screen.getByLabelText(/عايز إيه من الـAI/)).toHaveValue("");
+      // The translator's door was not touched.
+      expect(calls(mocked, A("assign-translator"))).toHaveLength(0);
+    });
+
+    it("keeps the question open with the server's reason when it is refused", async () => {
+      const user = userEvent.setup();
+      serve(held(choice()), { [DOOR_AI]: () => jsonResponse({ ok: false, error: "الـAI بيترجم التاسك دي دلوقتي. استنى لما يخلص.", code: "running" }, 400) }, "team_lead");
+      open();
+      await loaded();
+      await user.click(button());
+      await user.click(screen.getByRole("button", { name: "أيوه، ترجمها" }));
+      expect(await screen.findByText("الـAI بيترجم التاسك دي دلوقتي. استنى لما يخلص.")).toBeInTheDocument();
+      expect(screen.queryByText("الـAI بدأ يترجم. هيوصلك تنبيه لما يخلص")).toBeNull();
+    });
+
+    it("says why it cannot be pressed, and does not let it be", async () => {
+      serve(held(choice({ can_start: false, problem: "مفيش ملف أصلي الـAI يقدر يقراه (Word أو PDF أو صورة أو نص)." })), {}, "team_lead");
+      open();
+      await loaded();
+      expect(button()).toBeDisabled();
+      expect(screen.getByLabelText(/عايز إيه من الـAI/)).toBeDisabled();
+      expect(screen.getByText("مفيش ملف أصلي الـAI يقدر يقراه (Word أو PDF أو صورة أو نص).")).toBeInTheDocument();
+    });
+
+    it("says the AI is at it while it runs, with no button and no way to a translator", async () => {
+      serve(held(choice({ running: true, can_start: false, since: stamp("3:10") }), { can_assign: false }), {}, "team_lead");
+      open();
+      await loaded();
+      expect(screen.getByText("الـAI بيترجم التاسك دي دلوقتي")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /ترجمها بالـAI/ })).toBeNull();
+      expect(screen.queryByLabelText("اعمل assign لمترجم من فريقك")).toBeNull();
+    });
+
+    it("says the last try did not finish", async () => {
+      serve(held(choice({ failed: true })), {}, "team_lead");
+      open();
+      await loaded();
+      expect(screen.getByText("آخر محاولة مخلصتش. جرّب تاني أو ابعتها لمترجم.")).toBeInTheDocument();
+      expect(button()).toBeEnabled();
+    });
+
+    it("is not there when the owner has it off", async () => {
+      serve(held(null), {}, "team_lead");
+      open();
+      await loaded();
+      expect(screen.queryByRole("button", { name: /ترجمها بالـAI/ })).toBeNull();
+      expect(screen.queryByText("أو ابعتها لمترجم من فريقك:")).toBeNull();
+    });
+
+    it("lists the AI's file for the review, says when it stopped short, and that its file goes when none is put", async () => {
+      const AI_FILE = { id: 9, url: "/files/ai/x.docx", name: "TSK-00001-AI-Arabic.docx", size: "3 KB", image: false, at: stamp("10-21"), cut_short: true, skipped: ["sheet.xlsx"], instructions: "Formal tone" };
+      serve(
+        leaderTask(
+          { can_review: true, can_upload_reviewed: true, made_by_ai: true, ai_translate: null },
+          { people: { operation: "Nour", team_lead: "Mona", translator: null }, files: { original: [], translation: [], reviewed: [], ai: [AI_FILE] } },
+        ),
+        {},
+        "team_lead",
+      );
+      open();
+      await loaded();
+      expect(screen.getByText("ترجمة الـAI (مسودة للمراجعة)")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /TSK-00001-AI-Arabic\.docx/ })).toHaveAttribute("href", "/files/ai/x.docx");
+      expect(screen.getByText(/الـAI وقف قبل آخر الملف الأصلي/)).toBeInTheDocument();
+      expect(screen.getByText("اللي اتطلب من الـAI:").parentElement).toHaveTextContent("Formal tone");
+      expect(screen.getByText("sheet.xlsx")).toBeInTheDocument();
+      expect(screen.getByText("الـAI")).toBeInTheDocument();
+      expect(screen.getByText("لو ماحطيتش ملف، هيتبعت للأوبريشن ملف الـAI زي ما هو.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "تمت المراجعة" })).toBeInTheDocument();
+    });
+  });
+
   describe("the file the leader corrected", () => {
     const FILES = A("reviewed-files");
     const fixed = (name = "fixed.docx") => new File(["x".repeat(2048)], name, { type: "application/octet-stream" });

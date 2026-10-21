@@ -68,7 +68,6 @@ export const KEYWORDS: Record<string, string> = {
   "/accounts/rules": "قواعد الحساب قواعد المرتبات payroll rules",
   "/admin": "نظرة عامة احصائيات داشبورد overview dashboard stats",
   "/admin/settings": "اعدادات settings",
-  "/admin/simulate": "محاكاة تجربة رسالة تجريبية simulate test",
   "/attendance": "حضوري بصمتي تسجيل حضور my attendance check in",
   "/leave": "اجازاتي طلب اجازة my leave",
   "/payroll": "مستحقاتي فلوسي مرتبي my payroll",

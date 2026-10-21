@@ -224,7 +224,7 @@ class HandOnTests(_Admin):
             "dashboard:admin_overview": "/app/admin", "dashboard:admin_audit": "/app/admin",
             "dashboard:admin_users": "/app/hr/employees", "dashboard:admin_user_new": "/app/hr/employees/new",
             "dashboard:admin_clients": "/app/admin/clients", "dashboard:admin_client_new": "/app/admin/clients/new",
-            "dashboard:admin_settings": "/app/admin/settings", "dashboard:admin_simulate": "/app/admin/simulate",
+            "dashboard:admin_settings": "/app/admin/settings", "dashboard:admin_simulate": "/app/admin",
             "dashboard:admin_reset_tasks": "/app/admin/reset-tasks", "dashboard:admin_reset_mail": "/app/admin/reset-mail",
         }
         for name, target in pages.items():

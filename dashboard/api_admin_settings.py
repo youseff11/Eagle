@@ -46,6 +46,7 @@ SECTIONS = (
             {"fields": ("ai_check_enabled", "claude_api_key", "claude_model")},
             {"ar": "مساعد النظام", "en": "The help assistant", "fields": ("helpbot_ai_enabled", "helpbot_actions_enabled")},
             {"ar": "ترجمة رسايل العملاء", "en": "Translating clients' messages", "fields": ("chat_translate_enabled",)},
+            {"ar": "الترجمة بالـAI بدل المترجم", "en": "AI translation instead of a translator", "fields": ("ai_translate_enabled",)},
         ),
     },
     {
@@ -92,7 +93,6 @@ SECTIONS = (
                 "fields": ("google_client_id", "google_client_secret", "mail_aliases_hidden"),
             },
             {"ar": "شكل إيميلات الـSales", "en": "Sales letter", "fields": ("sales_mail_website", "sales_mail_footer")},
-            {"fields": ("simulation_enabled",)},
         ),
     },
 )
@@ -122,6 +122,13 @@ TEXTS = {
         "hint": (
             "الأدمن والأوبريشن والـSales بيشوفوا «ترجم» تحت أي رسالة من العميل مكتوبة بلغة غير العربي، ولما يضغطوا الترجمة العربي بتظهر تحتها. كلام الرسالة بيتبعت لـ Claude عشان يترجمه، والترجمة بتتحفظ على الرسالة فمابتتطلبش تاني. مابتتبعتش للعميل. محتاج مفتاح Claude محفوظ.",
             "The admin, the operation and Sales get «Translate» under any client message that is not in Arabic; pressing it shows the Arabic under the words. The message's words are sent to Claude to translate, and the translation is kept on the message so it is not asked for twice. It is never sent to the client. It needs a Claude key saved.",
+        ),
+    },
+    "ai_translate_enabled": {
+        "label": ("زرار «ترجمها بالـAI» للتيم ليدر", "The «Translate it with the AI» button for the team leader"),
+        "hint": (
+            "التيم ليدر بيشوف على التاسك اللي معاه اختيارين: يبعتها لمترجم، أو يضغط «ترجمها بالـAI». ملفات التاسك الأصلية بتتبعت لـ Claude ويرجع ملف Word بالترجمة، والتاسك بتروح للمراجعة عند الليدر نفسه: يراجعها ويرفع النسخة اللي ظبطها لو عدّل، وبعدين «تمت المراجعة» زي أي تاسك. محدش بيتحسب له كلمات عليها. محتاج مفتاح Claude محفوظ.",
+            "On a task he holds the team leader gets two choices: send it to a translator, or press «Translate it with the AI». The task's source files are sent to Claude and a Word file with the translation comes back; the task goes to the leader's own review, where he uploads his corrected version if he changed anything and finishes the review as with any task. Nobody is paid words for it. It needs a Claude key saved.",
         ),
     },
     "b2b_auto_leads": {
@@ -261,7 +268,6 @@ TEXTS = {
         "label": ("الشريط اللي تحت (المواعيد والعنوان)", "Bottom band (hours, address)"),
         "hint": ("سطر لكل معلومة. فاضي = الشريط مش هيظهر.", "One line each. Blank = no band."),
     },
-    "simulation_enabled": {"label": ("اسمح بمحاكاة الرسايل", "Allow message simulation")},
 }
 
 #: The longest test address or number a connection test reads.

@@ -416,6 +416,8 @@ export interface OpsTask {
     translation: (TaskFile & { at: Stamp | null; by?: string | null })[];
     /** The team leader's own corrected version, which the review sends on in the translator's place. */
     reviewed?: (TaskFile & { at: Stamp | null })[];
+    /** The AI's translation, when the leader gave the task to the AI instead of a translator: newest first. `cut_short`: it stopped before the end. */
+    ai?: (TaskFile & { at: Stamp | null; cut_short: boolean; skipped: string[]; instructions?: string })[];
   };
   chat: { url: string; label_ar: string; label_en: string } | null;
   client_chat_url: string | null;
@@ -1101,6 +1103,13 @@ export interface LeadTools {
   can_close_translation?: boolean;
   /** The leader may put the file he corrected: under review, and after it until the client has it. */
   can_upload_reviewed?: boolean;
+  /**
+   * «ترجمها بالـAI», the other way forward from a translator (`api_ops._ai_translate_json`): `null` where it has no place (switched off,
+   * or past the point of choosing). `problem` is why it cannot be pressed now, in the leader's words; `failed`: the last try came back empty.
+   */
+  ai_translate?: { running: boolean; can_start: boolean; problem: string | null; failed?: boolean; since?: Stamp | null } | null;
+  /** The AI translated it and no translator is on it: nobody to send it back to, the leader corrects it himself. */
+  made_by_ai?: boolean;
   /** The client's date, to remind the leader of the review time they keep. */
   client_due: Stamp | null;
   /** The translator's request for more time, waiting for this person's yes or no. */
@@ -1290,13 +1299,6 @@ export interface ClientsDeleted {
   blocked: number;
   files: number;
   filename: string;
-}
-
-/** GET /api/v1/admin/simulate/: the choices of the simulator and the latest messages. */
-export interface AdminSimulate {
-  ok: true;
-  channels: { value: string; label: string }[];
-  recent: { id: number; code: string; body: string; blocked: boolean }[];
 }
 
 /** GET /api/v1/admin/reset/tasks/. */
