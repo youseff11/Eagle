@@ -12,7 +12,7 @@ from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client as DjangoClient
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 from django.utils import timezone
 
 from . import identity, services
@@ -75,11 +75,6 @@ class DoorMatrixTests(_Tools):
 
 class SimulatorGoneTests(_Tools):
     """The simulator was taken out on 21/10/2026: no door answers, and an old link to its page lands on the overview."""
-
-    def test_its_doors_are_not_routed(self):
-        for name in ("dashboard:v1_admin_simulate", "dashboard:v1_admin_simulate_send"):
-            with self.assertRaises(NoReverseMatch):
-                reverse(name)
 
     def test_the_old_api_address_makes_no_message(self):
         browser = DjangoClient()

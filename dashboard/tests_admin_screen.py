@@ -191,6 +191,100 @@ class OverviewDoorTests(_Admin):
         self.assertEqual(questions(), few)
 
 
+
+class OverviewDeliverTests(_Admin):
+    """«سلّم للعميل» beside a task awaiting delivery (21/10/2026): one press takes it over and sends its final files."""
+
+    DELIVER = "dashboard:v1_admin_overview_deliver"
+
+    def setUp(self):
+        super().setUp()
+        from .models import ChatAttachment, ChatMessage
+
+        Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.REVIEWED)
+        self.task.refresh_from_db()
+        handed = ChatMessage.objects.create(room=self.work_group, sender=self.tr, task=self.task, body="done")
+        ChatAttachment.objects.create(message=handed, file=ContentFile(b"t", name="translated.docx"), original_name="translated.docx", size=1)
+        # The leader's notes carry the task as well, and are not the translation: never sent from here.
+        notes = ChatMessage.objects.create(room=self.work_group, sender=self.lead, task=self.task, body="notes")
+        ChatAttachment.objects.create(message=notes, file=ContentFile(b"n", name="notes.pdf"), original_name="notes.pdf", size=1)
+
+    def press(self, user, task=None):
+        browser = DjangoClient()
+        browser.force_login(user)
+        url = reverse(self.DELIVER, args=[(task or self.task).code])
+        self.assertTrue(url.startswith("/api/v1/admin/overview/deliver/"), url)
+        with mock.patch("dashboard.whatsapp.send_text", return_value="wamid.0"),                 mock.patch("dashboard.whatsapp.send_file", return_value="wamid.1") as sender:
+            answer = browser.post(url, "{}", content_type="application/json")
+        return answer, sender
+
+    def test_the_admin_takes_it_over_and_the_final_file_goes_to_the_client(self):
+        from .models import OutboundMessage
+
+        answer, sender = self.press(self.admin)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertEqual(_json(answer)["files"], 1)
+        self.assertEqual([call.args[1] for call in sender.call_args_list], [b"t"])
+        self.task.refresh_from_db()
+        self.assertEqual((self.task.status, self.task.handover_ack_by_id), (TaskStatus.DELIVERED, self.admin.pk))
+        delivery = OutboundMessage.objects.get(task=self.task, kind=OutboundMessage.Kind.DELIVERY)
+        self.assertEqual((delivery.status, delivery.created_by_id), (OutboundMessage.Status.SENT, self.admin.pk))
+
+    def test_a_task_somebody_took_over_keeps_who_took_it(self):
+        Task.objects.filter(pk=self.task.pk).update(handover_ack_at=timezone.now(), handover_ack_by=self.ops)
+        answer, _sender = self.press(self.admin)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.task.refresh_from_db()
+        self.assertEqual((self.task.status, self.task.handover_ack_by_id), (TaskStatus.DELIVERED, self.ops.pk))
+
+    def test_only_the_admin_may_press_it(self):
+        for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            answer, sender = self.press(user)
+            self.assertEqual(answer.status_code, 403, user.username)
+            self.assertFalse(sender.called, user.username)
+        self.task.refresh_from_db()
+        self.assertEqual((self.task.status, self.task.handover_ack_at), (TaskStatus.REVIEWED, None))
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        self.assertEqual(browser.get(reverse(self.DELIVER, args=[self.task.code])).status_code, 405)
+
+    def test_a_task_that_is_not_awaiting_delivery_is_refused_in_words(self):
+        for status in (TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW, TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+            Task.objects.filter(pk=self.task.pk).update(status=status)
+            answer, sender = self.press(self.admin)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "التاسك مش مستنية التسليم للعميل دلوقتي."), status)
+            self.assertFalse(sender.called, status)
+        self.task.refresh_from_db()
+        self.assertIsNone(self.task.handover_ack_at)
+
+    def test_with_no_final_file_nothing_is_taken_over_or_sent(self):
+        from .models import ChatAttachment
+
+        ChatAttachment.objects.filter(original_name="translated.docx").delete()
+        answer, sender = self.press(self.admin)
+        self.assertEqual(answer.status_code, 400)
+        self.assertIn("مفيش ملف نهائي", _json(answer)["error"])
+        self.assertFalse(sender.called)
+        self.task.refresh_from_db()
+        self.assertEqual((self.task.status, self.task.handover_ack_at), (TaskStatus.REVIEWED, None))
+
+    def test_a_client_who_cannot_be_reached_leaves_the_task_awaiting_delivery(self):
+        from .models import Client
+
+        Client.objects.filter(pk=self.client_obj.pk).update(phone="", email="", extra_phones="", extra_emails="")
+        answer, sender = self.press(self.admin)
+        self.assertEqual(answer.status_code, 400)
+        self.assertTrue(_json(answer)["error"])
+        self.assertFalse(sender.called)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.REVIEWED)
+
+    def test_an_unknown_task_is_a_404(self):
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        answer = browser.post(reverse(self.DELIVER, args=["TSK-99999"]), "{}", content_type="application/json")
+        self.assertEqual(answer.status_code, 404)
+
 class AuditLogWithoutAPageTests(_Admin):
     """21/10/2026: the audit log has no page (the owner did not use it), but everything is still written to it."""
 

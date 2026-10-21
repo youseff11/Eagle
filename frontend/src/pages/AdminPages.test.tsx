@@ -1,4 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,9 +43,11 @@ function overview(over: Partial<AdminOverview> = {}): AdminOverview {
   };
 }
 
-function serve(who: Role, body: () => AdminOverview | Response) {
+function serve(who: Role, body: () => AdminOverview | Response, extra: Record<string, (url: URL) => Response> = {}) {
   const mocked = mockFetch({
     "/api/v1/me/": () => jsonResponse(me({ role: who, is_admin: who === "admin" })),
+    // Before the board's own address: the routes are matched by the start of the path, in this order.
+    ...extra,
     "/api/v1/admin/overview/": () => {
       const answer = body();
       return answer instanceof Response ? answer : jsonResponse(answer);
@@ -159,5 +163,95 @@ describe("AdminOverviewPage", () => {
     serve("admin", () => jsonResponse({ ok: false, error: "server" }, 500));
     open("/admin");
     expect(await screen.findByRole("alert")).toHaveTextContent("حصلت مشكلة في التحميل.");
+  });
+
+  it("puts the held letters in a box of their own that scrolls, so the page does not grow with them", async () => {
+    const first = overview().blocked[0]!;
+    serve("admin", () => overview({ blocked: Array.from({ length: 20 }, (_, index) => ({ ...first, id: 100 + index })) }));
+    const { container } = open("/admin");
+    await screen.findByText("TSK-00009");
+    const box = screen.getByTestId("held-letters");
+    expect(box).toHaveClass("overview-held");
+    expect(box.querySelectorAll(".msg-item")).toHaveLength(20);
+    // The rule itself: a box with a ceiling and its own scroll (jsdom does not lay out, so the stylesheet is read).
+    const sheet = readFileSync(resolve(__dirname, "../styles.css"), "utf-8");
+    const rule = /\.overview-held\s*\{([^}]*)\}/.exec(sheet)?.[1] ?? "";
+    expect(rule).toMatch(/max-height:\s*\d+px/);
+    expect(rule).toMatch(/overflow-y:\s*auto/);
+    expect(container.querySelector(".card .overview-held")).not.toBeNull();
+  });
+
+  it("offers «سلّم للعميل» only beside a task awaiting delivery, and sends it after the «تأكيد»", async () => {
+    const delivered: string[] = [];
+    const mocked = serve(
+      "admin",
+      () =>
+        overview({
+          recent: [
+            { code: "TSK-00034", title: "Ready", origin: null, status: STATUS("reviewed", "بانتظار التسليم للعميل", "Awaiting delivery to the client", "wait") },
+            { code: "TSK-00009", title: "Contract", origin: null, status: STATUS("new", "جديد", "New", "new") },
+          ],
+        }),
+      {
+        "/api/v1/admin/overview/deliver/": (url) => {
+          delivered.push(url.pathname);
+          return jsonResponse({ ok: true, status: "sent", channel: "whatsapp", files: 1 });
+        },
+      },
+    );
+    const user = userEvent.setup();
+    open("/admin");
+    const latest = (await screen.findByText("آخر التاسكات")).closest(".card") as HTMLElement;
+    const buttons = within(latest).getAllByRole("button", { name: "سلّم للعميل" });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.closest("li")).toHaveTextContent("TSK-00034");
+    await user.click(buttons[0]!);
+    // Nothing leaves before the question is answered.
+    expect(delivered).toEqual([]);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("تسلّم TSK-00034 للعميل؟");
+    await user.click(within(dialog).getByRole("button", { name: "سلّم للعميل" }));
+    await waitFor(() => expect(delivered).toEqual(["/api/v1/admin/overview/deliver/TSK-00034/"]));
+    const call = mocked.calls.find((one) => one.url.startsWith("/api/v1/admin/overview/deliver/"))!;
+    expect(call.init?.method).toBe("POST");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the question open with the server's words when the delivery is refused", async () => {
+    serve(
+      "admin",
+      () => overview({ recent: [{ code: "TSK-00034", title: "Ready", origin: null, status: STATUS("reviewed", "بانتظار التسليم للعميل", "Awaiting delivery", "wait") }] }),
+      { "/api/v1/admin/overview/deliver/": () => jsonResponse({ ok: false, error: "مفيش ملف نهائي على التاسك. افتحها واختار الملفات من صفحتها." }, 400) },
+    );
+    const user = userEvent.setup();
+    open("/admin");
+    await user.click(await screen.findByRole("button", { name: "سلّم للعميل" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "سلّم للعميل" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("مفيش ملف نهائي على التاسك.");
+  });
+
+  it("offers «الغِ التاسك» beside each late task, and cancels through the task's own door after the «تأكيد»", async () => {
+    const cancelled: string[] = [];
+    serve("admin", () => overview(), {
+      "/api/tasks/": (url) => {
+        cancelled.push(url.pathname);
+        return jsonResponse({ ok: true, status: "cancelled" });
+      },
+    });
+    const user = userEvent.setup();
+    open("/admin");
+    const late = (await screen.findByText("تاسكات عدّت الديدلاين")).closest(".card") as HTMLElement;
+    const buttons = within(late).getAllByRole("button", { name: "الغِ التاسك" });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[0]!);
+    expect(cancelled).toEqual([]);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("إلغاء TSK-00004؟");
+    await user.click(within(dialog).getByRole("button", { name: "ألغي التاسك" }));
+    await waitFor(() => expect(cancelled).toEqual(["/api/tasks/TSK-00004/cancel/"]));
+    // The latest tasks have no cancel button: only the late ones do.
+    const latest = screen.getByText("آخر التاسكات").closest(".card") as HTMLElement;
+    expect(within(latest).queryByRole("button", { name: "الغِ التاسك" })).toBeNull();
   });
 });

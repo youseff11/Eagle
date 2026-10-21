@@ -1,7 +1,8 @@
-"""``/api/v1/`` - the admin panel (phase 5, screen 8): the overview, read only.
+"""``/api/v1/`` - the admin panel (phase 5, screen 8): the overview.
 
 The page is ``views.admin_overview``, and the answers are the same questions it asks. Only the admin is answered: anybody else
-is a 403 and a row in the audit log (``api_role_required``). A GET changes nothing here. The audit log is still written
+is a 403 and a row in the audit log (``api_role_required``). A GET changes nothing here; the one thing the overview writes is
+«سلّم للعميل» (``deliver``), and cancelling a late task goes through the task page's own door. The audit log is still written
 (``AuditLog``) but has no page since 21/10/2026: the owner did not use it.
 
 Two things are shown to the admin that nobody else may read, as on the classic overview: the address a hidden letter came
@@ -11,9 +12,11 @@ settings page (a token, a password): that page has its own door, which has to be
 
 from django.db.models import Count, Q
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import Truncator
 
+from . import services
 from .api_mail import _file_json
 from .api_v1 import _origin_json, _stamp, _status_json, endpoint
 from .models import (
@@ -103,3 +106,33 @@ def overview(request):
             for task in recent
         ],
     })
+
+
+#: Why «سلّم للعميل» did not send, in the admin's words (the page shows the sentence as it is).
+NOT_REVIEWED_AR = "التاسك مش مستنية التسليم للعميل دلوقتي."
+NO_FINAL_FILES_AR = "مفيش ملف نهائي على التاسك. افتحها واختار الملفات من صفحتها."
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def deliver(request, code):
+    """«سلّم للعميل» beside a task awaiting delivery: the admin takes it over (when nobody has) and sends it in one press.
+
+    The same two steps as the task page (``acknowledge_handover``, then ``deliver_to_client``), after the page's own «تأكيد».
+    The files are the server's choice - the final ones the task page ticks (``final_files``: the leader's corrected version,
+    else the translator's) - never ids from the browser. With no final file nothing is taken over and nothing is sent: an empty
+    delivery would put the task's title on the client's phone, so the task page is where the files are picked.
+    """
+    task = get_object_or_404(Task.objects.select_related("client", "team_lead"), code=code)
+    user = request.user
+    if task.status != TaskStatus.REVIEWED:
+        return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
+    files = services.final_files(task)
+    if not files:
+        return JsonResponse({"ok": False, "error": NO_FINAL_FILES_AR}, status=400)
+    if not services.acknowledge_handover(task, user):
+        return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
+    ok, delivery, error = services.deliver_to_client(task, user, attachment_ids=[attachment.pk for attachment in files])
+    if not ok:
+        return JsonResponse({"ok": False, "error": error}, status=400)
+    return JsonResponse({"ok": True, "status": delivery.status, "channel": delivery.channel, "files": delivery.file_count})

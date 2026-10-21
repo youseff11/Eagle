@@ -96,6 +96,16 @@ export function useDeliver(code: string) {
 }
 
 /**
+ * «سلّم للعميل» on the admin's overview: one press takes the task over (when nobody has) and sends its final files - the server
+ * picks them, as the task page ticks them (`api_admin.deliver`). The overview is one of the boards, so it is asked again.
+ */
+export function useOverviewDeliver(code: string) {
+  return useOpsAction<void, Delivered>(code, () =>
+    api<Delivered>(`/api/v1/admin/overview/deliver/${encodeURIComponent(code)}/`, { json: {} }),
+  );
+}
+
+/**
  * Days, hours and minutes from now. A box left empty is "leave it as it is"; zeros are "no deadline" - the
  * classic rule, kept by the server (`forms.DeadlineField`). Only the boxes the person typed in are sent.
  */

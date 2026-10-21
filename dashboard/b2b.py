@@ -366,10 +366,16 @@ def note_status(lead, before, after, by, *, automatic=False, at=None):
     if before == after:
         return None
     services.log(by, "b2b.lead_status", f"lead {lead.pk}", f"{before} -> {after}" + (" (automatic)" if automatic else ""))
-    return LeadActivity.objects.create(
+    line = LeadActivity.objects.create(
         lead=lead, kind=LeadActivity.Kind.STATUS, status=after, automatic=automatic, at=at or timezone.now(), by=by,
         owner_id=lead.sheet.assigned_to_id, notes=f"{before} -> {after}",
     )
+    if after == LeadStatus.WON:
+        # A deal closed (21/10/2026): it shows on the owner's commissions page, the sheet's Sales person on it.
+        from . import commissions
+
+        commissions.deal_from_lead(lead, by)
+    return line
 
 
 def note_outbound(outbound):

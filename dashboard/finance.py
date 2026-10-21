@@ -239,14 +239,14 @@ def draft_for_delivered(task, by=None):
     from . import services
 
     services.log(by, "finance.invoice_draft", invoice.code, f"{task.code} {invoice.amount} {invoice.currency} (automatic)")
-    # The Sales person who sold it gets their commission line (part 3): a line that fails must not stop the invoice.
+    # The invoice becomes its company's deal's (commissions, 21/10/2026): a deal that fails must not stop the invoice.
     try:
         from . import commissions
 
         with transaction.atomic():
-            commissions.ensure_default(invoice, by=by)
+            commissions.deal_for_invoice(invoice, by=by)
     except Exception:  # noqa: BLE001
-        logger.exception("The commission line of %s was not made", invoice.code)
+        logger.exception("The deal of %s was not linked", invoice.code)
     _tell_accounting(invoice)
     return invoice
 
@@ -436,7 +436,7 @@ def cancel_invoice(invoice, user):
     with transaction.atomic():
         invoice.status = Invoice.Status.CANCELLED
         invoice.save(update_fields=["status", "updated_at"])
-        # Its commission lines go with it (none can be approved: an invoice with money on it is not cancelled).
+        # The deal it was on loses it (none of its lines can be approved: an invoice with money on it is not cancelled).
         commissions.cancel_for(invoice, by=user)
     services.log(user, "finance.invoice_cancel", invoice.code, "")
     return invoice

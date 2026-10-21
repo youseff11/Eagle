@@ -195,6 +195,7 @@ urlpatterns = [
     path("api/v1/leave/<int:pk>/cancel/", api_leave.cancel, name="v1_leave_cancel"),
     path("api/v1/leave/<int:pk>/<str:action>/", api_leave.decide, name="v1_leave_decide"),
     path("api/v1/admin/overview/", api_admin.overview, name="v1_admin_overview"),
+    path("api/v1/admin/overview/deliver/<str:code>/", api_admin.deliver, name="v1_admin_overview_deliver"),
     path("api/v1/admin/users/new/", api_admin_users.user_new, name="v1_admin_user_new"),
     path("api/v1/admin/users/create/", api_admin_users.user_create, name="v1_admin_user_create"),
     path("api/v1/admin/users/<int:pk>/", api_admin_users.user, name="v1_admin_user"),
@@ -259,12 +260,14 @@ urlpatterns = [
     path("api/v1/b2c/visits/<int:visit_id>/escalate/", api_b2c.visit_escalate, name="v1_b2c_visit_escalate"),
     path("api/v1/b2c/visits/<int:visit_id>/appeal/", api_b2c.visit_appeal, name="v1_b2c_visit_appeal"),
     path("api/v1/b2c/leads/", api_b2c.leads, name="v1_b2c_leads"),
-    # Sales commissions (commissions.py): the owner sets, splits, approves and pays; a Sales person reads their own.
+    # Sales commissions per deal (commissions.py): the owner sets a deal's value, invoice and people, approves and pays; a
+    # Sales person reads their own.
     path("api/v1/commissions/", api_commissions.lines, name="v1_commissions"),
     path("api/v1/commissions/rate/", api_commissions.company_rate, name="v1_commissions_rate"),
     path("api/v1/commissions/people/<int:user_id>/rate/", api_commissions.person_rate, name="v1_commissions_person_rate"),
-    path("api/v1/commissions/invoices/<int:invoice_id>/split/", api_commissions.split, name="v1_commissions_split"),
-    path("api/v1/commissions/<int:line_id>/rate/", api_commissions.line_rate, name="v1_commissions_line_rate"),
+    path("api/v1/commissions/deals/<int:deal_id>/", api_commissions.deal, name="v1_commissions_deal"),
+    path("api/v1/commissions/deals/<int:deal_id>/cancel/", api_commissions.deal_cancel, name="v1_commissions_deal_cancel"),
+    path("api/v1/commissions/invoices/<int:invoice_id>/deal/", api_commissions.invoice_deal, name="v1_commissions_invoice_deal"),
     path("api/v1/commissions/<int:line_id>/approve/", api_commissions.approve, name="v1_commissions_approve"),
     path("api/v1/commissions/<int:line_id>/paid/", api_commissions.paid, name="v1_commissions_paid"),
     path("api/v1/commissions/<int:line_id>/take-back/", api_commissions.take_back, name="v1_commissions_take_back"),

@@ -549,8 +549,8 @@ class User(AbstractUser):
     #: What the company pays this translator for 250 words, by the agreement made with them (EGP; part 5, 11/10/2026). It
     #: prices their share of a project for the project's profit (``finance.py``); payroll does not read it. Empty = not agreed:
     #: the profit of a project they worked on reads "not measured" until it is set.
-    #: This Sales person's commission, in percent of an invoice (part 3, 15/10/2026): set by the owner on the commissions page.
-    #: Empty = the company's rate (``AppSettings.commission_rate``).
+    #: This Sales person's commission, in percent of a deal's value (part 3, 15/10/2026): set by the owner on the commissions
+    #: page, what a deal's line starts from. Empty = the company's rate (``AppSettings.commission_rate``).
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     cost_per_250 = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
@@ -2651,7 +2651,7 @@ class AppSettings(models.Model):
     b2c_work_days = models.PositiveSmallIntegerField(default=22, help_text="Working days a month the visit target is spread over.")
     b2c_visit_radius_m = models.PositiveIntegerField(default=100, help_text="How near the company the check-in must be, in metres.")
     b2c_gps_accuracy_m = models.PositiveIntegerField(default=100, help_text="A location less sure than this (metres) goes to review.")
-    #: The Sales commission, in percent of the invoice's whole amount (part 3, 15/10/2026): the owner's, set on the
+    #: The Sales commission, in percent of a deal's value (part 3, 15/10/2026): the owner's, set on the
     #: commissions page. A person may have their own (``User.commission_rate``). Empty = no rate yet.
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     #: How far under the price list a quotation may go without an approval (part 4, the requirements' section 8): a Sales
@@ -5243,14 +5243,67 @@ class PriceItem(models.Model):
         ]
 
 
-class Commission(models.Model):
-    """A Sales person's commission on one invoice (part 3, 15/10/2026; the B2C requirements' section 10, both teams).
+class Deal(models.Model):
+    """A deal a Sales person closed (21/10/2026, the owner's change of the commissions): a company on a sheet moved to
+    «تم التعاقد», shown on the commissions page with what it was about, and the people who earned a commission on it.
 
-    The owner's decisions: the rate is his to set (the company's, a person's own, or one line's); it is counted on the
-    invoice's whole amount; it is due once the client has paid the invoice in full; when several people worked the deal he
-    splits it between them (``share``); he alone approves it and marks it paid. Until it is approved its figures follow the
-    invoice and the rates; approving writes them down (``base``, ``rate``, ``amount``...), so a rate changed later does not
-    rewrite it. One line per person per invoice. The rules are ``commissions.py``.
+    The owner's decisions: he sets each person's percent of the deal's value himself (several people, each their own); the
+    value starts from the accepted quotation (its total and currency), else the row's «deal value» in EGP, and he may correct
+    it; a commission is due once the client has paid the deal's invoice in full. The invoice is the one made from the deal's
+    quotation, or the one the owner links. One open deal a company; a deal made by mistake is cancelled, not deleted. The
+    rules are ``commissions.py``.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CANCELLED = "cancelled", "Cancelled"
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    #: The company on the sheet. Kept when the row is deleted (the deal keeps ``company``).
+    lead = models.ForeignKey("Lead", null=True, blank=True, on_delete=models.SET_NULL, related_name="deals")
+    market = models.CharField(max_length=3, choices=Market.choices, default=Market.B2B)
+    #: The company's name when the deal was closed: the page reads it when the row is gone.
+    company = models.CharField(max_length=160, blank=True)
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="deals")
+    #: The Sales person who closed it: the sheet's holder when the company moved to «تم التعاقد».
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="closed_deals")
+    quotation = models.ForeignKey("Quotation", null=True, blank=True, on_delete=models.SET_NULL, related_name="deals")
+    #: The invoice whose payment in full makes the commissions due.
+    invoice = models.ForeignKey("Invoice", null=True, blank=True, on_delete=models.SET_NULL, related_name="deals")
+    #: What the deal is worth, the commissions are counted on. Empty = not known yet.
+    value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True)
+    #: The owner wrote the value himself: an invoice linked later does not change it.
+    value_by_hand = models.BooleanField(default=False)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN, db_index=True)
+    won_at = models.DateTimeField(default=timezone.now)
+    won_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    note = models.CharField(max_length=250, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-won_at", "-id")
+        constraints = [
+            models.UniqueConstraint(fields=("lead",), condition=models.Q(status="open"), name="one_open_deal_a_lead"),
+            models.UniqueConstraint(fields=("invoice",), condition=models.Q(status="open"), name="one_open_deal_an_invoice"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = next_code(Deal, "code", "DEAL")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code
+
+
+class Commission(models.Model):
+    """One Sales person's commission on one deal (part 3, 15/10/2026; per deal since 21/10/2026, both teams).
+
+    ``rate`` is this person's percent of the deal's value, as the owner sets it; empty = the person's own rate, or else the
+    company's. Until it is approved its figures follow the deal and the rates; approving writes them down (``base``,
+    ``rate``, ``amount``...), so a rate or a value changed later does not rewrite it. One line per person per deal. The rules
+    are ``commissions.py``.
     """
 
     class Status(models.TextChoices):
@@ -5260,11 +5313,9 @@ class Commission(models.Model):
         CANCELLED = "cancelled", "Cancelled"
 
     code = models.CharField(max_length=20, unique=True, blank=True)
-    invoice = models.ForeignKey("Invoice", on_delete=models.CASCADE, related_name="commissions")
+    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name="lines")
     person = models.ForeignKey(User, on_delete=models.CASCADE, related_name="commissions")
-    #: This person's part of the deal, in percent: the lines of one invoice add up to 100.
-    share = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("100"))
-    #: The rate set on this line alone; empty = the person's, or else the company's. Written down on approval.
+    #: This person's percent of the deal's value; empty = the person's, or else the company's. Written down on approval.
     rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
     # Written down when approved: what it was counted on and what it came to.
@@ -5282,7 +5333,7 @@ class Commission(models.Model):
 
     class Meta:
         ordering = ("-created_at", "-id")
-        constraints = [models.UniqueConstraint(fields=("invoice", "person"), name="one_commission_a_person_an_invoice")]
+        constraints = [models.UniqueConstraint(fields=("deal", "person"), name="one_commission_a_person_a_deal")]
 
     def save(self, *args, **kwargs):
         if not self.code:
