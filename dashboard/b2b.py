@@ -152,6 +152,22 @@ def international_number(number, country=""):
     return code + digits[1:] if code else ""
 
 
+def is_landline(number, country=""):
+    """An Egyptian fixed line (Cairo 02, Alexandria 03, a governorate's 0xx): eight or nine digits after the 20, where a
+    mobile has ten (22/10/2026: «فلتر للأرقام الأرضي», the numbers WhatsApp cannot reach). A number written the local way
+    with no country known is taken as Egyptian, as ``international_number`` does for a mobile; another country's never is."""
+    from .whatsapp import normalize_number
+
+    digits = international_number(number, country)
+    if not digits:
+        local = normalize_number(number)
+        if not local.startswith("0") or _COUNTRY_CODE.get(_fold_country(country)) is not None:
+            return False
+        digits = "20" + local[1:]
+    national = digits[2:]
+    return digits.startswith("20") and len(national) in (8, 9) and national[0] != "0"
+
+
 def intro_params(lead, user, language=INTRO_LANGUAGE):
     # Meta refuses a parameter with a line break, a tab or more than four spaces in a row.
     company = " ".join(str(lead.company_name or "").split())

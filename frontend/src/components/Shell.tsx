@@ -23,6 +23,7 @@ import { TopProgress } from "./TopProgress";
 import { NotificationToasts } from "./NotificationToasts";
 import { ProfileMenu } from "./ProfileMenu";
 import { ToastProvider } from "./Toasts";
+import { UsagePanel } from "./UsagePanel";
 
 /** The same labels the classic pages show beside a name (`ROLE_MAP` in eagle_tags). */
 const ROLE_LABELS: Record<Role, [string, string]> = {
@@ -584,6 +585,7 @@ function Frame() {
 
         {/* The three public pages the WhatsApp and Facebook reviews ask for: reachable, and read about once, so small. */}
         <div className="side-foot">
+          {isAdmin && <UsagePanel />}
           <div className="side-legal">
             <a href="/privacy/">{t("الخصوصية", "Privacy")}</a>
             <a href="/terms/">{t("الشروط", "Terms")}</a>

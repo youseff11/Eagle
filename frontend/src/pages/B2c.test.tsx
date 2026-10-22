@@ -30,7 +30,7 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     phone: "01001234567", whatsapp: "", linkedin: "", languages: "", services: "", source: "", governorate: "Cairo",
     address: "Zamalek", location: "30.0459, 31.2243", map_link: "https://www.google.com/maps?q=30.045900,31.224300",
     customer_type: "", lost_reason: "", status: "new", priority: "", deal_value: "", phones: ["01001234567"], next_follow_up: "",
-    notes: [], client_code: "", whatsapp_at: "", email_at: "", call_at: "", call_outcome: "", reached: false, last_contact_at: "", replied_at: "",
+    notes: [], client_code: "", whatsapp_at: "", email_at: "", call_at: "", call_outcome: "", reached: false, quote_asked: false, landline: false, last_contact_at: "", replied_at: "",
     last_outreach_at: "", follow_up: "", overdue: false, quote: null, ...over,
   };
 }

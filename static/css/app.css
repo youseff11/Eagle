@@ -314,6 +314,49 @@ strong, b { font-weight: 620; }
 .side-legal a { color: var(--faint); }
 .side-legal a:hover { color: var(--muted); text-decoration: underline; }
 
+/* The admin's usage panel (UsagePanel.tsx): the month's bill at Bunny, Neon and Render, just above the legal links. */
+.usage-panel {
+  margin: 0 4px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm);
+  background: var(--surface); font-size: .78rem;
+}
+.usage-panel__head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 8px 10px; border: 0; background: none; color: var(--muted);
+  font: inherit; cursor: pointer; border-radius: var(--r-sm);
+}
+.usage-panel__head:hover { background: var(--surface-2); color: var(--text); }
+.usage-panel__title { font-weight: 600; }
+.usage-panel__total {
+  margin-inline-start: auto; color: var(--heading); font-weight: 650; font-variant-numeric: tabular-nums;
+}
+.usage-panel__chev { opacity: .6; transition: transform .16s; }
+.usage-panel.is-open .usage-panel__chev { transform: rotate(180deg); }
+.usage-panel__body { display: flex; flex-direction: column; gap: 6px; padding: 2px 8px 8px; }
+.usage-card { padding: 7px 8px; border-radius: 6px; background: var(--surface-2); }
+.usage-card__head { display: flex; align-items: baseline; gap: 6px; }
+.usage-card__name { color: var(--text); font-weight: 600; }
+.usage-card__name:hover { text-decoration: underline; }
+.usage-card__amount { margin-inline-start: auto; color: var(--heading); font-weight: 650; font-variant-numeric: tabular-nums; }
+.usage-card.is-off .usage-card__amount { color: var(--faint); font-weight: 500; }
+.usage-card.is-error .usage-card__amount { color: var(--danger); font-weight: 500; }
+.usage-card__line {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 2px;
+  color: var(--faint); font-size: .72rem; font-variant-numeric: tabular-nums;
+}
+.usage-card__error { margin-top: 3px; color: var(--danger); font-size: .72rem; }
+.usage-panel__setup { color: var(--brand); font-size: .72rem; }
+.usage-panel__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  color: var(--faint); font-size: .68rem;
+}
+.usage-panel__refresh {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px;
+  border: 1px solid var(--border-soft); border-radius: 6px; background: none;
+  color: var(--muted); font: inherit; cursor: pointer;
+}
+.usage-panel__refresh:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.usage-panel__refresh:disabled { opacity: .6; cursor: default; }
+
 .side-user {
   padding-top: 12px; border-top: 1px solid var(--border-soft);
   display: flex; align-items: center; gap: 10px;

@@ -1301,6 +1301,30 @@ export interface ClientsDeleted {
   filename: string;
 }
 
+/** One host's card on the usage panel. `off` = no key saved; `error` carries a short reason code. */
+export interface UsageCard {
+  key: "bunny" | "neon" | "render";
+  name: string;
+  link: string;
+  state: "ok" | "off" | "error";
+  month_usd: number | null;
+  /** Render's is worked out from its plans and bandwidth, not read from a bill. */
+  estimate: boolean;
+  balance_usd?: number | null;
+  lines: { ar: string; en: string; value: string }[];
+  error: string;
+}
+
+/** GET /api/v1/admin/usage/ (`?fresh=1` asks the hosts again). */
+export interface UsageReport {
+  ok: true;
+  cards: UsageCard[];
+  /** Of the hosts that answered; null when none did. */
+  total_usd: number | null;
+  estimate: boolean;
+  at: { ar: string; en: string };
+}
+
 /** GET /api/v1/admin/reset/tasks/. */
 export interface TaskResetCounts {
   tasks: number;

@@ -2721,6 +2721,13 @@ class AppSettings(models.Model):
     smtp_from = models.CharField(max_length=190, blank=True)
     smtp_use_tls = models.BooleanField(default=True)
 
+    #: The admin's usage panel at the foot of the menu (``usage.py``) reads the month's bill from each host with these. They are
+    #: read-only uses of keys that are not read-only (Bunny and Render have no other kind), so they are secrets like the rest.
+    bunny_api_key = models.CharField(max_length=250, blank=True)
+    neon_api_key = models.CharField(max_length=250, blank=True)
+    neon_org_id = models.CharField(max_length=80, blank=True)
+    render_api_key = models.CharField(max_length=250, blank=True)
+
     #: Which roles may open a client group. Comma-separated role values; the
     #: admin is always allowed, so nobody can lock themselves out of it.
     group_creator_roles = models.CharField(

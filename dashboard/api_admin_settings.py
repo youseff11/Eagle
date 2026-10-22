@@ -18,7 +18,7 @@ Only the admin is answered. A GET changes nothing.
 from django.http import JsonResponse
 from django.urls import reverse
 
-from . import api_forms, galiases, identity, services, walines
+from . import api_forms, galiases, identity, services, usage as usage_report, walines
 from .api_v1 import BadBody, _error, _object, _stamp, endpoint
 from .forms import SettingsForm
 from .models import AppSettings, Role
@@ -28,7 +28,7 @@ from .permissions import api_role_required
 #: that they are treated the same way everywhere (a verify token and a shared secret are secrets as much as a password is).
 SECRET_FIELDS = (
     "claude_api_key", "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token", "webhook_shared_secret",
-    "imap_password", "smtp_password", "google_client_secret",
+    "imap_password", "smtp_password", "google_client_secret", "bunny_api_key", "neon_api_key", "render_api_key",
 )
 #: Stored secrets that are not form fields at all, but must not leave inside a message either.
 HIDDEN_SECRETS = ("google_refresh_token", "whatsapp_pin")
@@ -93,6 +93,18 @@ SECTIONS = (
                 "fields": ("google_client_id", "google_client_secret", "mail_aliases_hidden"),
             },
             {"ar": "شكل إيميلات الـSales", "en": "Sales letter", "fields": ("sales_mail_website", "sales_mail_footer")},
+        ),
+    },
+    {
+        "key": "usage", "icon": "chart", "ar": "متابعة الاستهلاك", "en": "Usage and bills",
+        "note": (
+            "اللوحة اللي تحت في القايمة بتقرا فاتورة الشهر من Bunny وNeon وRender بالمفاتيح دي، للأدمن بس. المفاتيح بتتقري بس عشان الأرقام، ومابتظهرش لحد.",
+            "The panel at the foot of the menu reads the month's bill from Bunny, Neon and Render with these keys, for the admin only. They are only used to read the numbers and are never shown.",
+        ),
+        "groups": (
+            {"ar": "Bunny.net", "en": "Bunny.net", "fields": ("bunny_api_key",)},
+            {"ar": "Neon", "en": "Neon", "fields": ("neon_api_key", "neon_org_id")},
+            {"ar": "Render", "en": "Render", "fields": ("render_api_key",)},
         ),
     },
 )
@@ -264,6 +276,34 @@ TEXTS = {
         "label": ("الموقع", "Website"),
         "hint": ("فاضي = مش هيظهر.", "Blank = not shown."),
     },
+    "bunny_api_key": {
+        "label": ("مفتاح حساب Bunny (Account API key)", "Bunny account API key"),
+        "hint": (
+            "من Bunny: Account settings ← API key. ده مفتاح الحساب، مش باسورد الـStorage zone اللي الملفات شغالة بيه.",
+            "In Bunny: Account settings, API key. The account's key, not the storage zone password the files use.",
+        ),
+    },
+    "neon_api_key": {
+        "label": ("مفتاح Neon API", "Neon API key"),
+        "hint": (
+            "من Neon: Organization settings ← API keys ← Create. مفتاح المنظمة اللي فيها الداتابيز.",
+            "In Neon: Organization settings, API keys, Create. A key of the organization the database is in.",
+        ),
+    },
+    "neon_org_id": {
+        "label": ("Organization ID بتاع Neon", "Neon organization ID"),
+        "hint": (
+            "اللي في لينك الكونسول بعد /app/، بيبدأ بـ org-.",
+            "The part of the console's address after /app/, starting with org-.",
+        ),
+    },
+    "render_api_key": {
+        "label": ("مفتاح Render API", "Render API key"),
+        "hint": (
+            "من Render: Account settings ← API keys ← Create API key. Render مابيدّيش الفاتورة من الـAPI، فاللوحة بتحسبها تقريبًا من الخدمات والباندويدث.",
+            "In Render: Account settings, API keys, Create API key. Render gives no bill through its API, so the panel works it out roughly from the services and the bandwidth.",
+        ),
+    },
     "sales_mail_footer": {
         "label": ("الشريط اللي تحت (المواعيد والعنوان)", "Bottom band (hours, address)"),
         "hint": ("سطر لكل معلومة. فاضي = الشريط مش هيظهر.", "One line each. Blank = no band."),
@@ -409,6 +449,14 @@ def settings_save(request):
         # A hidden address leaves the list now, not at the next sync.
         galiases.sync(force=True)
     return JsonResponse({"ok": True})
+
+
+@endpoint("GET")
+@api_role_required(Role.ADMIN)
+def usage(request):
+    """The usage panel at the foot of the menu: this month's bill at Bunny, Neon and Render (``usage.py``). ``?fresh=1`` asks
+    the hosts again instead of the ten-minute copy. No key is in the answer."""
+    return JsonResponse(usage_report.report(force=request.GET.get("fresh") == "1"))
 
 
 # ---------------------------------------------------------------------------

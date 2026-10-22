@@ -30,11 +30,14 @@ TEST_WA = "dashboard:v1_admin_test_whatsapp"
 TEST_MAIL = "dashboard:v1_admin_test_email"
 
 #: Every stored secret, with a value no other text would contain. ``SENTINELS`` covers the six with a password box; the
-#: two plain-box secrets and Google's refresh token are added.
+#: two plain-box secrets, Google's refresh token and the usage panel's three keys are added.
 ALL_SECRETS = {
     **SENTINELS,
     "whatsapp_verify_token": "SECRET-verify-token-value",
     "google_refresh_token": "SECRET-google-refresh-value",
+    "bunny_api_key": "SECRET-bunny-account-value",
+    "neon_api_key": "SECRET-neon-api-value",
+    "render_api_key": "SECRET-render-api-value",
 }
 
 
@@ -246,7 +249,7 @@ class FormTests(_Settings):
 
     def test_the_door_sends_the_sections_the_fields_and_the_bilingual_texts(self):
         body = _json(self.get(self.admin, GET))
-        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "b2b", "b2c", "workflow", "whatsapp", "email"])
+        self.assertEqual([section["key"] for section in body["sections"]], ["ai", "b2b", "b2c", "workflow", "whatsapp", "email", "usage"])
         fields = {field["name"]: field for field in body["fields"]}
         self.assertEqual((fields["claude_model"]["label_ar"], fields["claude_model"]["label_en"]), ("الموديل", "Model"))
         self.assertIn("hint_ar", fields["rate_keywords"])

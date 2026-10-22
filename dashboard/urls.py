@@ -206,6 +206,7 @@ urlpatterns = [
         name="v1_admin_shift_delete",
     ),
     path("api/v1/admin/aliases/sync/", api_admin_users.aliases_sync, name="v1_admin_aliases_sync"),
+    path("api/v1/admin/usage/", api_admin_settings.usage, name="v1_admin_usage"),
     path("api/v1/admin/settings/", api_admin_settings.settings, name="v1_admin_settings"),
     path("api/v1/admin/settings/save/", api_admin_settings.settings_save, name="v1_admin_settings_save"),
     path("api/v1/admin/settings/google/sync/", api_admin_settings.google_sync, name="v1_admin_google_sync"),

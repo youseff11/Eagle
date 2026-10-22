@@ -87,6 +87,10 @@ export interface B2bLead extends B2bRow {
   overdue: boolean;
   /** The row's newest quotation, in a word. */
   quote: { code: string; status: QuotationStatus; total: string; currency: string } | null;
+  /** Asked us for a price: a call that ended «طلب عرض سعر», or a quotation made for the row. */
+  quote_asked: boolean;
+  /** One of the row's numbers is an Egyptian fixed line (`b2b.is_landline`). */
+  landline: boolean;
   /** B2C: the company's place on Google Maps ("" when it has none), company or individual, and why it was lost. */
   map_link: string;
   customer_type: string;

@@ -6,6 +6,7 @@ import type { Recorded } from "../lib/recorder";
 import { qk } from "./keys";
 import type {
   ChatLines,
+  UsageReport,
   AccountsLine,
   AccountsOverview,
   AccountsRules,
@@ -360,6 +361,18 @@ export function useResetCounts<T>(kind: "tasks" | "mail" | "staff", enabled = tr
     queryFn: () => api<{ ok: true; counts: T }>(`/api/v1/admin/reset/${kind}/`),
     refetchOnWindowFocus: false,
     gcTime: 0,
+    enabled,
+  });
+}
+
+/** The month's bill at Bunny, Neon and Render. The server keeps it ten minutes, so the menu may ask on every load. */
+export function useAdminUsage(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUsage,
+    queryFn: () => api<UsageReport>("/api/v1/admin/usage/"),
+    refetchOnWindowFocus: false,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
     enabled,
   });
 }

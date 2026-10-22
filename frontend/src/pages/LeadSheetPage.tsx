@@ -942,17 +942,31 @@ function PlanVisit({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
 }
 
 /** Which rows the sheet shows: all of them, or the ones that need something. */
-type Only = "all" | "due" | "replied" | "untouched" | "interested" | "won";
+type Only = "all" | "due" | "replied" | "silent" | "untouched" | "interested" | "quote" | "won" | "landline";
+/** The stages that say the company answered us: a row at one of them is not «لسه مردوش». */
+const ANSWERED_STAGES = new Set(["won", "lost", "follow_up", "requirement", "quoted", "negotiation"]);
 const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   all: () => true,
   due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
   replied: (lead) => lead.replied_at !== "",
+  // We reached the company and nothing came back (22/10/2026): no message from them, no call that ended in an answer
+  // («مردّش» is no answer), no price asked and no stage that says they talked.
+  silent: (lead) =>
+    lead.reached &&
+    lead.replied_at === "" &&
+    !lead.quote_asked &&
+    (lead.call_outcome === "" || lead.call_outcome === "no_answer") &&
+    !ANSWERED_STAGES.has(lead.status),
   // A stage set by hand («call», «whatsapp»...) is a company we talked to, from the Sales person's own phone (19/10/2026).
   untouched: (lead) => !lead.reached,
   // The companies whose last call ended «مهتم» (20/10/2026: the ones worth a follow-up first).
   interested: (lead) => lead.call_outcome === "interested",
+  // Asked us for a price (22/10/2026): a call that ended «طلب عرض سعر», or a quotation made for the row.
+  quote: (lead) => lead.quote_asked,
   // The companies at «تم التعاقد» (20/10/2026), however they got there: the cell, a call, or an accepted quotation.
   won: (lead) => lead.status === "won",
+  // A number of theirs is an Egyptian fixed line (22/10/2026): to be called, WhatsApp cannot reach it.
+  landline: (lead) => lead.landline,
 };
 
 type Open =
@@ -1159,9 +1173,12 @@ export function LeadSheetPage() {
             <option value="all">{t("كل الشركات", "All companies")}</option>
             <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
             <option value="replied">{t("ردّوا علينا", "They answered")}</option>
+            <option value="silent">{t("لسه مردّوش", "No answer yet")}</option>
             <option value="untouched">{t("لسه ماتواصلناش", "Not contacted yet")}</option>
             <option value="interested">{t("المهتمين", "Interested")}</option>
+            <option value="quote">{t("طلبوا عرض سعر", "Asked for a quotation")}</option>
             <option value="won">{t("تم التعاقد", "Contracted")}</option>
+            <option value="landline">{t("أرقام أرضي", "Landline numbers")}</option>
           </select>
           <div className="field-icon" style={{ margin: 0 }}>
             <Icon name="search" className="ic--lead" />

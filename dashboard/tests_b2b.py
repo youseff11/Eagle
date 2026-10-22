@@ -434,6 +434,16 @@ class WhatsappTests(_B2b):
         ):
             self.assertEqual(b2b.international_number(number, country), international, (number, country))
 
+    # 22/10/2026: «فلتر للأرقام الأرضي».
+    def test_an_egyptian_fixed_line_is_a_landline_and_a_mobile_is_not(self):
+        for number, country, landline in (
+            ("0223456789", "", True), ("02 2345 6789", "مصر", True), ("035123456", "Egypt", True),
+            ("0502345678", "", True), ("+20 2 2345 6789", "Germany", True), ("0020 40 1234567", "", True),
+            ("01001234567", "", False), ("+20 100 123 4567", "", False), ("19999", "", False),
+            ("0223456789", "Saudi Arabia", False), ("+49 30 1234567", "", False), ("", "", False),
+        ):
+            self.assertEqual(b2b.is_landline(number, country), landline, (number, country))
+
 
 
 class TemplatePayloadTests(TestCase):
@@ -582,6 +592,23 @@ class CallOutcomeOnTheSheetTests(_B2b):
         self.lead.save()
         items = _json(self.get(self.sales, "v1_b2b_follow_ups"))["items"]
         self.assertEqual([item["call_outcome"] for item in items], ["quotation"])
+
+    # 22/10/2026: «زود في الفلتر اللي طلبوا عرض سعر ... وفلتر للأرقام الأرضي».
+    def test_the_sheet_says_who_asked_for_a_price_and_who_has_a_landline(self):
+        made = Lead.objects.create(sheet=self.sheet, company_name="Quoted AG")
+        Quotation.objects.create(
+            lead=made, owner=self.sales, created_by=self.sales, source_lang="German", target_lang="Arabic", quantity=1000,
+            rate=Decimal("0.1"),
+        )
+        fixed = Lead.objects.create(sheet=self.sheet, company_name="Cairo Co", whatsapp="01001234567", phone="0223456789")
+        self.call("quotation")
+        # A later call that did not get through does not take back the price they asked for.
+        self.call("no_answer")
+        rows = {row["id"]: row for row in _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))["leads"]}
+        self.assertEqual(
+            {pk: (rows[pk]["quote_asked"], rows[pk]["landline"]) for pk in (self.lead.pk, made.pk, fixed.pk)},
+            {self.lead.pk: (True, False), made.pk: (True, False), fixed.pk: (False, True)},
+        )
 
     def test_contracted_is_an_outcome_and_moves_the_row_to_contracted(self):
         sheet = _json(self.get(self.sales, "v1_b2b_sheet", self.sheet.pk))

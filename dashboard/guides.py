@@ -1154,14 +1154,14 @@ GUIDES = (
             "كل يوم الساعة 9 الصبح بيوصلك تنبيه بعدد متابعاتك النهارده والمتأخرة.",
             "افتح «شيتات الشركات»: فوق خالص «متابعاتك النهارده والمتأخرة»، وكل واحدة جنبها «افتح الشيت».",
             "المتابعة بتبقى «اتعملت» لوحدها أول ما تبعتلهم رسالة أو تسجّل مكالمة في يومها أو بعده. ردّهم هم مابيقفلهاش.",
-            "جوه الشيت اختار من «اعرض»: «متابعة النهارده أو متأخرة» أو «ردّوا علينا» أو «لسه ماتواصلناش» أو «المهتمين» (آخر مكالمة معاهم نتيجتها «مهتم») أو «تم التعاقد».",
+            "جوه الشيت اختار من «اعرض»: «متابعة النهارده أو متأخرة» أو «ردّوا علينا» أو «لسه مردّوش» (اتواصلنا ومارجعش منهم حاجة) أو «لسه ماتواصلناش» أو «المهتمين» (آخر مكالمة معاهم نتيجتها «مهتم») أو «طلبوا عرض سعر» أو «تم التعاقد» أو «أرقام أرضي» (رقم مصري أرضي، كلّمه بدل الواتساب).",
         ],
         [
             "Set the company's «Next follow-up» from «Edit» on its row, or while logging a call.",
             "Every day at 9 in the morning a notice tells you how many follow-ups are due today and overdue.",
             "Open «Company sheets»: at the top is «Your follow-ups: today and overdue», each with «Open the sheet».",
             "A follow-up turns «Done» by itself once you message them or log a call on its day or after. Their own answer does not close it.",
-            "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered», «Not contacted yet», «Interested» (the last call's outcome was «Interested») or «Contracted».",
+            "Inside a sheet choose under «Show»: «Follow-up due or overdue», «They answered», «No answer yet» (reached, nothing back), «Not contacted yet», «Interested» (the last call's outcome was «Interested»), «Asked for a quotation», «Contracted» or «Landline numbers» (an Egyptian fixed line: call it, WhatsApp cannot reach it).",
         ],
         note=(
             "المانجر بيشوف متابعات الفريق كله، ومين صاحب كل واحدة، ومتابعات شيته هو لو عمل شيت لنفسه.",

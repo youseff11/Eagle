@@ -65,6 +65,8 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     follow_up: "",
     overdue: false,
     quote: null,
+    quote_asked: false,
+    landline: false,
     governorate: "",
     address: "",
     location: "",
@@ -523,6 +525,35 @@ describe("LeadSheetPage", () => {
     expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
   });
 
+  // 22/10/2026: «زود في الفلتر اللي طلبوا عرض سعر واللي لسه مردوش وفلتر للأرقام الأرضي».
+  it("shows the companies that asked for a price, the ones that never answered, and the landlines", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [
+          lead({ call_outcome: "no_answer", quote_asked: true, reached: true }),
+          lead({ id: 6, company_name: "Busy Ltd", status: "contacted", call_outcome: "no_answer", reached: true }),
+          lead({ id: 7, company_name: "Written Ltd", status: "whatsapp", reached: true, landline: true }),
+          lead({ id: 8, company_name: "Answered Ltd", status: "contacted", reached: true, replied_at: "10/10/2026 2:00 PM" }),
+          lead({ id: 9, company_name: "Talked Ltd", status: "contacted", call_outcome: "follow_up", reached: true }),
+          lead({ id: 10, company_name: "Silent Ltd" }),
+        ])),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    const shown = () =>
+      ["Lingua GmbH", "Busy Ltd", "Written Ltd", "Answered Ltd", "Talked Ltd", "Silent Ltd"].filter((name) => screen.queryByDisplayValue(name));
+    await user.selectOptions(screen.getByLabelText("اعرض"), "quote");
+    expect(shown()).toEqual(["Lingua GmbH"]);
+    await user.selectOptions(screen.getByLabelText("اعرض"), "silent");
+    expect(shown()).toEqual(["Busy Ltd", "Written Ltd"]);
+    await user.selectOptions(screen.getByLabelText("اعرض"), "landline");
+    expect(shown()).toEqual(["Written Ltd"]);
+    expect(screen.getByRole("option", { name: "لسه مردّوش" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "طلبوا عرض سعر" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "أرقام أرضي" })).toBeInTheDocument();
+  });
+
   // 20/10/2026: a company written to before opens its chat from the row.
   it("opens the chat of a company written to before, for the sheet's Sales person", async () => {
     const user = userEvent.setup();
@@ -753,7 +784,7 @@ describe("LeadSheetPage", () => {
     jsonResponse({
       ok: true,
       rows: [{ ...lead({ company_name: "A2Z Traducciones", phone: "34637563743", email: "info@a2z.es", country: "", industry: "", contact_person: "", position: "", whatsapp: "", languages: "" }), notes: "22-9" }].map(
-        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, call_outcome: _co, reached: _rc, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, ...row }) => row,
+        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, call_outcome: _co, reached: _rc, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, quote_asked: _qa, landline: _ll, ...row }) => row,
       ),
       mapped: {},
       more: false,

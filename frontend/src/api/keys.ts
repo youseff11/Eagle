@@ -71,6 +71,8 @@ export const qk = {
   adminClientNew: ["admin-client-new"] as const,
   /** The clear-outs' counts: read when opened (a count that moves under the eye is a count to doubt). */
   adminResetCounts: (kind: "tasks" | "mail" | "staff") => ["admin-reset", kind] as const,
+  /** The month's bill at Bunny, Neon and Render, for the admin's panel at the foot of the menu. */
+  adminUsage: ["admin-usage"] as const,
   /** The settings page: outside the boards, read when opened and after a save (a form being typed in is not refilled). */
   adminSettings: ["admin-settings"] as const,
   /** The money screens: read when opened and after a write, never on a clock (a number that moves under the eye is a number to doubt). */

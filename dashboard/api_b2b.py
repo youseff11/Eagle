@@ -93,19 +93,23 @@ def _contacted_q():
 
 
 def _call_outcomes(where):
-    """Each row's last call outcome, ``{lead id: outcome}``, in one query: the rows ``where`` picks (a ``LeadActivity``
-    filter)."""
-    out = {}
+    """Each row's last call outcome, ``{lead id: outcome}``, and the rows any call of which ended «طلب عرض سعر», in one
+    query: the rows ``where`` picks (a ``LeadActivity`` filter)."""
+    last, asked = {}, set()
     calls = LeadActivity.objects.filter(where, kind=LeadActivity.Kind.CALL).order_by("lead_id", "-at", "-id")
     for lead_id, outcome in calls.values_list("lead_id", "outcome"):
-        out.setdefault(lead_id, outcome)
-    return out
+        last.setdefault(lead_id, outcome)
+        if outcome == LeadActivity.Outcome.QUOTATION:
+            asked.add(lead_id)
+    return last, asked
 
 
 def _lead_json(lead, today=None, outcomes=None):
     state = b2b.follow_up_state(lead, today)
     if outcomes is None:
         outcomes = _call_outcomes(Q(lead_id=lead.pk))
+    last, asked = outcomes
+    quote = _quote_brief(lead)
     return {
         "id": lead.pk,
         **{name: getattr(lead, name) for name, *_rest in b2b.ALL_COLUMNS},
@@ -127,7 +131,12 @@ def _lead_json(lead, today=None, outcomes=None):
         "email_at": _stamp(lead.email_at),
         "call_at": _stamp(lead.call_at),
         # The last call's outcome (19/10/2026: what the Sales person chose in «سجّل مكالمة» showed only in the timeline).
-        "call_outcome": outcomes.get(lead.pk, ""),
+        "call_outcome": last.get(lead.pk, ""),
+        # Asked us for a price (22/10/2026, «اللي طلبوا عرض سعر»): a call that ended so, or a quotation made for the row -
+        # what the Sales numbers count as quotations (``b2b.kpis``).
+        "quote_asked": lead.pk in asked or quote is not None,
+        # A number of the row's that is an Egyptian fixed line (22/10/2026, «فلتر للأرقام الأرضي»): one to call, not to write to.
+        "landline": any(b2b.is_landline(number, lead.country) for number in lead.all_phones),
         # Talked to, by the sheet or by a stage set by hand: «لسه ماتواصلناش» is the rows without it.
         "reached": lead.reached,
         "last_contact_at": _stamp(lead.last_contact_at),
@@ -136,7 +145,7 @@ def _lead_json(lead, today=None, outcomes=None):
         # "" (none), "upcoming", "today", "overdue" or "done" (reached out on or after the day): ``b2b.follow_up_state``.
         "follow_up": state,
         "overdue": state == b2b.FOLLOW_UP_OVERDUE,
-        "quote": _quote_brief(lead),
+        "quote": quote,
     }
 
 
