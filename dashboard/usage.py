@@ -8,8 +8,9 @@ nothing here changes anything at a host. What comes back is a card for each and 
   priced here at the Launch plan's rate. Storage is left out: at our size it is under a cent.
 * **Render** has no bill in its API. The panel adds up each service's plan, pro-rated by the seconds of the month it has run, and
   the bandwidth over the plan's 5 GB at $0.15/GB. It is an estimate and says so; the bill is on Render's page.
-* **Claude** answers the month's cost exactly (``/v1/organizations/cost_report``), but only to an Admin API key; the prepaid
-  balance has no API at all.
+* **Claude** is counted here, not asked: the account is an individual one with no Admin API key, so every call the product
+  makes is written down with the tokens its answer says it used and priced at the model's list rate (``claude_usage.py``).
+  It is an estimate of the product's own spending; the prepaid balance has no API at all.
 * **Meta** answers what the WhatsApp messages delivered this month cost, by kind (``pricing_analytics`` on the business
   account), with the WhatsApp token already saved. It is in the account's currency: only dollars join the total.
 
@@ -48,7 +49,6 @@ BUNNY_URL = "https://api.bunny.net/billing"
 NEON_URL = "https://console.neon.tech/api/v2/consumption_history/v2/projects"
 RENDER_SERVICES_URL = "https://api.render.com/v1/services"
 RENDER_BANDWIDTH_URL = "https://api.render.com/v1/metrics/bandwidth"
-CLAUDE_COST_URL = "https://api.anthropic.com/v1/organizations/cost_report"
 
 #: Neon's Launch plan: dollars per compute-unit hour (the bill of 15/10-22/10/2026: 50.27 hours = $5.33).
 NEON_CU_HOUR_USD = 0.106
@@ -291,43 +291,30 @@ def _tomorrow(now):
     return (now.astimezone(dt_timezone.utc) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _claude_pages(conf, start, end):
-    headers = {"x-api-key": conf.anthropic_admin_key.strip(), "anthropic-version": "2023-06-01"}
-    page = ""
-    for _ in range(MAX_PAGES):
-        query = {"starting_at": _iso(start), "ending_at": _iso(end), "bucket_width": "1d", "limit": "31"}
-        if page:
-            query["page"] = page
-        data = _get(f"{CLAUDE_COST_URL}?{urllib.parse.urlencode(query)}", headers)
-        if not isinstance(data, dict):
-            raise HostError("bad_answer")
-        yield from data.get("data") or []
-        page = data.get("next_page") if data.get("has_more") else ""
-        if not page:
-            return
-
-
 def claude(conf, now):
+    """The month's calls from ``ClaudeUsage``: their cost, how many, and what for. Read here, in the request's own thread."""
+    from django.db.models import Count, Q, Sum
+
+    from .claude_usage import FEATURES
+    from .models import ClaudeUsage
+
     start, _ = _month(now)
-    try:
-        buckets = list(_claude_pages(conf, start, _tomorrow(now)))
-    except HostError as exc:
-        # As with Neon: should an end in the future be refused, up to now counts every day but today.
-        if not str(exc).startswith("HTTP 400"):
-            raise
-        buckets = list(_claude_pages(conf, start, now))
-    cents = 0.0
-    for bucket in buckets:
-        for result in (bucket or {}).get("results") or []:
-            try:
-                # Lowest units (cents) as a decimal string: "123.45" is $1.23.
-                cents += float((result or {}).get("amount") or 0)
-            except (TypeError, ValueError):
-                continue
-    return {
-        "month_usd": _usd(cents / 100),
-        "lines": [_line("الرصيد: من صفحة Billing", "Balance: on the Billing page", "-")],
-    }
+    rows = ClaudeUsage.objects.filter(created_at__gte=start)
+    totals = rows.aggregate(cost=Sum("cost_usd"), calls=Count("id"), unpriced=Count("id", filter=Q(cost_usd__isnull=True)))
+    lines = [_line("النداءات", "Calls", f"{totals['calls']:,}")]
+    for row in rows.values("feature").annotate(cost=Sum("cost_usd"), calls=Count("id")).order_by("-cost", "feature"):
+        ar, en = FEATURES.get(row["feature"], (row["feature"], row["feature"]))
+        lines.append(_line(ar, en, f"{row['calls']:,} · {_money(_usd(float(row['cost'] or 0)))}"))
+    if totals["unpriced"]:
+        names = rows.filter(cost_usd__isnull=True).values_list("model", flat=True).distinct()[:3]
+        lines.append(_line("موديل مالوش سعر", "Model with no price", ", ".join(names)[:120]))
+    first = ClaudeUsage.objects.order_by("created_at").values_list("created_at", flat=True).first()
+    if first is None or first > start:
+        # The counting started after the month did: what came before it was never written down.
+        since = clock.local(first).strftime("%d/%m") if first else "-"
+        lines.append(_line("بيتعد من", "Counted since", since))
+    lines.append(_line("الرصيد: من صفحة Billing", "Balance: on the Billing page", "-"))
+    return {"month_usd": _usd(float(totals["cost"] or 0)), "estimate": True, "lines": lines}
 
 
 def meta(conf, now):
@@ -385,7 +372,8 @@ HOSTS = (
     {"key": "bunny", "name": "Bunny.net", "fetch": bunny, "needs": ("bunny_api_key",), "link": "https://dash.bunny.net/billing"},
     {"key": "neon", "name": "Neon", "fetch": neon, "needs": ("neon_api_key",), "link": "https://console.neon.tech/app/billing"},
     {"key": "render", "name": "Render", "fetch": render, "needs": ("render_api_key",), "link": "https://dashboard.render.com/billing"},
-    {"key": "claude", "name": "Claude", "fetch": claude, "needs": ("anthropic_admin_key",), "link": "https://platform.claude.com/settings/billing"},
+    {"key": "claude", "name": "Claude", "fetch": claude, "needs": ("claude_api_key",), "local": True,
+     "link": "https://platform.claude.com/settings/billing"},
     {"key": "meta", "name": "WhatsApp (Meta)", "fetch": meta, "needs": ("whatsapp_access_token", "whatsapp_waba_id"),
      "link": "https://business.facebook.com/billing_hub/"},
 )
@@ -412,7 +400,7 @@ def _one(host, conf, now):
 
 
 def report(force=False, now=None):
-    """The three cards and their total. Kept ten minutes unless ``force``."""
+    """The cards and their total. Kept ten minutes unless ``force``."""
     if not force:
         kept = cache.get(CACHE_KEY)
         if kept is not None:
@@ -421,8 +409,11 @@ def report(force=False, now=None):
 
     conf = AppSettings.load()
     now = now or timezone.now()
-    with ThreadPoolExecutor(max_workers=len(HOSTS)) as pool:
-        cards = list(pool.map(lambda host: _one(host, conf, now), HOSTS))
+    # The hosts are asked side by side; a card read from our own tables (``local``) is read here, on the request's connection.
+    away = [host for host in HOSTS if not host.get("local")]
+    with ThreadPoolExecutor(max_workers=len(away)) as pool:
+        found = dict(zip((host["key"] for host in away), pool.map(lambda host: _one(host, conf, now), away)))
+    cards = [found[host["key"]] if host["key"] in found else _one(host, conf, now) for host in HOSTS]
     for card in cards:
         card["error"] = scrub(card["error"], conf)
     answered = [card["month_usd"] for card in cards if card["state"] == "ok" and card["month_usd"] is not None]

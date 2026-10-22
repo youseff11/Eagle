@@ -2,13 +2,14 @@
 
 What these tests hold: only the admin is answered; a host with no key is ``off`` and never asked; each host's answer is read
 into the card the panel draws (Bunny's bill as it is, Neon's compute hours priced, Render worked out from its plans and its
-bandwidth, Claude's cost report in cents, Meta's messages by kind and in its own currency); one host failing leaves the others; no key is ever in an answer, not even inside a host's error; and the report
+bandwidth, Claude counted from the product's own calls and never asked, Meta's messages by kind and in its own currency); one host failing leaves the others; no key is ever in an answer, not even inside a host's error; and the report
 is kept ten minutes unless the panel asks for a fresh one.
 """
 
 import json
 import urllib.parse
 from datetime import datetime
+from decimal import Decimal
 from datetime import timezone as dt_timezone
 from unittest import mock
 
@@ -19,7 +20,7 @@ from django.urls import reverse
 
 from . import api_admin_settings, usage
 from .forms import SettingsForm
-from .models import AppSettings, Role, User
+from .models import AppSettings, ClaudeUsage, Role, User
 
 URL = "dashboard:v1_admin_usage"
 #: 22/10/2026 at noon UTC: 21.5 days of a 31-day month are behind.
@@ -28,7 +29,7 @@ KEYS = {
     "bunny_api_key": "SECRET-bunny-account-key",
     "neon_api_key": "SECRET-neon-api-key",
     "render_api_key": "SECRET-render-api-key",
-    "anthropic_admin_key": "sk-ant-admin01-SECRET-claude-admin",
+    "claude_api_key": "sk-ant-SECRET-claude-usage",
     "whatsapp_access_token": "EAAG-SECRET-whatsapp-usage",
 }
 WABA = "111222333"
@@ -63,14 +64,6 @@ RENDER_SERVICES = [
     {"cursor": "c4", "service": {"id": "srv-site", "name": "site", "type": "static_site", "suspended": "not_suspended",
                                  "createdAt": "2026-01-01T00:00:00Z", "serviceDetails": {}}},
 ]
-CLAUDE_COST = {
-    "data": [
-        {"starting_at": "2026-10-01T00:00:00Z", "results": [{"amount": "123.45", "currency": "USD"}]},
-        {"starting_at": "2026-10-02T00:00:00Z", "results": []},
-        {"starting_at": "2026-10-03T00:00:00Z", "results": [{"amount": "200", "currency": "USD"}, {"amount": None}]},
-    ],
-    "has_more": False, "next_page": None,
-}
 META_PRICING = {
     "currency": "USD",
     "pricing_analytics": {"data": [{"data_points": [
@@ -94,7 +87,7 @@ class _Hosts:
         self.answers = {
             usage.BUNNY_URL: BUNNY_BILL, usage.NEON_URL: NEON_USAGE,
             usage.RENDER_SERVICES_URL: RENDER_SERVICES, usage.RENDER_BANDWIDTH_URL: RENDER_BANDWIDTH,
-            usage.CLAUDE_COST_URL: CLAUDE_COST, META_URL: META_PRICING,
+            META_URL: META_PRICING,
         }
         self.answers.update(overrides)
 
@@ -136,6 +129,15 @@ class _Usage(TestCase):
     def card(self, answer, key):
         return next(card for card in answer.json()["cards"] if card["key"] == key)
 
+    def claude_calls(self, *rows):
+        """``(feature, model, dollars, day of the month or (month, day))`` as ``ClaudeUsage`` rows of 2026."""
+        for feature, model, dollars, day in rows:
+            month, day = day if isinstance(day, tuple) else (10, day)
+            row = ClaudeUsage.objects.create(
+                feature=feature, model=model, input_tokens=1, cost_usd=None if dollars is None else Decimal(dollars),
+            )
+            ClaudeUsage.objects.filter(pk=row.pk).update(created_at=datetime(2026, month, day, 9, tzinfo=dt_timezone.utc))
+
 
 class DoorTests(_Usage):
     def test_the_door_is_the_api_one(self):
@@ -173,6 +175,11 @@ class ReadingTests(_Usage):
     def setUp(self):
         super().setUp()
         self.keys()
+        # $3.23 this month; the call of 30/09 is last month's.
+        self.claude_calls(
+            ("check", "claude-sonnet-4-5", "2.50", 5), ("helpbot", "claude-sonnet-4-5", "0.50", 20),
+            ("check", "claude-sonnet-4-5", "0.23", 21), ("check", "claude-sonnet-4-5", "9.99", (9, 30)),
+        )
 
     def test_bunny_is_its_own_bill(self):
         hosts = _Hosts()
@@ -262,30 +269,31 @@ class ReadingTests(_Usage):
         self.assertAlmostEqual(usage._render_overage(17.35), 1.95)
         self.assertAlmostEqual(usage._render_overage(17.0), 1.80)
 
-    def test_claude_is_its_cost_report_in_cents(self):
+    def test_claude_is_counted_from_the_calls_and_never_asked(self):
         hosts = _Hosts()
         card = self.card(self.ask(hosts=hosts), "claude")
-        self.assertEqual((card["state"], card["month_usd"], card["estimate"]), ("ok", 3.23, False))
-        url, headers = next(entry for entry in hosts.asked if entry[0].startswith(usage.CLAUDE_COST_URL))
-        self.assertEqual(headers["x-api-key"], KEYS["anthropic_admin_key"])
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-        self.assertEqual(query["starting_at"], ["2026-10-01T00:00:00Z"])
-        self.assertEqual(query["ending_at"], ["2026-10-23T00:00:00Z"])
+        self.assertEqual((card["state"], card["month_usd"], card["estimate"]), ("ok", 3.23, True))
+        values = {line["en"]: line["value"] for line in card["lines"]}
+        self.assertEqual(values, {
+            "Calls": "3", "Translation check": "2 · $2.73", "Assistant": "1 · $0.50", "Balance: on the Billing page": "-",
+        })
+        self.assertFalse([url for url, _ in hosts.asked if "anthropic" in url])
 
-    def test_claude_reads_every_page(self):
-        pages = []
+    def test_claude_says_when_the_counting_began(self):
+        ClaudeUsage.objects.filter(created_at__month=9).delete()
+        values = {line["en"]: line["value"] for line in self.card(self.ask(), "claude")["lines"]}
+        self.assertEqual(values["Counted since"], "05/10")
 
-        def answer(url, headers):
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-            pages.append(query.get("page", [""])[0])
-            if not query.get("page"):
-                return {"data": [{"results": [{"amount": "100"}]}], "has_more": True, "next_page": "p2"}
-            return {"data": [{"results": [{"amount": "50"}]}], "has_more": False, "next_page": None}
+    def test_claude_names_a_model_with_no_price(self):
+        self.claude_calls(("check", "claude-unknown-9", None, 22))
+        card = self.card(self.ask(), "claude")
+        values = {line["en"]: line["value"] for line in card["lines"]}
+        self.assertEqual(values["Model with no price"], "claude-unknown-9")
+        self.assertEqual(card["month_usd"], 3.23)
 
-        with mock.patch.object(usage, "_get", answer):
-            card = usage._one(usage.HOSTS[3], AppSettings.load(), NOW)
-        self.assertEqual(pages, ["", "p2"])
-        self.assertEqual(card["month_usd"], 1.5)
+    def test_claude_without_its_key_is_off(self):
+        self.keys(claude_api_key="")
+        self.assertEqual(self.card(self.ask(), "claude")["state"], "off")
 
     def test_meta_is_the_messages_by_kind(self):
         hosts = _Hosts()
@@ -341,7 +349,6 @@ class SecretTests(_Usage):
             usage.BUNNY_URL: usage.HostError(f"HTTP 500 bad key {KEYS['bunny_api_key']}"),
             usage.NEON_URL: usage.HostError(f"HTTP 500 {KEYS['neon_api_key']}"),
             usage.RENDER_SERVICES_URL: usage.HostError(f"HTTP 500 {KEYS['render_api_key']}"),
-            usage.CLAUDE_COST_URL: usage.HostError(f"HTTP 500 {KEYS['anthropic_admin_key']}"),
             META_URL: usage.HostError(f"HTTP 500 {KEYS['whatsapp_access_token']}"),
         })
         text = self.ask(hosts=hosts).content.decode()

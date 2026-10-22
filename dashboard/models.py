@@ -2546,6 +2546,28 @@ class HelpAction(models.Model):
         return f"{self.name} · {self.status}"
 
 
+class ClaudeUsage(models.Model):
+    """One call the product made to Claude: the tokens its answer says it used, and their list price (``claude_usage.py``).
+
+    Counts only, never a word of what was sent or answered. ``cost_usd`` is empty for a model with no price in the table.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    feature = models.CharField(max_length=20)
+    model = models.CharField(max_length=80, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    cache_write_tokens = models.PositiveIntegerField(default=0)
+    cache_read_tokens = models.PositiveIntegerField(default=0)
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.feature} · {self.model} · {self.cost_usd}"
+
+
 # ---------------------------------------------------------------------------
 # Runtime settings (single row, editable from the admin panel)
 # ---------------------------------------------------------------------------
@@ -2727,8 +2749,6 @@ class AppSettings(models.Model):
     neon_api_key = models.CharField(max_length=250, blank=True)
     neon_org_id = models.CharField(max_length=80, blank=True)
     render_api_key = models.CharField(max_length=250, blank=True)
-    #: An Admin API key (``sk-ant-admin...``): the key the help assistant and the checks use cannot read the organization's bill.
-    anthropic_admin_key = models.CharField(max_length=250, blank=True)
 
     #: Which roles may open a client group. Comma-separated role values; the
     #: admin is always allowed, so nobody can lock themselves out of it.

@@ -32,7 +32,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
-from . import ai, net
+from . import ai, claude_usage, net
 from .models import AITranslation, AppSettings, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -253,24 +253,35 @@ def stream_text(conf, system, prompt, documents, max_tokens=MAX_TOKENS):
         method="POST",
     )
     pieces, stop = [], ""
-    with net.urlopen(request, timeout=180) as response:
-        for raw in response:
-            line = raw.decode("utf-8", errors="ignore").strip()
-            if not line.startswith("data:"):
-                continue
-            try:
-                event = json.loads(line[5:].strip())
-            except ValueError:
-                continue
-            kind = event.get("type")
-            if kind == "content_block_delta":
-                delta = event.get("delta") or {}
-                if delta.get("type") == "text_delta":
-                    pieces.append(delta.get("text", ""))
-            elif kind == "message_delta":
-                stop = (event.get("delta") or {}).get("stop_reason") or stop
-            elif kind == "error":
-                raise RuntimeError(((event.get("error") or {}).get("type") or "stream_error")[:100])
+    # What the call used: the input side comes at the start, the output count grows with each ``message_delta``. It is written
+    # down however the stream ends, since a call cut short is still billed.
+    used, model = {}, payload["model"]
+    try:
+        with net.urlopen(request, timeout=180) as response:
+            for raw in response:
+                line = raw.decode("utf-8", errors="ignore").strip()
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    event = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                kind = event.get("type")
+                if kind == "message_start":
+                    message = event.get("message") or {}
+                    model = message.get("model") or model
+                    used.update(message.get("usage") or {})
+                elif kind == "content_block_delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        pieces.append(delta.get("text", ""))
+                elif kind == "message_delta":
+                    stop = (event.get("delta") or {}).get("stop_reason") or stop
+                    used.update({name: value for name, value in (event.get("usage") or {}).items() if value is not None})
+                elif kind == "error":
+                    raise RuntimeError(((event.get("error") or {}).get("type") or "stream_error")[:100])
+    finally:
+        claude_usage.record("ai_translate", model, used)
     return "".join(pieces).strip(), stop
 
 

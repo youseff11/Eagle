@@ -80,7 +80,7 @@ def to_arabic(message, user):
     if _too_fast(user):
         raise Problem("too_fast")
     try:
-        answer = ai._text_of(ai._post(conf, SYSTEM_PROMPT, f"<message>\n{text}\n</message>", None, MAX_TOKENS))
+        answer = ai._text_of(ai._post(conf, SYSTEM_PROMPT, f"<message>\n{text}\n</message>", None, MAX_TOKENS, feature="translate"))
     except Exception as failure:  # noqa: BLE001 - whatever broke, the person is told it did not work
         # The class only: an HTTP error's text could carry what the provider echoed back.
         log.warning("translate: message %s was not translated (%s)", message.pk, type(failure).__name__)

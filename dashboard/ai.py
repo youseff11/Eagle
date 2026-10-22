@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-from . import net
+from . import claude_usage, net
 from .models import AICheckResult, AppSettings, AssignmentStatus, Role
 
 logger = logging.getLogger(__name__)
@@ -213,8 +213,8 @@ def _fit(source_docs, translated_docs):
     return kept_src, kept_tr, dropped
 
 
-def _post(conf, system, prompt, documents, max_tokens):
-    """One call to the messages API; the decoded answer."""
+def _post(conf, system, prompt, documents, max_tokens, feature="check"):
+    """One call to the messages API; the decoded answer. What it used is written down under ``feature`` (``claude_usage``)."""
     content = prompt
     if documents:
         content = list(documents) + [{"type": "text", "text": prompt}]
@@ -236,7 +236,9 @@ def _post(conf, system, prompt, documents, max_tokens):
     )
     # A long PDF takes the model a while to read.
     with net.urlopen(request, timeout=240 if documents else 120) as response:
-        return json.loads(response.read().decode("utf-8"))
+        body = json.loads(response.read().decode("utf-8"))
+    claude_usage.from_body(feature, body, payload["model"])
+    return body
 
 
 def _text_of(body):

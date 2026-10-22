@@ -29,7 +29,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from . import ai, guides, net
+from . import ai, claude_usage, guides, net
 from .models import AppSettings, Client, HelpQuestion, Role, User
 
 log = logging.getLogger("dashboard")
@@ -444,6 +444,7 @@ def _call_claude(conf, system, context, turns):
     )
     with net.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
+    claude_usage.from_body("helpbot", body, payload["model"])
     return "".join(block.get("text", "") for block in body.get("content", []) if block.get("type") == "text").strip()
 
 
