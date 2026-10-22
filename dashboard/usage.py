@@ -1,16 +1,20 @@
-"""The admin's usage panel: what Bunny, Neon and Render have charged this month so far.
+"""The admin's usage panel: what Bunny, Neon, Render, Claude and Meta have charged this month so far.
 
 Each host is asked with the key the admin pasted in the settings (``AppSettings.bunny_api_key`` and the rest), and only read:
-nothing here changes anything at a host. What comes back is three cards and a total:
+nothing here changes anything at a host. What comes back is a card for each and a total:
 
 * **Bunny** answers its own bill (``GET /billing``): the month's charges and the prepaid balance, exact.
 * **Neon** answers the month's compute-unit seconds (``consumption_history/v2/projects``, the source its docs name for billing),
   priced here at the Launch plan's rate. Storage is left out: at our size it is under a cent.
 * **Render** has no bill in its API. The panel adds up each service's plan, pro-rated by the seconds of the month it has run, and
   the bandwidth over the plan's 5 GB at $0.15/GB. It is an estimate and says so; the bill is on Render's page.
+* **Claude** answers the month's cost exactly (``/v1/organizations/cost_report``), but only to an Admin API key; the prepaid
+  balance has no API at all.
+* **Meta** answers what the WhatsApp messages delivered this month cost, by kind (``pricing_analytics`` on the business
+  account), with the WhatsApp token already saved. It is in the account's currency: only dollars join the total.
 
 A host not set up is ``off``, a host that failed is ``error`` with a short reason, and the total is of the hosts that answered.
-The report is kept ten minutes (one minute when a host failed), so opening the app does not ask three hosts every time. No key
+The report is kept ten minutes (one minute when a host failed), so opening the app does not ask the hosts every time. No key
 is ever in an answer: an error text is cleaned of every stored secret before it leaves (``api_admin_settings.scrub``).
 """
 
@@ -44,6 +48,7 @@ BUNNY_URL = "https://api.bunny.net/billing"
 NEON_URL = "https://console.neon.tech/api/v2/consumption_history/v2/projects"
 RENDER_SERVICES_URL = "https://api.render.com/v1/services"
 RENDER_BANDWIDTH_URL = "https://api.render.com/v1/metrics/bandwidth"
+CLAUDE_COST_URL = "https://api.anthropic.com/v1/organizations/cost_report"
 
 #: Neon's Launch plan: dollars per compute-unit hour (the bill of 15/10-22/10/2026: 50.27 hours = $5.33).
 NEON_CU_HOUR_USD = 0.106
@@ -57,6 +62,14 @@ RENDER_GB_USD = 0.15
 #: What one of each unit a bandwidth series is in comes to in gigabytes. Render counts in 1024s: on 22/10/2026 its series said
 #: 17,783.22 MB and its bill 17.35 GB.
 RENDER_UNIT_GB = {"b": 1 / 1024 ** 3, "bytes": 1 / 1024 ** 3, "kb": 1 / 1024 ** 2, "mb": 1 / 1024, "gb": 1.0, "tb": 1024.0}
+
+#: Meta's kinds of message, as the panel names them.
+META_KINDS = {
+    "MARKETING": ("تسويق", "Marketing"),
+    "UTILITY": ("تنبيهات", "Utility"),
+    "AUTHENTICATION": ("أكواد تحقق", "Authentication"),
+    "SERVICE": ("رد على العميل", "Service"),
+}
 
 BUNNY_TRAFFIC = (
     "MonthlyChargesEUTraffic", "MonthlyChargesUSTraffic", "MonthlyChargesASIATraffic", "MonthlyChargesAFTraffic",
@@ -274,17 +287,115 @@ def render(conf, now):
     return {"month_usd": _usd(spent + over), "estimate": True, "lines": lines}
 
 
+def _tomorrow(now):
+    return (now.astimezone(dt_timezone.utc) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _claude_pages(conf, start, end):
+    headers = {"x-api-key": conf.anthropic_admin_key.strip(), "anthropic-version": "2023-06-01"}
+    page = ""
+    for _ in range(MAX_PAGES):
+        query = {"starting_at": _iso(start), "ending_at": _iso(end), "bucket_width": "1d", "limit": "31"}
+        if page:
+            query["page"] = page
+        data = _get(f"{CLAUDE_COST_URL}?{urllib.parse.urlencode(query)}", headers)
+        if not isinstance(data, dict):
+            raise HostError("bad_answer")
+        yield from data.get("data") or []
+        page = data.get("next_page") if data.get("has_more") else ""
+        if not page:
+            return
+
+
+def claude(conf, now):
+    start, _ = _month(now)
+    try:
+        buckets = list(_claude_pages(conf, start, _tomorrow(now)))
+    except HostError as exc:
+        # As with Neon: should an end in the future be refused, up to now counts every day but today.
+        if not str(exc).startswith("HTTP 400"):
+            raise
+        buckets = list(_claude_pages(conf, start, now))
+    cents = 0.0
+    for bucket in buckets:
+        for result in (bucket or {}).get("results") or []:
+            try:
+                # Lowest units (cents) as a decimal string: "123.45" is $1.23.
+                cents += float((result or {}).get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+    return {
+        "month_usd": _usd(cents / 100),
+        "lines": [_line("الرصيد: من صفحة Billing", "Balance: on the Billing page", "-")],
+    }
+
+
+def meta(conf, now):
+    from . import whatsapp
+
+    start, _ = _month(now)
+    waba = conf.whatsapp_waba_id.strip()
+    headers = {"Authorization": f"Bearer {conf.whatsapp_access_token.strip()}"}
+
+    def ask(end):
+        field = (
+            f"currency,pricing_analytics.start({int(start.timestamp())}).end({int(end.timestamp())})"
+            '.granularity(DAILY).dimensions(["PRICING_CATEGORY"])'
+        )
+        url = f"{whatsapp.GRAPH_HOST}/{whatsapp._version(conf)}/{urllib.parse.quote(waba)}?{urllib.parse.urlencode({'fields': field})}"
+        return _get(url, headers)
+
+    try:
+        data = ask(now)
+    except HostError as exc:
+        if not str(exc).startswith("HTTP 400"):
+            raise
+        data = ask(_tomorrow(now))
+    if not isinstance(data, dict):
+        raise HostError("bad_answer")
+    currency = str(data.get("currency") or "").strip().upper() or "USD"
+    kinds, cost, count = {}, 0.0, 0
+    for block in (data.get("pricing_analytics") or {}).get("data") or []:
+        for point in (block or {}).get("data_points") or []:
+            point = point or {}
+            kind = str(point.get("pricing_category") or "OTHER")
+            spent, sent = _num(point.get("cost")) or 0.0, int(_num(point.get("volume")) or 0)
+            had = kinds.setdefault(kind, [0.0, 0])
+            had[0] += spent
+            had[1] += sent
+            cost += spent
+            count += sent
+
+    def amount(value):
+        return _money(_usd(value)) if currency == "USD" else f"{value:,.2f} {currency}"
+
+    lines = [_line("الرسايل اللي اتسلّمت", "Messages delivered", f"{count:,}")]
+    for kind, (spent, sent) in sorted(kinds.items(), key=lambda item: -item[1][0]):
+        ar, en = META_KINDS.get(kind, (kind.title(), kind.title()))
+        lines.append(_line(ar, en, f"{sent:,} · {amount(spent)}"))
+    found = {"lines": lines, "estimate": True}
+    if currency == "USD":
+        found["month_usd"] = _usd(cost)
+    else:
+        found["amount"] = amount(cost)
+    return found
+
+
 HOSTS = (
     {"key": "bunny", "name": "Bunny.net", "fetch": bunny, "needs": ("bunny_api_key",), "link": "https://dash.bunny.net/billing"},
     {"key": "neon", "name": "Neon", "fetch": neon, "needs": ("neon_api_key",), "link": "https://console.neon.tech/app/billing"},
     {"key": "render", "name": "Render", "fetch": render, "needs": ("render_api_key",), "link": "https://dashboard.render.com/billing"},
+    {"key": "claude", "name": "Claude", "fetch": claude, "needs": ("anthropic_admin_key",), "link": "https://platform.claude.com/settings/billing"},
+    {"key": "meta", "name": "WhatsApp (Meta)", "fetch": meta, "needs": ("whatsapp_access_token", "whatsapp_waba_id"),
+     "link": "https://business.facebook.com/billing_hub/"},
 )
 
 
 def _one(host, conf, now):
-    """One host's card. A failure is the card's state, never the report's: the other two still show."""
+    """One host's card. A failure is the card's state, never the report's: the others still show. ``amount`` is the month's
+    figure when it is not in dollars (Meta bills in the account's currency), and then it is not in the total."""
     card = {"key": host["key"], "name": host["name"], "link": host["link"], "state": "off", "month_usd": None,
-            "estimate": False, "lines": [], "error": ""}
+            "amount": "", "estimate": False, "lines": [], "error": ""}
     if not all(str(getattr(conf, name, "") or "").strip() for name in host["needs"]):
         return card
     try:

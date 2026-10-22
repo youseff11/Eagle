@@ -1303,11 +1303,13 @@ export interface ClientsDeleted {
 
 /** One host's card on the usage panel. `off` = no key saved; `error` carries a short reason code. */
 export interface UsageCard {
-  key: "bunny" | "neon" | "render";
+  key: "bunny" | "neon" | "render" | "claude" | "meta";
   name: string;
   link: string;
   state: "ok" | "off" | "error";
   month_usd: number | null;
+  /** The month's figure when it is not in dollars (Meta bills in the account's currency): shown, not in the total. */
+  amount?: string;
   /** Render's is worked out from its plans and bandwidth, not read from a bill. */
   estimate: boolean;
   balance_usd?: number | null;
@@ -1315,7 +1317,7 @@ export interface UsageCard {
   error: string;
 }
 
-/** GET /api/v1/admin/usage/ (`?fresh=1` asks the hosts again). */
+/** GET /api/v1/admin/usage/ (`?fresh=1` asks the hosts again): Bunny, Neon, Render, Claude, Meta. */
 export interface UsageReport {
   ok: true;
   cards: UsageCard[];

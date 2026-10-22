@@ -31,7 +31,7 @@ function Card({ card }: { card: UsageCard }) {
         </a>
         <span className="usage-card__amount">
           {card.state === "ok"
-            ? `${card.estimate ? "≈ " : ""}${money(card.month_usd)}`
+            ? `${card.estimate ? "≈ " : ""}${card.amount || money(card.month_usd)}`
             : card.state === "off"
               ? t("مش متربط", "Not linked")
               : t("مش متاح", "Unavailable")}
@@ -52,7 +52,8 @@ function Card({ card }: { card: UsageCard }) {
 }
 
 /**
- * The admin's usage panel at the foot of the menu: this month's bill so far at Bunny, Neon and Render, and their total.
+ * The admin's usage panel at the foot of the menu: this month's bill so far at Bunny, Neon, Render, Claude and Meta, and the
+ * total of those billed in dollars.
  * Shut it shows the total only; open it shows each host's card. The server asks the hosts at most every ten minutes;
  * «حدّث» asks them again now.
  */

@@ -29,6 +29,7 @@ from .permissions import api_role_required
 SECRET_FIELDS = (
     "claude_api_key", "whatsapp_access_token", "whatsapp_app_secret", "whatsapp_verify_token", "webhook_shared_secret",
     "imap_password", "smtp_password", "google_client_secret", "bunny_api_key", "neon_api_key", "render_api_key",
+    "anthropic_admin_key",
 )
 #: Stored secrets that are not form fields at all, but must not leave inside a message either.
 HIDDEN_SECRETS = ("google_refresh_token", "whatsapp_pin")
@@ -98,13 +99,14 @@ SECTIONS = (
     {
         "key": "usage", "icon": "chart", "ar": "متابعة الاستهلاك", "en": "Usage and bills",
         "note": (
-            "اللوحة اللي تحت في القايمة بتقرا فاتورة الشهر من Bunny وNeon وRender بالمفاتيح دي، للأدمن بس. المفاتيح بتتقري بس عشان الأرقام، ومابتظهرش لحد.",
-            "The panel at the foot of the menu reads the month's bill from Bunny, Neon and Render with these keys, for the admin only. They are only used to read the numbers and are never shown.",
+            "اللوحة اللي تحت في القايمة بتقرا فاتورة الشهر من Bunny وNeon وRender وClaude بالمفاتيح دي، ومصاريف رسايل واتساب من ميتا بتوكن واتساب ورقم الحساب اللي فوق. للأدمن بس. المفاتيح بتتقري بس عشان الأرقام، ومابتظهرش لحد.",
+            "The panel at the foot of the menu reads the month's bill from Bunny, Neon, Render and Claude with these keys, and the WhatsApp messages' cost from Meta with the WhatsApp token and account ID above. For the admin only. The keys are only used to read the numbers and are never shown.",
         ),
         "groups": (
             {"ar": "Bunny.net", "en": "Bunny.net", "fields": ("bunny_api_key",)},
             {"ar": "Neon", "en": "Neon", "fields": ("neon_api_key", "neon_org_id")},
             {"ar": "Render", "en": "Render", "fields": ("render_api_key",)},
+            {"ar": "Claude", "en": "Claude", "fields": ("anthropic_admin_key",)},
         ),
     },
 )
@@ -302,6 +304,13 @@ TEXTS = {
         "hint": (
             "من Render: Account settings ← API keys ← Create API key. Render مابيدّيش الفاتورة من الـAPI، فاللوحة بتحسبها تقريبًا من الخدمات والباندويدث.",
             "In Render: Account settings, API keys, Create API key. Render gives no bill through its API, so the panel works it out roughly from the services and the bandwidth.",
+        ),
+    },
+    "anthropic_admin_key": {
+        "label": ("مفتاح Admin بتاع Claude", "Claude Admin API key"),
+        "hint": (
+            "من Claude Console: Settings ← Admin keys ← Create admin key (بيبدأ بـ sk-ant-admin). مفتاح Claude العادي اللي فوق مابيقدرش يقرا الفاتورة. الحساب لازم يكون Organization مش حساب فردي. الرصيد نفسه مالوش API، فاللوحة بتوريك مصاريف الشهر بس.",
+            "In the Claude Console: Settings, Admin keys, Create admin key (it starts with sk-ant-admin). The ordinary Claude key above cannot read the bill. The account must be an organization, not an individual one. The balance itself has no API, so the panel shows the month's spending only.",
         ),
     },
     "sales_mail_footer": {

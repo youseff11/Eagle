@@ -926,7 +926,7 @@ class SettingsForm(forms.ModelForm):
             "smtp_from", "smtp_use_tls", "mail_unassigned_admin_only", "mail_aliases",
             "mail_aliases_hidden", "google_client_id", "google_client_secret",
             "sales_mail_website", "sales_mail_footer",
-            "bunny_api_key", "neon_api_key", "neon_org_id", "render_api_key",
+            "bunny_api_key", "neon_api_key", "neon_org_id", "render_api_key", "anthropic_admin_key",
             "poll_ms",
             "group_creator_roles",
         )
@@ -967,6 +967,7 @@ class SettingsForm(forms.ModelForm):
             "neon_api_key": forms.PasswordInput(attrs={"class": "input", "dir": "ltr"}, render_value=True),
             "neon_org_id": forms.TextInput(attrs={"class": "input mono", "dir": "ltr", "placeholder": "org-..."}),
             "render_api_key": forms.PasswordInput(attrs={"class": "input", "dir": "ltr"}, render_value=True),
+            "anthropic_admin_key": forms.PasswordInput(attrs={"class": "input", "dir": "ltr"}, render_value=True),
         }
 
     def clean_mail_aliases(self):

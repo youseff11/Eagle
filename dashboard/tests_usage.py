@@ -1,8 +1,8 @@
-"""The admin's usage panel: this month's bill at Bunny, Neon and Render (``usage.py``, ``/api/v1/admin/usage/``).
+"""The admin's usage panel: this month's bill at Bunny, Neon, Render, Claude and Meta (``usage.py``, ``/api/v1/admin/usage/``).
 
 What these tests hold: only the admin is answered; a host with no key is ``off`` and never asked; each host's answer is read
 into the card the panel draws (Bunny's bill as it is, Neon's compute hours priced, Render worked out from its plans and its
-bandwidth); one host failing leaves the other two; no key is ever in an answer, not even inside a host's error; and the report
+bandwidth, Claude's cost report in cents, Meta's messages by kind and in its own currency); one host failing leaves the others; no key is ever in an answer, not even inside a host's error; and the report
 is kept ten minutes unless the panel asks for a fresh one.
 """
 
@@ -28,7 +28,11 @@ KEYS = {
     "bunny_api_key": "SECRET-bunny-account-key",
     "neon_api_key": "SECRET-neon-api-key",
     "render_api_key": "SECRET-render-api-key",
+    "anthropic_admin_key": "sk-ant-admin01-SECRET-claude-admin",
+    "whatsapp_access_token": "EAAG-SECRET-whatsapp-usage",
 }
+WABA = "111222333"
+META_URL = f"https://graph.facebook.com/v23.0/{WABA}"
 
 BUNNY_BILL = {
     "Balance": 18.4, "ThisMonthCharges": 1.27, "MonthlyChargesStorage": 0.42,
@@ -59,6 +63,24 @@ RENDER_SERVICES = [
     {"cursor": "c4", "service": {"id": "srv-site", "name": "site", "type": "static_site", "suspended": "not_suspended",
                                  "createdAt": "2026-01-01T00:00:00Z", "serviceDetails": {}}},
 ]
+CLAUDE_COST = {
+    "data": [
+        {"starting_at": "2026-10-01T00:00:00Z", "results": [{"amount": "123.45", "currency": "USD"}]},
+        {"starting_at": "2026-10-02T00:00:00Z", "results": []},
+        {"starting_at": "2026-10-03T00:00:00Z", "results": [{"amount": "200", "currency": "USD"}, {"amount": None}]},
+    ],
+    "has_more": False, "next_page": None,
+}
+META_PRICING = {
+    "currency": "USD",
+    "pricing_analytics": {"data": [{"data_points": [
+        {"start": 1, "end": 2, "volume": 30, "cost": 1.5, "pricing_type": "REGULAR", "pricing_category": "MARKETING"},
+        {"start": 2, "end": 3, "volume": 10, "cost": 0.2, "pricing_type": "REGULAR", "pricing_category": "UTILITY"},
+        {"start": 3, "end": 4, "volume": 10, "cost": 0.5, "pricing_type": "REGULAR", "pricing_category": "MARKETING"},
+        {"start": 3, "end": 4, "volume": 40, "cost": 0, "pricing_type": "FREE_CUSTOMER_SERVICE", "pricing_category": "SERVICE"},
+    ]}]},
+    "id": WABA,
+}
 RENDER_BANDWIDTH = [
     {"labels": [{"field": "service", "value": "srv-web"}], "unit": "GB", "values": [{"value": 10.0}, {"value": 7.0}]},
 ]
@@ -72,6 +94,7 @@ class _Hosts:
         self.answers = {
             usage.BUNNY_URL: BUNNY_BILL, usage.NEON_URL: NEON_USAGE,
             usage.RENDER_SERVICES_URL: RENDER_SERVICES, usage.RENDER_BANDWIDTH_URL: RENDER_BANDWIDTH,
+            usage.CLAUDE_COST_URL: CLAUDE_COST, META_URL: META_PRICING,
         }
         self.answers.update(overrides)
 
@@ -99,7 +122,7 @@ class _Usage(TestCase):
 
     def keys(self, **extra):
         conf = AppSettings.load()
-        for name, value in {**KEYS, "neon_org_id": "org-test-1", **extra}.items():
+        for name, value in {**KEYS, "neon_org_id": "org-test-1", "whatsapp_waba_id": WABA, "whatsapp_api_version": "v23.0", **extra}.items():
             setattr(conf, name, value)
         conf.save()
         AppSettings._cached = None
@@ -133,7 +156,8 @@ class DoorTests(_Usage):
     def test_without_keys_every_host_is_off_and_none_is_asked(self):
         hosts = _Hosts()
         answer = self.ask(hosts=hosts).json()
-        self.assertEqual([card["state"] for card in answer["cards"]], ["off", "off", "off"])
+        self.assertEqual([card["state"] for card in answer["cards"]], ["off"] * len(usage.HOSTS))
+        self.assertEqual([card["key"] for card in answer["cards"]], ["bunny", "neon", "render", "claude", "meta"])
         self.assertIsNone(answer["total_usd"])
         self.assertEqual(hosts.asked, [])
 
@@ -238,11 +262,68 @@ class ReadingTests(_Usage):
         self.assertAlmostEqual(usage._render_overage(17.35), 1.95)
         self.assertAlmostEqual(usage._render_overage(17.0), 1.80)
 
+    def test_claude_is_its_cost_report_in_cents(self):
+        hosts = _Hosts()
+        card = self.card(self.ask(hosts=hosts), "claude")
+        self.assertEqual((card["state"], card["month_usd"], card["estimate"]), ("ok", 3.23, False))
+        url, headers = next(entry for entry in hosts.asked if entry[0].startswith(usage.CLAUDE_COST_URL))
+        self.assertEqual(headers["x-api-key"], KEYS["anthropic_admin_key"])
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        self.assertEqual(query["starting_at"], ["2026-10-01T00:00:00Z"])
+        self.assertEqual(query["ending_at"], ["2026-10-23T00:00:00Z"])
+
+    def test_claude_reads_every_page(self):
+        pages = []
+
+        def answer(url, headers):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            pages.append(query.get("page", [""])[0])
+            if not query.get("page"):
+                return {"data": [{"results": [{"amount": "100"}]}], "has_more": True, "next_page": "p2"}
+            return {"data": [{"results": [{"amount": "50"}]}], "has_more": False, "next_page": None}
+
+        with mock.patch.object(usage, "_get", answer):
+            card = usage._one(usage.HOSTS[3], AppSettings.load(), NOW)
+        self.assertEqual(pages, ["", "p2"])
+        self.assertEqual(card["month_usd"], 1.5)
+
+    def test_meta_is_the_messages_by_kind(self):
+        hosts = _Hosts()
+        card = self.card(self.ask(hosts=hosts), "meta")
+        self.assertEqual((card["state"], card["month_usd"], card["amount"]), ("ok", 2.2, ""))
+        values = {line["en"]: line["value"] for line in card["lines"]}
+        self.assertEqual(values, {
+            "Messages delivered": "90", "Marketing": "40 · $2.00", "Utility": "10 · $0.20", "Service": "40 · $0.00",
+        })
+        url, headers = next(entry for entry in hosts.asked if entry[0].startswith(META_URL))
+        self.assertEqual(headers["Authorization"], f"Bearer {KEYS['whatsapp_access_token']}")
+        self.assertNotIn(KEYS["whatsapp_access_token"], url)
+        fields = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["fields"][0]
+        self.assertIn(f"pricing_analytics.start({int(datetime(2026, 10, 1, tzinfo=dt_timezone.utc).timestamp())})", fields)
+        self.assertIn(f".end({int(NOW.timestamp())})", fields)
+
+    def test_meta_in_another_currency_is_shown_but_not_added_to_the_dollars(self):
+        pricing = dict(META_PRICING, currency="EGP")
+        answer = self.ask(hosts=_Hosts(**{META_URL: pricing})).json()
+        card = self.card_of(answer, "meta")
+        self.assertIsNone(card["month_usd"])
+        self.assertEqual(card["amount"], "2.20 EGP")
+        self.assertEqual(answer["total_usd"], round(1.27 + 5.33 + 3.23 + 7 * 21.5 / 31 + 7 * 11.5 / 31 + 1.80, 2))
+
+    def card_of(self, answer, key):
+        return next(card for card in answer["cards"] if card["key"] == key)
+
+    def test_meta_without_the_account_id_is_off(self):
+        self.keys(whatsapp_waba_id="")
+        hosts = _Hosts()
+        self.assertEqual(self.card(self.ask(hosts=hosts), "meta")["state"], "off")
+        self.assertNotIn(META_URL, hosts.hosts())
+
     def test_the_total_is_of_the_hosts_that_answered(self):
         hosts = _Hosts(**{usage.RENDER_SERVICES_URL: usage.HostError("unreachable")})
         answer = self.ask(hosts=hosts).json()
-        self.assertEqual(self.card_state(answer), {"bunny": "ok", "neon": "ok", "render": "error"})
-        self.assertEqual(answer["total_usd"], round(1.27 + 5.33, 2))
+        self.assertEqual(self.card_state(answer), {"bunny": "ok", "neon": "ok", "render": "error", "claude": "ok", "meta": "ok"})
+        self.assertEqual(answer["total_usd"], round(1.27 + 5.33 + 3.23 + 2.2, 2))
 
     def card_state(self, answer):
         return {card["key"]: card["state"] for card in answer["cards"]}
@@ -250,7 +331,7 @@ class ReadingTests(_Usage):
     def test_a_surprise_from_one_host_leaves_the_others(self):
         hosts = _Hosts(**{usage.BUNNY_URL: ["not", "a", "bill"]})
         answer = self.ask(hosts=hosts).json()
-        self.assertEqual(self.card_state(answer), {"bunny": "error", "neon": "ok", "render": "ok"})
+        self.assertEqual(self.card_state(answer), {"bunny": "error", "neon": "ok", "render": "ok", "claude": "ok", "meta": "ok"})
 
 
 class SecretTests(_Usage):
@@ -260,6 +341,8 @@ class SecretTests(_Usage):
             usage.BUNNY_URL: usage.HostError(f"HTTP 500 bad key {KEYS['bunny_api_key']}"),
             usage.NEON_URL: usage.HostError(f"HTTP 500 {KEYS['neon_api_key']}"),
             usage.RENDER_SERVICES_URL: usage.HostError(f"HTTP 500 {KEYS['render_api_key']}"),
+            usage.CLAUDE_COST_URL: usage.HostError(f"HTTP 500 {KEYS['anthropic_admin_key']}"),
+            META_URL: usage.HostError(f"HTTP 500 {KEYS['whatsapp_access_token']}"),
         })
         text = self.ask(hosts=hosts).content.decode()
         for value in KEYS.values():

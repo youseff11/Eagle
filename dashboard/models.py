@@ -2727,6 +2727,8 @@ class AppSettings(models.Model):
     neon_api_key = models.CharField(max_length=250, blank=True)
     neon_org_id = models.CharField(max_length=80, blank=True)
     render_api_key = models.CharField(max_length=250, blank=True)
+    #: An Admin API key (``sk-ant-admin...``): the key the help assistant and the checks use cannot read the organization's bill.
+    anthropic_admin_key = models.CharField(max_length=250, blank=True)
 
     #: Which roles may open a client group. Comma-separated role values; the
     #: admin is always allowed, so nobody can lock themselves out of it.

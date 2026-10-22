@@ -30,7 +30,7 @@ TEST_WA = "dashboard:v1_admin_test_whatsapp"
 TEST_MAIL = "dashboard:v1_admin_test_email"
 
 #: Every stored secret, with a value no other text would contain. ``SENTINELS`` covers the six with a password box; the
-#: two plain-box secrets, Google's refresh token and the usage panel's three keys are added.
+#: two plain-box secrets, Google's refresh token and the usage panel's four keys are added.
 ALL_SECRETS = {
     **SENTINELS,
     "whatsapp_verify_token": "SECRET-verify-token-value",
@@ -38,6 +38,7 @@ ALL_SECRETS = {
     "bunny_api_key": "SECRET-bunny-account-value",
     "neon_api_key": "SECRET-neon-api-value",
     "render_api_key": "SECRET-render-api-value",
+    "anthropic_admin_key": "SECRET-claude-admin-value",
 }
 
 

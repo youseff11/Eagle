@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const card = (key: UsageCard["key"], extra: Partial<UsageCard> = {}): UsageCard => ({
   key,
-  name: { bunny: "Bunny.net", neon: "Neon", render: "Render" }[key],
+  name: { bunny: "Bunny.net", neon: "Neon", render: "Render", claude: "Claude", meta: "WhatsApp (Meta)" }[key],
   link: `https://${key}.example/billing`,
   state: "ok",
   month_usd: 1,
@@ -54,6 +54,13 @@ describe("UsagePanel", () => {
     expect(screen.getByText("$18.40")).toBeInTheDocument();
     expect(screen.getByText("Neon").closest("a")).toHaveAttribute("href", "https://neon.example/billing");
     expect(screen.getByText(/22\/10 3:05 م/)).toBeInTheDocument();
+  });
+
+  it("shows a bill in another currency as it is", async () => {
+    const answer = report([card("meta", { month_usd: null, amount: "2.20 EGP", estimate: true })]);
+    renderPanel({ "/api/v1/admin/usage/": () => jsonResponse(answer) });
+    await userEvent.click(await screen.findByRole("button", { name: /استهلاك الشهر/ }));
+    expect(await screen.findByText("≈ 2.20 EGP")).toBeInTheDocument();
   });
 
   it("says which host is not linked or failed, and why", async () => {
