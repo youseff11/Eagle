@@ -214,6 +214,30 @@ class ReadingTests(_Usage):
         values = {line["en"]: line["value"] for line in card["lines"]}
         self.assertEqual(values["Unknown plan"], "eagle")
 
+    def test_bandwidth_in_megabytes_is_read_as_megabytes(self):
+        # 22/10/2026: the series said 17,783.22 MB, Render's bill 17.35 GB and $1.95 (12.35 over, billed as 13 GB).
+        series = [{"labels": [], "unit": "MB", "values": [{"value": 17000.0}, {"value": 783.22}]}]
+        card = self.card(self.ask(hosts=_Hosts(**{usage.RENDER_BANDWIDTH_URL: series})), "render")
+        values = {line["en"]: line["value"] for line in card["lines"]}
+        self.assertEqual(values["Bandwidth"], "17.37 / 5 GB")
+        services = 7 * 21.5 / 31 + 7 * 11.5 / 31
+        self.assertEqual(card["month_usd"], round(services + 1.95, 2))
+
+    def test_a_bandwidth_unit_not_known_is_an_error_not_a_guess(self):
+        for unit in ("PB", None):
+            cache.delete(usage.CACHE_KEY)
+            series = [{"labels": [], "unit": unit, "values": [{"value": 3.0}]}]
+            card = self.card(self.ask(hosts=_Hosts(**{usage.RENDER_BANDWIDTH_URL: series})), "render")
+            self.assertEqual(card["state"], "error", unit)
+            self.assertIn("unit", card["error"])
+
+    def test_each_gigabyte_begun_over_the_included_is_billed(self):
+        self.assertEqual(usage._render_overage(4.9), 0)
+        self.assertEqual(usage._render_overage(5.0), 0)
+        self.assertAlmostEqual(usage._render_overage(5.01), 0.15)
+        self.assertAlmostEqual(usage._render_overage(17.35), 1.95)
+        self.assertAlmostEqual(usage._render_overage(17.0), 1.80)
+
     def test_the_total_is_of_the_hosts_that_answered(self):
         hosts = _Hosts(**{usage.RENDER_SERVICES_URL: usage.HostError("unreachable")})
         answer = self.ask(hosts=hosts).json()

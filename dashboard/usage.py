@@ -16,6 +16,7 @@ is ever in an answer: an error text is cleaned of every stored secret before it 
 
 import json
 import logging
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -53,6 +54,9 @@ RENDER_PLAN_USD = {
 #: Render's Hobby workspace: bandwidth included each month, and the price of each gigabyte over it.
 RENDER_INCLUDED_GB = 5
 RENDER_GB_USD = 0.15
+#: What one of each unit a bandwidth series is in comes to in gigabytes. Render counts in 1024s: on 22/10/2026 its series said
+#: 17,783.22 MB and its bill 17.35 GB.
+RENDER_UNIT_GB = {"b": 1 / 1024 ** 3, "bytes": 1 / 1024 ** 3, "kb": 1 / 1024 ** 2, "mb": 1 / 1024, "gb": 1.0, "tb": 1024.0}
 
 BUNNY_TRAFFIC = (
     "MonthlyChargesEUTraffic", "MonthlyChargesUSTraffic", "MonthlyChargesASIATraffic", "MonthlyChargesAFTraffic",
@@ -216,6 +220,11 @@ def _render_services(conf):
             return
 
 
+def _render_overage(gigabytes):
+    """What the bandwidth over the included part costs: Render bills each gigabyte begun (12.35 over = 13 x $0.15 = $1.95)."""
+    return math.ceil(max(0.0, gigabytes - RENDER_INCLUDED_GB) - 1e-9) * RENDER_GB_USD
+
+
 def render(conf, now):
     start, end = _month(now)
     month_seconds = (end - start).total_seconds()
@@ -243,13 +252,18 @@ def render(conf, now):
         query = [("resource", sid) for sid in running if sid] + [("startTime", _iso(start)), ("endTime", _iso(now))]
         series = _get(f"{RENDER_BANDWIDTH_URL}?{urllib.parse.urlencode(query)}", {"Authorization": f"Bearer {conf.render_api_key.strip()}"})
         for row in series if isinstance(series, list) else []:
-            for point in (row or {}).get("values") or []:
+            row = row or {}
+            per_gb = RENDER_UNIT_GB.get(str(row.get("unit") or "").strip().lower())
+            if per_gb is None:
+                # A unit not known here would be a number off by a thousand: say so instead of guessing.
+                raise HostError(f"unit {row.get('unit')!r}"[:60])
+            for point in row.get("values") or []:
                 value = _num((point or {}).get("value"))
                 if value is not None:
-                    gigabytes += value
+                    gigabytes += value * per_gb
     elapsed = max(1.0, (now - start).total_seconds())
-    over = max(0.0, gigabytes - RENDER_INCLUDED_GB) * RENDER_GB_USD
-    over_projected = max(0.0, gigabytes * month_seconds / elapsed - RENDER_INCLUDED_GB) * RENDER_GB_USD
+    over = _render_overage(gigabytes)
+    over_projected = _render_overage(gigabytes * month_seconds / elapsed)
     lines = [
         _line("الخدمات", "Services", _money(_usd(spent))),
         _line("الباندويدث", "Bandwidth", f"{gigabytes:,.2f} / {RENDER_INCLUDED_GB} GB"),
