@@ -237,21 +237,24 @@ export function AdminOverviewPage() {
                 <Icon name="layers" />
                 <h3>{t("آخر التاسكات", "Latest tasks")}</h3>
               </div>
-              <ul className="timeline">
-                {data.recent.map((row) => (
-                  <li key={row.code}>
-                    <Link className="mono" to={taskPath(row.code)}>
-                      {row.code}
-                    </Link>
-                    <span className="grow">
-                      {row.title} <OriginBadge origin={row.origin} />
-                    </span>
-                    <StatusBadge status={row.status} />
-                    {row.status.value === "reviewed" && <DeliverNow code={row.code} />}
-                  </li>
-                ))}
-                {data.recent.length === 0 && <li className="muted">{t("مفيش.", "None.")}</li>}
-              </ul>
+              {/* The same box as the held letters: the tasks scroll inside the card, so the page does not grow with them. */}
+              <div className="overview-held" data-testid="recent-tasks">
+                <ul className="timeline">
+                  {data.recent.map((row) => (
+                    <li key={row.code}>
+                      <Link className="mono" to={taskPath(row.code)}>
+                        {row.code}
+                      </Link>
+                      <span className="grow">
+                        {row.title} <OriginBadge origin={row.origin} />
+                      </span>
+                      <StatusBadge status={row.status} />
+                      {row.status.value === "reviewed" && <DeliverNow code={row.code} />}
+                    </li>
+                  ))}
+                  {data.recent.length === 0 && <li className="muted">{t("مفيش.", "None.")}</li>}
+                </ul>
+              </div>
             </div>
           </div>
         </div>

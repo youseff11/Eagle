@@ -181,6 +181,20 @@ describe("AdminOverviewPage", () => {
     expect(container.querySelector(".card .overview-held")).not.toBeNull();
   });
 
+  it("puts the latest tasks in the same scrolling box as the held letters", async () => {
+    const first = overview().recent[0]!;
+    serve("admin", () =>
+      overview({ recent: Array.from({ length: 30 }, (_, index) => ({ ...first, code: `TSK-${String(100 + index).padStart(5, "0")}` })) }),
+    );
+    const { container } = open("/admin");
+    await screen.findByText("TSK-00129");
+    const box = screen.getByTestId("recent-tasks");
+    expect(box).toHaveClass("overview-held");
+    expect(box.querySelectorAll(".timeline li")).toHaveLength(30);
+    expect(box.closest(".card")?.querySelector("h3")).toHaveTextContent("آخر التاسكات");
+    expect(container.querySelectorAll(".card .overview-held")).toHaveLength(2);
+  });
+
   it("offers «سلّم للعميل» only beside a task awaiting delivery, and sends it after the «تأكيد»", async () => {
     const delivered: string[] = [];
     const mocked = serve(

@@ -568,6 +568,6 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 }
 .person-gone-banner { border-inline-start: 3px solid var(--danger); }
 
-/* The letters held back on the admin's overview: the card keeps its height and the letters scroll inside it. */
+/* The letters held back and the latest tasks on the admin's overview: the card keeps its height and the rows scroll inside it. */
 .overview-held { max-height: 560px; overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 4px; }
 .timeline li .overview-act { flex: none; }
