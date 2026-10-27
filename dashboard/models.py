@@ -1252,25 +1252,6 @@ class Client(models.Model):
         return bool(ends and ends > timezone.now())
 
 
-class ClientRequirement(models.Model):
-    class Kind(models.TextChoices):
-        LIKE = "like", "Likes"
-        DISLIKE = "dislike", "Dislikes"
-        RULE = "rule", "Rule"
-
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="requirements")
-    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.RULE)
-    text = models.TextField()
-    author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ("-created_at",)
-
-    def __str__(self):
-        return f"{self.client.code} · {self.get_kind_display()}"
-
-
 # ---------------------------------------------------------------------------
 # Inbound messages (WhatsApp / Email)
 # ---------------------------------------------------------------------------
@@ -1421,6 +1402,41 @@ class PlayableFile:
                 return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
             value /= 1024
         return f"{value:.1f} GB"
+
+
+def upload_requirement_file(instance, filename):
+    from .files import storage_name
+
+    return storage_name("requirements", instance, filename)
+
+
+class ClientRequirement(PlayableFile, models.Model):
+    class Kind(models.TextChoices):
+        LIKE = "like", "Likes"
+        DISLIKE = "dislike", "Dislikes"
+        RULE = "rule", "Rule"
+
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="requirements")
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.RULE)
+    #: Empty when the requirement is a file alone (27/10/2026): a style guide, a glossary, a template the client sent.
+    text = models.TextField(blank=True)
+    #: One file the operation or a team leader attached to the requirement. Read by whoever reads the requirement
+    #: (``files._requirement_open_to``).
+    file = models.FileField(upload_to=upload_requirement_file, blank=True)
+    #: What the dashboard shows: the client's name, company and number replaced by their code (``files.mask_name``).
+    original_name = models.CharField(max_length=250, blank=True)
+    #: The name exactly as it was uploaded. The admin's download only.
+    raw_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    mime = models.CharField(max_length=120, blank=True)
+    author = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.client.code} · {self.get_kind_display()}"
 
 
 class MessageAttachment(PlayableFile, models.Model):

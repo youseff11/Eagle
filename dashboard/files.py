@@ -124,10 +124,11 @@ def remask_names(client):
     client's name down, the names already stored have to follow, or a translator reads the company in a file name the
     download then calls by the code.
     """
-    from .models import ChatAttachment, MessageAttachment, OutboundAttachment
+    from .models import ChatAttachment, ClientRequirement, MessageAttachment, OutboundAttachment
 
     changed = 0
     for rows, start in (
+        (ClientRequirement.objects.filter(client=client).exclude(file=""), lambda a: a.raw_name or a.original_name),
         (MessageAttachment.objects.filter(message__client=client), lambda a: a.raw_name or a.original_name),
         (OutboundAttachment.objects.filter(message__client=client), lambda a: a.original_name),
         (ChatAttachment.objects.filter(origin_client=client), lambda a: a.original_name),
@@ -218,6 +219,24 @@ def _outbound_open_to(user, attachment):
     return _task_open_to(user, task)
 
 
+def _requirement_open_to(user, requirement):
+    """A file on a client's requirements opens to whoever reads those requirements (27/10/2026).
+
+    The admin, the operation and Sales read them on the client page; a team leader and a translator only while they are on a
+    task of that client, the way the task page shows them (``api_v1`` / ``api_ops``). Technical support reads no requirements.
+    """
+    if user.is_admin_role or user.is_operation or user.is_sales:
+        return True
+    from .models import translator_q
+
+    tasks = requirement.client.tasks
+    if user.is_team_lead:
+        return tasks.filter(team_lead=user).exists()
+    if user.is_translator:
+        return tasks.filter(translator_q(user)).exists()
+    return False
+
+
 def _rows(model, name, *related):
     return list(model.objects.filter(file=name).select_related(*related)[:20])
 
@@ -230,7 +249,7 @@ def owner_of(name):
     that lets this person in.
     """
     from .models import (
-        AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment,
+        AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment, ClientRequirement,
         MessageAttachment, OutboundAttachment, TaskUpload, User,
     )
 
@@ -244,6 +263,7 @@ def owner_of(name):
     found += [("chat", r) for r in _rows(ChatAttachment, name, "message", "message__room")]
     found += [("outbound", r) for r in _rows(OutboundAttachment, name, "message", "message__task")]
     found += [("task_upload", r) for r in _rows(TaskUpload, name, "task", "task__client")]
+    found += [("requirement", r) for r in _rows(ClientRequirement, name, "client")]
     found += [("ai_translation", r) for r in _rows(AITranslation, name, "task", "task__client")]
     found += [("cv", r) for r in Candidate.objects.filter(cv=name)[:5]]
     found += [("answer", r) for r in CandidateAnswer.objects.filter(file=name)[:5]]
@@ -268,6 +288,8 @@ def may_open(user, name):
             return True, (kind, row)
         # A file a team leader uploaded on a task he made: the task's, so whoever may open the task (or is offered it) may.
         if kind == "task_upload" and (user.is_admin_role or _task_open_to(user, row.task)):
+            return True, (kind, row)
+        if kind == "requirement" and _requirement_open_to(user, row):
             return True, (kind, row)
         # The AI's translation of a task (21/10/2026): whoever may open the task - its leader reviews it, the operation reads it as it
         # reads a translator's file. Not someone merely offered the job: there is nothing of it to translate in this file.
@@ -302,6 +324,8 @@ def client_of(kind, row):
         return row.message.client
     if kind in ("task_upload", "ai_translation"):
         return row.task.client
+    if kind == "requirement":
+        return row.client
     return None
 
 
@@ -322,7 +346,7 @@ def download_name(user, name, owner):
     if kind == "test":
         return (row.submission_name if row.submission and row.submission.name == name else row.assignment_name) or fallback
     shown = getattr(row, "original_name", "") or fallback
-    if kind in ("inbound", "task_upload") and user.is_admin_role and getattr(row, "raw_name", ""):
+    if kind in ("inbound", "task_upload", "requirement") and user.is_admin_role and getattr(row, "raw_name", ""):
         return row.raw_name
     if user.can_see_client_identity:
         return shown

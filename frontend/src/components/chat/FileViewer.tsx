@@ -81,6 +81,21 @@ function PlainText({ url, name }: { url: string; name: string }) {
   );
 }
 
+/** The file itself, drawn by its kind: a PDF page by page, a Word file's text, a text file, a video. The viewer's body, and a preview beside a note. */
+export function ViewerBody({ kind, url, name }: { kind: ViewerKind; url: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <>
+      {kind === "pdf" && !failed && <PdfPages url={url} name={name} onFail={() => setFailed(true)} />}
+      {kind === "pdf" && failed && <Unavailable name={name} />}
+      {kind === "word" && <WordText url={url} name={name} />}
+      {kind === "text" && <PlainText url={url} name={name} />}
+      {kind === "video" && <video className="fileviewer__video" controls preload="metadata" src={url} />}
+      {kind === "other" && <Unavailable name={name} />}
+    </>
+  );
+}
+
 /**
  * A file of the chat opened over it, without saving anything: a PDF page by page, a Word file's text, a text file, a video. The
  * button beside the name saves it (`?dl=1`, the same protected address, so the same rule decides who may). Escape, the cross or a
@@ -89,7 +104,6 @@ function PlainText({ url, name }: { url: string; name: string }) {
 export function FileViewer({ file, url, onClose }: { file: ThreadFile; url: string; onClose: () => void }) {
   const { t } = usePreferences();
   const closer = useRef<HTMLButtonElement>(null);
-  const [failed, setFailed] = useState(false);
   const kind = viewerKind(file);
 
   useEffect(() => {
@@ -127,12 +141,7 @@ export function FileViewer({ file, url, onClose }: { file: ThreadFile; url: stri
         </a>
       </div>
       <div className="fileviewer__body">
-        {kind === "pdf" && !failed && <PdfPages url={url} name={file.name} onFail={() => setFailed(true)} />}
-        {kind === "pdf" && failed && <Unavailable name={file.name} />}
-        {kind === "word" && <WordText url={url} name={file.name} />}
-        {kind === "text" && <PlainText url={url} name={file.name} />}
-        {kind === "video" && <video className="fileviewer__video" controls preload="metadata" src={url} />}
-        {kind === "other" && <Unavailable name={file.name} />}
+        <ViewerBody kind={kind} url={url} name={file.name} />
       </div>
     </div>,
     document.body,

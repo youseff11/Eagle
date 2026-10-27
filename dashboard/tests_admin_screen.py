@@ -285,6 +285,68 @@ class OverviewDeliverTests(_Admin):
         answer = browser.post(reverse(self.DELIVER, args=["TSK-99999"]), "{}", content_type="application/json")
         self.assertEqual(answer.status_code, 404)
 
+
+class OverviewDeliveredWhatsappTests(_Admin):
+    """«تم التسليم واتساب» beside «سلّم للعميل»: the admin sent it by hand, so the task closes and nothing is sent."""
+
+    HAND = "dashboard:v1_admin_overview_delivered_whatsapp"
+
+    def setUp(self):
+        super().setUp()
+        Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.REVIEWED)
+        self.task.refresh_from_db()
+
+    def press(self, user, task=None):
+        browser = DjangoClient()
+        browser.force_login(user)
+        url = reverse(self.HAND, args=[(task or self.task).code])
+        self.assertTrue(url.startswith("/api/v1/admin/overview/delivered-whatsapp/"), url)
+        with mock.patch("dashboard.whatsapp.send_text") as text, mock.patch("dashboard.whatsapp.send_file") as files:
+            answer = browser.post(url, "{}", content_type="application/json")
+        return answer, text, files
+
+    def test_the_task_is_closed_as_delivered_and_nothing_is_sent(self):
+        from .models import OutboundMessage
+
+        answer, text, files = self.press(self.admin)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertFalse(text.called or files.called)
+        self.assertFalse(OutboundMessage.objects.filter(task=self.task).exists())
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.DELIVERED)
+        self.assertIsNotNone(self.task.delivered_at)
+        self.assertTrue(AuditLog.objects.filter(action="task.delivered", target=self.task.code, detail="by hand over whatsapp").exists())
+
+    def test_only_the_admin_may_press_it(self):
+        for user in (self.ops, self.lead, self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            answer, _text, _files = self.press(user)
+            self.assertEqual(answer.status_code, 403, user.username)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.REVIEWED)
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        self.assertEqual(browser.get(reverse(self.HAND, args=[self.task.code])).status_code, 405)
+
+    def test_a_task_that_is_not_awaiting_delivery_is_refused_in_words(self):
+        for status in (TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW, TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+            Task.objects.filter(pk=self.task.pk).update(status=status)
+            answer, _text, _files = self.press(self.admin)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "التاسك مش مستنية التسليم للعميل دلوقتي."), status)
+            self.task.refresh_from_db()
+            self.assertEqual(self.task.status, status)
+
+    def test_pressed_twice_it_closes_once(self):
+        self.assertEqual(self.press(self.admin)[0].status_code, 200)
+        self.assertEqual(self.press(self.admin)[0].status_code, 400)
+        self.assertEqual(AuditLog.objects.filter(action="task.delivered", target=self.task.code).count(), 1)
+
+    def test_an_unknown_task_is_a_404(self):
+        browser = DjangoClient()
+        browser.force_login(self.admin)
+        answer = browser.post(reverse(self.HAND, args=["TSK-99999"]), "{}", content_type="application/json")
+        self.assertEqual(answer.status_code, 404)
+
+
 class AuditLogWithoutAPageTests(_Admin):
     """21/10/2026: the audit log has no page (the owner did not use it), but everything is still written to it."""
 

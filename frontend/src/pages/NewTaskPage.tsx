@@ -6,6 +6,7 @@ import { useCreateLeadTask, useCreateTask } from "../api/opsActions";
 import { useMe, useTaskStart } from "../api/queries";
 import type { TaskStartResponse } from "../api/types";
 import { Icon } from "../components/Icon";
+import { RequirementFile } from "../components/ops/Requirements";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 import { safeInternalPath } from "../lib/safeUrl";
@@ -457,7 +458,8 @@ function Form({ start }: { start: TaskStartResponse }) {
                   <div className="note__where">
                     {requirement.kind.ar} / {requirement.kind.en}
                   </div>
-                  <div>{requirement.text}</div>
+                  {requirement.text && <div>{requirement.text}</div>}
+                  {requirement.file && <RequirementFile file={requirement.file} />}
                 </div>
               </div>
             ))}

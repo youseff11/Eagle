@@ -1416,6 +1416,7 @@ def translator_task(request, code):
                 {
                     "id": r.pk, "kind": _kind_json(r.kind),
                     "author": r.author.short_name if r.author_id else None, "text": brief(r.text),
+                    "file": _task_file_json(r) if r.file else None,
                 }
                 for r in task.client.requirements.select_related("author")
             ],

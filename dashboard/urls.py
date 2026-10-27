@@ -196,6 +196,7 @@ urlpatterns = [
     path("api/v1/leave/<int:pk>/<str:action>/", api_leave.decide, name="v1_leave_decide"),
     path("api/v1/admin/overview/", api_admin.overview, name="v1_admin_overview"),
     path("api/v1/admin/overview/deliver/<str:code>/", api_admin.deliver, name="v1_admin_overview_deliver"),
+    path("api/v1/admin/overview/delivered-whatsapp/<str:code>/", api_admin.delivered_whatsapp, name="v1_admin_overview_delivered_whatsapp"),
     path("api/v1/admin/users/new/", api_admin_users.user_new, name="v1_admin_user_new"),
     path("api/v1/admin/users/create/", api_admin_users.user_create, name="v1_admin_user_create"),
     path("api/v1/admin/users/<int:pk>/", api_admin_users.user, name="v1_admin_user"),

@@ -19,10 +19,9 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 
-from . import identity, services
-from .api_ops import MAX_REQUIREMENT, _requirement_json
-from .api_v1 import BadBody, _error, _object, _origin_json, _stamp, _status_json, _text, endpoint
-from .forms import RequirementForm
+from . import identity
+from .api_ops import _requirement_json, add_requirement
+from .api_v1 import _error, _origin_json, _stamp, _status_json, endpoint
 from .models import ACTIVE_TASK_STATUSES, Client, Role, TaskStatus
 from .permissions import api_role_required
 
@@ -141,17 +140,7 @@ def client_requirement(request, code):
     # requirements every task of that client shows.
     if request.user.is_team_lead and not request.user.is_admin_role and not row.tasks.filter(team_lead=request.user).exists():
         identity.hidden(request, "client")
-    try:
-        body = _object(request)
-        kind, text = _text(body, "kind", 20), _text(body, "text", MAX_REQUIREMENT)
-    except BadBody:
-        return _error(400, "bad_request")
-    form = RequirementForm({"kind": kind, "text": text})
-    if not form.is_valid():
-        return JsonResponse({"ok": False, "error": "bad_requirement", "fields": sorted(form.errors)}, status=400)
-    made = form.save(commit=False)
-    made.client = row
-    made.author = request.user
-    made.save()
-    services.log(request.user, "client.requirement", row.code, made.text[:80])
+    made, refusal = add_requirement(request, row)
+    if refusal is not None:
+        return refusal
     return JsonResponse({"ok": True, "requirement": {**_requirement_json(made, row, request.user), "at": _stamp(made.created_at, "%Y-%m-%d")}})

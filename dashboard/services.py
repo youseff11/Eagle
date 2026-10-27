@@ -3794,7 +3794,13 @@ def deliver_to_client(task, user, attachment_ids=None, note="", send=True):
     return True, delivery, ""
 
 
-def mark_delivered(task, user, delivery=None):
+#: ``mark_delivered(via=...)``: the task went to the client outside the system, by hand, over this channel.
+DELIVERED_BY_HAND = {
+    "whatsapp": ("واتساب", "WhatsApp"),
+}
+
+
+def mark_delivered(task, user, delivery=None, via=""):
     if not (user.is_operation or user.is_admin_role):
         return False
     # A finished job is not delivered twice. The operation closes a job it has taken over (reviewed, and acknowledged: nothing
@@ -3816,7 +3822,11 @@ def mark_delivered(task, user, delivery=None):
     except Exception:  # noqa: BLE001
         logger.exception("Drafting the invoice of %s failed", task.code)
 
-    if delivery is not None and delivery.status == delivery.Status.SENT:
+    if via in DELIVERED_BY_HAND:
+        name_ar, name_en = DELIVERED_BY_HAND[via]
+        detail_ar = f"اتسلمت للعميل على {name_ar} (يدويًا من برّه السيستم)."
+        detail_en = f"Delivered to the client over {name_en} (by hand, outside the system)."
+    elif delivery is not None and delivery.status == delivery.Status.SENT:
         channel = delivery.get_channel_display()
         detail_ar = f"اتبعت {delivery.file_count} ملف للعميل على {channel}."
         detail_en = f"{delivery.file_count} file(s) sent to the client over {channel}."
@@ -3835,7 +3845,7 @@ def mark_delivered(task, user, delivery=None):
             body_en=f"Task {task.code} was delivered to the client.",
             level="success", url=f"/tasks/{task.code}/", task=task,
         )
-    log(user, "task.delivered", task.code)
+    log(user, "task.delivered", task.code, f"by hand over {via}" if via else "")
     return True
 
 
@@ -5461,7 +5471,7 @@ def delete_clients(admin, client_ids):
     """
     from django.db.models import ProtectedError
 
-    from .models import ChatAttachment, MessageAttachment, OutboundAttachment
+    from .models import ChatAttachment, ClientRequirement, MessageAttachment, OutboundAttachment
 
     if admin is None or not admin.is_admin_role:
         return False, "الخطوة دي للأدمن بس.", [], [], 0
@@ -5483,6 +5493,8 @@ def delete_clients(admin, client_ids):
                     *MessageAttachment.objects.filter(message__in=letters),
                     *OutboundAttachment.objects.filter(message__client_id__in=doomed_ids),
                     *ChatAttachment.objects.filter(message__room__client_id__in=doomed_ids),
+                    # The files on their requirements go with the rows (CASCADE): a style guide or a template may carry their name.
+                    *ClientRequirement.objects.filter(client_id__in=doomed_ids).exclude(file=""),
                 )
             ]
             # What was forwarded out of their letters into other chats is their words too. Once the client is gone nothing says

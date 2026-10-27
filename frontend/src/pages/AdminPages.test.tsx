@@ -231,6 +231,40 @@ describe("AdminOverviewPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("offers «تم التسليم واتساب» beside «سلّم للعميل» only for a task awaiting delivery, and closes it after the «تأكيد»", async () => {
+    const closed: string[] = [];
+    serve(
+      "admin",
+      () =>
+        overview({
+          recent: [
+            { code: "TSK-00034", title: "Ready", origin: null, status: STATUS("reviewed", "بانتظار التسليم للعميل", "Awaiting delivery to the client", "wait") },
+            { code: "TSK-00009", title: "Contract", origin: null, status: STATUS("new", "جديد", "New", "new") },
+          ],
+        }),
+      {
+        "/api/v1/admin/overview/delivered-whatsapp/": (url) => {
+          closed.push(url.pathname);
+          return jsonResponse({ ok: true, status: "delivered", channel: "whatsapp", files: 0 });
+        },
+      },
+    );
+    const user = userEvent.setup();
+    open("/admin");
+    const latest = (await screen.findByText("آخر التاسكات")).closest(".card") as HTMLElement;
+    const buttons = within(latest).getAllByRole("button", { name: "تم التسليم واتساب" });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.closest("li")).toHaveTextContent("TSK-00034");
+    await user.click(buttons[0]!);
+    // Nothing is closed before the question is answered.
+    expect(closed).toEqual([]);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("TSK-00034 اتسلمت للعميل على واتساب؟");
+    await user.click(within(dialog).getByRole("button", { name: "تم التسليم" }));
+    await waitFor(() => expect(closed).toEqual(["/api/v1/admin/overview/delivered-whatsapp/TSK-00034/"]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("keeps the question open with the server's words when the delivery is refused", async () => {
     serve(
       "admin",

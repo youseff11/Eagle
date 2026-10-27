@@ -28,7 +28,11 @@ export function taskProblem(error: unknown, t: (ar: string, en: string) => strin
       case "bad_words":
         return t("اكتب رقم صحيح.", "Type a whole number.");
       case "bad_requirement":
-        return t("اكتب المتطلب.", "Write the requirement.");
+        return t("اكتب المتطلب أو ارفع ملف.", "Write the requirement or attach a file.");
+      case "empty_file":
+        return t("الملف فاضي.", "The file is empty.");
+      case "file_too_big":
+        return t("الملف أكبر من 25 ميجا.", "The file is bigger than 25 MB.");
       case "bad_date":
         return t("الديدلاين مش مظبوط.", "That deadline is not right.");
       case "disabled":

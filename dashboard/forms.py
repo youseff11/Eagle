@@ -447,6 +447,17 @@ class RequirementForm(forms.ModelForm):
             "text": forms.Textarea(attrs={"class": "input", "rows": 2}),
         }
 
+    def __init__(self, *args, has_file=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.has_file = has_file
+
+    def clean_text(self):
+        # The words are optional only when a file comes with them: a requirement must say something.
+        text = (self.cleaned_data.get("text") or "").strip()
+        if not text and not self.has_file:
+            raise forms.ValidationError("required", code="required")
+        return text
+
 
 class StaffCreateForm(UserCreationForm):
     class Meta:

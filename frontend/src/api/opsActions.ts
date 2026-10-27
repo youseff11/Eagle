@@ -106,6 +106,16 @@ export function useOverviewDeliver(code: string) {
 }
 
 /**
+ * «تم التسليم واتساب» on the admin's overview: the admin already sent the task by hand, so it is closed as delivered and nothing
+ * is sent (`api_admin.delivered_whatsapp`).
+ */
+export function useOverviewDeliveredWhatsapp(code: string) {
+  return useOpsAction<void, Delivered>(code, () =>
+    api<Delivered>(`/api/v1/admin/overview/delivered-whatsapp/${encodeURIComponent(code)}/`, { json: {} }),
+  );
+}
+
+/**
  * Days, hours and minutes from now. A box left empty is "leave it as it is"; zeros are "no deadline" - the
  * classic rule, kept by the server (`forms.DeadlineField`). Only the boxes the person typed in are sent.
  */
@@ -209,9 +219,26 @@ export function useSavePartWords(code: string) {
   );
 }
 
+/** What a requirement is made of: its kind, its words (empty when a file comes with it) and, optionally, one file. */
+export interface NewRequirement {
+  kind: string;
+  text: string;
+  file?: File | null;
+}
+
+/** Words alone go as JSON, as they always did; a file turns the body into a form (`api_ops.add_requirement` reads both). */
+function requirementBody(values: NewRequirement): { json: unknown } | { multipart: FormData } {
+  if (!values.file) return { json: { kind: values.kind, text: values.text } };
+  const form = new FormData();
+  form.append("kind", values.kind);
+  form.append("text", values.text);
+  form.append("file", values.file, values.file.name);
+  return { multipart: form };
+}
+
 export function useAddRequirement(code: string) {
-  return useOpsAction<{ kind: string; text: string }, { ok: boolean }>(code, (values) =>
-    api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/requirements/`, { json: values }),
+  return useOpsAction<NewRequirement, { ok: boolean }>(code, (values) =>
+    api<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(code)}/requirements/`, requirementBody(values)),
   );
 }
 
@@ -219,8 +246,8 @@ export function useAddRequirement(code: string) {
 export function useAddClientRequirement(code: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (values: { kind: string; text: string }) =>
-      refused(await api<{ ok: boolean }>(`/api/v1/clients/${encodeURIComponent(code)}/requirements/`, { json: values })),
+    mutationFn: async (values: NewRequirement) =>
+      refused(await api<{ ok: boolean }>(`/api/v1/clients/${encodeURIComponent(code)}/requirements/`, requirementBody(values))),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: qk.client(code) });
       // The list counts them.

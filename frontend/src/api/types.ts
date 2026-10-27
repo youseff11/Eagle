@@ -449,7 +449,7 @@ export interface OpsTask {
   } | null;
   group_candidates: { id: number; name: string; role: Role }[];
   words: { state: "empty" | "auto" | "confirmed" | string; value: number | null };
-  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  requirements: { id: number; kind: Labelled; author: string | null; text: string; file?: TaskFile | null }[];
   deliveries: { id: number; at: Stamp | null; channel: Channel; files: number; by: string | null; status: "sent" | "failed" | string; error: string }[];
   /** The client's own messages on this task that this person may read. */
   messages: { id: number; channel: Channel; at: Stamp | null; body: string; files: TaskFile[] }[];
@@ -485,7 +485,7 @@ export interface TaskStartResponse {
   };
   /** The accepted quotation the form was filled from, if it was. */
   quote?: { code: string } | null;
-  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  requirements: { id: number; kind: Labelled; author: string | null; text: string; file?: TaskFile | null }[];
   clients: { id: number; code: string; label: string }[];
   languages: { code: string; ar: string; en: string }[];
   quick_languages: string[];
@@ -611,7 +611,7 @@ export interface TranslatorTask {
   };
   /** Where "open the group" leads: a classic address (it hands on to the new chat when that is switched on). */
   chat: { url: string; label_ar: string; label_en: string } | null;
-  requirements: { id: number; kind: Labelled; author: string | null; text: string }[];
+  requirements: { id: number; kind: Labelled; author: string | null; text: string; file?: TaskFile | null }[];
   history: { id: number; name: string; initials: string; role: Role; at: Stamp | null; status: string }[];
   ai: {
     visible: boolean;
@@ -992,6 +992,8 @@ export interface ClientRequirement {
   kind: Labelled;
   author: string | null;
   text: string;
+  /** The file attached to it, when there is one (its name is masked for whoever may not know the client). */
+  file?: TaskFile | null;
   at: Stamp | null;
 }
 

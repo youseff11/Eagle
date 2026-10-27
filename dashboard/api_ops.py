@@ -31,6 +31,8 @@ MAX_TASKS = 200
 MAX_WORDS = 10_000_000
 #: How long a requirement may be: a note about a client, not a document.
 MAX_REQUIREMENT = 2000
+#: The biggest file a requirement may carry: a style guide or a glossary, not a job's source.
+MAX_REQUIREMENT_FILE_BYTES = 25 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +239,61 @@ def _requirement_json(requirement, client, viewer):
         "kind": _kind_json(requirement.kind),
         "author": requirement.author.short_name if requirement.author_id else None,
         "text": identity.mask_client(requirement.text, client, viewer),
+        "file": requirement_file_json(requirement),
     }
+
+
+def requirement_file_json(requirement):
+    """The file a requirement carries (``/files/...``, name already masked against the client), or ``None``."""
+    return _task_file_json(requirement) if requirement.file else None
+
+
+def _requirement_input(request):
+    """``(kind, text, upload)``: a JSON body (words only) or a multipart form with one ``file`` beside the words."""
+    if (request.content_type or "").startswith("multipart/"):
+        kind, text = request.POST.get("kind", ""), request.POST.get("text", "")
+        if len(kind) > 20 or len(text) > MAX_REQUIREMENT or "\x00" in kind + text:
+            raise BadBody
+        uploads = request.FILES.getlist("file")
+        if len(uploads) > 1:
+            raise BadBody
+        return kind.strip(), text.strip(), uploads[0] if uploads else None
+    body = _object(request)
+    return _text(body, "kind", 20), _text(body, "text", MAX_REQUIREMENT), None
+
+
+def add_requirement(request, client):
+    """Write a requirement of ``client`` from the request: ``(row, None)``, or ``(None, the refusal)``.
+
+    The one place both doors (the task's and the client's) write it, so the words, the file and the audit row cannot differ.
+    A file is stored under a random name; the name it came with is masked against the client for everybody but the admin.
+    """
+    from . import files as stored
+
+    try:
+        kind, text, upload = _requirement_input(request)
+    except BadBody:
+        return None, _error(400, "bad_request")
+    if upload is not None and upload.size == 0:
+        return None, _error(400, "empty_file")
+    if upload is not None and upload.size > MAX_REQUIREMENT_FILE_BYTES:
+        return None, _error(400, "file_too_big")
+    form = RequirementForm({"kind": kind, "text": text}, has_file=upload is not None)
+    if not form.is_valid():
+        return None, JsonResponse({"ok": False, "error": "bad_requirement", "fields": sorted(form.errors)}, status=400)
+    row = form.save(commit=False)
+    row.client = client
+    row.author = request.user
+    if upload is not None:
+        name = services.short_name(upload.name)
+        row.file = upload
+        row.original_name = stored.mask_name(name, client)[:250]
+        row.raw_name = name[:250]
+        row.size = upload.size or 0
+        row.mime = (getattr(upload, "content_type", "") or "")[:120]
+    row.save()
+    services.log(request.user, "client.requirement", client.code, (row.text or row.original_name)[:80])
+    return row, None
 
 
 def _parts_json(task, details=True):
@@ -598,19 +654,9 @@ def task_requirement(request, code):
     task = get_object_or_404(Task.objects.select_related("client"), code=code)
     if not task.can_view(request.user):
         identity.hidden(request, "task")
-    try:
-        body = _object(request)
-        kind, text = _text(body, "kind", 20), _text(body, "text", MAX_REQUIREMENT)
-    except BadBody:
-        return _error(400, "bad_request")
-    form = RequirementForm({"kind": kind, "text": text})
-    if not form.is_valid():
-        return JsonResponse({"ok": False, "error": "bad_requirement", "fields": sorted(form.errors)}, status=400)
-    row = form.save(commit=False)
-    row.client = task.client
-    row.author = request.user
-    row.save()
-    services.log(request.user, "client.requirement", task.client.code, row.text[:80])
+    row, refusal = add_requirement(request, task.client)
+    if refusal is not None:
+        return refusal
     return JsonResponse({"ok": True, "requirement": _requirement_json(row, task.client, request.user)})
 
 

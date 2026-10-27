@@ -10,6 +10,7 @@ import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { Modal } from "../components/Modal";
 import { PartBox } from "../components/PartBox";
+import { RequirementFile } from "../components/ops/Requirements";
 import { AiCheckCard } from "../components/task/AiCheckCard";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
@@ -467,7 +468,8 @@ function Task({ task }: { task: TranslatorTask }) {
                   <div className="note__where">
                     {lang === "ar" ? requirement.kind.ar : requirement.kind.en} · {requirement.author ?? "—"}
                   </div>
-                  <div>{requirement.text}</div>
+                  {requirement.text && <div>{requirement.text}</div>}
+                  {requirement.file && <RequirementFile file={requirement.file} />}
                 </div>
               </div>
             ))}

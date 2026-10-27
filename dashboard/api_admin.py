@@ -10,8 +10,9 @@ from, and the words of a letter the operation is kept from (``is_rate_blocked``)
 settings page (a token, a password): that page has its own door, which has to be written so that no secret can ride in it.
 """
 
+from django.db import transaction
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import Truncator
@@ -136,3 +137,25 @@ def deliver(request, code):
     if not ok:
         return JsonResponse({"ok": False, "error": error}, status=400)
     return JsonResponse({"ok": True, "status": delivery.status, "channel": delivery.channel, "files": delivery.file_count})
+
+
+@endpoint("POST")
+@api_role_required(Role.ADMIN)
+def delivered_whatsapp(request, code):
+    """«تم التسليم واتساب» beside «سلّم للعميل»: the admin already sent it to the client by hand, so the task is closed as delivered.
+
+    Nothing is sent and nothing is asked of the browser; the task only stops waiting. It closes through ``mark_delivered`` like
+    every delivery (the translators are priced, the invoice drafted, the room and the people told), with the way it went named
+    in the room and in the audit log. Only a task awaiting delivery, as for «سلّم للعميل».
+    """
+    with transaction.atomic():
+        # The bare row is locked (no select_related: Postgres refuses FOR UPDATE on the outer join of a nullable key).
+        locked = Task.objects.select_for_update().filter(code=code).first()
+        if locked is None:
+            raise Http404
+        task = Task.objects.select_related("client", "team_lead").get(pk=locked.pk)
+        if task.status != TaskStatus.REVIEWED:
+            return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
+        if not services.mark_delivered(task, request.user, via="whatsapp"):
+            return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
+    return JsonResponse({"ok": True, "status": task.status, "channel": "whatsapp", "files": 0})

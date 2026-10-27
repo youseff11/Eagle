@@ -498,7 +498,7 @@ def collect_documents(task, translator=None):
 def requirements_text(task):
     return "\n".join(
         f"- [{r.get_kind_display()}] {r.text}"
-        for r in task.client.requirements.all()[:30]
+        for r in task.client.requirements.exclude(text="")[:30]
     )
 
 

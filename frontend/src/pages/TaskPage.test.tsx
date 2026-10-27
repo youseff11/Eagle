@@ -292,6 +292,19 @@ describe("TaskPage: what the translator reads", () => {
     expect(within(history[1] as HTMLElement).getByText("مستني")).toHaveClass("badge--wait");
   });
 
+  it("shows the file on a requirement itself, with or without words", async () => {
+    serve(task({
+      requirements: [
+        { id: 5, kind: { value: "rule", ar: "قاعدة", en: "Rule" }, author: "Nour", text: "",
+          file: { id: 1, url: "/files/requirements/2026/10/abc.docx", name: "style guide.docx", size: "5.0 KB", image: false } },
+      ],
+    }), { "/files/requirements/2026/10/abc.docx": () => jsonResponse({ ok: true, text: "Short sentences only", truncated: false }) });
+    open();
+    expect(await screen.findByText("Short sentences only")).toBeInTheDocument();
+    expect(document.querySelector("[data-requirement-file] a[data-download]")).toHaveAttribute("href", "/files/requirements/2026/10/abc.docx?dl=1");
+    expect(screen.queryByText("مفيش متطلبات مسجلة لحد دلوقتي.")).toBeNull();
+  });
+
   it("says so when there are no requirements and no assignments", async () => {
     serve(task({ requirements: [], history: [] }));
     open();

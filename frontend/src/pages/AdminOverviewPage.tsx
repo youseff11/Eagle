@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
-import { useCancelTask, useOverviewDeliver } from "../api/opsActions";
+import { useCancelTask, useOverviewDeliver, useOverviewDeliveredWhatsapp } from "../api/opsActions";
 import { useAdminOverview, useMe } from "../api/queries";
 import type { AdminOverview, Stamp } from "../api/types";
 import { OriginBadge, StatusBadge } from "../components/Badges";
@@ -111,6 +111,56 @@ function DeliverNow({ code }: { code: string }) {
               onSuccess: () => {
                 setAsking(false);
                 push({ level: "success", title: t("تم التسليم", "Delivered") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * «تم التسليم واتساب» beside «سلّم للعميل»: the admin already sent the task by hand, so after the «تأكيد» it is closed as delivered
+ * and nothing is sent (`api_admin.delivered_whatsapp`).
+ */
+function DeliveredWhatsapp({ code }: { code: string }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const done = useOverviewDeliveredWhatsapp(code);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState("");
+  return (
+    <>
+      <button
+        className="btn btn--ghost btn--sm overview-act"
+        type="button"
+        onClick={() => {
+          setProblem("");
+          setAsking(true);
+        }}
+      >
+        <Icon name="check" size="sm" />
+        <span>{t("تم التسليم واتساب", "Delivered via WhatsApp")}</span>
+      </button>
+      {asking && (
+        <Confirm
+          title={t(`${code} اتسلمت للعميل على واتساب؟`, `Was ${code} delivered to the client on WhatsApp?`)}
+          body={t(
+            "السيستم مش هيبعت حاجة للعميل. التاسك هتتقفل كمسلّمة وتتحاسب زي أي تاسك اتسلمت.",
+            "Nothing is sent to the client. The task is closed as delivered and is paid like any delivered task.",
+          )}
+          yes={t("تم التسليم", "Mark delivered")}
+          icon="check"
+          busy={done.isPending}
+          problem={problem}
+          onNo={() => setAsking(false)}
+          onYes={() =>
+            done.mutate(undefined, {
+              onSuccess: () => {
+                setAsking(false);
+                push({ level: "success", title: t("التاسك اتقفلت كمسلّمة", "Task marked delivered") });
               },
               onError: (error) => setProblem(taskProblem(error, t)),
             })
@@ -250,6 +300,7 @@ export function AdminOverviewPage() {
                       </span>
                       <StatusBadge status={row.status} />
                       {row.status.value === "reviewed" && <DeliverNow code={row.code} />}
+                      {row.status.value === "reviewed" && <DeliveredWhatsapp code={row.code} />}
                     </li>
                   ))}
                   {data.recent.length === 0 && <li className="muted">{t("مفيش.", "None.")}</li>}

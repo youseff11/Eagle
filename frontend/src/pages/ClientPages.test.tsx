@@ -322,7 +322,7 @@ describe("ClientPage", () => {
     const box = await screen.findByRole("textbox", { name: "المتطلب" });
     await user.type(box, "Something");
     await user.click(screen.getByRole("button", { name: "ضيف متطلب" }));
-    expect(await screen.findByText("اكتب المتطلب.")).toBeInTheDocument();
+    expect(await screen.findByText("اكتب المتطلب أو ارفع ملف.")).toBeInTheDocument();
     expect(box).toHaveValue("Something");
   });
 

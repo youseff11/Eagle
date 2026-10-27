@@ -571,3 +571,12 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 /* The letters held back and the latest tasks on the admin's overview: the card keeps its height and the rows scroll inside it. */
 .overview-held { max-height: 560px; overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 4px; }
 .timeline li .overview-act { flex: none; }
+
+/* A file on a client's requirements, shown itself under its words (a picture, a PDF, a Word file's text) in a box that scrolls. */
+.req-file { margin-block-start: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.req-file__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-block-end: 1px solid var(--border); }
+.req-file__name { font-weight: 600; overflow-wrap: anywhere; }
+.req-file__preview { max-height: 420px; overflow: auto; padding: 10px; display: flex; flex-direction: column; align-items: center; }
+.req-file__preview img { display: block; max-width: 100%; height: auto; border-radius: 4px; }
+.req-file__preview .fileviewer__pages, .req-file__preview .fileviewer__paper { width: 100%; }
+.req-file__preview .fileviewer__empty { margin: 0; opacity: 1; }

@@ -794,13 +794,90 @@ describe("OperationTaskPage: the word count and the requirements", () => {
     expect((screen.getByLabelText("المتطلب") as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("attaches a file with no words: sent as a form, the box emptied, the add button waiting for one or the other", async () => {
+    const user = userEvent.setup();
+    const mocked = serve(task(), { [REQ]: () => jsonResponse({ ok: true, requirement: { id: 9 } }) });
+    open();
+    await loaded();
+    const add = screen.getByRole("button", { name: /ضيف متطلب/ });
+    expect(add).toBeDisabled();
+    const box = screen.getByLabelText("ملف (اختياري)") as HTMLInputElement;
+    await user.upload(box, new File(["rules"], "style guide.pdf"));
+    expect(add).toBeEnabled();
+    await user.click(add);
+    expect(await screen.findByText("المتطلب اتضاف")).toBeInTheDocument();
+    const form = parts(posts(mocked.calls, REQ)[0]!);
+    expect([form.get("kind"), form.get("text"), (form.get("file") as File).name]).toEqual(["rule", "", "style guide.pdf"]);
+    expect((screen.getByLabelText("ملف (اختياري)") as HTMLInputElement).files).toHaveLength(0);
+    expect(add).toBeDisabled();
+  });
+
+  it("sends words alone as JSON, as before", async () => {
+    const mocked = serve(task(), { [REQ]: () => jsonResponse({ ok: true, requirement: { id: 9 } }) });
+    open();
+    await loaded();
+    await userEvent.type(screen.getByLabelText("المتطلب"), "plain");
+    await userEvent.click(screen.getByRole("button", { name: /ضيف متطلب/ }));
+    await screen.findByText("المتطلب اتضاف");
+    expect((posts(mocked.calls, REQ)[0]!.init!.body as string).startsWith("{")).toBe(true);
+  });
+
+  it("refuses a file over 25 MB before sending anything", async () => {
+    const mocked = serve(task());
+    open();
+    await loaded();
+    const big = new File(["x"], "huge.zip");
+    Object.defineProperty(big, "size", { value: 26 * 1024 * 1024 });
+    await userEvent.upload(screen.getByLabelText("ملف (اختياري)"), big);
+    await userEvent.click(screen.getByRole("button", { name: /ضيف متطلب/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("الملف أكبر من 25 ميجا.");
+    expect(posts(mocked.calls, REQ)).toHaveLength(0);
+  });
+
+  it("shows a requirement's file itself under its words: a Word file's text, a picture, with a download beside each", async () => {
+    serve(task({
+      requirements: [
+        { id: 3, kind: { value: "rule", ar: "قاعدة", en: "Rule" }, author: "Nour", text: "Use the glossary",
+          file: { id: 1, url: "/files/requirements/2026/10/abc.docx", name: "CL-0001 glossary.docx", size: "12.0 KB", image: false } },
+        { id: 4, kind: { value: "rule", ar: "قاعدة", en: "Rule" }, author: "Nour", text: "",
+          file: { id: 2, url: "/files/requirements/2026/10/def.png", name: "layout.png", size: "3.0 KB", image: true } },
+      ],
+    }), { "/files/requirements/2026/10/abc.docx": () => jsonResponse({ ok: true, text: "Always say Dear Sir", truncated: false }) });
+    open();
+    await loaded();
+    expect(screen.getByText("Use the glossary")).toBeInTheDocument();
+    expect(await screen.findByText("Always say Dear Sir")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "layout.png" })).toHaveAttribute("src", "/files/requirements/2026/10/def.png");
+    const saves = document.querySelectorAll("[data-requirement-file] a[data-download]");
+    expect([...saves].map((a) => a.getAttribute("href"))).toEqual([
+      "/files/requirements/2026/10/abc.docx?dl=1",
+      "/files/requirements/2026/10/def.png?dl=1",
+    ]);
+  });
+
+  it("opens a file large over the page and closes it again", async () => {
+    const user = userEvent.setup();
+    serve(task({
+      requirements: [
+        { id: 3, kind: { value: "rule", ar: "قاعدة", en: "Rule" }, author: "Nour", text: "",
+          file: { id: 1, url: "/files/requirements/2026/10/abc.docx", name: "guide.docx", size: "1.0 KB", image: false } },
+      ],
+    }), { "/files/requirements/2026/10/abc.docx": () => jsonResponse({ ok: true, text: "Guide words", truncated: false }) });
+    open();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: /فتح كبير/ }));
+    expect(await screen.findByRole("dialog", { name: "guide.docx" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("says why a requirement was refused and keeps what was typed", async () => {
     serve(task(), { [REQ]: () => jsonResponse({ ok: false, error: "bad_requirement", fields: ["text"] }, 400) });
     open();
     await loaded();
     await userEvent.type(screen.getByLabelText("المتطلب"), "x");
     await userEvent.click(screen.getByRole("button", { name: /ضيف متطلب/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("اكتب المتطلب.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("اكتب المتطلب أو ارفع ملف.");
     expect((screen.getByLabelText("المتطلب") as HTMLTextAreaElement).value).toBe("x");
   });
 
