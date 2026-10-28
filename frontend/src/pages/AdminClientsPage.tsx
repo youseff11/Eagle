@@ -293,11 +293,15 @@ export function AdminClientsPage() {
         )}
 
         {data ? (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="table-wrap table-wrap--cards">
+            <table className="table table--cards clients-table">
               <thead>
                 <tr>
-                  <th style={{ width: "2.2rem" }}>
+                  <th
+                    className="clients-table__pick"
+                    data-ar-label="حدّد الكل"
+                    data-en-label="Select all"
+                  >
                     <input
                       type="checkbox"
                       aria-label={t("حدّد الكل", "Select all")}
@@ -310,9 +314,9 @@ export function AdminClientsPage() {
                   <th>{t("الشركة", "Company")}</th>
                   <th>{t("التليفون", "Phone")}</th>
                   <th>{t("الإيميل", "Email")}</th>
-                  <th>{t("عدد التاسكات", "Tasks")}</th>
-                  <th>{t("المتطلبات", "Requirements")}</th>
-                  <th>{t("نشط", "Active")}</th>
+                  <th className="clients-table__num">{t("عدد التاسكات", "Tasks")}</th>
+                  <th className="clients-table__num">{t("المتطلبات", "Requirements")}</th>
+                  <th className="clients-table__num">{t("نشط", "Active")}</th>
                   <th />
                 </tr>
               </thead>
@@ -327,25 +331,25 @@ export function AdminClientsPage() {
                         onChange={(event) => setPicked(event.target.checked ? [...picked, row.id] : picked.filter((id) => id !== row.id))}
                       />
                     </td>
-                    <td className="mono">
-                      <strong>{row.code}</strong>
+                    <td className="clients-table__code" data-ar-label="الكود" data-en-label="Code">
+                      <strong className="mono">{row.code}</strong>
                     </td>
-                    <td>{row.name || "—"}</td>
-                    <td>{row.company || "—"}</td>
-                    <td className="mono" dir="ltr">
-                      {row.phone || "—"}
+                    <td data-ar-label="الاسم" data-en-label="Name">{row.name || "—"}</td>
+                    <td data-ar-label="الشركة" data-en-label="Company">{row.company || "—"}</td>
+                    <td className="clients-table__contact" data-ar-label="التليفون" data-en-label="Phone">
+                      <span className="mono" dir="ltr">{row.phone || "—"}</span>
                       {row.more_phones > 0 && <span className="chip chip--sm">+{row.more_phones}</span>}
                     </td>
-                    <td className="mono" dir="ltr">
-                      {row.email || "—"}
+                    <td className="clients-table__contact" data-ar-label="الإيميل" data-en-label="Email">
+                      <span className="mono" dir="ltr">{row.email || "—"}</span>
                       {row.more_emails > 0 && <span className="chip chip--sm">+{row.more_emails}</span>}
                     </td>
-                    <td className="mono" data-col="tasks">{row.tasks}</td>
-                    <td className="mono" data-col="requirements">{row.requirements}</td>
-                    <td>
+                    <td className="mono clients-table__num" data-col="tasks" data-ar-label="عدد التاسكات" data-en-label="Tasks">{row.tasks}</td>
+                    <td className="mono clients-table__num" data-col="requirements" data-ar-label="المتطلبات" data-en-label="Requirements">{row.requirements}</td>
+                    <td className="clients-table__num" data-ar-label="نشط" data-en-label="Active">
                       <span className={`dot dot--${row.active ? "on" : "off"}`} title={row.active ? t("نشط", "Active") : t("موقوف", "Switched off")} />
                     </td>
-                    <td>
+                    <td className="clients-table__actions" data-ar-label="" data-en-label="">
                       <div className="row row--tight">
                         <Link className="btn btn--sm" to={`/clients/${encodeURIComponent(row.code)}`}>
                           {t("ملف", "Profile")}
@@ -359,7 +363,7 @@ export function AdminClientsPage() {
                 ))}
                 {data.clients.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="empty">
+                    <td colSpan={10} className="empty" data-ar-label="" data-en-label="">
                       <Icon name="archive" size="xl" />
                       <span>{t("مفيش عملاء.", "No clients.")}</span>
                     </td>

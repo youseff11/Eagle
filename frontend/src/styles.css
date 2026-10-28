@@ -580,3 +580,134 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 .req-file__preview img { display: block; max-width: 100%; height: auto; border-radius: 4px; }
 .req-file__preview .fileviewer__pages, .req-file__preview .fileviewer__paper { width: 100%; }
 .req-file__preview .fileviewer__empty { margin: 0; opacity: 1; }
+
+/* Team status: the totals strip, then one card per leader (counts, a share bar, the people). The card is a size container, so
+   the people's rows switch from stacked to one line by the card's own width, not the screen's. */
+.team-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-block-end: 16px;
+}
+.team-summary__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.team-summary__item--ok { border-inline-start-color: var(--ok); }
+.team-summary__item--warn { border-inline-start-color: var(--warn); }
+.team-summary__item--off { border-inline-start-color: var(--faint); }
+.team-summary__value { font-size: 1.5rem; font-weight: 660; line-height: 1.2; color: var(--heading); font-variant-numeric: tabular-nums; }
+.team-summary__label { font-size: .79rem; color: var(--muted); }
+
+.team-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(460px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.team-board > .card { margin: 0; }
+
+.team-card { container-type: inline-size; min-width: 0; }
+.team-card__head { flex-wrap: wrap; gap: 12px; }
+.team-card__who { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.team-card__who h3 { margin: 0; overflow-wrap: anywhere; }
+
+.grid.team-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-block-end: 10px; }
+.team-count { padding: 10px 12px; background: var(--surface-2); border-color: var(--border-soft); text-align: center; }
+.team-count .kpi__value { font-size: 1.4rem; }
+
+.team-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin-block-end: 16px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-soft);
+}
+.team-bar > span { flex-basis: 0; min-width: 0; }
+.team-bar__free { background: var(--ok); }
+.team-bar__busy { background: var(--warn); }
+.team-bar__off { background: var(--faint); opacity: .55; }
+
+.team-empty { margin: 0; padding: 18px 0 6px; text-align: center; }
+
+.team-members__head { display: none; }
+.team-members__list { list-style: none; margin: 0; padding: 0; }
+.team-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "who rating" "state state" "tasks tasks";
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-block-start: 1px solid var(--border-soft);
+}
+.team-member__who { grid-area: who; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.team-member__name { min-width: 0; overflow-wrap: anywhere; }
+.team-member__state { grid-area: state; }
+.team-member__tasks { grid-area: tasks; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.team-member__rating { grid-area: rating; justify-self: end; }
+
+@container (min-width: 480px) {
+  .team-members__head,
+  .team-member {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1.2fr) 4.5rem;
+    gap: 12px;
+  }
+  .team-members__head {
+    display: grid;
+    padding-block-end: 8px;
+    font-size: .74rem;
+    color: var(--muted);
+  }
+  .team-member { grid-template-areas: "who state tasks rating"; padding: 10px 0; }
+}
+
+@media (max-width: 480px) {
+  .team-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-card__head .grow { display: none; }
+}
+
+/* Client records: a row never breaks its code or its buttons; numbers sit in narrow centred columns; on a phone each client is a
+   card (the shared `table--cards`) with the tick box in its corner and "select all" kept as the one visible header. */
+.clients-table td.clients-table__code { white-space: nowrap; }
+.clients-table .clients-table__pick { width: 2.2rem; }
+.clients-table .clients-table__num { text-align: center; width: 1%; white-space: nowrap; }
+.clients-table td.clients-table__contact { overflow-wrap: anywhere; }
+.clients-table td.clients-table__contact .chip { margin-inline-start: 6px; white-space: nowrap; }
+.clients-table td.clients-table__actions { width: 1%; white-space: nowrap; }
+.clients-table .clients-table__actions .row { flex-wrap: nowrap; justify-content: flex-end; }
+
+@media (max-width: 720px) {
+  .table--cards.clients-table thead { position: static; width: auto; height: auto; margin: 0 0 10px; overflow: visible; clip-path: none; }
+  .table--cards.clients-table thead tr { display: block; }
+  .table--cards.clients-table thead th { display: none; }
+  .table--cards.clients-table thead th.clients-table__pick {
+    display: flex; align-items: center; gap: 8px; width: auto; padding: 0; border: 0;
+    font-size: .8rem; text-transform: none; letter-spacing: 0; color: var(--muted);
+  }
+  .table--cards.clients-table thead th.clients-table__pick::after { content: attr(data-en-label); }
+  [lang="ar"] .table--cards.clients-table thead th.clients-table__pick::after { content: attr(data-ar-label); }
+
+  .table--cards.clients-table tbody tr { position: relative; }
+  .table--cards.clients-table tbody td:first-child {
+    position: absolute; inset-inline-end: 13px; inset-block-start: 12px;
+    display: block; padding: 0; margin: 0; border: 0;
+  }
+  .table--cards.clients-table tbody td.clients-table__code {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 0 9px; padding-inline-end: 2rem; margin-bottom: 5px; text-align: start;
+    font-weight: 620; color: var(--heading); font-size: .93rem;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .table--cards.clients-table tbody td.clients-table__code::before { content: none; }
+  .table--cards.clients-table tbody td.clients-table__num { width: auto; text-align: end; }
+  .table--cards.clients-table tbody td.clients-table__actions .row { justify-content: flex-start; }
+}
