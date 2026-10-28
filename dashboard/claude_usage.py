@@ -43,6 +43,7 @@ FEATURES = {
     "check": ("مراجعة الترجمة", "Translation check"),
     "translate": ("ترجمة رسايل العملاء", "Client messages"),
     "ai_translate": ("الترجمة بالـAI", "AI translation"),
+    "doc_review": ("مراجعة مستندات التيم ليدر", "Team leader's document review"),
     "helpbot": ("المساعد", "Assistant"),
 }
 

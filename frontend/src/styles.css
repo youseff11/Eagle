@@ -711,3 +711,35 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
   .table--cards.clients-table tbody td.clients-table__num { width: auto; text-align: end; }
   .table--cards.clients-table tbody td.clients-table__actions .row { justify-content: flex-start; }
 }
+
+/* «مراجعة بالـAI»: the two boxes for the source and the translation, the files in each, and the list of past reviews. */
+.aireview-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-block-end: 8px; }
+.aireview-side {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0;
+  padding: 14px; border: 1px dashed var(--border); border-radius: var(--r-lg); background: var(--surface-2);
+  transition: border-color .12s, background .12s;
+}
+.aireview-side.is-over { border-color: var(--brand); background: var(--brand-soft); }
+.aireview-side__head { display: flex; flex-direction: column; gap: 2px; }
+.aireview-side__head .muted { font-size: .78rem; }
+.aireview-side__drop { font-size: .78rem; }
+.aireview-files { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: grid; gap: 6px; }
+.aireview-files li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; }
+.aireview-files__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aireview-limits { font-size: .8rem; margin: 4px 0 14px; }
+.aireview-sent { display: grid; gap: 6px; margin: 0 0 12px; }
+.aireview-sent > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.aireview-sent dt { color: var(--muted); min-width: 6rem; }
+.aireview-sent dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.aireview-history { list-style: none; margin: 0; padding: 0; }
+.aireview-history li + li { border-block-start: 1px solid var(--border-soft); }
+.aireview-history__row {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 6px; text-align: start;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; border-radius: 8px;
+}
+.aireview-history__row:hover, .aireview-history__row.is-open { background: var(--surface-2); }
+.aireview-history__files { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .aireview-history__row { flex-wrap: wrap; }
+  .aireview-history__files { flex-basis: 100%; }
+}

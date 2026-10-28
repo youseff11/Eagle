@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_commissions, api_pricing, api_finance, api_candidates, api_clients, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_commissions, api_pricing, api_finance, api_candidates, api_clients, api_docreview, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -234,6 +234,11 @@ urlpatterns = [
     path("api/v1/tasks/<str:code>/ai-notes/accept/", api_ai.accept, name="v1_ai_accept"),
     path("api/v1/groups/<int:room_id>/ai-notes/", api_ai.group_notes, name="v1_ai_group_notes"),
     path("api/v1/staff/<int:user_id>/ai-notes/", api_ai.staff_notes, name="v1_ai_staff_notes"),
+    # The leader's own documents sent straight to the AI, with no task behind them (doc_review.py).
+    path("api/v1/ai-review/", api_docreview.board, name="v1_ai_review"),
+    path("api/v1/ai-review/send/", api_docreview.send, name="v1_ai_review_send"),
+    path("api/v1/ai-review/<int:pk>/", api_docreview.detail, name="v1_ai_review_detail"),
+    path("api/v1/ai-review/<int:pk>/delete/", api_docreview.remove, name="v1_ai_review_delete"),
     path("api/v1/sales/line/", api_sales.line, name="v1_sales_line"),
     path("api/v1/sales/line/save/", api_sales.line_save, name="v1_sales_line_save"),
     # B2B: the company sheets the Sales manager hands out, and contacting a company from its row (b2b.py).

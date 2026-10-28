@@ -16,7 +16,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from dashboard import ai, ai_translate
+from dashboard import ai, ai_translate, doc_review
 from dashboard.models import AICheckResult
 
 
@@ -49,3 +49,5 @@ class Command(BaseCommand):
         # The AI translations a leader asked for (21/10/2026) die the same way, and are finished the same way.
         translated = ai_translate.finish_stuck(options["minutes"])
         self.stdout.write(self.style.SUCCESS(f"translations finished={translated}"))
+        # The leader's own documents (22/10/2026) live only in their thread: one that died cannot be finished, only closed.
+        self.stdout.write(self.style.SUCCESS(f"document checks closed={doc_review.close_stale()}"))

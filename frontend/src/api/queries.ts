@@ -85,6 +85,8 @@ import type {
   TranslateResponse,
   ThreadResponse,
   TaskAiNotes,
+  AiReviewBoard,
+  AiReviewDetail,
   TaskSearchResponse,
   TasksResponse,
   TaskStartResponse,
@@ -285,6 +287,29 @@ export function useTaskAiNotes(code: string, enabled = true) {
     refetchInterval: (query) => (query.state.data?.check?.status === "running" ? AI_RUNNING_POLL_MS : refetchInterval),
     retry: false,
     enabled,
+  });
+}
+
+/** The leader's own document checks (`api_docreview`): the list, and whether the check is there. Follows a running one until it ends. */
+export function useAiReviewBoard(enabled = true) {
+  const refetchInterval = useFallbackInterval();
+  return useQuery({
+    queryKey: qk.aiReview,
+    queryFn: () => api<AiReviewBoard>("/api/v1/ai-review/"),
+    refetchInterval: (query) => (query.state.data?.running ? AI_RUNNING_POLL_MS : refetchInterval),
+    retry: false,
+    enabled,
+  });
+}
+
+/** One of those checks with its notes; asked again while it is running. */
+export function useAiReviewCheck(id: number | null) {
+  return useQuery({
+    queryKey: qk.aiReviewCheck(id ?? 0),
+    queryFn: () => api<AiReviewDetail>(`/api/v1/ai-review/${id}/`),
+    refetchInterval: (query) => (query.state.data?.check.status === "running" ? AI_RUNNING_POLL_MS : false),
+    retry: false,
+    enabled: id !== null,
   });
 }
 

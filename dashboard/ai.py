@@ -119,6 +119,12 @@ def extract_text(django_file, name=""):
         except Exception:
             pass
 
+    return text_from_bytes(raw, name)
+
+
+def text_from_bytes(raw, name):
+    """The words of a Word or plain-text file already in memory, or ``""`` for a kind the server cannot read."""
+    name = (name or "").lower()
     if name.endswith(".docx"):
         return _docx_text(raw)
     if name.endswith((".txt", ".md", ".csv", ".tsv", ".json", ".srt", ".vtt", ".html", ".htm")):
@@ -175,6 +181,14 @@ def read_document(django_file, name=""):
     if not data:
         return None
     return {"name": name.rsplit("/", 1)[-1], "media_type": kind, "data": data}
+
+
+def document_from_bytes(raw, name):
+    """``read_document`` for a file already in memory: ``{"name", "media_type", "data"}`` for a PDF or an image, else ``None``."""
+    kind = media_type_of(name)
+    if not kind or not raw:
+        return None
+    return {"name": (name or "").rsplit("/", 1)[-1], "media_type": kind, "data": raw}
 
 
 def _document_blocks(label, documents):
@@ -246,9 +260,9 @@ def _text_of(body):
     return "".join(parts).strip()
 
 
-def _call_claude(conf, prompt, documents=None):
+def _call_claude(conf, prompt, documents=None, feature="check"):
     # Every issue now carries two quotes and an explanation.
-    return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 8000))
+    return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 8000, feature))
 
 
 def _parse(text):
@@ -321,6 +335,19 @@ def _review(conf, task, source_text, translated_text, requirements,
     (``read_document``) the model reads itself - text the server could not
     pull out of them (28/09/2026).
     """
+    languages, scope = share_scope(task, translator)
+    heading = (
+        f"Task: {task.code} — {task.title}\n"
+        + (languages or f"Source language: {task.source_lang or 'unknown'}\nTarget language: {task.target_lang or 'unknown'}\n")
+        + f"{scope}"
+        f"Client requirements:\n{requirements or 'none'}\n\n"
+    )
+    return compare(conf, heading, source_text, translated_text, source_docs, translated_docs)
+
+
+def compare(conf, heading, source_text, translated_text, source_docs=(), translated_docs=(), feature="check"):
+    """The review itself, for any source and translation: ``heading`` says what they are (a task with its languages and the client's
+    requirements, or a team leader's own request) and the rest is the same comparison. The fields to store; never raises."""
     source_docs, translated_docs, dropped = _fit(source_docs or [], translated_docs or [])
     if not translated_text.strip() and not translated_docs:
         return {
@@ -336,12 +363,8 @@ def _review(conf, task, source_text, translated_text, requirements,
         )
     if dropped:
         attached += "Not attached (too large): " + ", ".join(dropped) + "\n"
-    languages, scope = share_scope(task, translator)
     prompt = (
-        f"Task: {task.code} — {task.title}\n"
-        + (languages or f"Source language: {task.source_lang or 'unknown'}\nTarget language: {task.target_lang or 'unknown'}\n")
-        + f"{scope}"
-        f"Client requirements:\n{requirements or 'none'}\n\n"
+        f"{heading}"
         f"{attached}"
         f"=== SOURCE ===\n{source_text[:MAX_CHARS] or ('(see the SOURCE files above)' if source_docs else '(not provided)')}\n\n"
         f"=== TRANSLATION ===\n{translated_text[:MAX_CHARS] or '(see the TRANSLATION files above)'}\n"
@@ -352,7 +375,7 @@ def _review(conf, task, source_text, translated_text, requirements,
     )
 
     try:
-        raw = _call_claude(conf, prompt, documents)
+        raw = _call_claude(conf, prompt, documents, feature)
         data = _parse(raw)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")[:500]

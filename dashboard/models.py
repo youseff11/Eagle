@@ -2444,6 +2444,48 @@ class AICheckResult(models.Model):
         return len(self.issues or [])
 
 
+class DocumentCheck(models.Model):
+    """A review the team leader asked for straight from his own files, with no task behind it (22/10/2026).
+
+    He gives the AI the source and the translation (one file or several of each) and reads the notes back on his own page. Only the
+    names of the files are kept, never the files: they were read once, in the request, and went to the model. Nothing here belongs to a
+    client or a translator, so no stars ride on it and nobody else reads it (the admin included only as the owner of the account).
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        CLEAN = "clean", "No issues"
+        ISSUES = "issues", "Issues found"
+        ERROR = "error", "Error"
+
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="document_checks")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
+    source_lang = models.CharField(max_length=60, blank=True)
+    target_lang = models.CharField(max_length=60, blank=True)
+    #: What the leader asked the AI to look at in his own words, sent with the files.
+    instructions = models.TextField(blank=True)
+    source_names = models.JSONField(default=list, blank=True)
+    target_names = models.JSONField(default=list, blank=True)
+    #: Files that were not given to the model (a kind it does not read, or past one request's size).
+    skipped = models.JSONField(default=list, blank=True)
+    summary = models.TextField(blank=True)
+    issues = models.JSONField(default=list, blank=True)
+    error_message = models.TextField(blank=True)
+    model_used = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return f"document check {self.pk} · {self.status}"
+
+    @property
+    def issue_count(self):
+        return len(self.issues or [])
+
+
 def upload_revision(instance, filename):
     # Nothing stores a file under this any more (the corrected copy of a translation was dropped); migration 0051 names it.
     from .files import storage_name

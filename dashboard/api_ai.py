@@ -46,7 +46,9 @@ def _issue_json(issue, task, viewer, position=None, accepted=()):
     """
 
     def words(value):
-        return identity.mask_client(value if isinstance(value, str) else "", task.client, viewer)
+        text = value if isinstance(value, str) else ""
+        # A check of the leader's own files (``doc_review``) has no task and so no client to hide.
+        return text if task is None else identity.mask_client(text, task.client, viewer)
 
     severity = issue.get("severity")
     # The chat's panel used to read ``issue``, which only a check from before 28/09/2026 has: the new format says it twice, once

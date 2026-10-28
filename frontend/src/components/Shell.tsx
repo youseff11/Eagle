@@ -214,6 +214,7 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     also: ["/tasks"],
     extra: [
       { path: "/lead/translators", icon: "users", label: ["حالة المترجمين", "Translator status"], order: 15 },
+      { path: "/lead/ai-review", icon: "sparkles", label: ["مراجعة بالـAI", "AI review"], order: 16 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
     ],
   },

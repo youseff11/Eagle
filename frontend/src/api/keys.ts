@@ -53,6 +53,8 @@ export const qk = {
   salesLine: ["sales-line"] as const,
   /** The AI's notes on a task (the box on its page): it moves with the boards, and while a check runs it asks on a clock. */
   aiNotes: (code: string) => ["boards", "ai-notes", code] as const,
+  aiReview: ["ai-review"] as const,
+  aiReviewCheck: (id: number) => ["ai-review", id] as const,
   /** The panel beside a leader's chat (`g12`, `u5`): under `chats`, so the doorbell that brings a message asks again. */
   chatAiNotes: (code: string) => ["chats", "ai-notes", code] as const,
   /** The team leader's board and their translators' board: with the boards, so a beat that says something moved asks again. */

@@ -46,6 +46,7 @@ export const KEYWORDS: Record<string, string> = {
   "/announce": "اشعار تنبيه للكل الموظفين اعلان رسالة announce notify everyone broadcast",
   "/lead": "تاسكاتي مهامي مراجعة my tasks review",
   "/lead/translators": "مترجمين متاحين فريقي translators",
+  "/lead/ai-review": "مراجعة ai ذكاء اصطناعي مستندات ملفات اصل ترجمة تارجت سورس راجع ai review documents source target check",
   "/translator": "شغلي تاسكاتي مهامي my work tasks",
   "/clients": "عملاء اكواد كود عميل clients codes",
   "/admin/clients": "بيانات العملاء اكواد كود ارقام اسماء تليفون عميل جديد متطلبات تاسكات client records codes",
