@@ -135,6 +135,34 @@ def text_from_bytes(raw, name):
     return ""
 
 
+#: The biggest instructions file taken, and the most of its words that is kept and sent.
+INSTRUCTIONS_FILE_BYTES = 2 * 1024 * 1024
+INSTRUCTIONS_FILE_CHARS = 20000
+
+
+class InstructionsFileError(Exception):
+    """The instructions file cannot be used: ``code`` is ``instructions_too_big`` or ``instructions_unreadable``."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def instructions_text(typed, uploaded, limit):
+    """What a person asks of the AI: the words they typed (cut to ``limit``) and, under them, the words of the Word or text file they
+    uploaded instead of or as well (cut to :data:`INSTRUCTIONS_FILE_CHARS`). ``uploaded`` is an upload or ``None``;
+    :class:`InstructionsFileError` when it is too big or holds no words the server can read."""
+    text = (typed or "").strip()[:limit]
+    if uploaded is None:
+        return text
+    if uploaded.size > INSTRUCTIONS_FILE_BYTES:
+        raise InstructionsFileError("instructions_too_big")
+    words = text_from_bytes(uploaded.read(), uploaded.name).strip()
+    if not words:
+        raise InstructionsFileError("instructions_unreadable")
+    return f"{text}\n\n{words[:INSTRUCTIONS_FILE_CHARS]}".strip() if text else words[:INSTRUCTIONS_FILE_CHARS]
+
+
 def _docx_text(raw):
     import io
 

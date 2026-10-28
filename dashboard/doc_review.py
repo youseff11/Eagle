@@ -41,6 +41,8 @@ PROBLEMS_AR = {
     "too_many_files": f"أكتر من {MAX_FILES} ملفات في الجنب الواحد.",
     "too_big": "فيه ملف أكبر من 20 ميجا.",
     "unreadable": "الـAI مايقدرش يقرا ملف الترجمة ده. ارفع Word أو PDF أو صورة أو نص.",
+    "instructions_too_big": "ملف التعليمات أكبر من 2 ميجا.",
+    "instructions_unreadable": "مش قادر أقرا ملف التعليمات. ارفع Word أو ملف نص (txt).",
 }
 
 
@@ -133,7 +135,7 @@ def _heading(source_lang, target_lang, instructions):
     )
 
 
-def start(user, sources, targets, source_lang="", target_lang="", instructions=""):
+def start(user, sources, targets, source_lang="", target_lang="", instructions="", instructions_file=None):
     """Send the files for review: the row is written now and the call runs on its own thread once the transaction is in.
 
     ``sources`` and ``targets`` are lists of ``(name, bytes)``. ``Problem`` when refused (nothing was written then).
@@ -162,7 +164,10 @@ def start(user, sources, targets, source_lang="", target_lang="", instructions="
 
     source_lang = (source_lang or "").strip()[:MAX_LANG]
     target_lang = (target_lang or "").strip()[:MAX_LANG]
-    instructions = (instructions or "").strip()[:MAX_INSTRUCTIONS]
+    try:
+        instructions = ai.instructions_text(instructions, instructions_file, MAX_INSTRUCTIONS)
+    except ai.InstructionsFileError as bad:
+        raise Problem(bad.code)
     with transaction.atomic():
         # The leader's own row is locked while this decides, so a double press makes one check.
         User.objects.select_for_update().get(pk=user.pk)

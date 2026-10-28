@@ -96,6 +96,7 @@ def send(request):
         row = doc_review.start(
             request.user, _files(request, "source"), _files(request, "target"),
             request.POST.get("source_lang", ""), request.POST.get("target_lang", ""), request.POST.get("instructions", ""),
+            request.FILES.get("instructions_file"),
         )
     except doc_review.Problem as refused:
         return JsonResponse({"ok": False, "error": refused.text, "code": refused.code}, status=403 if refused.code == "forbidden" else 400)

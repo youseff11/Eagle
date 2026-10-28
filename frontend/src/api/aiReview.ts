@@ -9,6 +9,8 @@ export interface AiReviewInput {
   sourceLang: string;
   targetLang: string;
   instructions: string;
+  /** A Word or text file with the instructions: the server reads it and adds it under `instructions`. */
+  instructionsFile?: File | null;
 }
 
 /** «ابعت للـAI»: the files go in one request and the notes come later (`api_docreview.send`). A refusal arrives as its own sentence. */
@@ -22,6 +24,7 @@ export function useAiReviewSend() {
       form.append("source_lang", input.sourceLang);
       form.append("target_lang", input.targetLang);
       form.append("instructions", input.instructions);
+      if (input.instructionsFile) form.append("instructions_file", input.instructionsFile, input.instructionsFile.name);
       const answer = await api<{ ok: boolean; id: number }>("/api/v1/ai-review/send/", { multipart: form });
       if (!answer.ok) throw new ApiError(200, "refused", answer);
       return answer;

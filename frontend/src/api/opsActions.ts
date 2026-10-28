@@ -357,9 +357,15 @@ export function useCloseTranslation(code: string) {
 
 /** «ترجمها بالـAI»: the task goes to the AI instead of a translator, with what the leader asks of it; the answer is at once, the translation later (`api_ops.task_ai_translate`). */
 export function useAiTranslate(code: string) {
-  return useOpsAction<string, { ok: boolean; id: number }>(code, (instructions) =>
-    api<{ ok: boolean; id: number }>(`/api/v1/tasks/${encodeURIComponent(code)}/ai-translate/`, { form: { instructions } }),
-  );
+  return useOpsAction<{ instructions: string; file?: File | null }, { ok: boolean; id: number }>(code, ({ instructions, file }) => {
+    const url = `/api/v1/tasks/${encodeURIComponent(code)}/ai-translate/`;
+    if (!file) return api<{ ok: boolean; id: number }>(url, { form: { instructions } });
+    // An instructions file travels with the words: the server reads it and adds it under what he typed.
+    const body = new FormData();
+    body.append("instructions", instructions);
+    body.append("instructions_file", file, file.name);
+    return api<{ ok: boolean; id: number }>(url, { multipart: body });
+  });
 }
 
 /** «تمت المراجعة»: the review is done and the task goes on to the operation. */

@@ -19,6 +19,7 @@ import { prettySize } from "../../lib/size";
 import { taskProblem } from "../../lib/taskProblem";
 import { Confirm } from "../Confirm";
 import { Countdown } from "../Countdown";
+import { InstructionsFile } from "../ai/InstructionsFile";
 import { Icon } from "../Icon";
 import { PersonName } from "../PersonName";
 import { pagesOf } from "../PartBox";
@@ -87,6 +88,7 @@ export function AiTranslateBox({ task }: { task: OpsTask }) {
   const [asking, setAsking] = useState(false);
   const [problem, setProblem] = useState("");
   const [wish, setWish] = useState("");
+  const [wishFile, setWishFile] = useState<File | null>(null);
   const choice = task.lead?.ai_translate;
   if (!choice) return null;
 
@@ -151,6 +153,12 @@ export function AiTranslateBox({ task }: { task: OpsTask }) {
         value={wish}
         onChange={(event) => setWish(event.target.value)}
       />
+      <InstructionsFile
+        file={wishFile}
+        onChange={setWishFile}
+        disabled={!choice.can_start}
+        onTooBig={() => push({ level: "danger", title: t("ملف التعليمات أكبر من 2 ميجا", "The instructions file is over 2 MB") })}
+      />
       <small className="muted">
         {t(
           "الملف اللي هيرجع Word منسّق زي الأصل: العناوين والبولد والقوايم والجداول وفواصل الصفحات.",
@@ -187,10 +195,11 @@ export function AiTranslateBox({ task }: { task: OpsTask }) {
           problem={problem}
           onNo={() => setAsking(false)}
           onYes={() =>
-            start.mutate(wish.trim(), {
+            start.mutate({ instructions: wish.trim(), file: wishFile }, {
               onSuccess: () => {
                 setAsking(false);
                 setWish("");
+                setWishFile(null);
                 push({ level: "success", title: t("الـAI بدأ يترجم. هيوصلك تنبيه لما يخلص", "The AI has started. You will be told when it is done") });
               },
               onError: (error) => setProblem(taskProblem(error, t)),

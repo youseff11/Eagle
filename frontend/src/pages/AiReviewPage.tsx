@@ -4,6 +4,7 @@ import { useAiReviewDelete, useAiReviewSend } from "../api/aiReview";
 import { useAiReviewBoard, useAiReviewCheck, useMe } from "../api/queries";
 import type { AiReviewRow } from "../api/types";
 import { Issue } from "../components/ai/AiNotesCard";
+import { InstructionsFile } from "../components/ai/InstructionsFile";
 import { Icon } from "../components/Icon";
 import { Loading } from "../components/Loading";
 import { useToasts } from "../components/Toasts";
@@ -301,6 +302,7 @@ export function AiReviewPage() {
   const [sourceLang, setSourceLang] = useState("");
   const [targetLang, setTargetLang] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [instructionsFile, setInstructionsFile] = useState<File | null>(null);
   const [problem, setProblem] = useState("");
   const [opened, setOpened] = useState<number | null>(null);
 
@@ -311,12 +313,13 @@ export function AiReviewPage() {
   const submit = () => {
     setProblem("");
     send.mutate(
-      { source, target, sourceLang, targetLang, instructions },
+      { source, target, sourceLang, targetLang, instructions, instructionsFile },
       {
         onSuccess: (answer) => {
           setSource([]);
           setTarget([]);
           setInstructions("");
+          setInstructionsFile(null);
           setOpened(answer.id);
           push({ level: "info", title: t("الملفات اتبعتت. النتيجة هتظهر هنا أول ما الـAI يخلص.", "Files sent. The result appears here when the AI is done.") });
         },
@@ -413,6 +416,12 @@ export function AiReviewPage() {
                 disabled={blocked}
                 onChange={(event) => setInstructions(event.target.value)}
                 placeholder={t("اختياري. مثلًا: ركّز على الأرقام والأسماء، أو المصطلحات القانونية.", "Optional. For example: focus on numbers and names, or the legal terms.")}
+              />
+              <InstructionsFile
+                file={instructionsFile}
+                onChange={setInstructionsFile}
+                disabled={blocked}
+                onTooBig={() => push({ level: "danger", title: t("ملف التعليمات أكبر من 2 ميجا", "The instructions file is over 2 MB") })}
               />
             </div>
             {problem && (

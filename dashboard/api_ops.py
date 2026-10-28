@@ -913,7 +913,8 @@ def task_ai_translate(request, code):
         identity.hidden(request, "task")
     try:
         # What he wants of it, in his words (``instructions``, optional): sent with the files.
-        row = ai_translate.start(task, user, request.POST.get("instructions", ""))
+        # ... or in a Word / text file (``instructions_file``), read on the server and added under what he typed.
+        row = ai_translate.start(task, user, request.POST.get("instructions", ""), request.FILES.get("instructions_file"))
     except ai_translate.Problem as refused:
         return JsonResponse({"ok": False, "error": refused.text, "code": refused.code}, status=403 if refused.code == "forbidden" else 400)
     return JsonResponse({"ok": True, "id": row.pk})

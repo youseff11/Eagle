@@ -81,6 +81,8 @@ PROBLEMS_AR = {
     "task_needs_languages": "الأوبريشن لسه ماحددش لغة الترجمة (من لغة وإلى لغة) على التاسك دي.",
     "no_source": "مفيش ملف أصلي الـAI يقدر يقراه (Word أو PDF أو صورة أو نص).",
     "running": "الـAI بيترجم التاسك دي دلوقتي. استنى لما يخلص.",
+    "instructions_too_big": "ملف التعليمات أكبر من 2 ميجا.",
+    "instructions_unreadable": "مش قادر أقرا ملف التعليمات. ارفع Word أو ملف نص (txt).",
 }
 
 
@@ -159,11 +161,16 @@ def problem(task, user, conf=None):
     return ""
 
 
-def start(task, user, instructions=""):
-    """Ask for it, with what the leader wants of it in his words: the row is written now and the call runs on its own thread once the
-    transaction is in. ``Problem`` when refused."""
+def start(task, user, instructions="", instructions_file=None):
+    """Ask for it, with what the leader wants of it in his words and, if he has them, in a Word or text file
+    (``instructions_file``, an upload): the row is written now and the call runs on its own thread once the transaction is in.
+    ``Problem`` when refused."""
     from . import services
 
+    try:
+        instructions = ai.instructions_text(instructions, instructions_file, MAX_INSTRUCTIONS)
+    except ai.InstructionsFileError as bad:
+        raise Problem(bad.code)
     conf = AppSettings.load()
     with transaction.atomic():
         services._lock_task(task)
@@ -175,7 +182,7 @@ def start(task, user, instructions=""):
             status=AITranslation.Status.ERROR, error_message="The translation did not finish.", finished_at=timezone.now(),
         )
         row = AITranslation.objects.create(
-            task=task, requested_by=user, model_used=conf.claude_model, instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS],
+            task=task, requested_by=user, model_used=conf.claude_model, instructions=instructions,
         )
         services.log(user, "task.ai_translate", task.code, f"{task.source_lang} -> {task.target_lang}")
         transaction.on_commit(lambda: threading.Thread(
