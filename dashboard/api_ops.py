@@ -9,7 +9,7 @@ so a front end can read what happened.
 """
 
 from django.core.exceptions import PermissionDenied
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 
 from . import ai_translate, api, identity, services, taskstart, wordcount
@@ -358,6 +358,8 @@ def _lead_json(task, user):
         "translators": translators,
         "can_set_translator_deadline": bool(task.translator_id),
         "can_review": task.status == TaskStatus.UNDER_REVIEW,
+        # He sent the reviewed task to the client himself: «تم التسليم واتساب» closes it (the admin has the same button on his overview).
+        "can_deliver_whatsapp": task.status == TaskStatus.REVIEWED and user.is_team_lead and not user.is_admin_role,
         # The words of each translator are the leader's to write while the translation is with him; the review cannot be finished without them.
         "can_set_part_words": task.status == TaskStatus.UNDER_REVIEW and task.translator_parts(accepted_only=True).exists(),
         # Every share still on the task is in and a share fell through: he may close the translation and review what there is.
@@ -617,6 +619,29 @@ def task_languages(request, code):
             return _error(403 if why == "forbidden" else 400, why)
         return JsonResponse({"ok": False, "error": why, "code": "bad_languages"}, status=400)
     return JsonResponse({"ok": True, "source_lang": task.source_lang, "target_lang": task.target_lang})
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def task_delivered_whatsapp(request, code):
+    """«تم التسليم واتساب» on the leader's page: he already sent the reviewed task to the client by hand, so it is closed as delivered.
+
+    Nothing is sent. Only the task's own team leader (and the admin); another leader's task is a 404 as everywhere on this page.
+    A task that is not awaiting delivery is a 400 ``bad_status`` in the leader's words.
+    """
+    task = get_object_or_404(Task, code=code)
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
+    task, why = services.close_by_hand(code, request.user)
+    if task is None:
+        if why == "missing":
+            raise Http404
+        return JsonResponse({"ok": False, "error": NOT_AWAITING_DELIVERY_AR, "code": "bad_status"}, status=400)
+    return JsonResponse({"ok": True, "status": task.status, "channel": "whatsapp", "files": 0})
+
+
+#: Why «تم التسليم واتساب» did not close the task (the page shows the sentence as it is).
+NOT_AWAITING_DELIVERY_AR = "التاسك مش مستنية التسليم للعميل دلوقتي."
 
 
 @endpoint("POST")

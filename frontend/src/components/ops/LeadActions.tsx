@@ -6,6 +6,7 @@ import {
   useCloseTranslation,
   useDecideExtension,
   useFinishReview,
+  useLeadDeliveredWhatsapp,
   useSavePartWords,
   useSaveTranslatorDeadline,
   useUploadReviewed,
@@ -790,6 +791,59 @@ export function CloseTranslationButton({ task }: { task: OpsTask }) {
               onSuccess: () => {
                 setAsking(false);
                 push({ level: "success", title: t("الترجمة اتقفلت وبقت عندك للمراجعة", "The translation is closed and with you for review") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * «تم التسليم واتساب»: the leader already sent the reviewed task to the client by hand, so after the «تأكيد» it is closed as delivered
+ * and nothing is sent (`api_ops.task_delivered_whatsapp`). The translators are paid and the operation told, as for any delivery.
+ */
+export function DeliveredWhatsappButton({ task }: { task: OpsTask }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const done = useLeadDeliveredWhatsapp(task.code);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState("");
+  if (task.lead?.can_deliver_whatsapp !== true) return null;
+
+  return (
+    <>
+      <button
+        className="btn btn--block mt"
+        type="button"
+        data-box="delivered-whatsapp"
+        onClick={() => {
+          setProblem("");
+          setAsking(true);
+        }}
+      >
+        <Icon name="check" size="sm" />
+        <span>{t("تم التسليم واتساب", "Delivered via WhatsApp")}</span>
+      </button>
+      {asking && (
+        <Confirm
+          title={t(`${task.code} اتسلمت للعميل على واتساب؟`, `Was ${task.code} delivered to the client on WhatsApp?`)}
+          body={t(
+            "السيستم مش هيبعت حاجة للعميل. التاسك هتتقفل كمسلّمة وتتحاسب زي أي تاسك اتسلمت.",
+            "Nothing is sent to the client. The task is closed as delivered and is paid like any delivered task.",
+          )}
+          yes={t("تم التسليم", "Mark delivered")}
+          icon="check"
+          busy={done.isPending}
+          problem={problem}
+          onNo={() => setAsking(false)}
+          onYes={() =>
+            done.mutate(undefined, {
+              onSuccess: () => {
+                setAsking(false);
+                push({ level: "success", title: t("التاسك اتقفلت كمسلّمة", "Task marked delivered") });
               },
               onError: (error) => setProblem(taskProblem(error, t)),
             })

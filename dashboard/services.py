@@ -3800,14 +3800,24 @@ DELIVERED_BY_HAND = {
 }
 
 
+def lead_closes_by_hand(task, user, via):
+    """The task's own team leader says it went to the client outside the system (``via``), once it is reviewed (28/10/2026).
+
+    Nothing is sent, so the operation's take-over (the acknowledgement that stops a file reaching the client early) is not asked of
+    him: he is only reporting what he already did himself.
+    """
+    return bool(via) and user.is_team_lead and task.team_lead_id == user.pk and task.status == TaskStatus.REVIEWED
+
+
 def mark_delivered(task, user, delivery=None, via=""):
-    if not (user.is_operation or user.is_admin_role):
+    by_lead = lead_closes_by_hand(task, user, via)
+    if not (user.is_operation or user.is_admin_role or by_lead):
         return False
     # A finished job is not delivered twice. The operation closes a job it has taken over (reviewed, and acknowledged: nothing
     # reaches the client before that); the owner may close any job still open.
     if task.status in (TaskStatus.DELIVERED, TaskStatus.CANCELLED):
         return False
-    if not user.is_admin_role and (task.status != TaskStatus.REVIEWED or not task.handover_ack_at):
+    if not (user.is_admin_role or by_lead) and (task.status != TaskStatus.REVIEWED or not task.handover_ack_at):
         return False
     task.status = TaskStatus.DELIVERED
     task.delivered_at = timezone.now()
@@ -3847,6 +3857,23 @@ def mark_delivered(task, user, delivery=None, via=""):
         )
     log(user, "task.delivered", task.code, f"by hand over {via}" if via else "")
     return True
+
+
+def close_by_hand(code, user, via="whatsapp"):
+    """«تم التسليم واتساب»: close the task named ``code`` as delivered, under a lock on its row, so two presses close it once.
+
+    Returns ``(task, "")`` once closed, else ``(None, why)`` with ``why`` ``"missing"`` (no such task) or ``"bad_status"`` (not
+    awaiting delivery, or not this person's to close). Shared by the admin's overview and the leader's task page.
+    """
+    with transaction.atomic():
+        # The bare row is locked (no select_related: Postgres refuses FOR UPDATE on the outer join of a nullable key).
+        locked = Task.objects.select_for_update().filter(code=code).first()
+        if locked is None:
+            return None, "missing"
+        task = Task.objects.select_related("client", "team_lead").get(pk=locked.pk)
+        if task.status != TaskStatus.REVIEWED or not mark_delivered(task, user, via=via):
+            return None, "bad_status"
+    return task, ""
 
 
 def cancel_task(task, user, reason=""):

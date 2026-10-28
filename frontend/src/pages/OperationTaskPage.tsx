@@ -8,7 +8,7 @@ import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
-import { AiTranslateBox, AssignTranslatorBox, CloseTranslationButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
+import { AiTranslateBox, AssignTranslatorBox, CloseTranslationButton, DeliveredWhatsappButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
 import { DeliveriesCard, HistoryCard, LanguagesCard, MessagesCard, PartsCard, RequirementsCard, WordCountCard } from "../components/ops/TaskExtras";
 import { usePreferences } from "../i18n/Preferences";
@@ -154,7 +154,7 @@ function Task({ task }: { task: OpsTask }) {
   const leadTools =
     task.can_add_files === true ||
     (lead !== null &&
-      (lead.can_assign || Boolean(lead.ai_translate) || lead.can_set_translator_deadline || lead.can_review || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null));
+      (lead.can_assign || Boolean(lead.ai_translate) || lead.can_set_translator_deadline || lead.can_review || lead.can_deliver_whatsapp === true || lead.can_set_part_words === true || lead.can_upload_reviewed === true || lead.can_close_translation === true || lead.extension !== null));
   const hasActions = can.assign_lead || can.take_over || can.deliver || can.set_deadline || can.add_member || can.cancel || leadTools;
   const due = task.due ? (lang === "ar" ? task.due.ar : task.due.en) : null;
   const chat = task.chat ? safeInternalPath(task.chat.url) : null;
@@ -285,6 +285,7 @@ function Task({ task }: { task: OpsTask }) {
               <ReviewedFilesBox task={task} />
               <CloseTranslationButton task={task} />
               <ReviewButton task={task} />
+              <DeliveredWhatsappButton task={task} />
             </div>
           )}
           {can.set_languages === true && <LanguagesCard task={task} />}

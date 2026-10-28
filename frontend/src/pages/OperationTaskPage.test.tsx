@@ -1798,6 +1798,46 @@ describe("OperationTaskPage: the team leader's page", () => {
     });
   });
 
+  describe("«تم التسليم واتساب»", () => {
+    const HAND = `/api/v1/tasks/${CODE}/delivered-whatsapp/`;
+
+    it("closes the reviewed task as delivered after asking, and sends nothing before the «تأكيد»", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_deliver_whatsapp: true }), { [HAND]: () => jsonResponse({ ok: true, status: "delivered", channel: "whatsapp", files: 0 }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تم التسليم واتساب" }));
+      expect(calls(mocked, HAND)).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "تم التسليم" }));
+      expect(await screen.findByText("التاسك اتقفلت كمسلّمة")).toBeInTheDocument();
+      expect(calls(mocked, HAND)).toHaveLength(1);
+    });
+
+    it("can be put off with no after-effect", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_deliver_whatsapp: true }), { [HAND]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تم التسليم واتساب" }));
+      await user.click(screen.getByRole("button", { name: "إلغاء" }));
+      expect(calls(mocked, HAND)).toHaveLength(0);
+    });
+
+    it("says why it was refused", async () => {
+      const user = userEvent.setup();
+      serve(leaderTask({ can_deliver_whatsapp: true }), { [HAND]: () => jsonResponse({ ok: false, error: "التاسك مش مستنية التسليم للعميل دلوقتي." }, 400) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تم التسليم واتساب" }));
+      await user.click(screen.getByRole("button", { name: "تم التسليم" }));
+      expect(await screen.findAllByText("التاسك مش مستنية التسليم للعميل دلوقتي.")).not.toHaveLength(0);
+    });
+
+    it("is not offered unless the task is reviewed and waiting for the client", async () => {
+      serve(leaderTask({ can_deliver_whatsapp: false, can_set_translator_deadline: true }), {}, "team_lead");
+      open();
+      await screen.findByRole("button", { name: "حفظ ديدلاين المترجم" });
+      expect(screen.queryByRole("button", { name: "تم التسليم واتساب" })).toBeNull();
+    });
+  });
+
   describe("each translator's words, written at the review", () => {
     const PART_WORDS = `/api/v1/tasks/${CODE}/part-words/`;
     const share = (over: Partial<OpsTask["parts"][number]> = {}) => ({

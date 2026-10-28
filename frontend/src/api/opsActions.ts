@@ -116,6 +116,16 @@ export function useOverviewDeliveredWhatsapp(code: string) {
 }
 
 /**
+ * «تم التسليم واتساب» on the team leader's task page: he already sent the reviewed task by hand, so it is closed as delivered and
+ * nothing is sent (`api_ops.task_delivered_whatsapp`).
+ */
+export function useLeadDeliveredWhatsapp(code: string) {
+  return useOpsAction<void, Delivered>(code, () =>
+    api<Delivered>(`/api/v1/tasks/${encodeURIComponent(code)}/delivered-whatsapp/`, { json: {} }),
+  );
+}
+
+/**
  * Days, hours and minutes from now. A box left empty is "leave it as it is"; zeros are "no deadline" - the
  * classic rule, kept by the server (`forms.DeadlineField`). Only the boxes the person typed in are sent.
  */

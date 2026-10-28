@@ -325,6 +325,7 @@ urlpatterns = [
     path("api/v1/tasks/<str:code>/words/", api_ops.task_words, name="v1_task_words"),
     path("api/v1/tasks/<str:code>/languages/", api_ops.task_languages, name="v1_task_languages"),
     path("api/v1/tasks/<str:code>/part-words/", api_ops.task_part_words, name="v1_task_part_words"),
+    path("api/v1/tasks/<str:code>/delivered-whatsapp/", api_ops.task_delivered_whatsapp, name="v1_task_delivered_whatsapp"),
     path("api/v1/tasks/<str:code>/requirements/", api_ops.task_requirement, name="v1_task_requirement"),
     path("api/v1/tasks/<str:code>/lead-files/", api_ops.task_lead_files, name="v1_task_lead_files"),
     path("api/v1/tasks/<str:code>/ai-translate/", api_ops.task_ai_translate, name="v1_task_ai_translate"),

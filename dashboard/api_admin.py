@@ -148,14 +148,9 @@ def delivered_whatsapp(request, code):
     every delivery (the translators are priced, the invoice drafted, the room and the people told), with the way it went named
     in the room and in the audit log. Only a task awaiting delivery, as for «سلّم للعميل».
     """
-    with transaction.atomic():
-        # The bare row is locked (no select_related: Postgres refuses FOR UPDATE on the outer join of a nullable key).
-        locked = Task.objects.select_for_update().filter(code=code).first()
-        if locked is None:
+    task, why = services.close_by_hand(code, request.user)
+    if task is None:
+        if why == "missing":
             raise Http404
-        task = Task.objects.select_related("client", "team_lead").get(pk=locked.pk)
-        if task.status != TaskStatus.REVIEWED:
-            return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
-        if not services.mark_delivered(task, request.user, via="whatsapp"):
-            return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
+        return JsonResponse({"ok": False, "error": NOT_REVIEWED_AR}, status=400)
     return JsonResponse({"ok": True, "status": task.status, "channel": "whatsapp", "files": 0})

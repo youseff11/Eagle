@@ -1135,6 +1135,8 @@ export interface LeadTools {
   can_set_translator_deadline: boolean;
   /** It is under review: the review can be finished. */
   can_review: boolean;
+  /** Reviewed and waiting for the client: the leader may say he sent it himself on WhatsApp, and the task closes as delivered. */
+  can_deliver_whatsapp?: boolean;
   /** Under review with a translator who took a share: the leader writes each translator's words, and the review waits for them. */
   can_set_part_words?: boolean;
   /** Every share still on it is in and none is waiting: the leader may close the translation and review what there is. */

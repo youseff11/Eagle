@@ -358,6 +358,15 @@ class LeadersTaskDoorTests(_Lead):
         self.task.save()
         self.assertTrue(_json(self.read(self.lead))["task"]["lead"]["can_review"])
 
+    def test_delivered_by_whatsapp_is_offered_only_to_the_leader_of_a_reviewed_task(self):
+        for status in (TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW, TaskStatus.DELIVERED):
+            Task.objects.filter(pk=self.task.pk).update(status=status)
+            self.assertFalse(_json(self.read(self.lead))["task"]["lead"]["can_deliver_whatsapp"], status)
+        Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.REVIEWED)
+        self.assertTrue(_json(self.read(self.lead))["task"]["lead"]["can_deliver_whatsapp"])
+        # The admin has his own button on the overview, not this one.
+        self.assertFalse(_json(self.read(self.admin))["task"]["lead"]["can_deliver_whatsapp"])
+
     def test_a_request_for_more_time_waits_for_the_leaders_answer_with_where_the_date_would_land(self):
         row = ExtensionRequest.objects.create(
             task=self.task, requested_by=self.tr, minutes=180, reason=f"The file of {CLIENT_NAME} is long",
@@ -409,6 +418,71 @@ class LeadersTaskDoorTests(_Lead):
         before = (Task.objects.count(), AuditLog.objects.count(), ExtensionRequest.objects.count())
         self.read(self.lead)
         self.assertEqual(before, (Task.objects.count(), AuditLog.objects.count(), ExtensionRequest.objects.count()))
+
+
+class LeadDeliveredWhatsappTests(_Lead):
+    """«تم التسليم واتساب» on the leader's page (28/10/2026): he sent the reviewed task himself, so it closes and nothing is sent."""
+
+    HAND = "dashboard:v1_task_delivered_whatsapp"
+
+    def setUp(self):
+        super().setUp()
+        Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.REVIEWED)
+        self.task.refresh_from_db()
+
+    def press(self, user, task=None):
+        url = reverse(self.HAND, args=[(task or self.task).code])
+        self.assertTrue(url.startswith("/api/v1/tasks/") and url.endswith("/delivered-whatsapp/"), url)
+        with mock.patch("dashboard.whatsapp.send_text") as text, mock.patch("dashboard.whatsapp.send_file") as files:
+            browser = DjangoClient()
+            browser.force_login(user)
+            answer = browser.post(url, "{}", content_type="application/json")
+        self.assertFalse(text.called or files.called)
+        return answer
+
+    def test_the_leader_closes_his_reviewed_task_before_the_operation_took_it_over(self):
+        from .models import OutboundMessage
+
+        self.assertIsNone(self.task.handover_ack_at)
+        answer = self.press(self.lead)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.assertFalse(OutboundMessage.objects.filter(task=self.task).exists())
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.DELIVERED)
+        self.assertIsNotNone(self.task.delivered_at)
+        self.assertTrue(AuditLog.objects.filter(action="task.delivered", target=self.task.code, detail="by hand over whatsapp").exists())
+
+    def test_another_leaders_task_is_a_404_and_stays_as_it_was(self):
+        Task.objects.filter(pk=self.other_task.pk).update(status=TaskStatus.REVIEWED)
+        self.assertEqual(self.press(self.lead, self.other_task).status_code, 404)
+        self.other_task.refresh_from_db()
+        self.assertEqual(self.other_task.status, TaskStatus.REVIEWED)
+
+    def test_a_task_that_is_not_awaiting_delivery_is_refused_in_words(self):
+        for status in (TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW, TaskStatus.DELIVERED, TaskStatus.CANCELLED):
+            Task.objects.filter(pk=self.task.pk).update(status=status)
+            answer = self.press(self.lead)
+            self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "التاسك مش مستنية التسليم للعميل دلوقتي."), status)
+            self.task.refresh_from_db()
+            self.assertEqual(self.task.status, status)
+
+    def test_the_translator_and_the_rest_are_refused_and_nothing_closes(self):
+        for user in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            self.assertEqual(self.press(user).status_code, 403, user.username)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.REVIEWED)
+
+    def test_pressed_twice_it_closes_once(self):
+        self.assertEqual(self.press(self.lead).status_code, 200)
+        self.assertEqual(self.press(self.lead).status_code, 400)
+        self.assertEqual(AuditLog.objects.filter(action="task.delivered", target=self.task.code).count(), 1)
+
+    def test_a_leader_cannot_close_by_hand_what_is_not_his_through_the_service(self):
+        self.assertFalse(services.mark_delivered(self.task, self.other_lead, via="whatsapp"))
+        # And without saying it was by hand the leader still cannot deliver: that stays the operation's.
+        self.assertFalse(services.mark_delivered(self.task, self.lead))
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, TaskStatus.REVIEWED)
 
 
 class WordsAndRequirementsForLeadersTests(_Lead):

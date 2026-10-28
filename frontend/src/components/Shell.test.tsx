@@ -477,7 +477,7 @@ describe("Shell: the team leader's screen", () => {
   it("lists their tasks, who is free, the chats and the client codes in the classic menu's order, and no candidate tests (21/10/2026)", async () => {
     const view = at("/lead", ["lead", "chats"]);
     await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/clients"]')).not.toBeNull());
-    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/chats", "/clients"]);
+    expect(links(view.container)).toEqual(["/lead", "/lead/translators", "/lead/ai-review", "/chats", "/clients"]);
     expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toEqual(["الشغل"]);
     expect(within(view.container.querySelector('.sidebar a[href="/lead"]') as HTMLElement).getByText("تاسكاتي")).toBeInTheDocument();
     expect(within(view.container.querySelector('.sidebar a[href="/lead/translators"]') as HTMLElement).getByText("حالة المترجمين")).toBeInTheDocument();
