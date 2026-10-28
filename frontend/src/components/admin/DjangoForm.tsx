@@ -43,6 +43,22 @@ export function useFormEdits(fields: FormField[] | undefined) {
   return { edited, set, valueOf, reset, dirty: Object.keys(edited).length > 0 };
 }
 
+/** The fields only a translator has: the leader they report to and their level. */
+const TRANSLATOR_ONLY = ["team_lead", "translator_level"];
+
+/**
+ * A staff form without the translator's own settings until the role box says translator. The ones left out are also left out
+ * of what a save carries (`dropped`), so a level picked and then abandoned by changing the role never reaches the server.
+ */
+export function staffFields(fields: FormField[], edits: ReturnType<typeof useFormEdits>) {
+  const role = fields.find((field) => field.name === "role");
+  const translator = !role || edits.valueOf(role) === "translator";
+  const shown = translator ? fields : fields.filter((field) => !TRANSLATOR_ONLY.includes(field.name));
+  const dropped = translator ? [] : TRANSLATOR_ONLY;
+  const carried = Object.fromEntries(Object.entries(edits.edited).filter(([name]) => !dropped.includes(name)));
+  return { shown, carried };
+}
+
 function Errors({ messages, id }: { messages?: string[]; id: string }) {
   if (!messages || messages.length === 0) return null;
   return (

@@ -4,7 +4,7 @@ import { Link, Navigate, useNavigate } from "react-router";
 import { formErrors, useCreateUser } from "../api/adminActions";
 import { useAdminUserNew, useMe } from "../api/queries";
 import type { FormErrors } from "../api/types";
-import { DjangoForm, useFormEdits } from "../components/admin/DjangoForm";
+import { DjangoForm, staffFields, useFormEdits } from "../components/admin/DjangoForm";
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
 
@@ -37,7 +37,7 @@ export function HrEmployeeNewPage() {
     event.preventDefault();
     setErrors({});
     setFailed(false);
-    create.mutate(edits.edited, {
+    create.mutate(staffFields(data.form, edits).carried, {
       onSuccess: (answer) => {
         // The password the request carried is not kept in its state once it is over.
         create.reset();
@@ -63,7 +63,7 @@ export function HrEmployeeNewPage() {
       </div>
       <div className="card">
         <form onSubmit={submit}>
-          <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="new" />
+          <DjangoForm fields={staffFields(data.form, edits).shown} edits={edits} errors={errors} prefix="new" />
           {failed && (
             <div className="note note--high" role="alert">
               <Icon name="alert" />

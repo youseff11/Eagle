@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { formErrors, useSaveUser } from "../../api/adminActions";
 import type { AdminUser, FormErrors } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
-import { DjangoForm, useFormEdits } from "../admin/DjangoForm";
+import { DjangoForm, staffFields, useFormEdits } from "../admin/DjangoForm";
 import { Icon } from "../Icon";
 import { useToasts } from "../Toasts";
 
@@ -22,7 +22,7 @@ export function AccountCard({ id, data, onClose }: { id: number; data: AdminUser
     event.preventDefault();
     setErrors({});
     setFailed(false);
-    save.mutate(edits.edited, {
+    save.mutate(staffFields(data.form, edits).carried, {
       onSuccess: () => {
         edits.reset();
         push({ level: "success", title: t("اتحفظ", "Saved") });
@@ -42,7 +42,7 @@ export function AccountCard({ id, data, onClose }: { id: number; data: AdminUser
         <h3>{t("الحساب والصلاحيات", "Account and access")}</h3>
       </div>
       <form onSubmit={submit}>
-        <DjangoForm fields={data.form} edits={edits} errors={errors} prefix="staff" />
+        <DjangoForm fields={staffFields(data.form, edits).shown} edits={edits} errors={errors} prefix="staff" />
         {failed && (
           <div className="note note--high" role="alert">
             <Icon name="alert" />
