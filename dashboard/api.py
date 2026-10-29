@@ -404,6 +404,19 @@ def assign_translator(request, code):
 # Task lifecycle
 # ---------------------------------------------------------------------------
 
+def _review(task, user, sent_by_whatsapp):
+    """«تمت المراجعة», and with ``sent_by_whatsapp`` the leader's word that he already sent it to the client himself (29/10/2026).
+
+    The task is closed as delivered in the same press, so it never sits reviewed and waiting for the operation. Only the task's own
+    team leader may say it (the admin has his own button on the overview); for anyone else the flag is ignored.
+    """
+    if not services.mark_reviewed(task, user):
+        return False
+    if sent_by_whatsapp and user.is_team_lead and task.team_lead_id == user.id:
+        services.close_by_hand(task.code, user)
+    return True
+
+
 @login_required
 @require_POST
 def task_action(request, code, action):
@@ -414,7 +427,7 @@ def task_action(request, code, action):
 
     handlers = {
         "translated": lambda: services.mark_translated(task, user),
-        "reviewed": lambda: services.mark_reviewed(task, user),
+        "reviewed": lambda: _review(task, user, request.POST.get("delivered_whatsapp") == "1"),
         "delivered": lambda: services.mark_delivered(task, user),
         "cancel": lambda: services.cancel_task(task, user, request.POST.get("reason", "")),
         # The other half of the review loop, and the only thing that can

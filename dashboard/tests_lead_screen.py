@@ -608,3 +608,32 @@ class TheLeadersClassicToolsStillWorkTests(_Lead):
         self.assertEqual(self.post_form(self.lead, "dashboard:api_task_action", [self.task.code, "reviewed"], {}).status_code, 200)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status, TaskStatus.REVIEWED)
+
+    def finish(self, user, **body):
+        with mock.patch("dashboard.whatsapp.send_text") as text, mock.patch("dashboard.whatsapp.send_file") as files:
+            answer = self.post_form(user, "dashboard:api_task_action", [self.task.code, "reviewed"], body)
+        self.assertFalse(text.called or files.called)
+        self.task.refresh_from_db()
+        return answer
+
+    def test_the_leader_who_sent_it_himself_finishes_the_review_and_closes_the_task_in_one_press(self):
+        self.task.status = TaskStatus.UNDER_REVIEW
+        self.task.save()
+        answer = self.finish(self.lead, delivered_whatsapp="1")
+        self.assertEqual((answer.status_code, answer.json()["status"]), (200, TaskStatus.DELIVERED))
+        self.assertIsNotNone(self.task.reviewed_at)
+        self.assertIsNotNone(self.task.delivered_at)
+        self.assertTrue(AuditLog.objects.filter(action="task.delivered", target=self.task.code, detail="by hand over whatsapp").exists())
+
+    def test_without_the_tick_the_task_stays_reviewed_for_the_operation(self):
+        self.task.status = TaskStatus.UNDER_REVIEW
+        self.task.save()
+        self.assertEqual(self.finish(self.lead).json()["status"], TaskStatus.REVIEWED)
+        self.assertFalse(AuditLog.objects.filter(action="task.delivered", target=self.task.code).exists())
+
+    def test_the_tick_does_nothing_when_the_review_itself_is_refused(self):
+        # Still being worked: the review is refused and the tick must not slip the task to delivered.
+        self.task.status = TaskStatus.IN_PROGRESS
+        self.task.save()
+        self.finish(self.lead, delivered_whatsapp="1")
+        self.assertEqual(self.task.status, TaskStatus.IN_PROGRESS)

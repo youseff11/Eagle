@@ -1772,6 +1772,28 @@ describe("OperationTaskPage: the team leader's page", () => {
       expect(calls(mocked, A("reviewed"))).toHaveLength(1);
     });
 
+    it("says nothing about WhatsApp unless the leader ticks that he sent it himself", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تمت المراجعة" }));
+      await user.click(screen.getByRole("button", { name: "أيوه، خلصت" }));
+      await screen.findByText("المراجعة خلصت");
+      expect(form(calls(mocked, A("reviewed"))[0]!)).toEqual({});
+    });
+
+    it("also closes the task as delivered in the same press when he ticks that he sent it on WhatsApp", async () => {
+      const user = userEvent.setup();
+      const mocked = serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: true }) }, "team_lead");
+      open();
+      await user.click(await screen.findByRole("button", { name: "تمت المراجعة" }));
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(screen.getByRole("button", { name: "أيوه، خلصت" }));
+      expect(await screen.findByText("المراجعة خلصت والتاسك اتقفلت كمسلّمة")).toBeInTheDocument();
+      expect(calls(mocked, A("reviewed"))).toHaveLength(1);
+      expect(form(calls(mocked, A("reviewed"))[0]!)).toEqual({ delivered_whatsapp: "1" });
+    });
+
     it("can be put off with no after-effect", async () => {
       const user = userEvent.setup();
       const mocked = serve(leaderTask({ can_review: true }), { [A("reviewed")]: () => jsonResponse({ ok: true }) }, "team_lead");

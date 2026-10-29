@@ -945,6 +945,7 @@ export function ReviewButton({ task }: { task: OpsTask }) {
   const { push } = useToasts();
   const finish = useFinishReview(task.code);
   const [asking, setAsking] = useState(false);
+  const [sent, setSent] = useState(false);
   const [problem, setProblem] = useState("");
   if (!task.lead?.can_review) return null;
   // The words of every translator come first: the server refuses a review without them, and says so here before it is pressed.
@@ -964,6 +965,7 @@ export function ReviewButton({ task }: { task: OpsTask }) {
         disabled={waitingForWords}
         onClick={() => {
           setProblem("");
+          setSent(false);
           setAsking(true);
         }}
       >
@@ -973,16 +975,30 @@ export function ReviewButton({ task }: { task: OpsTask }) {
       {asking && (
         <Confirm
           title={t("تأكيد إن المراجعة خلصت؟", "Confirm the review is done?")}
+          body={
+            <label className="picker__row" data-box="review-sent-whatsapp">
+              <input type="checkbox" checked={sent} onChange={(event) => setSent(event.target.checked)} />
+              <span className="grow">
+                {t(
+                  "أنا سلّمتها للعميل بنفسي على واتساب، اقفل التاسك كمسلّمة (السيستم مش هيبعت حاجة)",
+                  "I already sent it to the client myself on WhatsApp: close the task as delivered (nothing is sent)",
+                )}
+              </span>
+            </label>
+          }
           yes={t("أيوه، خلصت", "Yes, it is done")}
           icon="check-circle"
           busy={finish.isPending}
           problem={problem}
           onNo={() => setAsking(false)}
           onYes={() =>
-            finish.mutate(undefined, {
+            finish.mutate({ deliveredWhatsapp: sent }, {
               onSuccess: () => {
                 setAsking(false);
-                push({ level: "success", title: t("المراجعة خلصت", "Review completed") });
+                push({
+                  level: "success",
+                  title: sent ? t("المراجعة خلصت والتاسك اتقفلت كمسلّمة", "Review completed and the task is marked delivered") : t("المراجعة خلصت", "Review completed"),
+                });
               },
               onError: (error) => setProblem(taskProblem(error, t)),
             })

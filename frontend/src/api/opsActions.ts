@@ -378,7 +378,12 @@ export function useAiTranslate(code: string) {
   });
 }
 
-/** «تمت المراجعة»: the review is done and the task goes on to the operation. */
+/**
+ * «تمت المراجعة»: the review is done and the task goes on to the operation. With `deliveredWhatsapp` the leader says he already sent
+ * it to the client himself, so the same press closes it as delivered.
+ */
 export function useFinishReview(code: string) {
-  return useOpsAction<void, { ok: boolean }>(code, () => api<{ ok: boolean }>(`${base(code)}/reviewed/`, { form: {} }));
+  return useOpsAction<{ deliveredWhatsapp?: boolean } | undefined, { ok: boolean }>(code, (values) =>
+    api<{ ok: boolean }>(`${base(code)}/reviewed/`, { form: values?.deliveredWhatsapp ? { delivered_whatsapp: "1" } : {} }),
+  );
 }
