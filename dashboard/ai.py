@@ -62,6 +62,7 @@ SYSTEM_PROMPT = (
     "what the source actually means.\n"
     "If the SOURCE is missing, say so in the summary and set source_seen to false; "
     "then only check the translation on its own.\n"
+    'Inside any JSON string write a quotation mark as \\" and a line break as \\n: quoted words often hold quotation marks.\n'
     "Reply with STRICT JSON only, no markdown fences, in this shape:\n"
     '{"verdict": "accurate|minor_issues|major_issues", "source_seen": true, '
     '"summary_ar": "حكم عام في سطرين بالعربي", "summary_en": "two-line verdict", '
@@ -295,6 +296,56 @@ def _call_claude(conf, prompt, documents=None, feature="check"):
     return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 8000, feature))
 
 
+def _escape_inner_quotes(text):
+    """Escape the ``"`` the model left bare inside a string (a quoted source line that holds quotation marks of its own).
+
+    A quote closes a string only when what follows it is JSON punctuation (``, } ] :``) or the end; any other quote inside a string is
+    part of the words. A reply that was valid already comes out unchanged.
+    """
+    out, in_string, at = [], False, 0
+    while at < len(text):
+        ch = text[at]
+        if not in_string:
+            in_string = ch == '"'
+            out.append(ch)
+        elif ch == "\\" and at + 1 < len(text):
+            out.append(text[at:at + 2])
+            at += 1
+        elif ch == '"':
+            after = text[at + 1:].lstrip()
+            if not after or after[0] in ",}]:":
+                in_string = False
+                out.append(ch)
+            else:
+                out.append('\\"')
+        else:
+            out.append(ch)
+        at += 1
+    return "".join(out)
+
+
+def _salvage(text):
+    """The whole issues the model finished before its reply broke off, or ``None``: better some notes than none."""
+    marker = re.search(r'"issues"\s*:\s*\[', text)
+    if marker is None:
+        return None
+    decoder, at, issues = json.JSONDecoder(), marker.end(), []
+    while True:
+        while at < len(text) and text[at] in " \t\r\n,":
+            at += 1
+        try:
+            one, at = decoder.raw_decode(text, at)
+        except ValueError:
+            break
+        if isinstance(one, dict):
+            issues.append(one)
+    found = {"issues": issues}
+    verdict = re.search(r'"verdict"\s*:\s*"(accurate|minor_issues|major_issues)"', text)
+    if verdict:
+        found["verdict"] = verdict.group(1)
+    return found if issues else None
+
+
 def _parse(text):
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -303,7 +354,18 @@ def _parse(text):
     start, end = cleaned.find("{"), cleaned.rfind("}")
     if start == -1 or end == -1:
         raise ValueError("model did not return JSON")
-    return json.loads(cleaned[start:end + 1])
+    body = cleaned[start:end + 1]
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as broken:
+        repaired = _escape_inner_quotes(body)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            found = _salvage(repaired)
+            if found is None:
+                raise broken
+            return found
 
 
 def is_self_check(check):

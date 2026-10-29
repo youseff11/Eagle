@@ -109,3 +109,34 @@ class WordDocTests(SimpleTestCase):
     def test_a_doc_that_cannot_be_read_is_still_said_so(self):
         text, documents, _names, skipped = doc_review._prepare([("old.doc", b"not word")])
         self.assertEqual((text, documents, skipped), ("", [], ["old.doc"]))
+
+
+class ModelReplyParseTests(SimpleTestCase):
+    """The model's JSON reply: a quoted line that holds quotation marks must not lose the whole review (field: "Expecting ',' delimiter")."""
+
+    GOOD = '{"verdict": "minor_issues", "source_seen": true, "issues": [{"category": "name", "source_excerpt": "%s", "issue_en": "x"}]}'
+
+    def test_a_valid_reply_is_read_as_it_is(self):
+        data = ai._parse(self.GOOD % "plain")
+        self.assertEqual(data["issues"][0]["source_excerpt"], "plain")
+
+    def test_bare_quotation_marks_inside_a_quoted_excerpt_are_kept_as_words(self):
+        data = ai._parse(self.GOOD % 'he said "yes" and left')
+        self.assertEqual(data["issues"][0]["source_excerpt"], 'he said "yes" and left')
+        self.assertEqual(data["verdict"], "minor_issues")
+
+    def test_a_quote_at_the_end_of_an_excerpt_and_escaped_ones_survive(self):
+        data = ai._parse(self.GOOD % 'ends with "quoted"')
+        self.assertEqual(data["issues"][0]["source_excerpt"], 'ends with "quoted"')
+        data = ai._parse(self.GOOD % 'already \\"escaped\\"')
+        self.assertEqual(data["issues"][0]["source_excerpt"], 'already "escaped"')
+
+    def test_a_reply_cut_off_keeps_the_issues_it_finished(self):
+        cut = '{"verdict": "major_issues", "issues": [{"category": "name", "issue_en": "a"}, {"category": "number", "issue_en": "b"}, {"category": "om'
+        data = ai._parse(cut + "}")
+        self.assertEqual([one["issue_en"] for one in data["issues"]], ["a", "b"])
+        self.assertEqual(data["verdict"], "major_issues")
+
+    def test_no_json_at_all_is_still_an_error(self):
+        with self.assertRaises(ValueError):
+            ai._parse("sorry, I cannot")
