@@ -743,3 +743,14 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
   .aireview-history__row { flex-wrap: wrap; }
   .aireview-history__files { flex-basis: 100%; }
 }
+
+/* The team leader's talk with the AI on a task. */
+.aichat__log { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; padding: 10px 0; }
+.aichat__empty { text-align: center; padding: 14px 0; }
+.aichat__line { max-width: 92%; padding: 8px 12px; border-radius: 12px; font-size: .88rem; line-height: 1.6; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 4px; }
+.aichat__line--ai { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+.aichat__line--me { align-self: flex-end; background: var(--brand-soft); color: var(--heading); }
+.aichat__text { white-space: pre-wrap; }
+.aichat__error { color: var(--danger, #e5484d); }
+.aichat__form { display: flex; flex-direction: column; gap: 8px; }
+.aichat__form textarea { resize: vertical; min-height: 54px; }

@@ -7,6 +7,7 @@ import { deadlineClass, OriginBadge, PriorityBadge, StatusBadge } from "../compo
 import { Countdown } from "../components/Countdown";
 import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
+import { AiChatCard } from "../components/ai/AiChatCard";
 import { AiNotesCard } from "../components/ai/AiNotesCard";
 import { AiTranslateBox, AssignTranslatorBox, CloseTranslationButton, DeliveredWhatsappButton, ExtensionBox, LeadSourceFilesBox, PartWordsBox, ReviewButton, ReviewedFilesBox, TranslatorDeadlineBox } from "../components/ops/LeadActions";
 import { AddMemberBox, AssignLeadBox, CancelButton, DeadlineBox, DeliverBox, TakeOverBox } from "../components/ops/TaskActions";
@@ -260,6 +261,7 @@ function Task({ task }: { task: OpsTask }) {
             </div>
           )}
           <PartsCard task={task} />
+          <AiChatCard task={task} />
           {!task.watching && <MessagesCard task={task} />}
         </div>
 

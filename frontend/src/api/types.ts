@@ -568,6 +568,23 @@ export interface TaskFile {
   image: boolean;
 }
 
+/** One line of the team leader's talk with the AI on a task (`api_ops._ai_chat_json`). */
+export interface AiChatLine {
+  id: number;
+  role: "user" | "assistant";
+  body: string;
+  status: "pending" | "done" | "error";
+  at: Stamp | string;
+  file: TaskFile | null;
+}
+
+export interface AiChatResponse {
+  ok: boolean;
+  /** An answer is still being written: ask again. */
+  pending: boolean;
+  messages: AiChatLine[];
+}
+
 export interface AiIssue {
   location?: string;
   severity?: "high" | "medium" | "low";
@@ -1150,6 +1167,8 @@ export interface LeadTools {
   ai_translate?: { running: boolean; can_start: boolean; problem: string | null; failed?: boolean; since?: Stamp | null } | null;
   /** The AI translated it and no translator is on it: nobody to send it back to, the leader corrects it himself. */
   made_by_ai?: boolean;
+  /** The task was given to the AI and this person may write to it (`ai_chat.may_chat`): the chat card has a place. */
+  ai_chat?: boolean;
   /** The client's date, to remind the leader of the review time they keep. */
   client_due: Stamp | null;
   /** The translator's request for more time, waiting for this person's yes or no. */

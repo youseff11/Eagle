@@ -2535,6 +2535,46 @@ class AITranslation(PlayableFile, models.Model):
         return f"{self.task.code} · AI · {self.status}"
 
 
+def upload_ai_chat(instance, filename):
+    from .files import storage_name
+
+    return storage_name("aichat", instance, filename)
+
+
+class AIChatMessage(PlayableFile, models.Model):
+    """One line of the talk between a task's team leader and the AI that translated it (``ai_chat.py``, 29/10/2026).
+
+    The leader writes (and may attach a picture, a PDF or a Word file), the AI answers from the task's files and its own translation.
+    The answer row is written first, ``pending``, and filled by a thread: the page asks again until nothing is pending.
+    """
+
+    class Role(models.TextChoices):
+        USER = "user", "Leader"
+        ASSISTANT = "assistant", "AI"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DONE = "done", "Done"
+        ERROR = "error", "Error"
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="ai_chat")
+    role = models.CharField(max_length=10, choices=Role.choices)
+    sender = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    body = models.TextField(blank=True)
+    file = models.FileField(upload_to=upload_ai_chat, blank=True)
+    original_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DONE)
+    error_message = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+
+    def __str__(self):
+        return f"{self.task.code} · AI chat · {self.role}"
+
+
 class HelpQuestion(models.Model):
     """A question put to the help assistant (``helpbot.py``).
 

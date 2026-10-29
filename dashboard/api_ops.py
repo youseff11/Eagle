@@ -12,7 +12,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 
-from . import ai_translate, api, identity, services, taskstart, wordcount
+from . import ai_chat, ai_translate, api, identity, services, taskstart, wordcount
 from .api_v1 import (
     BadBody, BadIds, _clean_id, _error, _gone, _kind_json, _list, _object, _origin_json, _stamp, _status_json, _task_file_json,
     _text, _two, endpoint,
@@ -370,6 +370,8 @@ def _lead_json(task, user):
         "ai_translate": _ai_translate_json(task, user, in_flight),
         # The AI translated it: there is no translator to send it back to, he corrects it himself.
         "made_by_ai": ai_translate.made_by_ai(task),
+        # He can talk to the AI that has the task (``ai_chat``): said only where the card has a place.
+        "ai_chat": ai_chat.may_chat(task, user),
         "client_due": _stamp(task.deadline, "%Y-%m-%d"),
         "extension": {
             "id": pending.pk,
@@ -943,3 +945,56 @@ def task_ai_translate(request, code):
     except ai_translate.Problem as refused:
         return JsonResponse({"ok": False, "error": refused.text, "code": refused.code}, status=403 if refused.code == "forbidden" else 400)
     return JsonResponse({"ok": True, "id": row.pk})
+
+
+def _ai_chat_json(task):
+    return {
+        "ok": True,
+        "pending": ai_chat.pending(task),
+        "messages": [
+            {
+                "id": line.pk,
+                "role": line.role,
+                "body": line.body,
+                "status": line.status,
+                "at": _stamp(line.created_at, "%H:%M"),
+                "file": _task_file_json(line) if line.file else None,
+            }
+            for line in task.ai_chat.all()
+        ],
+    }
+
+
+def _ai_chat_task(request, code):
+    """The task for the talk with the AI: one this person may not open is a logged 404, one that is not theirs to talk about a 403."""
+    task = get_object_or_404(Task.objects.select_related("client", "team_lead"), code=code)
+    if not task.can_view(request.user):
+        identity.hidden(request, "task")
+    if not ai_chat.may_chat(task, request.user):
+        raise PermissionDenied
+    return task
+
+
+@endpoint("GET")
+@api_role_required(Role.TEAM_LEAD)
+def task_ai_chat(request, code):
+    """The talk between the task's team leader (or the admin) and the AI, oldest first, and whether an answer is still being written.
+
+    Asked again by the page while ``pending``. Nobody else reads it: the operation can open the task, and this is not part of what it
+    is shown.
+    """
+    task = _ai_chat_task(request, code)
+    ai_chat.reap(task)
+    return JsonResponse(_ai_chat_json(task))
+
+
+@endpoint("POST")
+@api_role_required(Role.TEAM_LEAD)
+def task_ai_chat_send(request, code):
+    """A line to the AI: ``text`` and/or one ``file`` (a picture, a PDF, a Word or text file). The answer comes later (``task_ai_chat``)."""
+    task = _ai_chat_task(request, code)
+    try:
+        ai_chat.send(task, request.user, request.POST.get("text", ""), request.FILES.get("file"))
+    except ai_chat.Problem as refused:
+        return JsonResponse({"ok": False, "error": refused.text, "code": refused.code}, status=403 if refused.code == "forbidden" else 400)
+    return JsonResponse(_ai_chat_json(task))

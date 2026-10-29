@@ -34,6 +34,8 @@ export const qk = {
   taskStart: (search: string) => ["task-start", search] as const,
   /** One task as the operation reads it. */
   opsTask: (code: string) => ["boards", "ops-task", code] as const,
+  /** The team leader's talk with the AI on one task. */
+  aiChat: (code: string) => ["ai-chat", code] as const,
   /** Team leaders and who works under each. */
   team: ["boards", "team"] as const,
   /** What technical support has announced: asked again after each send. */

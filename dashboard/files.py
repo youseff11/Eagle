@@ -249,7 +249,7 @@ def owner_of(name):
     that lets this person in.
     """
     from .models import (
-        AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment, ClientRequirement,
+        AIChatMessage, AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment, ClientRequirement,
         MessageAttachment, OutboundAttachment, TaskUpload, User,
     )
 
@@ -265,6 +265,7 @@ def owner_of(name):
     found += [("task_upload", r) for r in _rows(TaskUpload, name, "task", "task__client")]
     found += [("requirement", r) for r in _rows(ClientRequirement, name, "client")]
     found += [("ai_translation", r) for r in _rows(AITranslation, name, "task", "task__client")]
+    found += [("ai_chat", r) for r in _rows(AIChatMessage, name, "task", "task__client")]
     found += [("cv", r) for r in Candidate.objects.filter(cv=name)[:5]]
     found += [("answer", r) for r in CandidateAnswer.objects.filter(file=name)[:5]]
     found += [("test", r) for r in CandidateTest.objects.filter(assignment=name)[:5]]
@@ -295,6 +296,9 @@ def may_open(user, name):
         # reads a translator's file. Not someone merely offered the job: there is nothing of it to translate in this file.
         if kind == "ai_translation" and (user.is_admin_role or row.task.can_view(user)):
             return True, (kind, row)
+        # The leader's talk with the AI is his and the admin's: the operation does not read it, nor does anyone merely offered the job.
+        if kind == "ai_chat" and (user.is_admin_role or (user.is_team_lead and row.task.team_lead_id == user.pk)):
+            return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)
         if kind == "test" and (user.can_recruit or (user.can_review_tests and row.reviewer_id in (None, user.pk))):
@@ -322,7 +326,7 @@ def client_of(kind, row):
         return row.origin_client or row.message.room.relay_client
     if kind == "outbound":
         return row.message.client
-    if kind in ("task_upload", "ai_translation"):
+    if kind in ("task_upload", "ai_translation", "ai_chat"):
         return row.task.client
     if kind == "requirement":
         return row.client
