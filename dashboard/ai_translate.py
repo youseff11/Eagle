@@ -43,7 +43,7 @@ MAX_TOKENS = 32000
 STALE_MINUTES = 30
 
 #: Kinds of source file the model is given as text (``ai.extract_text``) - the rest it reads itself (``ai.media_type_of``).
-TEXT_SUFFIXES = (".docx", ".txt", ".md", ".csv", ".tsv", ".json", ".srt", ".vtt", ".html", ".htm")
+TEXT_SUFFIXES = (".docx", ".doc", ".txt", ".md", ".csv", ".tsv", ".json", ".srt", ".vtt", ".html", ".htm")
 #: Languages written right to left: the Word file's paragraphs are set that way when the target is one of them.
 RTL_LANGUAGES = {
     "ar", "ara", "arabic", "عربي", "عربى", "العربية", "العربيه", "he", "heb", "hebrew", "fa", "fas", "per", "persian", "farsi",

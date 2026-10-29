@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 import zipfile
 
-from . import claude_usage, net
+from . import claude_usage, net, worddoc
 from .models import AICheckResult, AppSettings, AssignmentStatus, Role
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,8 @@ def text_from_bytes(raw, name):
     name = (name or "").lower()
     if name.endswith(".docx"):
         return _docx_text(raw)
+    if name.endswith(".doc"):
+        return worddoc.text(raw)
     if name.endswith((".txt", ".md", ".csv", ".tsv", ".json", ".srt", ".vtt", ".html", ".htm")):
         text = raw.decode("utf-8", errors="ignore")
         if name.endswith((".html", ".htm")):
