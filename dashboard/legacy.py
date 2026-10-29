@@ -199,6 +199,8 @@ PAGES = (
     ("ops/team/", "ops_team", "/team", None, None),
     ("lead/", "lead_home", "/lead", None, _lead),
     ("lead/translators/", "lead_translators", "/lead/translators", None, _lead),
+    # The AI-review notifications stored before 29/10/2026 carry this address without /app.
+    ("lead/ai-review/", "lead_ai_review", "/lead/ai-review", None, _lead),
     ("translator/", "translator_home", "/translator", None, _translator),
     ("translator/payroll/", "translator_payroll", "/payroll", _payslip, _translator),
     ("assignments/<int:pk>/", "assignment_preview", "/assignments/{pk}", None, _translator),

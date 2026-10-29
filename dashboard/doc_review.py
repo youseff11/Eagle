@@ -231,5 +231,5 @@ def _tell(row):
         body_ar, body_en = "المراجعة البشرية لسه مطلوبة.", "Your own review still stands."
     services.notify(
         row.created_by, title_ar=title_ar, title_en=title_en, body_ar=body_ar, body_en=body_en, level=level,
-        url="/lead/ai-review", sound=bool(count),
+        url="/app/lead/ai-review", sound=bool(count),
     )

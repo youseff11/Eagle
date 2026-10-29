@@ -43,7 +43,7 @@ class EveryOldAddressTests(_Door):
             kwargs = {key: value for key, value in self.ARGS.items() if f"<{'int' if key != 'code' else 'str'}:{key}>" in route}
             args = [kwargs[key] for key in ("pk", "code", "room_id", "user_id") if key in kwargs]
             who = self.admin
-            if name in ("lead_home", "lead_translators"):
+            if name in ("lead_home", "lead_translators", "lead_ai_review"):
                 who = self.lead
             elif name in ("translator_home", "translator_payroll", "assignment_preview"):
                 who = self.tr
