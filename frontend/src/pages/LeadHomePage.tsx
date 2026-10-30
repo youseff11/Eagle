@@ -1,12 +1,17 @@
+import { useState } from "react";
 import { Loading } from "../components/Loading";
 import { Link, Navigate } from "react-router";
+import { useLeadDeliveredWhatsapp } from "../api/opsActions";
 import { useLeadHome, useMe } from "../api/queries";
 import type { LeadHome, OpsTaskRow } from "../api/types";
 import { deadlineClass, OriginBadge, Rating, StatusBadge } from "../components/Badges";
+import { Confirm } from "../components/Confirm";
 import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { Presence } from "../components/Presence";
+import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
+import { taskProblem } from "../lib/taskProblem";
 
 function Counters({ counters }: { counters: LeadHome["counters"] }) {
   const { t } = usePreferences();
@@ -32,8 +37,59 @@ function Counters({ counters }: { counters: LeadHome["counters"] }) {
   );
 }
 
+/**
+ * «تم التسليم واتساب» on a reviewed task's row (30/10/2026): he sent it to the client himself, so after the «تأكيد» it is closed as
+ * delivered and nothing is sent (`api_ops.task_delivered_whatsapp`, the same door as the button on the task's page).
+ */
+function DeliveredWhatsapp({ code }: { code: string }) {
+  const { t } = usePreferences();
+  const { push } = useToasts();
+  const done = useLeadDeliveredWhatsapp(code);
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState("");
+  return (
+    <>
+      <button
+        className="btn btn--sm btn--ok"
+        type="button"
+        data-box="delivered-whatsapp"
+        onClick={() => {
+          setProblem("");
+          setAsking(true);
+        }}
+      >
+        <Icon name="check" size="sm" />
+        <span>{t("تم التسليم واتساب", "Delivered via WhatsApp")}</span>
+      </button>
+      {asking && (
+        <Confirm
+          title={t(`${code} اتسلمت للعميل على واتساب؟`, `Was ${code} delivered to the client on WhatsApp?`)}
+          body={t(
+            "السيستم مش هيبعت حاجة للعميل. التاسك هتتقفل كمسلّمة وتتحاسب زي أي تاسك اتسلمت.",
+            "Nothing is sent to the client. The task is closed as delivered and is paid like any delivered task.",
+          )}
+          yes={t("تم التسليم", "Mark delivered")}
+          icon="check"
+          busy={done.isPending}
+          problem={problem}
+          onNo={() => setAsking(false)}
+          onYes={() =>
+            done.mutate(undefined, {
+              onSuccess: () => {
+                setAsking(false);
+                push({ level: "success", title: t("التاسك اتقفلت كمسلّمة", "Task marked delivered") });
+              },
+              onError: (error) => setProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
+    </>
+  );
+}
+
 /** What the leader does with a task, said on its button: hand it out, review it, or just open it. */
-function Row({ task }: { task: OpsTaskRow }) {
+function Row({ task, canDeliver }: { task: OpsTaskRow; canDeliver: boolean }) {
   const { t, lang } = usePreferences();
   const status = task.status.value;
   const primary = status === "lead_accepted" || status === "under_review";
@@ -52,9 +108,12 @@ function Row({ task }: { task: OpsTaskRow }) {
       </td>
       <td className={`mono ${deadlineClass(task.due_state)}`}>{due ?? "—"}</td>
       <td>
-        <Link className={`btn btn--sm${primary ? " btn--primary" : ""}`} to={`/tasks/${encodeURIComponent(task.code)}`}>
-          {status === "lead_accepted" ? t("وزّع على مترجم", "Assign a translator") : status === "under_review" ? t("راجع الترجمة", "Review") : t("افتح", "Open")}
-        </Link>
+        <div className="row">
+          <Link className={`btn btn--sm${primary ? " btn--primary" : ""}`} to={`/tasks/${encodeURIComponent(task.code)}`}>
+            {status === "lead_accepted" ? t("وزّع على مترجم", "Assign a translator") : status === "under_review" ? t("راجع الترجمة", "Review") : t("افتح", "Open")}
+          </Link>
+          {canDeliver && status === "reviewed" && <DeliveredWhatsapp code={task.code} />}
+        </div>
       </td>
     </tr>
   );
@@ -109,7 +168,7 @@ export function LeadHomePage() {
                 </thead>
                 <tbody>
                   {data.tasks.map((task) => (
-                    <Row key={task.code} task={task} />
+                    <Row key={task.code} task={task} canDeliver={me.data?.user.role === "team_lead"} />
                   ))}
                   {data.tasks.length === 0 && (
                     <tr>

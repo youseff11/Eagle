@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LeadBoard, LeadHome, LeadPerson, OpsTaskRow, Role } from "../api/types";
-import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
+import { jsonResponse, me, mockFetch, renderWithProviders, type Routes as FetchRoutes } from "../test/helpers";
 import { LeadBoardPage } from "./LeadBoardPage";
+import { ToastProvider } from "../components/Toasts";
 import { LeadHomePage } from "./LeadHomePage";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -50,8 +51,9 @@ function home(over: Partial<LeadHome> = {}): LeadHome {
   };
 }
 
-function serveHome(body: () => LeadHome | Response, who: Role = "team_lead") {
+function serveHome(body: () => LeadHome | Response, who: Role = "team_lead", more: FetchRoutes = {}) {
   const mocked = mockFetch({
+    ...more,
     "/api/v1/me/": () => jsonResponse(me({ role: who, is_admin: who === "admin" })),
     // The board's own address starts like the home's: the tests that follow the link must not be answered with the home.
     "/api/v1/lead/translators/": () => jsonResponse({ ok: false, error: "not_found" }, 404),
@@ -66,12 +68,14 @@ function serveHome(body: () => LeadHome | Response, who: Role = "team_lead") {
 
 function open(route: string, lang: "ar" | "en" = "ar") {
   return renderWithProviders(
-    <Routes>
-      <Route path="/lead" element={<LeadHomePage />} />
-      <Route path="/lead/translators" element={<LeadBoardPage />} />
-      <Route path="/tasks/:code" element={<div>one task page</div>} />
-      <Route path="/" element={<div>home page</div>} />
-    </Routes>,
+    <ToastProvider>
+      <Routes>
+        <Route path="/lead" element={<LeadHomePage />} />
+        <Route path="/lead/translators" element={<LeadBoardPage />} />
+        <Route path="/tasks/:code" element={<div>one task page</div>} />
+        <Route path="/" element={<div>home page</div>} />
+      </Routes>
+    </ToastProvider>,
     { route, lang },
   );
 }
@@ -115,6 +119,37 @@ describe("LeadHomePage", () => {
     expect(button("TSK-00002")).toHaveClass("btn--primary");
     expect(button("TSK-00003")).toHaveTextContent("راجع الترجمة");
     expect(button("TSK-00003")).toHaveClass("btn--primary");
+  });
+
+  describe("«تم التسليم واتساب» on a reviewed task (30/10/2026)", () => {
+    const HAND = "/api/v1/tasks/TSK-00004/delivered-whatsapp/";
+    const reviewed = () =>
+      home({ tasks: [...home().tasks, row("TSK-00004", { status: STATUS("reviewed", "بانتظار التسليم للعميل", "Awaiting delivery", "wait") })] });
+    const serveWith = (who: Role = "team_lead") => {
+      return serveHome(() => reviewed(), who, { [HAND]: () => jsonResponse({ ok: true, status: "delivered", channel: "whatsapp", files: 0 }) });
+    };
+    const posted = (mocked: ReturnType<typeof serveHome>) => mocked.calls.filter((call) => call.url === HAND);
+
+    it("is offered on the reviewed row only, and nothing is sent before the «تأكيد»", async () => {
+      const user = userEvent.setup();
+      const mocked = serveWith();
+      const { container } = open("/lead");
+      await screen.findByText("TSK-00004");
+      expect(container.querySelectorAll('[data-box="delivered-whatsapp"]')).toHaveLength(1);
+      expect(within(container.querySelector('[data-task="TSK-00004"]') as HTMLElement).getByRole("button", { name: "تم التسليم واتساب" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "تم التسليم واتساب" }));
+      expect(posted(mocked)).toHaveLength(0);
+      await user.click(screen.getByRole("button", { name: "تم التسليم" }));
+      expect(await screen.findByText("التاسك اتقفلت كمسلّمة")).toBeInTheDocument();
+      expect(posted(mocked)).toHaveLength(1);
+    });
+
+    it("is not offered to the admin looking at the board", async () => {
+      serveWith("admin");
+      const { container } = open("/lead");
+      await screen.findByText("TSK-00004");
+      expect(container.querySelector('[data-box="delivered-whatsapp"]')).toBeNull();
+    });
   });
 
   it("opens a task on its page in the app", async () => {
