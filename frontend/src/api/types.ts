@@ -2000,13 +2000,30 @@ export interface HrRegister {
     seen: Stamp;
     /** `null` for the owner: they have no roster and no rating, which is not a nought. */
     shifts: number | null;
+    /** The company shift they are on and the weekdays they work it; `null` for the owner, technical support and the deleted. */
+    shift: {
+      /** `null`: on no company shift. */
+      id: number | null;
+      label: string | null;
+      start: AdminTime | null;
+      end: AdminTime | null;
+      days: number[];
+      /** Some of their roster is typed times, not a company shift: choosing a shift replaces it. */
+      custom: boolean;
+    } | null;
     rating: number | null;
     /** Stars that came off and wait for HR or the admin to apply or forgive them. */
     penalties_waiting: number;
     username?: string;
     mail_alias?: string;
   }[];
-  options: { departments: { id: number; label: string }[]; statuses: DayStatusJson[] };
+  /** The right to change a person's shift from the list (`can_manage_attendance`). */
+  can_shift: boolean;
+  options: {
+    departments: { id: number; label: string }[];
+    statuses: DayStatusJson[];
+    shifts: { id: number; label: string; start: AdminTime | null; end: AdminTime | null }[];
+  };
 }
 
 /** GET /api/v1/hr/employees/<id>/. */

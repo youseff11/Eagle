@@ -30,10 +30,11 @@ function register(over: Partial<HrRegister> = {}): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 11, code: "EMP-0042", name: "Sam", initials: "S", avatar: null, role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", team_lead: "Mona", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: 2, rating: 4.5 , penalties_waiting: 0},
-      { id: 12, code: "", name: "Nada", initials: "N", avatar: null, role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, team_lead: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation, state: "off", seen: stampOf("من ساعة", "1 h ago"), shifts: 0, rating: 5 , penalties_waiting: 0},
+      { id: 11, code: "EMP-0042", name: "Sam", initials: "S", avatar: null, role: { value: "translator", ar: "مترجم", en: "Translator" }, department: "اللغويات", team_lead: "Mona", employment: { value: "full_time", ar: "دوام كامل", en: "Full time" }, joining_date: "2025-01-05", status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: 2, shift: null, rating: 4.5 , penalties_waiting: 0},
+      { id: 12, code: "", name: "Nada", initials: "N", avatar: null, role: { value: "operation", ar: "أوبريشن", en: "Operation" }, department: null, team_lead: null, employment: { value: "part_time", ar: "دوام جزئي", en: "Part time" }, joining_date: null, status: onProbation, state: "off", seen: stampOf("من ساعة", "1 h ago"), shifts: 0, shift: null, rating: 5 , penalties_waiting: 0},
     ],
-    options: { departments: [{ id: 3, label: "اللغويات" }], statuses: [confirmed, onProbation] },
+    options: { departments: [{ id: 3, label: "اللغويات" }], statuses: [confirmed, onProbation], shifts: [] },
+    can_shift: false,
     ...over,
   };
 }

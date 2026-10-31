@@ -117,6 +117,13 @@ export function usePickHrShift(id: number) {
   return useWrite<ShiftChoiceBody, { ok: true; label: string }>((body) => api(`/api/v1/hr/employees/${id}/shift/`, { json: body }));
 }
 
+/** The same, for whichever person's row of the staff list was touched (the id comes with the choice). */
+export function usePickStaffShift() {
+  return useWrite<{ id: number; choice: ShiftChoiceBody }, { ok: true; label: string }>(({ id, choice }) =>
+    api(`/api/v1/hr/employees/${id}/shift/`, { json: choice }),
+  );
+}
+
 /** Home or office, from the employee's file. */
 export function useSetWorkMode(id: number) {
   return useWrite<string, { ok: true }>((mode) => api(`/api/v1/hr/employees/${id}/work-mode/`, { json: { work_mode: mode } }));

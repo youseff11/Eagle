@@ -130,7 +130,7 @@ def register(request):
     """
     admin = request.user.is_admin_role
     rows = (
-        User.objects.select_related("department", "team_lead").prefetch_related("shifts")
+        User.objects.select_related("department", "team_lead").prefetch_related("shifts__template")
         .annotate(penalties_waiting=Count("rating_events", filter=Q(rating_events__decision=RatingEvent.Decision.PENDING)))
     )
     if not admin:
@@ -167,6 +167,7 @@ def register(request):
                 "seen": _seen_json(one),
                 # The owner has no roster and no rating: there is nothing to count, which is not a nought.
                 "shifts": len(one.shifts.all()) if one.follows_company_rules else None,
+                "shift": _roster_shift(one) if one.follows_company_rules and not one.is_deleted else None,
                 "rating": float(one.rating) if one.follows_company_rules else None,
                 # Stars that came off and wait for HR or the admin to apply or forgive them.
                 "penalties_waiting": one.penalties_waiting if one.follows_company_rules else 0,
@@ -174,11 +175,40 @@ def register(request):
             }
             for one in rows
         ],
+        # Whether the list's shift boxes can be changed: the same right as the shift card on a person's file.
+        "can_shift": request.user.can_manage_attendance,
         "options": {
             "departments": [{"id": one.pk, "label": one.label} for one in Department.objects.filter(is_active=True)],
             "statuses": [_badge(EMPLOYMENT_STATUS_MAP, value) for value, _label_ in EmploymentStatus.choices],
+            "shifts": shiftpick.picker_json_templates(),
         },
     })
+
+
+def _roster_shift(person):
+    """Which company shift a person is on and the weekdays they work it, read from the rows the register already loaded.
+
+    Same reading as ``attendance.current_template`` and ``shiftpick.picker_json`` (the shift most active rows point at; the days
+    of the active rows, or the default week when there are none) without a query for each person. ``custom`` says some active row
+    is typed times, not a company shift: choosing a shift from the list replaces them, as the card on the file does.
+    """
+    rows = [one for one in person.shifts.all() if one.is_active]
+    counts = {}
+    for one in rows:
+        if one.template_id:
+            counts[one.template_id] = counts.get(one.template_id, 0) + 1
+    template = None
+    if counts:
+        best = max(counts, key=counts.get)
+        template = next(one.template for one in rows if one.template_id == best)
+    return {
+        "id": template.pk if template else None,
+        "label": template.label if template else None,
+        "start": shiftpick.time_json(template.start_time) if template else None,
+        "end": shiftpick.time_json(template.end_time) if template else None,
+        "days": sorted({one.weekday for one in rows}) or list(attendance.DEFAULT_WORKDAYS),
+        "custom": any(one.template_id is None for one in rows),
+    }
 
 
 def _work_mode_card(person):

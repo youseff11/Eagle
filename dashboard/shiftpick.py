@@ -52,7 +52,7 @@ def choose(person, raw, weekdays, *, new_name="", new_start="", new_end="", acto
     return "", template
 
 
-def _time_json(value):
+def time_json(value):
     """A time of day in both languages (Cairo, twelve hours), or ``None``."""
     return {"ar": clock.fmt12(value, "ar"), "en": clock.fmt12(value, "en")} if value else None
 
@@ -68,12 +68,17 @@ def picker_json(person):
     return {
         "current": current.pk if current else None,
         "has_custom": person.shifts.filter(template__isnull=True).exists(),
-        "templates": [
-            {"id": template.pk, "label": template.label, "start": _time_json(template.start_time), "end": _time_json(template.end_time)}
-            for template in ShiftTemplate.objects.filter(is_active=True)
-        ],
+        "templates": picker_json_templates(),
         "days": days,
     }
+
+
+def picker_json_templates():
+    """The company's active shifts, with their hours in both languages: what a shift is picked from."""
+    return [
+        {"id": template.pk, "label": template.label, "start": time_json(template.start_time), "end": time_json(template.end_time)}
+        for template in ShiftTemplate.objects.filter(is_active=True)
+    ]
 
 
 def read_choice(body):

@@ -1,5 +1,7 @@
 import { Link, Navigate, useSearchParams } from "react-router";
+import { usePickStaffShift } from "../api/hrActions";
 import { useHrPenalties, useHrRegister } from "../api/queries";
+import type { HrRegister } from "../api/types";
 import { Waiting } from "../components/accounts/shared";
 import { Avatar } from "../components/Avatar";
 import { Rating } from "../components/Badges";
@@ -10,9 +12,82 @@ import { Icon } from "../components/Icon";
 import { PersonName } from "../components/PersonName";
 import { LevelBadge } from "../components/hr/LevelBadge";
 import { Presence } from "../components/Presence";
+import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
 
 const FILTERS = ["department", "status", "deleted"] as const;
+
+const NONE = "";
+const CUSTOM = "custom";
+
+/**
+ * One person's shift in the list: the company shift they are on, and (for whoever may run attendance) a box that moves them to
+ * another at once. They keep the weekdays they work; "no shift" clears the roster, and a roster of typed times is shown as such
+ * and replaced when a shift is chosen, exactly as on their file.
+ */
+function ShiftCell({
+  row,
+  shifts,
+  canShift,
+}: {
+  row: HrRegister["rows"][number];
+  shifts: HrRegister["options"]["shifts"];
+  canShift: boolean;
+}) {
+  const { t, lang } = usePreferences();
+  const { push } = useToasts();
+  const pick = usePickStaffShift();
+  const shift = row.shift;
+  if (!shift) return <span className="muted">—</span>;
+  const time = (value: { ar: string; en: string } | null) => (value ? (lang === "ar" ? value.ar : value.en) : "");
+  const hours = (one: { start: { ar: string; en: string } | null; end: { ar: string; en: string } | null }) => `${time(one.start)} – ${time(one.end)}`;
+  const current = shift.id !== null ? String(shift.id) : shift.custom ? CUSTOM : NONE;
+  if (!canShift || row.deleted_at) {
+    return shift.id !== null ? (
+      <div>
+        <b>{shift.label}</b>
+        <div>
+          <small className="muted mono">{hours(shift)}</small>
+        </div>
+      </div>
+    ) : (
+      <span className="muted">{shift.custom ? t("جدول مخصص", "Custom schedule") : "—"}</span>
+    );
+  }
+  const change = (value: string) => {
+    if (value === CUSTOM || value === current) return;
+    pick.mutate(
+      { id: row.id, choice: { template: value, weekdays: shift.days, new_name: "", new_start: "", new_end: "" } },
+      {
+        onSuccess: (answer) =>
+          push({ level: "success", title: `${row.name}: ${answer.label || t("اتشال الشيفت", "The shift was taken off")}` }),
+        onError: () => push({ level: "danger", title: t("الشيفت ماتغيّرش.", "The shift was not changed.") }),
+      },
+    );
+  };
+  return (
+    <select
+      className="input"
+      data-shift-of={row.id}
+      aria-label={`${t("الشيفت", "Shift")}: ${row.name}`}
+      value={current}
+      disabled={pick.isPending}
+      onChange={(event) => change(event.target.value)}
+    >
+      <option value={NONE}>{t("من غير شيفت", "No shift")}</option>
+      {shifts.map((one) => (
+        <option key={one.id} value={String(one.id)}>
+          {one.label} ({hours(one)})
+        </option>
+      ))}
+      {shift.custom && shift.id === null && (
+        <option value={CUSTOM} disabled>
+          {t("جدول مخصص", "Custom schedule")}
+        </option>
+      )}
+    </select>
+  );
+}
 
 /**
  * Everybody on the staff, in one list: HR's columns (role, department, kind of work, status) and the staff table's (leader, whether they
@@ -107,7 +182,7 @@ export function HrEmployeesPage() {
                 <th>{t("تاريخ الانضمام", "Joined")}</th>
                 <th>{t("الحالة", "Status")}</th>
                 <th>{t("التواجد", "Presence")}</th>
-                <th>{t("الشيفتات", "Shifts")}</th>
+                <th>{t("الشيفت", "Shift")}</th>
                 <th>{t("التقييم", "Rating")}</th>
                 {isAdmin && <th>{t("بيستقبل ميلات", "Receives mail for")}</th>}
               </tr>
@@ -144,7 +219,9 @@ export function HrEmployeesPage() {
                     <LeaveStatusBadge status={row.status} />
                   </td>
                   <td>{row.deleted_at ? <span className="badge badge--dead">{t("اتمسح", "Deleted")} <span className="mono">{t(row.deleted_at.ar, row.deleted_at.en)}</span></span> : row.state === "disabled" ? <span className="badge badge--dead">{t("موقوف", "Disabled")}</span> : <Presence state={row.state} seen={row.seen} />}</td>
-                  <td className="mono">{row.shifts ?? "—"}</td>
+                  <td>
+                    <ShiftCell row={row} shifts={data.options.shifts} canShift={data.can_shift} />
+                  </td>
                   <td>
                     {row.rating === null ? "—" : <Rating value={row.rating} />}
                     {row.penalties_waiting > 0 && (

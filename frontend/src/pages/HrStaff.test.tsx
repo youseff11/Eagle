@@ -114,11 +114,12 @@ function register(): HrRegister {
   return {
     ok: true,
     rows: [
-      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 PM", "5:30 PM"), shifts: 3, rating: 4.5, penalties_waiting: 0, username: "sam", mail_alias: "" },
-      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 PM", "5:31 PM"), shifts: 0, rating: 5, penalties_waiting: 0, username: "nour", mail_alias: "ops1@example.com" },
-      { id: 7, code: "", name: "Old Timer", initials: "OT", role: { value: "hr", ar: "موارد بشرية", en: "HR" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "disabled", seen: stampOf("من يومين", "2 d ago"), shifts: 1, rating: 3.25, penalties_waiting: 0, username: "old", mail_alias: "" },
+      { id: 5, code: "EMP-0005", name: "Sam Adel", initials: "SA", role: translator, department: "اللغويات", team_lead: "Mona", employment: fullTime, joining_date: "2025-01-05", status: confirmed, state: "busy", seen: stampOf("5:30 PM", "5:30 PM"), shifts: 3, shift: null, rating: 4.5, penalties_waiting: 0, username: "sam", mail_alias: "" },
+      { id: 6, code: "", name: "Nour Ops", initials: "NO", role: operation, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("5:31 PM", "5:31 PM"), shifts: 0, shift: null, rating: 5, penalties_waiting: 0, username: "nour", mail_alias: "ops1@example.com" },
+      { id: 7, code: "", name: "Old Timer", initials: "OT", role: { value: "hr", ar: "موارد بشرية", en: "HR" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "disabled", seen: stampOf("من يومين", "2 d ago"), shifts: 1, shift: null, rating: 3.25, penalties_waiting: 0, username: "old", mail_alias: "" },
     ],
-    options: { departments: [], statuses: [confirmed] },
+    options: { departments: [], statuses: [confirmed], shifts: [] },
+    can_shift: false,
   };
 }
 
@@ -161,7 +162,7 @@ describe("the register as the staff list", () => {
     expect(within(sam).getByText("EMP-0005 · sam")).toHaveClass("mono");
     expect(within(sam).getByText("مترجم")).toHaveClass("chip");
     expect(within(sam).getByText("Mona")).toBeInTheDocument();
-    expect(within(sam).getByText("3")).toHaveClass("mono");
+    expect(sam.querySelector("[data-shift-of]")).toBeNull();
     const nour = container.querySelector('[data-person="6"]') as HTMLElement;
     expect(within(nour).getByText("ops1@example.com")).toBeInTheDocument();
     expect(within(nour).getByText("nour")).toBeInTheDocument();
@@ -710,7 +711,7 @@ describe("the owner is not bound by the company's rules", () => {
 
   it("shows a dash for the owner's shifts and rating in the list, and the figures for everybody else", async () => {
     const list = register();
-    list.rows.push({ id: 1, code: "", name: "Eagle Admin", initials: "EA", role: { value: "admin", ar: "أدمن", en: "Admin" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: null, rating: null, penalties_waiting: 0, username: "boss", mail_alias: "" });
+    list.rows.push({ id: 1, code: "", name: "Eagle Admin", initials: "EA", role: { value: "admin", ar: "أدمن", en: "Admin" }, department: null, team_lead: null, employment: fullTime, joining_date: null, status: confirmed, state: "free", seen: stampOf("الآن", "now"), shifts: null, shift: null, rating: null, penalties_waiting: 0, username: "boss", mail_alias: "" });
     serve("admin", { "/api/v1/hr/employees/": () => jsonResponse(list) });
     const { container } = open("/hr/employees");
     await screen.findByText("Eagle Admin");
@@ -720,7 +721,63 @@ describe("the owner is not bound by the company's rules", () => {
     expect(cells.filter((text) => text === "—").length).toBeGreaterThanOrEqual(2);
     const sam = container.querySelector('[data-person="5"]') as HTMLElement;
     expect(sam.querySelector(".rating")).not.toBeNull();
-    expect(within(sam).getByText("3")).toHaveClass("mono");
+    expect(within(sam).getByText("4.50")).toBeInTheDocument();
+  });
+});
+
+describe("the shift in the list", () => {
+  const morning = { id: 2, label: "الشيفت 1", start: stampOf("9:00 AM", "9:00 AM"), end: stampOf("5:00 PM", "5:00 PM") };
+  const evening = { id: 3, label: "الشيفت 2", start: stampOf("12:00 PM", "12:00 PM"), end: stampOf("8:00 PM", "8:00 PM") };
+  const listOf = (canShift: boolean) => {
+    const list = register();
+    list.can_shift = canShift;
+    list.options.shifts = [morning, evening];
+    list.rows[0]!.shift = { ...morning, days: [5, 6, 0, 1, 2, 3], custom: false };
+    list.rows[1]!.shift = { id: null, label: null, start: null, end: null, days: [5, 6, 0, 1, 2, 3], custom: true };
+    list.rows[2]!.shift = { id: null, label: null, start: null, end: null, days: [5, 6, 0, 1, 2, 3], custom: false };
+    return list;
+  };
+  const box = (container: HTMLElement, id: number) => container.querySelector(`[data-shift-of="${id}"]`) as HTMLSelectElement;
+
+  it("says which shift each person is on, and moves them to another in one pick, keeping their days", async () => {
+    const user = userEvent.setup();
+    const served = serve("admin", {
+      "/api/v1/hr/employees/5/shift/": (url, init) => served.record(url, init, { ok: true, label: "الشيفت 2" }),
+      "/api/v1/hr/employees/": () => jsonResponse(listOf(true)),
+    });
+    const { container } = open("/hr/employees");
+    await screen.findByText("Sam Adel");
+    expect(box(container, 5).value).toBe("2");
+    expect(box(container, 6).value).toBe("custom");
+    expect(box(container, 7).value).toBe("");
+    await user.selectOptions(box(container, 5), "3");
+    await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/hr/employees/5/shift/")).toBe(true));
+    expect(served.sent.find((post) => post.url === "/api/v1/hr/employees/5/shift/")!.body).toEqual({
+      template: "3", weekdays: [5, 6, 0, 1, 2, 3], new_name: "", new_start: "", new_end: "",
+    });
+  });
+
+  it("takes a person off their shift with the no-shift choice", async () => {
+    const user = userEvent.setup();
+    const served = serve("admin", {
+      "/api/v1/hr/employees/5/shift/": (url, init) => served.record(url, init, { ok: true, label: "" }),
+      "/api/v1/hr/employees/": () => jsonResponse(listOf(true)),
+    });
+    const { container } = open("/hr/employees");
+    await screen.findByText("Sam Adel");
+    await user.selectOptions(box(container, 5), "");
+    await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/hr/employees/5/shift/")).toBe(true));
+    expect(served.sent.find((post) => post.url === "/api/v1/hr/employees/5/shift/")!.body).toMatchObject({ template: "" });
+  });
+
+  it("is only read when the viewer may not run attendance, and the owner has none", async () => {
+    serve("admin", { "/api/v1/hr/employees/": () => jsonResponse(listOf(false)) });
+    const { container } = open("/hr/employees");
+    await screen.findByText("Sam Adel");
+    expect(container.querySelector("[data-shift-of]")).toBeNull();
+    const sam = container.querySelector('[data-person="5"]') as HTMLElement;
+    expect(within(sam).getByText("الشيفت 1")).toBeInTheDocument();
+    expect(within(sam).getByText("9:00 AM – 5:00 PM")).toBeInTheDocument();
   });
 });
 

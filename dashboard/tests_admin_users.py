@@ -114,6 +114,53 @@ class RegisterTests(_Staff):
         row = next(one for one in self.rows() if one["id"] == self.ops.pk)
         self.assertEqual((row["mail_alias"], row["shifts"]), ("ops1@example.com", 2))
 
+    def two_shifts(self):
+        morning = ShiftTemplate.objects.create(name="S1", name_ar="الشيفت 1", start_time=time(9), end_time=time(17), sort_order=1)
+        evening = ShiftTemplate.objects.create(name="S2", name_ar="الشيفت 2", start_time=time(12), end_time=time(20), sort_order=2)
+        return morning, evening
+
+    def body(self, who=None):
+        browser = DjangoClient()
+        browser.force_login(who or self.admin)
+        return _json(browser.get(reverse(REGISTER)))
+
+    def test_each_row_says_which_company_shift_the_person_is_on_and_their_days(self):
+        morning, evening = self.two_shifts()
+        attendance.assign_shift(self.tr, evening, [5, 6, 0])
+        row = next(one for one in self.rows() if one["id"] == self.tr.pk)
+        self.assertEqual(row["shift"]["id"], evening.pk)
+        self.assertEqual((row["shift"]["label"], row["shift"]["days"], row["shift"]["custom"]), (evening.label, [0, 5, 6], False))
+        self.assertEqual(row["shift"]["start"]["en"], "12:00 PM")
+        nobody = next(one for one in self.rows() if one["id"] == self.ops.pk)
+        self.assertEqual((nobody["shift"]["id"], nobody["shift"]["custom"]), (None, False))
+        self.assertEqual(nobody["shift"]["days"], list(attendance.DEFAULT_WORKDAYS))
+        self.assertIn(morning.pk, [one["id"] for one in self.body()["options"]["shifts"]])
+
+    def test_typed_times_are_a_custom_schedule_and_the_owner_has_no_shift(self):
+        Shift.objects.create(user=self.ops, weekday=0, start_time=time(9), end_time=time(17))
+        rows = {one["id"]: one for one in self.rows()}
+        self.assertEqual((rows[self.ops.pk]["shift"]["id"], rows[self.ops.pk]["shift"]["custom"]), (None, True))
+        self.assertIsNone(rows[self.admin.pk]["shift"])
+
+    def test_the_right_to_change_a_shift_from_the_list_is_the_right_to_run_attendance(self):
+        self.assertIs(self.body(self.admin)["can_shift"], True)
+        self.assertIs(self.body(self.hr)["can_shift"], True)
+
+    def test_a_pick_from_the_list_moves_the_person_and_keeps_their_days(self):
+        morning, evening = self.two_shifts()
+        attendance.assign_shift(self.tr, morning, [5, 6, 0])
+        row = next(one for one in self.rows(self.hr) if one["id"] == self.tr.pk)
+        answer = self.post(self.hr, PICK, {"template": str(evening.pk), "weekdays": row["shift"]["days"], "new_name": "", "new_start": "", "new_end": ""}, [self.tr.pk])
+        self.assertEqual(answer.status_code, 200, answer.content)
+        after = next(one for one in self.rows(self.hr) if one["id"] == self.tr.pk)
+        self.assertEqual((after["shift"]["id"], after["shift"]["days"]), (evening.pk, [0, 5, 6]))
+
+    def test_a_person_who_cannot_run_attendance_is_not_answered_by_the_pick(self):
+        morning, _evening = self.two_shifts()
+        answer = self.post(self.ops, PICK, {"template": str(morning.pk), "weekdays": [0], "new_name": "", "new_start": "", "new_end": ""}, [self.tr.pk])
+        self.assertEqual(answer.status_code, 403)
+        self.assertFalse(Shift.objects.filter(user=self.tr).exists())
+
     def test_the_state_of_each_person_is_what_the_model_says(self):
         now = timezone.now()
         for person in (self.tr, self.lead, self.ops):
