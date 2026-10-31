@@ -43,19 +43,64 @@ export function useFormEdits(fields: FormField[] | undefined) {
   return { edited, set, valueOf, reset, dirty: Object.keys(edited).length > 0 };
 }
 
-/** The fields only a translator has: the leader they report to and their level. */
-const TRANSLATOR_ONLY = ["team_lead", "translator_level"];
+/** Roles that do not clock in, have no roster and no pay: the owner and technical support (`User.follows_company_rules`). */
+const OUTSIDE_RULES = ["admin", "support"];
+const ALL_ROLES = ["admin", "operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales", "support"];
+const INSIDE_RULES = ALL_ROLES.filter((role) => !OUTSIDE_RULES.includes(role));
 
 /**
- * A staff form without the translator's own settings until the role box says translator. The ones left out are also left out
- * of what a save carries (`dropped`), so a level picked and then abandoned by changing the role never reaches the server.
+ * The staff form's fields that mean something for some roles only, with those roles: a field not named here is for everyone.
+ * Same lists as the server's (`MAIL_ALIAS_ROLES`, `WA_LINE_ROLES`, `COST_RATE_ROLES`, `IDENTITY_GRANTABLE_ROLES` and the
+ * checks in `StaffEditForm.clean`), which refuse these fields on any other role.
+ */
+const FIELD_ROLES: Record<string, string[]> = {
+  team_lead: ["translator"],
+  translator_level: ["translator"],
+  cost_per_250: ["translator", "team_lead"],
+  client_identity_access: ["sales", "accounting"],
+  is_sales_manager: ["sales"],
+  sales_track: ["sales"],
+  mail_alias: ["operation", "sales"],
+  wa_phone_number_id: ["operation", "sales"],
+  // HR and the owner run the attendance board by their role; the flag is how anybody else is given it.
+  attendance_manager: INSIDE_RULES.filter((role) => role !== "hr"),
+  attendance_enabled: INSIDE_RULES,
+  schedule_kind: INSIDE_RULES,
+  work_mode: INSIDE_RULES,
+  rating: INSIDE_RULES,
+};
+
+/** The ones the server refuses on a role that has none (`StaffEditForm.clean`): the only ones emptied when the role changes away. */
+const REFUSED_ELSEWHERE = ["translator_level", "cost_per_250", "client_identity_access", "is_sales_manager", "sales_track", "mail_alias", "wa_phone_number_id"];
+
+/** What a field says "none" with once its role no longer has it: the first choice of a list (the blank, or the default one). */
+function emptied(field: FormField): FormValue {
+  if (field.kind === "checkbox") return false;
+  if (field.kind === "multi") return [];
+  if (field.kind === "select") return field.choices?.[0]?.value ?? "";
+  return "";
+}
+
+/**
+ * A staff form with only the fields the role in the role box has: a translator sees the translator's, a leader the leader's,
+ * Sales the Sales'. The ones left out are also left out of what a save carries, so a value typed and then abandoned by changing
+ * the role never reaches the server. When the role itself is being changed, a hidden field the server refuses on the new role
+ * and that holds something is carried emptied: nobody could see its box to clear it.
  */
 export function staffFields(fields: FormField[], edits: ReturnType<typeof useFormEdits>) {
-  const role = fields.find((field) => field.name === "role");
-  const translator = !role || edits.valueOf(role) === "translator";
-  const shown = translator ? fields : fields.filter((field) => !TRANSLATOR_ONLY.includes(field.name));
-  const dropped = translator ? [] : TRANSLATOR_ONLY;
-  const carried = Object.fromEntries(Object.entries(edits.edited).filter(([name]) => !dropped.includes(name)));
+  const roleField = fields.find((field) => field.name === "role");
+  const role = roleField ? String(edits.valueOf(roleField)) : null;
+  const hidden = (field: FormField) => role !== null && field.name in FIELD_ROLES && !FIELD_ROLES[field.name]!.includes(role);
+  const shown = fields.filter((field) => !hidden(field));
+  const hiddenNames = new Set(fields.filter(hidden).map((field) => field.name));
+  const carried: Record<string, FormValue> = Object.fromEntries(Object.entries(edits.edited).filter(([name]) => !hiddenNames.has(name)));
+  if (roleField && "role" in edits.edited) {
+    for (const field of fields) {
+      if (!hiddenNames.has(field.name) || !REFUSED_ELSEWHERE.includes(field.name) || field.disabled) continue;
+      const empty = emptied(field);
+      if (!sameValue(startOf(field), empty)) carried[field.name] = empty;
+    }
+  }
   return { shown, carried };
 }
 
