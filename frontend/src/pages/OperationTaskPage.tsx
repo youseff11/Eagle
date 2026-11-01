@@ -263,6 +263,10 @@ function Task({ task }: { task: OpsTask }) {
           <PartsCard task={task} />
           <AiChatCard task={task} />
           {!task.watching && <MessagesCard task={task} />}
+          {/* What the client asked for and what was delivered read beside the work, so the actions column stays short and the
+              two columns carry about the same weight instead of one scrolling and the other standing empty. */}
+          {!task.watching && <RequirementsCard task={task} />}
+          {!task.watching && <DeliveriesCard task={task} />}
         </div>
 
         <div className="sticky-side">
@@ -292,8 +296,6 @@ function Task({ task }: { task: OpsTask }) {
           )}
           {can.set_languages === true && <LanguagesCard task={task} />}
           {can.set_words && <WordCountCard task={task} />}
-          {!task.watching && <RequirementsCard task={task} />}
-          {!task.watching && <DeliveriesCard task={task} />}
           <HistoryCard task={task} />
         </div>
       </div>
