@@ -13,8 +13,7 @@ export const LANDING: Record<Role, string> = {
   reviewer: "/chats",
   accounting: "/accounts",
   sales: "/clients",
-  // Technical support has the admin's screens (01/11/2026): it starts where the owner does.
-  support: "/admin",
+  support: "/tasks",
 };
 
 /**

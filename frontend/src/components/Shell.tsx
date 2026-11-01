@@ -115,6 +115,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       // The whole company for a period: sales, the work, the money and its profit (the B2B requirements' section 21).
       { path: "/admin/ceo", icon: "chart", label: ["لوحة الـCEO", "CEO board"], order: 1 },
+      // A notice to every employee (the bell and the sound of each): technical support's page, and the owner's too.
+      { path: "/announce", icon: "bell", label: ["إشعار لكل الموظفين", "Notify everyone"], order: 50 },
       // The client codes and the real details on one page: a client's profile (`/clients/<code>`) opens from it and lights it.
       { path: "/admin/clients", icon: "contact", label: ["بيانات العملاء", "Client records"], also: ["/clients"], order: 100 },
       // The B2B sheets the Sales manager hands out: the owner reads and writes all of them.

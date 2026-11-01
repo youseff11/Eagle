@@ -134,7 +134,7 @@ class WhoSeesWhatTests(SimpleTestCase):
             seen = self.ids(role)
             for guide_id in self.OWNER_ONLY:
                 with self.subTest(role=role, guide=guide_id):
-                    self.assertEqual(guide_id in seen, role in (Role.ADMIN, Role.SUPPORT))
+                    self.assertEqual(guide_id in seen, role == Role.ADMIN)
 
     def test_a_superuser_is_the_owner_whatever_their_role(self):
         self.assertTrue(set(self.OWNER_ONLY) <= self.ids(Role.TRANSLATOR, is_superuser=True))
@@ -155,10 +155,10 @@ class WhoSeesWhatTests(SimpleTestCase):
         for role in ROLES:
             seen = self.ids(role)
             for guide_id in ("ops-mail-read", "ops-mail-reply", "ops-client-reply"):
-                self.assertEqual(guide_id in seen, role in (Role.OPERATION, Role.SALES, Role.ADMIN, Role.SUPPORT), (role, guide_id))
+                self.assertEqual(guide_id in seen, role in (Role.OPERATION, Role.SALES, Role.ADMIN), (role, guide_id))
             # A task is made and delivered by the operation, never by Sales.
             for guide_id in ("ops-task-from-mail", "ops-assign-lead", "ops-deliver"):
-                self.assertEqual(guide_id in seen, role in (Role.OPERATION, Role.ADMIN, Role.SUPPORT), (role, guide_id))
+                self.assertEqual(guide_id in seen, role in (Role.OPERATION, Role.ADMIN), (role, guide_id))
 
     def test_a_capability_opens_the_guides_it_belongs_to(self):
         self.assertNotIn("hr-board", self.ids(Role.OPERATION))
@@ -736,7 +736,7 @@ class ReviewTests(_Door):
         for role in ROLES:
             self.sign_in(role)
             data = self.client.get(reverse("dashboard:v1_help")).json()
-            self.assertEqual(data["ai"], role in (Role.ADMIN, Role.SUPPORT), role)
+            self.assertEqual(data["ai"], role == Role.ADMIN, role)
 
     def test_old_questions_and_those_of_people_who_are_gone_are_dropped_and_recent_ones_are_not(self):
         user = self.sign_in(Role.TRANSLATOR)

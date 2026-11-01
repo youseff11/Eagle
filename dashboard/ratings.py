@@ -13,7 +13,7 @@ the penalty belongs to (``adjust``), never the current month's stars.
 
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from .models import AppSettings, RatingMonth, Role, User
@@ -40,11 +40,11 @@ def roll_user(person, now=None, ceiling=None):
         # Compare and set: two requests rolling the same person at once close the month once.
         won = User.objects.filter(pk=person.pk, rating_month=old).update(rating=ceiling, rating_month=current)
         if won:
-            closing = Decimal(person.rating)
-            if person.role == Role.TRANSLATOR or closing != ceiling:
-                RatingMonth.objects.get_or_create(
-                    user_id=person.pk, month=old, defaults={"closing": closing, "opening": ceiling},
-                )
+            # Every closed month is kept, even one that ended at the maximum: a penalty decided later needs its month's row to land
+            # on (``adjust``), and ``history`` leaves out what is not worth showing.
+            RatingMonth.objects.get_or_create(
+                user_id=person.pk, month=old, defaults={"closing": Decimal(person.rating), "opening": ceiling},
+            )
     person.rating = ceiling
     person.rating_month = current
     return bool(won)
@@ -74,15 +74,34 @@ def adjust(person, event, amount, give):
         return True
     row = RatingMonth.objects.select_for_update().filter(user_id=person.pk, month=month).first()
     if row is None:
-        return False
+        # A month from before the stars were kept by month: nothing closed it, so its penalty was carried into the first month
+        # on record (every closed month has a row, see ``roll_user``) and, if none was ever closed, into this month's stars.
+        row = RatingMonth.objects.select_for_update().filter(user_id=person.pk, month__gt=month).order_by("month").first()
+    if row is None:
+        person.rating = min(ceiling, person.rating + amount) if give else max(Decimal("0.000"), person.rating - amount)
+        return True
     row.closing = min(ceiling, row.closing + amount) if give else max(Decimal("0.000"), row.closing - amount)
     row.save(update_fields=["closing"])
     return False
 
 
 def history(person, limit=24):
-    """The closed months, newest first, as the file shows them."""
+    """The closed months, newest first, as the file shows them: a translator's every month, anybody else's only the months that
+    lost stars."""
+    rows = person.rating_months.all()
+    if person.role != Role.TRANSLATOR:
+        rows = rows.exclude(closing__gte=models.F("opening"))
     return [
         {"month": row.month.strftime("%Y-%m"), "closing": f"{row.closing.normalize():f}", "opening": f"{row.opening.normalize():f}"}
-        for row in person.rating_months.all()[:limit]
+        for row in rows[:limit]
     ]
+
+
+def roll_due(now=None):
+    """``roll`` once a month for the whole server, from whoever reads first (the heartbeat), so the first of the month does not
+    wait for the worker: the figures read on the boards are the stored ``rating``. Returns how many months were closed."""
+    from django.core.cache import cache
+
+    if not cache.add(f"ratings-rolled-{this_month(now):%Y-%m}", 1, 6 * 3600):
+        return 0
+    return roll(now)

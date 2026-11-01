@@ -304,7 +304,7 @@ def employee(request, pk):
             "shift": bound and viewer.can_manage_attendance and not person.is_deleted,
             "plan": bound and viewer.is_admin_role and not person.is_deleted,
             # The admin deletes anybody but an admin and themself; whether they still hold work is asked when the button is pressed.
-            "delete": viewer.is_admin_role and not person.is_deleted and not person.is_owner_role and person.pk != viewer.pk,
+            "delete": viewer.is_admin_role and not person.is_deleted and not person.is_admin_role and person.pk != viewer.pk,
             "restore": viewer.is_admin_role and person.is_deleted,
             "decide_penalties": penalties.may_decide(viewer),
             "change_penalties": penalties.may_change(viewer),

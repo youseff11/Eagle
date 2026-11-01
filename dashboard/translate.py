@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 #: The most of a message that is sent (a WhatsApp text is at most 4096 characters).
 MAX_CHARS = 4096
-MAX_TOKENS = 4000
+MAX_TOKENS = 8000
 #: New translations one person may ask for in a minute (one already kept is free): a held key must not empty the account.
 NEW_PER_MINUTE = 20
 

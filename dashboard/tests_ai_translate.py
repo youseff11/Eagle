@@ -435,6 +435,27 @@ class PiecesTests(TestCase):
         self.assertTrue(sent["stream"])
         self.assertEqual(sent["max_tokens"], ai_translate.MAX_TOKENS)
 
+    def test_high_effort_is_asked_only_of_a_model_that_has_it(self):
+        for model in ("claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-opus-5-5-20261001"):
+            self.assertEqual(ai.effort_params(model), {"output_config": {"effort": "high"}}, model)
+        for model in ("claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5", "", None):
+            self.assertEqual(ai.effort_params(model), {}, model)
+
+    def test_the_stream_asks_for_high_effort_from_opus(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
+        conf = AppSettings.load()
+        conf.claude_model = "claude-opus-5-5"
+        with mock.patch.object(ai_translate.net, "urlopen", return_value=response) as opened:
+            ai_translate.stream_text(conf, "system", "prompt", [])
+        sent = json.loads(opened.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(sent["output_config"], {"effort": "high"})
+        conf.claude_model = "claude-sonnet-4-5"
+        response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
+        with mock.patch.object(ai_translate.net, "urlopen", return_value=response) as opened:
+            ai_translate.stream_text(conf, "system", "prompt", [])
+        self.assertNotIn("output_config", json.loads(opened.call_args.args[0].data.decode("utf-8")))
+
     def test_an_error_event_is_a_failure(self):
         response = mock.MagicMock()
         response.__enter__.return_value = iter([b'data: {"type": "error", "error": {"type": "overloaded_error"}}\n'])

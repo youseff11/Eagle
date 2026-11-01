@@ -135,8 +135,5 @@ def enabled_keys(user):
     if not getattr(user, "is_authenticated", False):
         return []
     if user.is_admin_role:
-        keys = [key for key, screen in SCREENS.items() if screen.admin_menu]
-        # Technical support has the admin's screens (01/11/2026) and keeps the one page that is its own: the announcement to all.
-        # The menu draws an address once, so the tasks and the team board it shares with the admin's screens are not doubled.
-        return [*keys, "support"] if user.is_support else keys
+        return [key for key, screen in SCREENS.items() if screen.admin_menu]
     return [key for key, screen in SCREENS.items() if screen.allows(user)]

@@ -170,14 +170,13 @@ class PreviewTests(_Requirements):
 
 
 class EdgeTests(_Requirements):
-    def test_technical_support_opens_the_file_and_reads_the_requirements_as_the_admin_does(self):
+    def test_technical_support_neither_opens_the_file_nor_reads_the_requirements(self):
         support = User.objects.create_user("person_support", password="pw", role=Role.SUPPORT)
         row = self.made(self.ops)
-        self.assertEqual(self.opens(support, row), self.opens(self.admin, row))
-        self.assertEqual(self.opens(support, row), 200)
-        self.assertTrue(_json(self.get(support, "v1_task", [self.task.code]))["task"]["requirements"])
-        admin_client = self.get(self.admin, "v1_client", [self.client_obj.code]).status_code
-        self.assertEqual(self.get(support, "v1_client", [self.client_obj.code]).status_code, admin_client)
+        self.assertEqual(self.opens(support, row), 404)
+        self.assertEqual(_json(self.get(support, "v1_task", [self.task.code]))["task"]["requirements"], [])
+        self.assertEqual(self.get(support, "v1_client", [self.client_obj.code]).status_code, 403)
+        self.assertEqual(self.get(support, "v1_translator_task", [self.task.code]).status_code, 403)
 
     def test_an_accountant_with_the_identity_switch_still_does_not_open_it(self):
         self.accounting.client_identity_access = True

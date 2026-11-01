@@ -56,10 +56,8 @@ class SalesReadRatesTests(TestCase):
     def test_the_rule_is_the_admin_and_sales_and_nobody_else(self):
         self.assertTrue(self.admin.sees_rate_talk)
         self.assertTrue(self.sales.sees_rate_talk)
-        # Technical support has every power of the admin.
-        self.assertTrue(User(role=Role.SUPPORT).sees_rate_talk)
         self.assertFalse(self.ops.sees_rate_talk)
-        for role in (Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING):
+        for role in (Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SUPPORT):
             self.assertFalse(User(role=role).sees_rate_talk, role)
 
     def test_sales_see_the_rate_chat_on_their_own_number(self):

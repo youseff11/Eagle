@@ -124,7 +124,7 @@ def _find_person(text, roles, anyone=False):
     pool = User.objects.all() if anyone else User.objects.filter(is_active=True)
     if roles:
         pool = pool.filter(role__in=roles)
-    people = [one for one in pool if not one.is_owner_role]
+    people = [one for one in pool if not one.is_admin_role]
     named = [(one, helpbot.words_of(one.get_full_name()), helpbot.normalize(one.username)) for one in people]
     joined = " ".join(query)
 

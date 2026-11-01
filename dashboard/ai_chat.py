@@ -27,7 +27,7 @@ from .models import AIChatMessage, AppSettings
 
 logger = logging.getLogger(__name__)
 
-MAX_TOKENS = 4000
+MAX_TOKENS = 8000
 #: The longest message the leader writes, and the biggest file he attaches (the API takes the files of one request up to ``ai.MAX_DOCUMENT_BYTES``).
 MAX_TEXT = 4000
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -235,6 +235,7 @@ def call(conf, messages):
         "max_tokens": MAX_TOKENS,
         "system": SYSTEM_PROMPT,
         "messages": messages,
+        **ai.effort_params(conf.claude_model),
     }
     request = urllib.request.Request(
         ai.API_URL,

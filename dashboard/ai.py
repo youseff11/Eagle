@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
+#: Models that take ``output_config.effort`` (Haiku 4.5 and Sonnet 4.5 and older answer 400 to it).
+EFFORT_MODELS = (
+    "claude-fable", "claude-mythos", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-5",
+)
 MAX_CHARS = 24000
 
 #: Files the model reads itself, as they are - a PDF (text or scanned) or a
@@ -258,6 +263,18 @@ def _fit(source_docs, translated_docs):
     return kept_src, kept_tr, dropped
 
 
+def effort_params(model):
+    """``output_config`` asking for the high effort, for a model that has the knob; nothing for an older one (it answers 400).
+
+    Opus 5.5 defaults to ``medium``; the translation work is worth the deeper pass. Thinking is spent out of ``max_tokens``, so
+    the callers leave room for it.
+    """
+    name = str(model or "").strip().lower()
+    if name.startswith(EFFORT_MODELS):
+        return {"output_config": {"effort": "high"}}
+    return {}
+
+
 def _post(conf, system, prompt, documents, max_tokens, feature="check"):
     """One call to the messages API; the decoded answer. What it used is written down under ``feature`` (``claude_usage``)."""
     content = prompt
@@ -268,6 +285,7 @@ def _post(conf, system, prompt, documents, max_tokens, feature="check"):
         "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": content}],
+        **effort_params(conf.claude_model),
     }
     request = urllib.request.Request(
         API_URL,
@@ -293,7 +311,7 @@ def _text_of(body):
 
 def _call_claude(conf, prompt, documents=None, feature="check"):
     # Every issue now carries two quotes and an explanation.
-    return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 8000, feature))
+    return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 16000, feature))
 
 
 def _escape_inner_quotes(text):

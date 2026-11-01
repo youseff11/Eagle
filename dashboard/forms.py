@@ -672,7 +672,7 @@ class StaffEditForm(forms.ModelForm):
         # would be gone, and the way back is a command on the server. (``self.instance`` still holds what is stored here:
         # the form writes the posted values onto it after ``clean``.)
         person = self.instance
-        if person.pk and person.is_owner_role and person.is_active:
+        if person.pk and person.is_admin_role and person.is_active:
             leaving = data.get("role") != Role.ADMIN or not data.get("is_active")
             others = User.objects.filter(role=Role.ADMIN, is_active=True).exclude(pk=person.pk).exists()
             if leaving and not others:

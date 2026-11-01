@@ -650,15 +650,8 @@ class User(AbstractUser):
         return self.role == Role.SUPPORT
 
     @property
-    def is_owner_role(self):
-        """The owner's own account: an admin or a superuser. Technical support has every power of the owner (``is_admin_role``)
-        but is not the owner: it has no pay, no leave, and it is not the admin another admin is asked to change before a delete."""
-        return self.role == Role.ADMIN or self.is_superuser
-
-    @property
     def is_admin_role(self):
-        """Holds the admin's powers: every screen and every door the owner has. The owner, and technical support (01/11/2026)."""
-        return self.is_owner_role or self.role == Role.SUPPORT
+        return self.role == Role.ADMIN or self.is_superuser
 
     @property
     def is_operation(self):

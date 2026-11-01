@@ -54,9 +54,6 @@ class Guide:
     def shown_to(self, user):
         """Is this guide for this person: their role, or a capability they were given."""
         role = Role.ADMIN if user.is_admin_role else user.role
-        # Support is written to by everybody else, and is not told how to write to itself.
-        if self.id == "contact-support" and user.is_support:
-            return False
         if role in self.roles:
             return True
         return bool(self.cap) and bool(getattr(user, self.cap, False))
@@ -508,6 +505,31 @@ GUIDES = (
             "Write your problem (what you were doing and what you found) and press «Send».",
             "Or open «Chats», the «Colleagues» tab, and look for technical support; they carry a «Technical support» tag.",
         ],
+    ),
+    _guide(
+        "support-tasks", (Role.SUPPORT,), "/tasks",
+        ("إزاي أتابع التاسكات وأتأكد إن كله ماشي", "How do I follow the tasks and check everything is running"),
+        (
+            "التاسكات، متابعة التاسكات، اتأكد إن كله ماشي، تاسك متأخرة، تاسكات واقفة، حالة التاسك، شوف التاسكات، الدعم الفني",
+            "tasks, follow the tasks, check everything is running, late tasks, stuck tasks, task state, look at the tasks, technical support",
+        ),
+        [
+            "من قسم «الشغل» افتح «التاسكات».",
+            "الأرقام اللي فوق والتبويبات بيقولوا فين التاسكات؛ والمتأخرة بتبان في حالة الديدلاين.",
+            "اضغط «افتح» على تاسك تشوف مين عليها (الأوبريشن والتيم ليدر والمترجم) وحالتها وديدلاينها وسجل التوزيع.",
+            "«حالة الفرق» بتوريك مين فاضي ومين مشغول.",
+        ],
+        [
+            "In the «Work» section open «Tasks».",
+            "The numbers at the top and the tabs tell you where the tasks are; late ones show in the deadline's state.",
+            "Press «Open» on a task to see who has it (operation, team leader, translator), its state, its deadlines and the hand-off history.",
+            "«Team status» shows who is free and who is busy.",
+        ],
+        note=(
+            "انت بتتفرج بس: ماتقدرش تعدّل ولا تسلّم ولا تلغي، ومش بتشوف ملفات العميل ولا رسايله ولا اسمه (بتشتغل بالكود).",
+            "You only look: you cannot change, deliver or cancel, and you do not see the client's files, messages or name (you work by code).",
+        ),
+        starter=True,
     ),
     _guide(
         "performance-board", STAFF, "/hr/performance",
@@ -2250,8 +2272,8 @@ GUIDES = (
             "Press «Save». Everybody will find the account in «Chats» under «Colleagues» with a «Technical support» tag, and the assistant has a «Contact technical support» button.",
         ],
         note=(
-            "الحساب ده شاشاته وصلاحياته زي الأدمن بالظبط (من 01/11/2026). الفرق إنه مالوش حضور ولا جدول ولا إجازات ولا راتب، وريستارت الموظفين مابيمسحوش، وبيبعت إشعار لكل الموظفين من «إشعار لكل الموظفين».",
-            "This account has exactly the admin's screens and powers (since 01/11/2026). The difference is that it has no attendance, schedule, leave or pay, the staff reset leaves it alone, and it can send a notice to every employee from «Notify everyone».",
+            "الحساب ده بيشوف التاسكات (مين عليها وحالتها وديدلاينها) من غير ملفات العميل ولا رسايله ولا اسمه، ومابيعدّلش حاجة. ومالوش حضور ولا جدول ولا إجازات ولا حسابات، وريستارت الموظفين مابيمسحوش.",
+            "This account reads the tasks (who has them, their state and deadlines) without the client's files, messages or name, and changes nothing. It has no attendance, schedule, leave or pay, and the staff reset leaves it alone.",
         ),
     ),
     _guide(

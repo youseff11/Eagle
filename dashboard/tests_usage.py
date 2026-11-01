@@ -110,10 +110,8 @@ class _Usage(TestCase):
         self.admin = User.objects.create_user("person_admin", password="pw", role=Role.ADMIN)
         self.others = [
             User.objects.create_user(f"person_{role}", password="pw", role=role)
-            for role in (Role.OPERATION, Role.ACCOUNTING, Role.HR, Role.SALES, Role.TEAM_LEAD)
+            for role in (Role.OPERATION, Role.ACCOUNTING, Role.HR, Role.SALES, Role.TEAM_LEAD, Role.SUPPORT)
         ]
-        # Technical support has every power of the admin, the bill included.
-        self.support = User.objects.create_user("person_support", password="pw", role=Role.SUPPORT)
 
     def keys(self, **extra):
         conf = AppSettings.load()
@@ -153,7 +151,6 @@ class DoorTests(_Usage):
             self.assertEqual(answer.status_code, 403, user.role)
             self.assertEqual(hosts.asked, [], user.role)
         self.assertEqual(self.ask().status_code, 200)
-        self.assertEqual(self.ask(self.support, _Hosts()).status_code, 200)
 
     def test_nobody_signed_in_is_refused(self):
         self.assertEqual(DjangoClient().get(reverse(URL)).status_code, 401)

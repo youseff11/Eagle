@@ -15,7 +15,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import avatars, clock
+from . import avatars, clock, ratings
 from .models import (
     ACTIVE_TASK_STATUSES,
     AICheckResult,
@@ -6734,6 +6734,10 @@ def heartbeat(user):
     if cache.add("heartbeat-housekeeping", 1, HOUSEKEEPING_EVERY_SECONDS):
         sweep_expired_assignments()
         sweep_deadlines()
+        # The first of the month gives everybody their stars back whether or not the worker is up (``ratings.py``).
+        ratings.roll_due()
+    # This beat's own figure is read from the person the request loaded: bring it to the month too.
+    ratings.roll_user(user)
     if user.is_sales:
         _b2b_digest(user)
     if user.is_accounting or user.is_admin_role:

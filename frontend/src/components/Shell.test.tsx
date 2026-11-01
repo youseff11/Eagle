@@ -540,7 +540,7 @@ describe("Shell: the admin's panel", () => {
     // The overview opens the work (the chats after it, the client records at its end), the people and the settings are
     // settings, and the two that delete for good are last of all, in a section of their own.
     expect(links(view.container)).toEqual([
-      "/admin", "/admin/ceo", "/chats", "/admin/clients", "/leads", "/sales-performance", "/b2c", "/b2c/visits", "/b2c/performance", "/price-list",
+      "/admin", "/admin/ceo", "/chats", "/announce", "/admin/clients", "/leads", "/sales-performance", "/b2c", "/b2c/visits", "/b2c/performance", "/price-list",
       "/commissions",
       "/admin/settings",
       "/admin/reset-mail", "/admin/reset-tasks", "/admin/reset-staff",
@@ -549,7 +549,7 @@ describe("Shell: the admin's panel", () => {
       "الشغل", "الحسابات", "الإعدادات", "منطقة خطر",
     ]);
     const words: [string, string][] = [
-      ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
+      ["/admin", "نظرة عامة"], ["/admin/ceo", "لوحة الـCEO"], ["/announce", "إشعار لكل الموظفين"], ["/admin/clients", "بيانات العملاء"], ["/leads", "شيتات الشركات"], ["/sales-performance", "أداء المبيعات"],
       ["/b2c", "شيتات B2C"], ["/b2c/visits", "الزيارات"], ["/b2c/performance", "أداء B2C"], ["/commissions", "العمولات"], ["/price-list", "قايمة الأسعار"],
       ["/admin/settings", "الإعدادات و AI"],
       ["/admin/reset-mail", "مسح الميلات"], ["/admin/reset-tasks", "ريستارت التاسكات"], ["/admin/reset-staff", "ريستارت الموظفين"],

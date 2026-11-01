@@ -248,6 +248,7 @@ def stream_text(conf, system, prompt, documents, max_tokens=MAX_TOKENS):
         "system": system,
         "messages": [{"role": "user", "content": content}],
         "stream": True,
+        **ai.effort_params(conf.claude_model),
     }
     request = urllib.request.Request(
         ai.API_URL,
