@@ -2115,7 +2115,7 @@ class ProbationTests(TestCase):
 
         employees.open_probation(self.person, actor=self.hr)
         before = Notification.objects.filter(user=self.hr).count()
-        self.assertEqual(employees.sweep(now=self.date(2027, 1, 1)), {"probation": 0})
+        self.assertEqual(employees.sweep(now=self.date(2027, 1, 1)), {"probation": 0, "rating_months": 0})
         self.assertEqual(Notification.objects.filter(user=self.hr).count(), before)
 
     def test_only_the_final_review_confirms_somebody(self):

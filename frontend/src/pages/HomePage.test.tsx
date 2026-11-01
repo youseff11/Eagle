@@ -16,11 +16,11 @@ const PLACES: Record<string, string> = {
   reviewer: "the chats",
   accounting: "the money sheet",
   sales: "the client codes",
-  support: "the support tasks",
+  support: "the admin overview",
 };
 
 function renderHome(role: Role) {
-  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin", short_name: "Nour" })) });
+  const mocked = mockFetch({ "/api/v1/me/": () => jsonResponse(me({ role, is_admin: role === "admin" || role === "support", short_name: "Nour" })) });
   vi.stubGlobal("fetch", mocked.fn);
   return renderWithProviders(
     <Routes>
@@ -33,7 +33,6 @@ function renderHome(role: Role) {
       <Route path="chats" element={<div>{PLACES.reviewer}</div>} />
       <Route path="accounts" element={<div>{PLACES.accounting}</div>} />
       <Route path="clients" element={<div>{PLACES.sales}</div>} />
-      <Route path="tasks" element={<div>{PLACES.support}</div>} />
       <Route path="notifications" element={<div>the notifications</div>} />
     </Routes>,
   );

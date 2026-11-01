@@ -114,10 +114,13 @@ class TheLeaderWritesTheWordsAtTheReviewTests(_Review):
     def test_the_admin_may_too(self):
         self.assertEqual(self.put(self.admin, a=1, b=2).status_code, 200)
 
+    def test_technical_support_may_too_it_has_the_admins_powers(self):
+        self.assertEqual(self.put(self.support, a=1, b=2).status_code, 200)
+
     def test_nobody_else_may_and_nothing_is_written(self):
-        # Another leader does not find the task at all; the operation, a translator and support are refused.
+        # Another leader does not find the task at all; the operation and a translator are refused.
         self.assertEqual(self.put(self.other_lead, a=5, b=5).status_code, 404)
-        for who in (self.ops, self.a, self.support):
+        for who in (self.ops, self.a):
             self.assertEqual(self.put(who, a=5, b=5).status_code, 403, who.username)
         self.assertEqual(self.put(None, a=5, b=5).status_code, 401)
         self.assertEqual({s.words for s in self.shares().values()}, {0})
@@ -166,17 +169,20 @@ class TheServicesRefuseOnTheirOwnTests(_Review):
 
     def test_the_words_are_the_task_own_leaders_and_the_admins_alone(self):
         entries = [{"id": self.shares()[self.a.pk].pk, "words": 5}]
-        for who in (self.ops, self.other_lead, self.a, self.support):
+        for who in (self.ops, self.other_lead, self.a):
             self.assertEqual(services.set_part_words(self.task, entries, who), (None, "forbidden"), who.username)
         self.assertEqual({s.words for s in self.shares().values()}, {0})
         shares, why = services.set_part_words(self.task, entries, self.lead)
         self.assertEqual((len(shares), why), (2, ""))
 
     def test_the_pair_is_the_operations_and_the_admins_alone(self):
-        for who in (self.lead, self.other_lead, self.a, self.support):
+        for who in (self.lead, self.other_lead, self.a):
             self.assertEqual(services.set_task_languages(self.task, "FR", "DE", who), (False, "forbidden"), who.username)
         self.assertEqual((self.fresh().source_lang, self.fresh().target_lang), ("EN", "AR"))
         self.assertEqual(services.set_task_languages(self.task, "FR", "DE", self.ops), (True, ""))
+
+    def test_technical_support_may_say_the_pair_like_the_admin(self):
+        self.assertEqual(services.set_task_languages(self.task, "FR", "DE", self.support), (True, ""))
 
 
 class TheTasksOwnCountFollowsTheSharesTests(_Review):
@@ -293,8 +299,8 @@ class TheOperationSaysThePairTests(_Review):
         self.assertEqual({(s.source_lang, s.target_lang) for s in self.shares().values()}, {("EN", "FR")})
         self.assertTrue(AuditLog.objects.filter(action="task.languages", target=self.task.code, actor=self.ops).exists())
 
-    def test_the_leader_the_translator_and_support_may_not_say_it(self):
-        for who in (self.lead, self.a, self.support):
+    def test_the_leader_and_the_translator_may_not_say_it(self):
+        for who in (self.lead, self.a):
             self.assertEqual(self.post(who, LANGUAGES, {"source_lang": "FR", "target_lang": "DE"}).status_code, 403, who.username)
         self.assertEqual(self.post(None, LANGUAGES, {"source_lang": "FR", "target_lang": "DE"}).status_code, 401)
         self.assertEqual((self.fresh().source_lang, self.fresh().target_lang), ("EN", "AR"))
@@ -338,7 +344,7 @@ class TheOperationSaysThePairTests(_Review):
             return _json(browser.get(reverse(TASK, args=[self.task.code])))["task"]["can"]["set_languages"]
 
         self.assertEqual({u.username: can(u) for u in (self.ops, self.admin, self.lead, self.support)}, {
-            "ops_rw": True, "admin_rw": True, "lead_rw": False, "support_rw": False,
+            "ops_rw": True, "admin_rw": True, "lead_rw": False, "support_rw": True,
         })
         Task.objects.filter(pk=self.task.pk).update(status=TaskStatus.DELIVERED)
         self.assertFalse(can(self.ops))

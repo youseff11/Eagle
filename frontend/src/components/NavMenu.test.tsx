@@ -39,7 +39,7 @@ function renderMenu(options: Options = {}) {
   const mocked = mockFetch({
     "/api/prefs/": () => jsonResponse({ ok: true }),
     "/api/v1/me/": () =>
-      jsonResponse({ ...me({ role, is_admin: role === "admin" }, options.unread ?? 0, options.screens ?? ["operation", "chats", "attendance"]), ...options.extra }),
+      jsonResponse({ ...me({ role, is_admin: role === "admin" || role === "support" }, options.unread ?? 0, options.screens ?? ["operation", "chats", "attendance"]), ...options.extra }),
     "/api/search/tasks/": (url) => jsonResponse({ ok: true, items: options.tasks?.(url.searchParams.get("q") ?? "") ?? [] }),
   });
   vi.stubGlobal("fetch", mocked.fn);
@@ -88,12 +88,13 @@ describe("the menu's sections", () => {
     expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
   });
 
-  it("gives technical support the tasks, the team board and the chats, and no attendance, no leave and no pay", async () => {
-    const { container } = renderMenu({ role: "support", screens: ["support", "chats"], route: "/tasks" });
-    await screen.findByRole("link", { name: "التاسكات" });
+  it("gives technical support the admin's menu, with its own announcement page, and no attendance, no leave and no pay", async () => {
+    // The server sends the admin's screens and, after them, the one that is the support's own.
+    const { container } = renderMenu({ role: "support", screens: ["admin", "operation", "chats", "support"], route: "/admin" });
+    await screen.findByRole("link", { name: "نظرة عامة" });
     const links = Array.from(container.querySelectorAll(".nav__item")).map((link) => link.textContent);
-    expect(links).toEqual(expect.arrayContaining(["التاسكات", "حالة الفرق", "الشات"]));
-    for (const absent of ["حضوري", "إجازاتي", "مستحقاتي", "ميلات واردة", "أكواد العملاء"]) {
+    expect(links).toEqual(expect.arrayContaining(["نظرة عامة", "التاسكات", "حالة الفرق", "الشات", "إشعار لكل الموظفين"]));
+    for (const absent of ["حضوري", "إجازاتي", "مستحقاتي", "أكواد العملاء"]) {
       expect(links.some((text) => text?.includes(absent)), absent).toBe(false);
     }
     // And the chip says what they are.

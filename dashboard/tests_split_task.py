@@ -740,13 +740,11 @@ class WhatOneTranslatorCannotReadOfAnotherTests(_Split):
         admin_rows = _json(self.get(self.admin, "dashboard:v1_translator_task", self.task.code))["task"]["history"]
         self.assertEqual(len(admin_rows), 3)
 
-    def test_support_reads_who_is_on_it_and_where_each_stands_but_not_their_words_or_pages(self):
+    def test_support_reads_the_parts_exactly_as_the_admin_does(self):
         support = User.objects.create_user("support_sp", password="x", role=Role.SUPPORT)
         parts = _json(self.get(support, "dashboard:v1_task", self.task.code))["task"]["parts"]
         self.assertEqual([p["name"] for p in parts], [self.a.short_name, self.b.short_name])
-        for part in parts:
-            self.assertEqual((part["words"], part["page_from"], part["page_to"], part["source_lang"], part["target_lang"]), (0, None, None, "", ""))
-            self.assertEqual(part["status"], "accepted")
+        self.assertEqual(parts, _json(self.get(self.admin, "dashboard:v1_task", self.task.code))["task"]["parts"])
 
     def test_two_translators_sending_each_other_a_file_is_not_work_on_the_task(self):
         from .models import ChatAttachment

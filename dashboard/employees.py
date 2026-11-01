@@ -89,7 +89,7 @@ STAGE_OFFSETS = (
 
 def _on_probation(person):
     """Probation reviews are for somebody who is on probation: not the owner, not a person already confirmed or gone."""
-    return bool(person.is_active and person.employment_status == EmploymentStatus.PROBATION and not person.is_admin_role)
+    return bool(person.is_active and person.employment_status == EmploymentStatus.PROBATION and person.follows_company_rules)
 
 
 _NOT_ON_PROBATION = ("الشخص ده مش تحت الاختبار.", "This person is not on probation.")
@@ -284,7 +284,7 @@ def effective_leave_allowance(person, conf=None):
 def request_leave(person, *, kind, start_date, end_date=None, start_time=None,
                   end_time=None, reason="", actor=None):
     """Raise a request. Validation here, decisions elsewhere."""
-    if person.is_admin_role:
+    if person.is_owner_role:
         raise LifecycleError("الأدمن صاحب الشركة: مالوش إجازات.", "The owner has no leave to ask for.")
     if not person.follows_company_rules:
         raise LifecycleError("الدعم الفني مالوش مواعيد ولا إجازات.", "Technical support has no schedule and no leave to ask for.")
@@ -526,7 +526,7 @@ def apply_leave(request_row, actor=None):
 @transaction.atomic
 def request_salary_change(person, *, new_amount, effective_from, reason="", actor=None):
     """HR's ask. It is the only way a salary can start moving."""
-    if person.is_admin_role:
+    if person.is_owner_role:
         raise LifecycleError("الأدمن صاحب الشركة: مالوش راتب في النظام.", "The owner has no salary in the system.")
     new_amount = Decimal(new_amount)
     if new_amount < 0:
@@ -640,7 +640,7 @@ def delete_employee(person, actor):
         raise LifecycleError("الخطوة دي للأدمن بس.", "Only the admin can do this.")
     if person.pk == actor.pk:
         raise LifecycleError("مينفعش تمسح نفسك.", "You cannot delete yourself.")
-    if person.is_admin_role:
+    if person.is_owner_role:
         raise LifecycleError("ده أدمن: غيّر دوره الأول وبعدين امسحه.", "This is an admin: change their role first.")
     if person.is_deleted:
         raise LifecycleError("الموظف ده ممسوح أصلًا.", "Already deleted.")
