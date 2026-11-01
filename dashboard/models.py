@@ -473,6 +473,9 @@ class User(AbstractUser):
     phone = models.CharField(max_length=32, blank=True)
     languages = models.CharField(max_length=160, blank=True, help_text="e.g. EN, AR, FR")
     rating = models.DecimalField(max_digits=5, decimal_places=3, default=Decimal("5.000"))
+    #: The month (its first day) ``rating`` belongs to. A new month starts everybody at the company maximum again and the month
+    #: that ended is kept in ``RatingMonth`` (``ratings.roll``). Null until the first roll.
+    rating_month = models.DateField(null=True, blank=True)
     force_offline = models.BooleanField(default=False)
     #: When the admin deleted this person from the staff (``services.delete_employee``). The row stays, switched off, so the
     #: tasks they worked keep their name (drawn in the "deleted" colour); the register leaves them out and nobody can pick them.
@@ -861,6 +864,9 @@ class User(AbstractUser):
         ``check`` and ``notes`` say which AI check and which of its notes this penalty is for, so whoever decides it can read them."""
         settings_row = AppSettings.load()
         penalty = settings_row.penalty_value if amount is None else amount
+        from . import ratings
+
+        ratings.roll_user(self)
         old_value = Decimal(self.rating)
         new_value = max(Decimal("0.000"), old_value - penalty)
         self.rating = new_value
@@ -2022,6 +2028,25 @@ class RatingEvent(models.Model):
 
     def __str__(self):
         return f"{self.user} {self.delta}"
+
+
+class RatingMonth(models.Model):
+    """One person's stars at the end of a month that is over: the history the monthly reset (``ratings.roll``) keeps."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="rating_months")
+    #: First day of the month this row closes.
+    month = models.DateField()
+    #: The stars they ended that month with. A penalty decided later for that month moves this, not the current stars.
+    closing = models.DecimalField(max_digits=5, decimal_places=3)
+    #: The stars they started it with (the company maximum then).
+    opening = models.DecimalField(max_digits=5, decimal_places=3)
+
+    class Meta:
+        ordering = ("-month",)
+        constraints = [models.UniqueConstraint(fields=("user", "month"), name="uniq_rating_month_user_month")]
+
+    def __str__(self):
+        return f"{self.user} {self.month:%Y-%m} {self.closing}"
 
 
 # ---------------------------------------------------------------------------

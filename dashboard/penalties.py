@@ -10,13 +10,11 @@ Both writes leave an audit row, and the employee is told either way - a penalty 
 behind their back.
 """
 
-from decimal import Decimal
-
 from django.db import transaction
 from django.utils import timezone
 
-from . import services
-from .models import AICheckResult, AppSettings, RatingEvent, Role, User
+from . import ratings, services
+from .models import AICheckResult, RatingEvent, Role, User
 
 #: What the door's action word means.
 ACTIONS = {
@@ -100,14 +98,15 @@ def decide(event_pk, actor, action, note=""):
             return None, "decided"
         # A raise is never made here: a penalty is a negative number, and the stars given back are what it took.
         amount = abs(event.delta)
+        ratings.roll_user(person)
         if action == "forgive":
-            ceiling = AppSettings.load().max_rating
-            person.rating = min(ceiling, person.rating + amount)
-            person.save(update_fields=["rating"])
+            # Given back to the month the penalty was written in: an old month's history row, not this month's stars.
+            if ratings.adjust(person, event, amount, give=True):
+                person.save(update_fields=["rating"])
         elif was == RatingEvent.Decision.FORGIVEN:
             # Applied again: the stars that were given back come off again, never below nought.
-            person.rating = max(Decimal("0.000"), person.rating - amount)
-            person.save(update_fields=["rating"])
+            if ratings.adjust(person, event, amount, give=False):
+                person.save(update_fields=["rating"])
         event.decision = ACTIONS[action]
         event.decided_by = actor
         event.decided_at = timezone.now()

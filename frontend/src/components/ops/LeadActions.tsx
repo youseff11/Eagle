@@ -322,7 +322,7 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
       )}
 
       {current.map((row, index) => (
-        <fieldset className="card card--flat mt" key={row.key} data-part={index} style={{ padding: "10px 12px" }}>
+        <fieldset className="card card--flat part mt" key={row.key} data-part={index}>
           <legend className="label">
             {t("المترجم", "Translator")} {taken.length + index + 1}
           </legend>
@@ -341,8 +341,8 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
               ))}
             </select>
           </div>
-          <div className="row row--tight" style={{ flexWrap: "wrap" }}>
-            <div className="field grow">
+          <div className="part__pages">
+            <div className="field">
               <label htmlFor={`part-from-${row.key}`}>
                 {t("من صفحة", "From page")} {!many && <small className="muted">({t("اختياري", "optional")})</small>}
               </label>
@@ -356,7 +356,7 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
                 onChange={(event) => edit(row.key, { from: event.target.value })}
               />
             </div>
-            <div className="field grow">
+            <div className="field">
               <label htmlFor={`part-to-${row.key}`}>{t("لحد صفحة", "To page")}</label>
               <input
                 id={`part-to-${row.key}`}
@@ -397,17 +397,17 @@ export function AssignTranslatorBox({ task }: { task: OpsTask }) {
         <span>{t("إضافة مترجم تاني على نفس التاسك", "Add another translator to this task")}</span>
       </button>
 
-      <fieldset className="field" id="translatorDeadline" style={{ border: 0, padding: 0 }}>
+      <fieldset className="field part-deadline" id="translatorDeadline">
         <legend className="label">{t("الديدلاين اللي هتديه للمترجمين", "The deadline you are giving the translators")}</legend>
-        <div className="muted mono" title={t("الديدلاين اللي حدده الأوبريشن", "The deadline the operation gave")}>
+        <div className="part-deadline__due" title={t("الديدلاين اللي حدده الأوبريشن", "The deadline the operation gave")}>
           <Icon name="clock" size="sm" /> {lead.client_due ? (lang === "ar" ? lead.client_due.ar : lead.client_due.en) : t("من غير ديدلاين", "No deadline")}
         </div>
         <Countdown iso={task.due_iso} state={task.due_state} />
-        <label className="row row--tight mt">
+        <label className="part-deadline__choice">
           <input type="radio" name="translator-deadline-choice" value="same" checked={choice === "same"} onChange={() => setChoice("same")} />
           <span>{t("نفس ديدلاين الأوبريشن", "The same as the operation's deadline")}</span>
         </label>
-        <label className="row row--tight">
+        <label className="part-deadline__choice">
           <input type="radio" name="translator-deadline-choice" value="shorter" checked={choice === "shorter"} onChange={() => setChoice("shorter")} />
           <span>{t("ديدلاين أقل", "A shorter deadline")}</span>
         </label>

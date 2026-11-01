@@ -22,7 +22,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import api_forms, attendance, avatars, employees, identity, payroll, penalties, performance, services, shiftpick
+from . import api_forms, attendance, avatars, employees, identity, payroll, penalties, performance, ratings, services, shiftpick
 from .api_forms import named
 from .api_ai import _issue_json
 from .api_hr import _digits, _mode_json, _roster_json, can_manage, person_json
@@ -233,6 +233,7 @@ def employee(request, pk):
     """
     person = get_object_or_404(User.objects.select_related("department", "team_lead"), pk=pk)
     viewer = request.user
+    ratings.roll_user(person)
     today = timezone.localdate()
     summary = None
     if person.attendance_enabled:
@@ -293,6 +294,7 @@ def employee(request, pk):
             _penalty_json(one)
             for one in person.rating_events.select_related("user", "task", "decided_by")[:MAX_PENALTIES]
         ] if bound else [],
+        "rating_history": ratings.history(person) if bound else [],
         "application": {"code": application.code, "applied_on": application.applied_at.date().isoformat()} if application else None,
         # Money is the owner's: nobody else is told what an incentive is, or that there is one.
         "incentive": str(person.incentive) if bound and viewer.is_admin_role else None,

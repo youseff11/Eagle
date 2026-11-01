@@ -191,6 +191,30 @@ export function PenaltiesCard({ rows, canDecide, canChange = false }: { rows: Hr
   );
 }
 
+/** The stars at the end of each month that is over: they start again at the maximum every month, and the old ones stay readable. */
+export function RatingHistoryCard({ rows }: { rows: { month: string; opening: string; closing: string }[] }) {
+  const { t } = usePreferences();
+  return (
+    <div className="card" data-card="rating-history">
+      <div className="card__head">
+        <Icon name="star" />
+        <h3>{t("تقييم الشهور اللي فاتت", "Ratings of past months")}</h3>
+      </div>
+      <ul className="timeline">
+        {rows.map((row) => (
+          <li key={row.month} data-rating-month={row.month}>
+            <span className="mono" dir="ltr">{row.month}</span>
+            {" - "}
+            <strong className="mono">{row.closing}</strong>
+            <span className="muted"> / {row.opening}</span>
+          </li>
+        ))}
+        {rows.length === 0 && <li className="muted">{t("لسه مفيش شهر قفل.", "No month has closed yet.")}</li>}
+      </ul>
+    </div>
+  );
+}
+
 /** Every penalty still waiting, over the register: the one place HR and the admin see who lost stars and decide. */
 export function PenaltyQueue({ rows, waiting, canDecide }: { rows: HrPenalty[]; waiting: number; canDecide: boolean }) {
   const { t } = usePreferences();

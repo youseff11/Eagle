@@ -443,6 +443,17 @@ strong, b { font-weight: 620; }
 .card__head h2, .card__head h3 { margin: 0; }
 .card--flat { background: var(--surface-2); }
 
+/* The team leader's assign form lives in a narrow side column: a fieldset never shrinks below its content unless told to,
+   and the two page boxes stack when the column is too thin for both. */
+.part, .part-deadline { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.part { padding: 10px 12px; }
+.part select, .part .input { width: 100%; min-width: 0; box-sizing: border-box; }
+.part__pages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 8px; }
+.part-deadline { border: 0; padding: 0; margin-inline: 0; }
+.part-deadline__due { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
+.part-deadline__choice { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
+.part-deadline__choice span { min-width: 0; overflow-wrap: anywhere; }
+
 .grid { display: grid; gap: 14px; }
 /* min(): a column never asks for more than the screen has (a phone narrower than 354px pushed the cards off its edge). */
 .grid--2 { grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); }

@@ -21,7 +21,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import attendance, services
+from . import attendance, ratings, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     ApprovalStatus,
@@ -678,4 +678,5 @@ def sweep(now=None):
     Nothing, since 21/10/2026: the probation reviews belonged to recruitment, which is done by hand now and has no page, so a
     review coming due is not rung to HR any more. ``probation_sweep`` stays for the day it comes back.
     """
-    return {"probation": 0}
+    # A new month starts everybody's stars again; the month that ended goes to the history (ratings.py).
+    return {"probation": 0, "rating_months": ratings.roll()}

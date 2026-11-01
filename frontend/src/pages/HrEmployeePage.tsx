@@ -10,7 +10,7 @@ import { AccountCard } from "../components/hr/AccountCard";
 import { LevelBadge } from "../components/hr/LevelBadge";
 import { IncentiveCard } from "../components/hr/IncentiveCard";
 import { SalaryCard } from "../components/hr/SalaryCard";
-import { PenaltiesCard } from "../components/hr/Penalties";
+import { PenaltiesCard, RatingHistoryCard } from "../components/hr/Penalties";
 import { RosterCard } from "../components/hr/RosterCard";
 import { useHrAllowed } from "../components/hr/shared";
 import { WorkModeCard } from "../components/hr/WorkModeCard";
@@ -269,6 +269,7 @@ export function HrEmployeePage() {
 
           {!exempt && <RosterCard id={person.id} rows={data.shifts} days={data.picker?.days ?? null} editable={canEdit} />}
           {!exempt && <PenaltiesCard rows={data.penalties} canDecide={data.can.decide_penalties} canChange={data.can.change_penalties === true} />}
+          {!exempt && <RatingHistoryCard rows={data.rating_history ?? []} />}
 
           {data.probation.length > 0 && (
             <div className="card" data-card="probation">

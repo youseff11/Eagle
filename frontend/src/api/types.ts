@@ -2074,6 +2074,8 @@ export interface HrEmployee {
   salary: { effective_from: string; amount: string }[];
   /** The stars that came off this person, newest first, and what HR or the admin did with each. */
   penalties: HrPenalty[];
+  /** The months already over, newest first: the stars the person ended each with (they start again every month). */
+  rating_history?: { month: string; opening: string; closing: string }[];
   /** The incentive, as text, for the admin; `null` for everybody else (money is the owner's) and for a file that has no pay. */
   incentive?: string | null;
   can: {
