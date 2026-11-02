@@ -1379,6 +1379,28 @@ GUIDES = (
         ),
     ),
     _guide(
+        "usage-months", (Role.ADMIN,), "/admin/usage-months",
+        ("دفعنا كام للاشتراكات كل شهر", "What did the subscriptions cost each month"),
+        (
+            "سجل الدفع، فواتير الاشتراكات، دفعنا كام، الشهر اللي فات، استهلاك كل شهر، رندر، نيون، ميتا، واتساب، كلود، باني، اشتراك",
+            "payment history, subscription bills, what did we pay, last month, monthly usage, render, neon, meta, whatsapp, claude, bunny, subscription",
+        ),
+        [
+            "من قسم «الحسابات» افتح «سجل الدفع».",
+            "كل سطر شهر، وكل عمود اشتراك: Render وNeon وواتساب (Meta) وClaude وBunny، وآخر عمود إجمالي الشهر. الشهر الحالي فوق، ورقمه لحد آخر مرة «استهلاك الشهر» اتقرا.",
+            "أول ما الشهر يخلص بيتقفل لوحده برقمه كله. ≈ قبل الرقم يعني تقدير. «مش متقاس» يعني مافيش رقم نعرفه، و«مش متربط» يعني مفتاحه مش محطوط، و«مش متاح» يعني الشركة ماردّتش.",
+        ],
+        [
+            "In the «Accounts» section open «Payment history».",
+            "Each row is a month and each column a subscription: Render, Neon, WhatsApp (Meta), Claude and Bunny, with the month's total last. This month is on top, as of the last time «This month's usage» was read.",
+            "A month that is over closes by itself with its whole figure. ≈ before a figure means an estimate. «Not measured» means there is no figure to know, «Not linked» that its key is not saved, and «Unavailable» that the company did not answer.",
+        ],
+        note=(
+            "Bunny بيقول فاتورة الشهر الحالي بس، فشهره بيتقفل بآخر رقم اتقرا فيه. Claude بيتعد من مكالمات السيستم نفسه، وRender تقدير من الخطط.",
+            "Bunny tells this month's bill only, so its month closes with the last figure read during it. Claude is counted from the product's own calls, and Render is estimated from the plans.",
+        ),
+    ),
+    _guide(
         "my-commissions", (Role.SALES,), "/commissions",
         ("فين عمولاتي", "Where are my commissions"),
         (

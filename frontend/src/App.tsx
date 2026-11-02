@@ -58,6 +58,7 @@ import { PriceListPage } from "./pages/PriceListPage";
 import { AccountsInvoicePage } from "./pages/AccountsInvoicePage";
 import { AccountsInvoicesPage } from "./pages/AccountsInvoicesPage";
 import { CeoBoardPage } from "./pages/CeoBoardPage";
+import { UsageMonthsPage } from "./pages/UsageMonthsPage";
 import { TaskRoute } from "./pages/TaskRoute";
 import { TasksPage } from "./pages/TasksPage";
 import { SupportAnnouncePage } from "./pages/SupportAnnouncePage";
@@ -114,6 +115,7 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="hr/devices" element={<HrDevicesPage />} />
         <Route path="admin" element={<AdminOverviewPage />} />
         <Route path="admin/ceo" element={<CeoBoardPage />} />
+        <Route path="admin/usage-months" element={<UsageMonthsPage />} />
         <Route path="admin/clients" element={<AdminClientsPage />} />
         <Route path="admin/clients/new" element={<AdminClientFormPage />} />
         <Route path="admin/clients/:code/edit" element={<AdminClientFormPage />} />

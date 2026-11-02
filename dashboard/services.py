@@ -6736,6 +6736,10 @@ def heartbeat(user):
         sweep_deadlines()
         # The first of the month gives everybody their stars back whether or not the worker is up (``ratings.py``).
         ratings.roll_due()
+        # A month that is over goes to the payment history, in a thread: closing it asks the hosts (``usage_history``).
+        from . import usage_history
+
+        usage_history.roll_soon()
     # This beat's own figure is read from the person the request loaded: bring it to the month too.
     ratings.roll_user(user)
     if user.is_sales:

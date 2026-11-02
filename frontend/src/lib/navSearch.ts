@@ -39,6 +39,7 @@ export const KEYWORDS: Record<string, string> = {
   "/b2c/visits": "زيارة زيارات ميداني لوكيشن وصلت خلصت اعتماد تارجت visit visits field check in check out location approve target",
   "/b2c/performance": "اداء b2c ارقام مؤشرات نسبة الكسب تحويل الزيارات تارجت مصدر محافظة تصدير csv kpi kpis dashboard win rate conversion export",
   "/price-list": "قايمة الاسعار اسعار سعر اصدار خصم حدود الخصم اعتماد الخصم price list prices version discount limit approve discount",
+  "/admin/usage-months": "سجل الدفع فواتير الاشتراكات استهلاك شهري دفعنا كام رندر نيون ميتا واتساب كلود باني payment history bills subscriptions monthly usage render neon meta whatsapp claude bunny",
   "/commissions": "عمولة عمولات عمولاتي نسبة العمولة اعتماد صرف تقسيم commission commissions rate approve pay split",
   "/sales-performance": "اداء المبيعات ارقام السيلز داشبورد تقرير won lost نسبة التحويل kpi kpis dashboard sales performance conversion",
   "/tasks": "تاسك مهام شغل جديد task tasks jobs new",

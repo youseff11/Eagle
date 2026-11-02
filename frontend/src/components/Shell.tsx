@@ -128,6 +128,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/b2c/performance", icon: "chart", label: ["أداء B2C", "B2C performance"], order: 109 },
       // The Sales commissions: the owner sets, splits, approves and pays them (part 3, 15/10/2026).
       { path: "/commissions", icon: "star", label: ["العمولات", "Commissions"], section: "accounts", order: 60 },
+      // What each subscription (Render, Neon, Meta, Claude, Bunny) should have cost, month by month: the usage panel's history.
+      { path: "/admin/usage-months", icon: "history", label: ["سجل الدفع", "Payment history"], section: "accounts", order: 70 },
       // The price list, its versions, the discount limits and the discounts waiting (part 4, 15/10/2026).
       { path: "/price-list", icon: "list-checks", label: ["قايمة الأسعار", "Price list"], order: 110 },
       { path: "/admin/settings", icon: "sliders", label: ["الإعدادات و AI", "Settings & AI"], section: "settings", order: 20 },

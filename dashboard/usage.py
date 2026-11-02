@@ -5,7 +5,8 @@ nothing here changes anything at a host. What comes back is a card for each and 
 
 * **Bunny** answers its own bill (``GET /billing``): the month's charges and the prepaid balance, exact.
 * **Neon** answers the month's compute-unit seconds (``consumption_history/v2/projects``, the source its docs name for billing),
-  priced here at the Launch plan's rate. Storage is left out: at our size it is under a cent.
+  priced here at the Launch plan's rate, from 15/10/2026 when the account left the free plan. Storage is left out: at our size
+  it is under a cent.
 * **Render** has no bill in its API. The panel adds up each service's plan, pro-rated by the seconds of the month it has run, and
   the bandwidth over the plan's 5 GB at $0.15/GB. It is an estimate and says so; the bill is on Render's page.
 * **Claude** is counted here, not asked: the account is an individual one with no Admin API key, so every call the product
@@ -52,6 +53,8 @@ RENDER_BANDWIDTH_URL = "https://api.render.com/v1/metrics/bandwidth"
 
 #: Neon's Launch plan: dollars per compute-unit hour (the bill of 15/10-22/10/2026: 50.27 hours = $5.33).
 NEON_CU_HOUR_USD = 0.106
+#: The account went from the free plan to Launch on 15/10/2026, and Neon's billing started that day: what ran before it was free.
+NEON_BILLED_SINCE = datetime(2026, 10, 15, tzinfo=dt_timezone.utc)
 #: Render's monthly price of one instance of each plan, in dollars. A plan not here is counted as unknown, not as free.
 RENDER_PLAN_USD = {
     "free": 0, "starter": 7, "standard": 25, "pro": 85, "pro_plus": 175, "pro_max": 225, "pro_ultra": 450,
@@ -186,8 +189,12 @@ def neon(conf, now):
     if not conf.neon_org_id.strip():
         raise HostError("neon_org_missing")
     start, _ = _month(now)
+    start = max(start, NEON_BILLED_SINCE)
     # Days are whole at this granularity: up to the start of tomorrow takes today's hours in.
     tomorrow = (now.astimezone(dt_timezone.utc) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    if start >= tomorrow:
+        # A month wholly on the free plan (the payment history asks about months gone by): nothing to pay, nothing to ask.
+        return {"month_usd": 0.0, "lines": [_line("الخطة المجانية", "Free plan", "$0.00")]}
     try:
         projects = list(_neon_pages(conf, start, tomorrow))
     except HostError as exc:
@@ -298,8 +305,8 @@ def claude(conf, now):
     from .claude_usage import FEATURES
     from .models import ClaudeUsage
 
-    start, _ = _month(now)
-    rows = ClaudeUsage.objects.filter(created_at__gte=start)
+    start, end = _month(now)
+    rows = ClaudeUsage.objects.filter(created_at__gte=start, created_at__lt=end)
     totals = rows.aggregate(cost=Sum("cost_usd"), calls=Count("id"), unpriced=Count("id", filter=Q(cost_usd__isnull=True)))
     lines = [_line("النداءات", "Calls", f"{totals['calls']:,}")]
     for row in rows.values("feature").annotate(cost=Sum("cost_usd"), calls=Count("id")).order_by("-cost", "feature"):
@@ -369,7 +376,9 @@ def meta(conf, now):
 
 
 HOSTS = (
-    {"key": "bunny", "name": "Bunny.net", "fetch": bunny, "needs": ("bunny_api_key",), "link": "https://dash.bunny.net/billing"},
+    # ``now_only``: the host answers this month's bill and no other, so a month gone by cannot be asked (``usage_history``).
+    {"key": "bunny", "name": "Bunny.net", "fetch": bunny, "needs": ("bunny_api_key",), "now_only": True,
+     "link": "https://dash.bunny.net/billing"},
     {"key": "neon", "name": "Neon", "fetch": neon, "needs": ("neon_api_key",), "link": "https://console.neon.tech/app/billing"},
     {"key": "render", "name": "Render", "fetch": render, "needs": ("render_api_key",), "link": "https://dashboard.render.com/billing"},
     {"key": "claude", "name": "Claude", "fetch": claude, "needs": ("claude_api_key",), "local": True,
@@ -379,12 +388,19 @@ HOSTS = (
 )
 
 
+def linked(host, conf):
+    """Every key the host needs is saved."""
+    return all(str(getattr(conf, name, "") or "").strip() for name in host["needs"])
+
+
 def _one(host, conf, now):
     """One host's card. A failure is the card's state, never the report's: the others still show. ``amount`` is the month's
-    figure when it is not in dollars (Meta bills in the account's currency), and then it is not in the total."""
+    figure when it is not in dollars (Meta bills in the account's currency), and then it is not in the total.
+
+    ``now`` is the moment the month is read up to: the last moment of a month gone by reads that whole month."""
     card = {"key": host["key"], "name": host["name"], "link": host["link"], "state": "off", "month_usd": None,
             "amount": "", "estimate": False, "lines": [], "error": ""}
-    if not all(str(getattr(conf, name, "") or "").strip() for name in host["needs"]):
+    if not linked(host, conf):
         return card
     try:
         found = host["fetch"](conf, now)
@@ -426,4 +442,8 @@ def report(force=False, now=None):
     }
     failed = any(card["state"] == "error" for card in cards)
     cache.set(CACHE_KEY, out, CACHE_SECONDS_FAILED if failed else CACHE_SECONDS)
+    # What was read is the running month's row of the payment history; Bunny's last one is the only figure its month will have.
+    from . import usage_history
+
+    usage_history.keep(cards, now)
     return out

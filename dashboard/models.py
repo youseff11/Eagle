@@ -2691,6 +2691,44 @@ class ClaudeUsage(models.Model):
         return f"{self.feature} · {self.model} · {self.cost_usd}"
 
 
+class UsageMonth(models.Model):
+    """What one host's bill came to in one month: a cell of the admin's «سجل الدفع» (``usage_history.py``).
+
+    The running month's row is the usage panel's latest figure, written each time the panel asks the hosts. Once the month is
+    over it is closed (``closed_at``) with the host's figure for the whole month. An empty ``amount_usd`` is «مش متقاس»,
+    never a zero.
+    """
+
+    class State(models.TextChoices):
+        OK = "ok", "Read"
+        OFF = "off", "Not linked"
+        ERROR = "error", "Failed"
+        UNKNOWN = "unknown", "Not measured"
+
+    #: First day of the month (the hosts' own months, in UTC).
+    month = models.DateField()
+    #: ``usage.HOSTS`` key: bunny, neon, render, claude, meta.
+    host = models.CharField(max_length=20)
+    state = models.CharField(max_length=10, choices=State.choices, default=State.UNKNOWN)
+    amount_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    #: The figure when it is not in dollars (Meta bills in the account's currency): shown, never in the total.
+    amount_text = models.CharField(max_length=60, blank=True)
+    estimate = models.BooleanField(default=False)
+    note_ar = models.CharField(max_length=120, blank=True)
+    note_en = models.CharField(max_length=120, blank=True)
+    #: The host's short reason, cleaned of every stored secret before it is written.
+    error = models.CharField(max_length=200, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-month", "host")
+        constraints = [models.UniqueConstraint(fields=("month", "host"), name="uniq_usage_month_host")]
+
+    def __str__(self):
+        return f"{self.month:%Y-%m} {self.host} {self.amount_usd}"
+
+
 # ---------------------------------------------------------------------------
 # Runtime settings (single row, editable from the admin panel)
 # ---------------------------------------------------------------------------

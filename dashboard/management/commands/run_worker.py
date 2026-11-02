@@ -35,7 +35,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 from django.utils import timezone
 
-from dashboard import attendance, employees, mailbox, services
+from dashboard import attendance, employees, mailbox, services, usage_history
 from dashboard.models import AppSettings
 
 
@@ -100,6 +100,8 @@ class Command(BaseCommand):
         try:
             alerts = attendance.sweep_alerts()
             lifecycle = employees.sweep()
+            # A month that is over goes to the payment history (at most once an hour; it asks the hosts).
+            usage_history.roll_due()
             if alerts or lifecycle["probation"]:
                 self.stdout.write(
                     f"[{stamp}] attendance_alerts={alerts} probation_due={lifecycle['probation']}"

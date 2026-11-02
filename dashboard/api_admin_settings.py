@@ -18,7 +18,7 @@ Only the admin is answered. A GET changes nothing.
 from django.http import JsonResponse
 from django.urls import reverse
 
-from . import api_forms, galiases, identity, services, usage as usage_report, walines
+from . import api_forms, galiases, identity, services, usage as usage_report, usage_history, walines
 from .api_v1 import BadBody, _error, _object, _stamp, endpoint
 from .forms import SettingsForm
 from .models import AppSettings, Role
@@ -457,6 +457,14 @@ def usage(request):
     """The usage panel at the foot of the menu: this month's bill at Bunny, Neon and Render (``usage.py``). ``?fresh=1`` asks
     the hosts again instead of the ten-minute copy. No key is in the answer."""
     return JsonResponse(usage_report.report(force=request.GET.get("fresh") == "1"))
+
+
+@endpoint("GET")
+@api_role_required(Role.ADMIN)
+def usage_months(request):
+    """«سجل الدفع»: what each host's bill came to, month by month (``usage_history.py``). Read from our own table only: no host
+    is asked here, and no key is in the answer."""
+    return JsonResponse(usage_history.table())
 
 
 # ---------------------------------------------------------------------------

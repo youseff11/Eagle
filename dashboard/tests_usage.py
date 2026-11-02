@@ -203,7 +203,8 @@ class ReadingTests(_Usage):
         url, headers = next(entry for entry in hosts.asked if entry[0].startswith(usage.NEON_URL))
         query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
         self.assertEqual(query["org_id"], ["org-test-1"])
-        self.assertEqual(query["from"], ["2026-10-01T00:00:00Z"])
+        # October is counted from 15/10, when the account left the free plan (``NEON_BILLED_SINCE``).
+        self.assertEqual(query["from"], ["2026-10-15T00:00:00Z"])
         self.assertEqual(query["to"], ["2026-10-23T00:00:00Z"])
         self.assertEqual(query["granularity"], ["daily"])
         self.assertEqual(headers["Authorization"], f"Bearer {KEYS['neon_api_key']}")
