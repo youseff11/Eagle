@@ -4,7 +4,7 @@ import { Link, Outlet, matchPath, useLocation } from "react-router";
 import { csrfToken } from "../api/client";
 import { warmPages } from "../api/prefetch";
 import { useAskAhead } from "../hooks/useAskAhead";
-import { useMe } from "../api/queries";
+import { useLeaveAccount, useMe } from "../api/queries";
 import type { Role, ScreenKey } from "../api/types";
 import { useNavSections } from "../hooks/useNavSections";
 import { usePreferences } from "../i18n/Preferences";
@@ -252,6 +252,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
     extra: [
       { path: "/team", icon: "users", label: ["حالة الفرق", "Team status"], order: 40 },
       { path: "/announce", icon: "bell", label: ["إشعار لكل الموظفين", "Notify everyone"], order: 50 },
+      // Open any employee's account and work in it, or give them a new password (02/11/2026).
+      { path: "/staff-accounts", icon: "user-check", label: ["حسابات الموظفين", "Staff accounts"], section: "people", order: 10 },
     ],
   },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "mine", order: 10 },
@@ -357,6 +359,35 @@ export function Shell() {
       {/* A contract won on this screen: confetti and a cheer for whoever won it. */}
       <Celebration />
     </ToastProvider>
+  );
+}
+
+/**
+ * Technical support inside someone's account (`impersonation.py`): whose it is, that what is done is done in their name, and
+ * the way back. The app starts again on support's own account: nothing cached of the person may be drawn after.
+ */
+function ImpersonationBar({ name }: { name: string }) {
+  const { t } = usePreferences();
+  const leave = useLeaveAccount();
+  return (
+    <div className="note note--warn impersonation-bar" role="status" data-impersonating="">
+      <Icon name="eye" />
+      <div className="grow">
+        {t(
+          `إنت داخل على حساب ${name}: أي حاجة تعملها بتتعمل باسمه.`,
+          `You are inside ${name}'s account: whatever you do is done in their name.`,
+        )}
+      </div>
+      <button
+        className="btn btn--sm btn--primary"
+        type="button"
+        disabled={leave.isPending}
+        onClick={() => leave.mutate(undefined, { onSettled: () => window.location.assign("/app/staff-accounts") })}
+      >
+        <Icon name="logout" size="sm" />
+        <span>{t("ارجع لحسابي", "Back to my account")}</span>
+      </button>
+    </div>
   );
 }
 
@@ -648,6 +679,7 @@ function Frame() {
         </header>
 
         <div className="content">
+          {user && me.data?.impersonating && <ImpersonationBar name={user.name} />}
           <ErrorBoundary resetKey={location.pathname}>
             <Outlet />
           </ErrorBoundary>

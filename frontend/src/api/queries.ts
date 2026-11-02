@@ -51,6 +51,7 @@ import type {
   AdminUserNew,
   AiCheckAnswer,
   AnnounceResponse,
+  StaffAccount,
   AttendanceCard,
   AttendanceGate,
   AssignmentResponse,
@@ -271,6 +272,37 @@ export function useSendAnnouncement() {
     mutationFn: (values: { title: string; body: string; level: "info" | "warning"; sound: boolean }) =>
       api<{ ok: true; reached: number }>("/api/v1/announce/", { json: values }),
     onSuccess: () => void client.invalidateQueries({ queryKey: qk.announce }),
+  });
+}
+
+/** The accounts technical support may open and give a new password. */
+export function useStaffAccounts(enabled = true) {
+  return useQuery({
+    queryKey: qk.staffAccounts,
+    queryFn: () => api<{ ok: true; accounts: StaffAccount[] }>("/api/v1/support/accounts/"),
+    enabled,
+  });
+}
+
+/** Open a person's account on this session. The caller reloads the app: everything cached is the other person's. */
+export function useEnterAccount() {
+  return useMutation({
+    mutationFn: (id: number) => api<{ ok: true }>(`/api/v1/support/accounts/${id}/enter/`, { method: "POST" }),
+  });
+}
+
+/** Back to technical support's own account from a person's. The caller reloads the app. */
+export function useLeaveAccount() {
+  return useMutation({
+    mutationFn: () => api<{ ok: true }>("/api/v1/support/accounts/leave/", { method: "POST" }),
+  });
+}
+
+/** A new password for a person (typed twice). A refusal is `invalid` with the validators' own words. */
+export function useSetAccountPassword() {
+  return useMutation({
+    mutationFn: ({ id, ...values }: { id: number; new_password1: string; new_password2: string }) =>
+      api<{ ok: true }>(`/api/v1/support/accounts/${id}/password/`, { json: values }),
   });
 }
 

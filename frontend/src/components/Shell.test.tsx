@@ -59,6 +59,27 @@ describe("Shell", () => {
     expect(chats().querySelector(".nav__count")).toBeNull();
   });
 
+  it("says support is inside someone's account, and the way back starts the app again on support's own", async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const view = renderShell({
+      "/api/v1/support/accounts/leave/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse({ ...me({ role: "translator", name: "Asmaa Hasan" }), impersonating: { by: "Sami" } }),
+    });
+    await waitFor(() => expect(document.querySelector("[data-impersonating]")).not.toBeNull());
+    expect(document.querySelector("[data-impersonating]")!.textContent).toContain("Asmaa Hasan");
+    await user.click(screen.getByRole("button", { name: "ارجع لحسابي" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/app/staff-accounts"));
+    expect(view.calls.filter((call) => call.url === "/api/v1/support/accounts/leave/" && call.init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("draws no such bar for a person in their own account", async () => {
+    renderShell({ "/api/v1/me/": () => jsonResponse(me()) });
+    await screen.findByText("Nour");
+    expect(document.querySelector("[data-impersonating]")).toBeNull();
+  });
+
   it("shows who is signed in, with the role in the page's language", async () => {
     renderShell({ "/api/v1/me/": () => jsonResponse(me({ role: "team_lead", short_name: "Mona", initials: "MS" })) });
     expect(await screen.findByText("Mona")).toBeInTheDocument();

@@ -156,21 +156,23 @@ export function HrEmployeePage() {
         />
       )}
 
-      <div className="grid grid--main">
-        <div className="stack">
-          {editing &&
-            (admin.data ? (
-              <AccountCard id={id} data={admin.data} onClose={() => setEditing(false)} />
-            ) : (
-              admin.isError ? (
-                <div className="card empty" role="alert">
-                  <Icon name="alert" size="xl" />
-                  <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
-                </div>
-              ) : (
-                <Loading className="card empty" />
-              )
-            ))}
+      {editing &&
+        (admin.data ? (
+          <AccountCard id={id} data={admin.data} onClose={() => setEditing(false)} />
+        ) : (
+          admin.isError ? (
+            <div className="card empty" role="alert">
+              <Icon name="alert" size="xl" />
+              <span>{t("حصلت مشكلة في التحميل.", "Could not load.")}</span>
+            </div>
+          ) : (
+            <Loading className="card empty" />
+          )
+        ))}
+
+      {/* One flow of cards over the whole width, two columns of even height on a wide screen (02/11/2026): the short main
+          column used to leave half the page empty beside a long side column. */}
+      <div className="file-flow">
           <div className="card">
             <div className="card__head">
               <Icon name="contact" />
@@ -261,9 +263,7 @@ export function HrEmployeePage() {
               <div>{t("الحضور مقفول للحساب ده.", "Attendance is off for this account.")}</div>
             </div>
           )}
-        </div>
 
-        <div className="sticky-side">
           {data.picker && <ShiftPicker picker={data.picker} save={(choice, options) => pickShift.mutate(choice, options)} pending={pickShift.isPending} />}
           {data.work_mode_card && <WorkModeCard id={person.id} card={data.work_mode_card} />}
 
@@ -373,7 +373,6 @@ export function HrEmployeePage() {
               ))}
             </div>
           )}
-        </div>
       </div>
     </>
   );

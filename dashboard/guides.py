@@ -532,6 +532,30 @@ GUIDES = (
         starter=True,
     ),
     _guide(
+        "support-accounts", (Role.SUPPORT,), "/staff-accounts",
+        ("إزاي أدخل على حساب موظف أو أغيّر الباسورد بتاعه", "How do I open an employee's account or change their password"),
+        (
+            "حسابات الموظفين، ادخل على حساب موظف، شوف شاشة الموظف، افتح حسابه، غيّر الباسورد، نسي الباسورد، باسورد جديد، الدعم الفني",
+            "staff accounts, open an employee's account, see an employee's screen, log in as, change the password, forgot the password, new password, technical support",
+        ),
+        [
+            "من قسم «الموظفين» افتح «حسابات الموظفين» ودوّر على الموظف بالاسم أو اليوزرنيم.",
+            "اضغط «ادخل على حسابه»: السيستم بيفتح بشاشته هو بالظبط (المنيو والصفحات والشاتات).",
+            "لما تخلّص اضغط «ارجع لحسابي» في الشريط اللي فوق.",
+            "عشان تغيّر الباسورد اضغط «غيّر الباسورد» جنب اسمه، اكتب الجديد مرتين واضغط «احفظ الباسورد».",
+        ],
+        [
+            "In the «People» section open «Staff accounts» and look the employee up by name or username.",
+            "Press «Open their account»: the system opens on their own screen exactly (the menu, the pages, the chats).",
+            "When you are done press «Back to my account» in the bar at the top.",
+            "To change the password press «Change password» beside their name, type the new one twice and press «Save password».",
+        ],
+        note=(
+            "وانت جوه حسابه أي حاجة تعملها بتتعمل باسمه، ماعدا الحضور: ده الموظف بيسجّله بنفسه. دخولك متسجّل. الموظف بيتخرج من السيستم لما الباسورد يتغيّر.",
+            "Inside their account whatever you do is done in their name, all but attendance, which the employee punches themselves. Your visit is logged. The employee is signed out when the password changes.",
+        ),
+    ),
+    _guide(
         "performance-board", STAFF, "/hr/performance",
         ("فين لوحة الأداء وترتيب المترجمين", "Where is the performance board"),
         (

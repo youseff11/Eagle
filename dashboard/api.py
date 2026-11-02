@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import ai, attendance, avatars, chatlists, clock, identity, services
+from . import ai, attendance, avatars, chatlists, clock, identity, impersonation, services
 from .models import (
     ACTIVE_TASK_STATUSES,
     AppSettings,
@@ -104,7 +104,9 @@ def _pending_json(assignment, viewer):
 @require_GET
 def heartbeat(request):
     user = request.user
-    services.heartbeat(user)
+    # Technical support looking through this person's account is not the person: they are not shown online for it.
+    if not impersonation.by(request):
+        services.heartbeat(user)
 
     after = _int(request.GET.get("after"), 0)
     fresh = Notification.objects.filter(user=user, id__gt=after).select_related("sender").order_by("id")[:20]
@@ -164,7 +166,7 @@ def heartbeat(request):
     data["live"] = services.live_stamp()
     # The check-in screen: opens by itself when a shift starts, even on a page
     # that was already open.
-    data["attendance"] = attendance.gate_for(user)
+    data["attendance"] = None if impersonation.by(request) else attendance.gate_for(user)
     code = (request.GET.get("task") or "").strip()
     if code:
         task = Task.objects.filter(code=code).first()

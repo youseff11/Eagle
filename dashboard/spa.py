@@ -34,7 +34,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_safe
 
-from . import attendance
+from . import attendance, impersonation
 from .models import AppSettings
 
 #: Where ``npm run build`` writes its manifest (frontend/vite.config.ts).
@@ -135,7 +135,8 @@ def shell(request, path=""):
     config = _config(request)
     # The check-in screen may not be skipped, and a check-out or extra-time reminder costs the day when it is missed: the app
     # draws them over every page. What the screen asks right now is on the first paint, not a beat later.
-    config["gate"] = attendance.gate_for(request.user)
+    # Not for technical support looking through the account (impersonation.py): it may not check in for them.
+    config["gate"] = None if impersonation.by(request) else attendance.gate_for(request.user)
     response = render(request, "app/shell.html", {"assets": assets, "app_config": config})
     response["Content-Security-Policy"] = content_security_policy(request)
     return response

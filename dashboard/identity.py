@@ -127,7 +127,13 @@ def client_ip(request):
 
 
 def audit(request, actor, action, target="", detail=""):
-    """One audit row, with the request's address and path when there is one."""
+    """One audit row, with the request's address and path when there is one.
+
+    Written while technical support looks through someone's account (``impersonation.py``), the row says who was really there.
+    """
+    by = getattr(request, "impersonator", None)
+    if by is not None and getattr(by, "pk", None) != getattr(actor, "pk", None):
+        detail = f"{detail} [support {by.username}]".strip()
     return AuditLog.objects.create(
         actor=actor if getattr(actor, "pk", None) else None,
         action=action,

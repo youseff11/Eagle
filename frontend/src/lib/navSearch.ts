@@ -43,6 +43,7 @@ export const KEYWORDS: Record<string, string> = {
   "/sales-performance": "اداء المبيعات ارقام السيلز داشبورد تقرير won lost نسبة التحويل kpi kpis dashboard sales performance conversion",
   "/tasks": "تاسك مهام شغل جديد task tasks jobs new",
   "/team": "فريق مترجمين متاح مشغول اونلاين team status online busy",
+  "/staff-accounts": "حسابات الموظفين ادخل على حساب موظف شوف شاشته باسورد كلمة السر غير الباسورد staff accounts open account log in as password reset",
   "/announce": "اشعار تنبيه للكل الموظفين اعلان رسالة announce notify everyone broadcast",
   "/lead": "تاسكاتي مهامي مراجعة my tasks review",
   "/lead/translators": "مترجمين متاحين فريقي translators",

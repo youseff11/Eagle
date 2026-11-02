@@ -754,3 +754,12 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
 .aichat__error { color: var(--danger, #e5484d); }
 .aichat__form { display: flex; flex-direction: column; gap: 8px; }
 .aichat__form textarea { resize: vertical; min-height: 54px; }
+
+/* An employee's file (HrEmployeePage): the cards flow down two columns of even height over the whole width, one column on a
+   narrow screen. The margins are the flow's own: a card's `.card + .card` top margin would push a column's first card down. */
+.file-flow { columns: 2 420px; column-gap: 14px; }
+.file-flow > *, .file-flow > .card + .card, .file-flow > .note + .note { margin: 0 0 14px; break-inside: avoid; }
+.card + .file-flow, .empty + .file-flow { margin-block-start: 14px; }
+
+/* Technical support inside an employee's account (impersonation.py): whose it is, and the way back. */
+.impersonation-bar { align-items: center; margin-block-end: 14px; }

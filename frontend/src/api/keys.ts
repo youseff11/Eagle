@@ -40,6 +40,8 @@ export const qk = {
   team: ["boards", "team"] as const,
   /** What technical support has announced: asked again after each send. */
   announce: ["announce"] as const,
+  /** The accounts technical support may open or give a new password. */
+  staffAccounts: ["staff-accounts"] as const,
   /** The mailbox: the conversations (by the filter and the search), and one conversation. Under `boards`: a doorbell asks again. */
   mail: (state: string, query: string, alias = "") => ["boards", "mail", "list", state, query, alias] as const,
   mailLists: ["boards", "mail", "list"] as const,

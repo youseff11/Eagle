@@ -165,6 +165,8 @@ export interface MeResponse {
   /** A team leader's tasks that are being worked: their menu's one badge. */
   tasks_open: number;
   realtime: { path: string; ping_seconds: number };
+  /** Technical support inside this account: who it is, for the bar that takes them back. Null otherwise. */
+  impersonating?: { by: string } | null;
   server_time: string;
 }
 
@@ -528,6 +530,16 @@ export interface AnnounceResponse {
   reach: number;
   limits: { title: number; body: number };
   recent: { id: number; title: string; body: string; reached: number; by: string | null; at: Stamp }[];
+}
+
+/** GET /api/v1/support/accounts/: the accounts technical support may open (the staff, without the owner and support). */
+export interface StaffAccount {
+  id: number;
+  username: string;
+  name: string;
+  initials: string;
+  avatar: string | null;
+  role: Role;
 }
 
 /** A moment the server wrote in both languages (Cairo, twelve hours). */

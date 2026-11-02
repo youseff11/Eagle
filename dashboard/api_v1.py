@@ -37,7 +37,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from . import api, audio, avatars, clock, identity, newui, payroll, services, translate
+from . import api, audio, avatars, clock, identity, impersonation, newui, payroll, services, translate
 from .models import (
     ACTIVE_TASK_STATUSES, AppSettings, Assignment, AssignmentStatus, ChatRoom, InboundMessage, Notification, PayrollLine, PayrollSettings,
     Role, RoomKind, Task, TaskStatus, User, Violation, WorkDay,
@@ -196,6 +196,11 @@ def _upto(request):
 # Who am I
 # ---------------------------------------------------------------------------
 
+def _impersonating(request):
+    actor = impersonation.by(request)
+    return {"by": actor.short_name} if actor else None
+
+
 @ensure_csrf_cookie
 @endpoint("GET")
 def me(request):
@@ -262,6 +267,8 @@ def me(request):
         # The team leader's one badge, the classic menu's own: their tasks that are being worked.
         "tasks_open": Task.objects.filter(team_lead=user, status__in=ACTIVE_TASK_STATUSES).count() if user.is_team_lead else 0,
         "realtime": {"path": "/ws/events/", "ping_seconds": PING_SECONDS},
+        # Technical support looking through this account (impersonation.py): who, for the bar that takes them back. Null otherwise.
+        "impersonating": _impersonating(request),
         "server_time": clock.fmt12(timezone.now(), "en"),
     })
 
