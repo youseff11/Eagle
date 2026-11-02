@@ -1379,7 +1379,7 @@ GUIDES = (
         ),
     ),
     _guide(
-        "usage-months", (Role.ADMIN,), "/admin/usage-months",
+        "usage-months", (Role.ADMIN, Role.SUPPORT), "/admin/usage-months",
         ("دفعنا كام للاشتراكات كل شهر", "What did the subscriptions cost each month"),
         (
             "سجل الدفع، فواتير الاشتراكات، دفعنا كام، الشهر اللي فات، استهلاك كل شهر، رندر، نيون، ميتا، واتساب، كلود، باني، اشتراك",
@@ -1387,12 +1387,12 @@ GUIDES = (
         ),
         [
             "من قسم «الحسابات» افتح «سجل الدفع».",
-            "كل سطر شهر، وكل عمود اشتراك: Render وNeon وواتساب (Meta) وClaude وBunny، وآخر عمود إجمالي الشهر. الشهر الحالي فوق، ورقمه لحد آخر مرة «استهلاك الشهر» اتقرا.",
+            "كل سطر شهر، وكل عمود اشتراك: Render وNeon وواتساب (Meta) وClaude وBunny، وآخر عمود إجمالي الشهر. الشهر الحالي فوق، ورقمه لحد آخر مرة لوحة الاستهلاك بتاعة الأدمن اتقرت.",
             "أول ما الشهر يخلص بيتقفل لوحده برقمه كله. ≈ قبل الرقم يعني تقدير. «مش متقاس» يعني مافيش رقم نعرفه، و«مش متربط» يعني مفتاحه مش محطوط، و«مش متاح» يعني الشركة ماردّتش.",
         ],
         [
             "In the «Accounts» section open «Payment history».",
-            "Each row is a month and each column a subscription: Render, Neon, WhatsApp (Meta), Claude and Bunny, with the month's total last. This month is on top, as of the last time «This month's usage» was read.",
+            "Each row is a month and each column a subscription: Render, Neon, WhatsApp (Meta), Claude and Bunny, with the month's total last. This month is on top, as of the last time the admin's usage panel was read.",
             "A month that is over closes by itself with its whole figure. ≈ before a figure means an estimate. «Not measured» means there is no figure to know, «Not linked» that its key is not saved, and «Unavailable» that the company did not answer.",
         ],
         note=(

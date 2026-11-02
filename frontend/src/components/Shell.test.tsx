@@ -535,6 +535,27 @@ describe("Shell: the team leader's screen", () => {
   });
 });
 
+describe("Shell: technical support's menu", () => {
+  it("has the payment history in the accounts section", async () => {
+    const mocked = mockFetch({
+      "/api/prefs/": () => jsonResponse({ ok: true }),
+      "/api/v1/me/": () => jsonResponse(me({ role: "support", is_admin: false }, 0, ["support"] as never)),
+    });
+    vi.stubGlobal("fetch", mocked.fn);
+    const view = renderWithProviders(
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="tasks" element={<div>tasks</div>} />
+        </Route>
+      </Routes>,
+      { route: "/tasks" },
+    );
+    await waitFor(() => expect(view.container.querySelector('.sidebar a[href="/admin/usage-months"]')).not.toBeNull());
+    expect(view.container.querySelector('.sidebar a[href="/admin/usage-months"]')).toHaveTextContent("سجل الدفع");
+    expect(Array.from(view.container.querySelectorAll(".sidebar .nav__label")).map((one) => one.textContent)).toContain("الحسابات");
+  });
+});
+
 describe("Shell: the admin's panel", () => {
   const at = (route: string, screens: string[], role: "admin" | "operation" = "admin") => {
     const mocked = mockFetch({

@@ -460,9 +460,10 @@ def usage(request):
 
 
 @endpoint("GET")
-@api_role_required(Role.ADMIN)
+@api_role_required(Role.SUPPORT)
 def usage_months(request):
-    """«سجل الدفع»: what each host's bill came to, month by month (``usage_history.py``). Read from our own table only: no host
+    """«سجل الدفع»: what each host's bill came to, month by month (``usage_history.py``). The admin's, and technical support's
+    too (02/11/2026, the owner's word); the usage panel and its keys stay the admin's. Read from our own table only: no host
     is asked here, and no key is in the answer."""
     return JsonResponse(usage_history.table())
 

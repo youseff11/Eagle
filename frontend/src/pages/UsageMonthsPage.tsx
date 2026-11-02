@@ -43,13 +43,14 @@ function Cell({ cell }: { cell: UsageMonthCell }) {
 }
 
 /**
- * «سجل الدفع»: what each subscription's bill came to, month by month, and the month's total, the admin's alone. This month is
+ * «سجل الدفع»: what each subscription's bill came to, month by month, and the month's total: the admin's and technical
+ * support's. This month is
  * on top as the usage panel last read it; a month that is over is closed with each host's figure for the whole of it.
  */
 export function UsageMonthsPage() {
   const { t, lang } = usePreferences();
   const me = useMe();
-  const allowed = me.data !== undefined && me.data.user.is_admin;
+  const allowed = me.data !== undefined && (me.data.user.role === "support" || me.data.user.is_admin);
   const history = useUsageMonths(allowed);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;

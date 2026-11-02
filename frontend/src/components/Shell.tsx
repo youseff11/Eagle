@@ -256,6 +256,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/announce", icon: "bell", label: ["إشعار لكل الموظفين", "Notify everyone"], order: 50 },
       // Open any employee's account and work in it, or give them a new password (02/11/2026).
       { path: "/staff-accounts", icon: "user-check", label: ["حسابات الموظفين", "Staff accounts"], section: "people", order: 10 },
+      // The subscriptions' bills month by month, as the owner reads them (the usage panel itself stays the owner's).
+      { path: "/admin/usage-months", icon: "history", label: ["سجل الدفع", "Payment history"], section: "accounts", order: 70 },
     ],
   },
   attendance: { path: "/attendance", icon: "timer", label: ["حضوري", "My attendance"], section: "mine", order: 10 },

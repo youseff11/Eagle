@@ -6,7 +6,7 @@ import type { UsageMonthCell, UsageMonths } from "../api/usageMonths";
 import { jsonResponse, me, mockFetch, renderWithProviders } from "../test/helpers";
 import { UsageMonthsPage } from "./UsageMonthsPage";
 
-/** «سجل الدفع» (02/11/2026): each subscription's bill month by month and the month's total, the owner's alone; what is not
+/** «سجل الدفع» (02/11/2026): each subscription's bill month by month and the month's total, the owner's and technical support's; what is not
  * known reads «مش متقاس», never a zero, and a total missing a host says so. */
 
 afterEach(() => vi.unstubAllGlobals());
@@ -98,8 +98,15 @@ describe("UsageMonthsPage", () => {
     expect(october.querySelector("[data-total]")).toHaveTextContent("من غير اللي مش متقاس");
   });
 
-  it("is the owner's alone: anybody else goes home without asking", async () => {
-    for (const role of ["accounting", "support"] as Role[]) {
+  it("is technical support's too", async () => {
+    serve("support");
+    const { container } = open();
+    await screen.findByText("أكتوبر 2026");
+    expect(container.querySelector('[data-month="2026-10"] [data-host="neon"]')).toHaveTextContent("$5.33");
+  });
+
+  it("is nobody else's: anybody else goes home without asking", async () => {
+    for (const role of ["accounting", "operation", "hr"] as Role[]) {
       const mocked = serve(role);
       const view = open();
       expect(await screen.findByText("home page")).toBeInTheDocument();

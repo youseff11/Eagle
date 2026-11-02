@@ -1,6 +1,7 @@
 """«سجل الدفع»: each host's bill month by month (``usage_history.py``, ``/api/v1/admin/usage/months/``).
 
-What these tests hold: only the admin is answered, and the page never asks a host; what the usage panel reads is the running
+What these tests hold: only the admin and technical support are answered (the usage panel stays the admin's), and the page
+never asks a host; what the usage panel reads is the running
 month's row; a month that is over is closed with each host's figure for the whole of it (Neon, Render and Meta asked for the
 month's own dates, Claude counted from our rows of that month only, Bunny's last figure read during the month); what cannot be
 known is ``None`` and never a zero; a host that failed at the closing is asked again for a few days and then left; the closing
@@ -17,7 +18,7 @@ from django.test import Client as DjangoClient
 from django.urls import reverse
 
 from . import usage, usage_history
-from .models import AppSettings, UsageMonth, User
+from .models import AppSettings, Role, UsageMonth, User
 from .tests_usage import KEYS, META_PRICING, META_URL, _Hosts, _Usage
 
 URL = "dashboard:v1_admin_usage_months"
@@ -57,17 +58,28 @@ class DoorTests(_History):
     def test_the_door_is_the_api_one(self):
         self.assertEqual(reverse(URL), "/api/v1/admin/usage/months/")
 
-    def test_only_the_admin_is_answered_and_no_host_is_asked(self):
+    def test_only_the_admin_and_support_are_answered_and_no_host_is_asked(self):
         self.keys()
+        support = next(user for user in self.others if user.role == Role.SUPPORT)
         for user in self.others:
+            if user is support:
+                continue
             hosts = _Hosts()
             self.assertEqual(self.months(user, hosts).status_code, 403, user.role)
             self.assertEqual(hosts.asked, [], user.role)
+        for user in (self.admin, support):
+            hosts = _Hosts()
+            answer = self.months(user, hosts)
+            self.assertEqual(answer.status_code, 200, user.role)
+            self.assertEqual(hosts.asked, [], user.role)
+            self.assertEqual([host["key"] for host in answer.json()["hosts"]], ["bunny", "neon", "render", "claude", "meta"])
+
+    def test_support_reads_the_history_but_not_the_panel(self):
+        self.keys()
+        support = next(user for user in self.others if user.role == Role.SUPPORT)
         hosts = _Hosts()
-        answer = self.months(hosts=hosts)
-        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(self.ask(support, hosts).status_code, 403)
         self.assertEqual(hosts.asked, [])
-        self.assertEqual([host["key"] for host in answer.json()["hosts"]], ["bunny", "neon", "render", "claude", "meta"])
 
     def test_nobody_signed_in_is_refused(self):
         self.assertEqual(DjangoClient().get(reverse(URL)).status_code, 401)
