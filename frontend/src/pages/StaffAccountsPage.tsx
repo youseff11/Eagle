@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { Navigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { formErrors } from "../api/adminActions";
 import { useEnterAccount, useMe, useSetAccountPassword, useStaffAccounts } from "../api/queries";
 import type { StaffAccount } from "../api/types";
@@ -133,6 +133,11 @@ export function StaffAccountsPage() {
             "Open any employee's account and work from their screen as they see it, or change their password.",
           )}
         </span>
+        <div className="grow" />
+        <Link className="btn btn--sm btn--primary" to="/hr/employees/new">
+          <Icon name="plus" size="sm" />
+          <span>{t("موظف جديد", "New staff member")}</span>
+        </Link>
       </div>
 
       <div className="card">

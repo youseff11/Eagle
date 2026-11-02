@@ -499,6 +499,18 @@ class StaffCreateForm(UserCreationForm):
         return data
 
 
+class SupportStaffCreateForm(StaffCreateForm):
+    """A new person made by technical support (02/11/2026): every role but the admin's and support's own. An admin made here
+    would be a way into the owner's powers that support was never given."""
+
+    LEFT_OUT = (Role.ADMIN, Role.SUPPORT)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields["role"]
+        field.choices = [choice for choice in field.choices if choice[0] not in self.LEFT_OUT]
+
+
 class StaffEditForm(forms.ModelForm):
     class Meta:
         model = User

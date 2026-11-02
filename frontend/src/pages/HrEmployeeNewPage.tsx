@@ -8,12 +8,16 @@ import { DjangoForm, staffFields, useFormEdits } from "../components/admin/Djang
 import { Icon } from "../components/Icon";
 import { usePreferences } from "../i18n/Preferences";
 
-/** A new person, the admin's. The password is typed here, goes in the one request that makes them, and is read back by nobody. */
+/** A new person, the admin's and technical support's (whose form has every role but the admin's and support's). The password is
+ * typed here, goes in the one request that makes them, and is read back by nobody. Support goes back to its staff accounts:
+ * the employee files are not its pages. */
 export function HrEmployeeNewPage() {
   const { t } = usePreferences();
   const navigate = useNavigate();
   const me = useMe();
-  const allowed = me.data !== undefined && me.data.user.is_admin;
+  const support = me.data !== undefined && !me.data.user.is_admin && me.data.user.role === "support";
+  const allowed = me.data !== undefined && (me.data.user.is_admin || support);
+  const back = support ? "/staff-accounts" : "/hr/employees";
   const query = useAdminUserNew(allowed);
   const create = useCreateUser();
   const edits = useFormEdits(query.data?.form);
@@ -41,7 +45,7 @@ export function HrEmployeeNewPage() {
       onSuccess: (answer) => {
         // The password the request carried is not kept in its state once it is over.
         create.reset();
-        navigate(`/hr/employees/${answer.id}`);
+        navigate(support ? back : `/hr/employees/${answer.id}`);
       },
       onError: (error) => {
         create.reset();
@@ -57,7 +61,7 @@ export function HrEmployeeNewPage() {
       <div className="page-head">
         <h1>{t("موظف جديد", "New staff member")}</h1>
         <div className="grow" />
-        <Link className="btn btn--sm" to="/hr/employees">
+        <Link className="btn btn--sm" to={back}>
           {t("كل الموظفين", "All staff")}
         </Link>
       </div>

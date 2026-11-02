@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404
 
 from . import api_forms, avatars, galiases, identity, services, shiftpick
 from .api_v1 import BadBody, _error, _object, _stamp, _two, endpoint
-from .forms import StaffCreateForm, StaffEditForm
+from .forms import StaffCreateForm, StaffEditForm, SupportStaffCreateForm
 from .models import Role, Shift, User
 from .permissions import api_role_required
 from .templatetags.eagle_tags import ROLE_MAP
@@ -34,11 +34,17 @@ def _person_head(person):
     }
 
 
+def _create_form(user):
+    """The admin's form, or technical support's, which cannot make an admin or another support account."""
+    return StaffCreateForm if user.is_admin_role else SupportStaffCreateForm
+
+
 @endpoint("GET")
-@api_role_required(Role.ADMIN)
+@api_role_required(Role.SUPPORT)
 def user_new(request):
-    """The form for a new person: its fields and what each may be. A password is typed here and never read back."""
-    return JsonResponse({"ok": True, "form": api_forms.describe(StaffCreateForm())})
+    """The form for a new person: its fields and what each may be. A password is typed here and never read back.
+    Technical support makes people too (02/11/2026), from its own form."""
+    return JsonResponse({"ok": True, "form": api_forms.describe(_create_form(request.user)())})
 
 
 @endpoint("GET")
@@ -64,10 +70,10 @@ def user(request, pk):
 
 
 @endpoint("POST")
-@api_role_required(Role.ADMIN)
+@api_role_required(Role.SUPPORT)
 def user_create(request):
     """Make a person. The password rides in this request and nowhere else: it is not logged, not answered, not stored raw."""
-    form, refused = api_forms.filled(request, StaffCreateForm)
+    form, refused = api_forms.filled(request, _create_form(request.user))
     if refused is not None:
         return refused
     person = form.save()

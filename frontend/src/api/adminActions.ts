@@ -39,7 +39,10 @@ export function useCreateUser() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (values: FormChanges) => api<{ ok: true; id: number }>("/api/v1/admin/users/create/", { json: { values } }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: qk.hrRegisterAll }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.hrRegisterAll });
+      void client.invalidateQueries({ queryKey: qk.staffAccounts });
+    },
   });
 }
 
