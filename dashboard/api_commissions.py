@@ -2,7 +2,9 @@
 are ``commissions.py``.
 
 The owner reads every deal and is the only one who writes: the rates, a deal's value, invoice and people, approving, paid.
-A Sales person reads the deals they have a line on, with their own line; a Sales manager their team's lines too. A refusal
+A Sales person reads the deals they have a line on, with their own line; a Sales manager their team's lines too. The Sales
+person writes two things on a deal they read, and the owner is told of each: that the company withdrew («withdraw», the deal
+is cancelled) and what the client paid («payment», a report only). A refusal
 is ``{"ok": false, "error": code, "message": words}`` and nothing was written. A deal or a line that is not the reader's is
 a 404 written down. A deal shows the company it was closed with (the owner and the Sales people may read a client's
 identity); an invoice shows its code and the client's code.
@@ -130,6 +132,12 @@ def _deal_json(deal, conf):
         "invoice": _invoice_json(deal.invoice),
         "paid": commissions.is_paid(deal),
         "note": deal.note,
+        "cancel_reason": deal.cancel_reason,
+        # What the Sales person reported of the client's payment (an empty state = nothing reported).
+        "client_paid": {
+            "state": deal.client_paid, "amount": _text_of(deal.client_paid_amount), "note": deal.client_paid_note,
+            "by": _person(deal.client_paid_by), "at": _stamp(deal.client_paid_at),
+        },
         "lines": [_line_json(line, conf, egp) for line in lines],
     }
 
@@ -288,6 +296,54 @@ def deal_cancel(request, deal_id):
     row = get_object_or_404(Deal, pk=deal_id)
     try:
         commissions.cancel_deal(request.user, row)
+    except commissions.Refused as refusal:
+        return _refused(refusal)
+    return _answer(request, row.pk)
+
+
+def _sales_door(view):
+    return api_gate(lambda user: user.is_sales)(view)
+
+
+def _my_deal_or_404(request, deal_id):
+    """A deal the Sales person reads (their own line's, or their team's for a manager); another is a 404 written down."""
+    row = get_object_or_404(Deal, pk=deal_id)
+    if not commissions.deals_for(request.user).filter(pk=row.pk).exists():
+        identity.hidden(request, "deal")
+    return row
+
+
+@endpoint("POST")
+@_sales_door
+def deal_withdraw(request, deal_id):
+    """``{"reason"}`` - the company pulled out of the contract: the deal is cancelled and the owner is told."""
+    row = _my_deal_or_404(request, deal_id)
+    try:
+        reason = _text(_object(request), "reason", 250)
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        commissions.withdraw_deal(request.user, row, reason)
+    except commissions.Refused as refusal:
+        return _refused(refusal)
+    return _answer(request, row.pk)
+
+
+@endpoint("POST")
+@_sales_door
+def deal_payment(request, deal_id):
+    """``{"state": "none"|"partial"|"full", "amount", "note"}`` - what the client paid, as the Sales person reports it; the
+    owner is told. It does not make a commission due: the invoice's own payments do."""
+    row = _my_deal_or_404(request, deal_id)
+    try:
+        body = _object(request)
+        state = _text(body, "state", 8)
+        note = _text(body, "note", 250)
+        amount = _number(body.get("amount"))
+    except BadBody:
+        return _error(400, "bad_request")
+    try:
+        commissions.report_payment(request.user, row, state, amount, note)
     except commissions.Refused as refusal:
         return _refused(refusal)
     return _answer(request, row.pk)

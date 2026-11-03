@@ -5523,6 +5523,11 @@ class Deal(models.Model):
         OPEN = "open", "Open"
         CANCELLED = "cancelled", "Cancelled"
 
+    class ClientPaid(models.TextChoices):
+        NONE = "none", "Not paid"
+        PARTIAL = "partial", "Paid in part"
+        FULL = "full", "Paid in full"
+
     code = models.CharField(max_length=20, unique=True, blank=True)
     #: The company on the sheet. Kept when the row is deleted (the deal keeps ``company``).
     lead = models.ForeignKey("Lead", null=True, blank=True, on_delete=models.SET_NULL, related_name="deals")
@@ -5544,6 +5549,15 @@ class Deal(models.Model):
     won_at = models.DateTimeField(default=timezone.now)
     won_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     note = models.CharField(max_length=250, blank=True)
+    #: Why it was cancelled, when the Sales person says the company withdrew («الشركة لغت التعاقد»).
+    cancel_reason = models.CharField(max_length=250, blank=True)
+    #: What the Sales person reports of the client's payment (blank = nothing reported). Only a report for the owner to see:
+    #: the commission is due on the invoice's own status (Accounting's payments), never on this.
+    client_paid = models.CharField(max_length=8, choices=ClientPaid.choices, blank=True)
+    client_paid_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    client_paid_note = models.CharField(max_length=250, blank=True)
+    client_paid_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    client_paid_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

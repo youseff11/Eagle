@@ -37,7 +37,8 @@ function deal(over: Partial<Deal> = {}): Deal {
       currency: "USD", source_lang: "German", target_lang: "Arabic", deadline: "30/10/2026", payment_terms: "",
     },
     invoice: { id: 9, code: "INV-0009", status: "paid", amount: "10000.00", currency: "USD", client_code: "CL-0003" },
-    paid: true, note: "", lines: [line()], ...over,
+    paid: true, note: "", cancel_reason: "",
+    client_paid: { state: "", amount: null, note: "", by: null, at: "" }, lines: [line()], ...over,
   };
 }
 
@@ -188,6 +189,66 @@ describe("CommissionsPage", () => {
     expect(screen.queryByRole("button", { name: "اعتمد" })).toBeNull();
     expect(screen.queryByRole("button", { name: "ظبّط الصفقة" })).toBeNull();
     expect(screen.queryByText("نسب العمولة")).toBeNull();
+  });
+
+  it("lets a Sales person record what the client paid, and the owner reads it", async () => {
+    const user = userEvent.setup();
+    const mocked = serve(answer({ can_manage: false, company_rate: null, people: [], uncovered: [] }), { role: "sales" });
+    open();
+    await user.click((await card("DEAL-0003")).getByRole("button", { name: "سجّل دفع العميل" }));
+    const dialog = within(screen.getByRole("dialog"));
+    // Nothing to send an amount for until a payment is chosen.
+    expect(dialog.queryByLabelText("المبلغ المدفوع")).toBeNull();
+    await user.click(dialog.getByRole("radio", { name: "دفع جزء" }));
+    await user.type(dialog.getByLabelText("المبلغ المدفوع"), "2500");
+    await user.type(dialog.getByLabelText("ملاحظة"), "تحويل");
+    await user.click(dialog.getByRole("button", { name: "ابعت للمالك" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/commissions/deals/3/payment/")).toEqual([{ state: "partial", amount: "2500", note: "تحويل" }]));
+  });
+
+  it("shows what the Sales person reported on the card", async () => {
+    serve(answer({ deals: [deal({ client_paid: { state: "partial", amount: "2500.00", note: "تحويل", by: { id: 7, name: "Abroad" }, at: "01/11/2026" } })] }));
+    open();
+    const one = await card("DEAL-0003");
+    expect(one.getByText("دفع جزء · 2500.00 USD")).toBeInTheDocument();
+  });
+
+  it("lets a Sales person say the company withdrew, after asking, with the reason", async () => {
+    const user = userEvent.setup();
+    const mocked = serve(answer({ can_manage: false, company_rate: null, people: [], uncovered: [] }), { role: "sales" });
+    open();
+    await user.click((await card("DEAL-0003")).getByRole("button", { name: "الشركة لغت التعاقد" }));
+    expect(posted(mocked.calls, "/api/v1/commissions/deals/3/withdraw/")).toEqual([]);
+    const dialog = within(screen.getByRole("dialog"));
+    await user.type(dialog.getByLabelText("السبب"), "راحت لمنافس");
+    await user.click(dialog.getByRole("button", { name: "أكّد إن الشركة لغت" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/commissions/deals/3/withdraw/")).toEqual([{ reason: "راحت لمنافس" }]));
+  });
+
+  it("gives the Sales person no withdraw button once a commission is approved, and hides cancelled deals", async () => {
+    serve(
+      answer({
+        can_manage: false, company_rate: null, people: [], uncovered: [],
+        deals: [
+          deal({ id: 6, code: "DEAL-0006", stage: "approved", lines: [line({ id: 6, code: "COM-0006", status: "approved" })] }),
+          deal({ id: 8, code: "DEAL-0008", status: "cancelled", stage: "cancelled", lines: [line({ id: 8, code: "COM-0008", status: "cancelled" })] }),
+        ],
+      }),
+      { role: "sales" },
+    );
+    open();
+    const approved = await card("DEAL-0006");
+    expect(approved.getByRole("button", { name: "سجّل دفع العميل" })).toBeInTheDocument();
+    expect(approved.queryByRole("button", { name: "الشركة لغت التعاقد" })).toBeNull();
+    expect(screen.queryByText("DEAL-0008")).toBeNull();
+  });
+
+  it("gives the owner no Sales buttons", async () => {
+    serve(answer());
+    open();
+    const one = await card("DEAL-0003");
+    expect(one.queryByRole("button", { name: "سجّل دفع العميل" })).toBeNull();
+    expect(one.queryByRole("button", { name: "الشركة لغت التعاقد" })).toBeNull();
   });
 
   it("sends anybody else home", async () => {

@@ -9,8 +9,11 @@ import {
   useDealOfInvoice,
   usePaid,
   usePersonRate,
+  useReportPayment,
   useSetDeal,
   useTakeBack,
+  useWithdrawDeal,
+  type ClientPaidState,
   type CommissionsResponse,
   type Deal,
 } from "../api/commissions";
@@ -260,6 +263,99 @@ function DealForm({ deal, data, onClose }: { deal: Deal; data: CommissionsRespon
   );
 }
 
+const CLIENT_PAID: Record<ClientPaidState, [string, string]> = {
+  none: ["لسه مادفعش", "Has not paid yet"],
+  partial: ["دفع جزء", "Paid in part"],
+  full: ["دفع كله", "Paid in full"],
+};
+
+/** The Sales person says the company pulled out of the contract: the deal is cancelled and the owner is told. */
+function WithdrawForm({ deal, onClose }: { deal: Deal; onClose: () => void }) {
+  const { t, lang } = usePreferences();
+  const withdraw = useWithdrawDeal();
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState("");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (withdraw.isPending) return;
+    withdraw.mutate(
+      { id: deal.id, reason: reason.trim() },
+      { onSuccess: onClose, onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش. جرّب تاني.", "Could not do it. Try again."))) },
+    );
+  };
+  return (
+    <Modal title={`${t("الشركة لغت التعاقد", "The company withdrew")} · ${deal.company.name || deal.code}`} icon="x" busy={withdraw.isPending} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="note note--warn" style={{ marginBottom: 10 }}>
+          <Icon name="alert" />
+          <div>{t("الصفقة وعمولتك عليها هيتلغوا (بيفضلوا متسجّلين عند المالك) وهيوصله تنبيه.", "The deal and your commission on it are cancelled (the owner keeps the record) and the owner is notified.")}</div>
+        </div>
+        <label style={{ display: "block" }}>
+          <span className="muted">{t("السبب (اختياري)", "Reason (optional)")}</span>
+          <input className="input" maxLength={250} aria-label={t("السبب", "Reason")} value={reason} onChange={(event) => setReason(event.target.value)} />
+        </label>
+        <Problem text={problem} />
+        <button className="btn btn--danger" type="submit" disabled={withdraw.isPending} style={{ marginTop: 10 }}>
+          <Icon name="x" />
+          {t("أكّد إن الشركة لغت", "Confirm the company withdrew")}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/** The Sales person writes down what the client paid: not at all, a part (how much), or all of it. The owner is told. */
+function PaymentForm({ deal, onClose }: { deal: Deal; onClose: () => void }) {
+  const { t, lang } = usePreferences();
+  const report = useReportPayment();
+  const before = deal.client_paid;
+  const [state, setState] = useState<ClientPaidState>(before.state || "none");
+  const [amount, setAmount] = useState(before.amount ?? "");
+  const [note, setNote] = useState(before.note);
+  const [problem, setProblem] = useState("");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (report.isPending) return;
+    report.mutate(
+      { id: deal.id, state, amount: state === "none" ? "" : amount.trim(), note: note.trim() },
+      { onSuccess: onClose, onError: (failure) => setProblem(refusalText(failure, lang, t("مقدرتش. جرّب تاني.", "Could not do it. Try again."))) },
+    );
+  };
+  return (
+    <Modal title={`${t("دفع العميل", "The client's payment")} · ${deal.company.name || deal.code}`} icon="chart" busy={report.isPending} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="row row--tight" role="radiogroup" aria-label={t("العميل دفع؟", "Did the client pay?")} style={{ marginBottom: 10 }}>
+          {(Object.keys(CLIENT_PAID) as ClientPaidState[]).map((key) => (
+            <button key={key} type="button" role="radio" aria-checked={state === key} className={state === key ? "btn btn--sm btn--primary" : "btn btn--sm"} onClick={() => setState(key)}>
+              {t(...CLIENT_PAID[key])}
+            </button>
+          ))}
+        </div>
+        {state !== "none" && (
+          <label style={{ display: "block", marginBottom: 10 }}>
+            <span className="muted">
+              {state === "partial" ? t("دفع كام", "Amount paid") : t("المبلغ (اختياري)", "Amount (optional)")} · {deal.currency || ""}
+            </span>
+            <input className="input mono" dir="ltr" inputMode="decimal" aria-label={t("المبلغ المدفوع", "Amount paid")} value={amount} placeholder="—" onChange={(event) => setAmount(event.target.value)} />
+          </label>
+        )}
+        <label style={{ display: "block" }}>
+          <span className="muted">{t("ملاحظة (اختياري)", "Note (optional)")}</span>
+          <input className="input" maxLength={250} aria-label={t("ملاحظة", "Note")} value={note} onChange={(event) => setNote(event.target.value)} />
+        </label>
+        <div className="muted" style={{ marginTop: 8 }}>
+          {t("ده بلاغ للمالك. العمولة بتستحق لما الحسابات تسجّل دفع الفاتورة كلها.", "This is a report to the owner. The commission is due once Accounting records the whole invoice as paid.")}
+        </div>
+        <Problem text={problem} />
+        <button className="btn btn--primary" type="submit" disabled={report.isPending} style={{ marginTop: 10 }}>
+          <Icon name="check" />
+          {t("ابعت للمالك", "Send to the owner")}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 /** A label and its value, drawn only when there is a value. */
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   if (children === "" || children === null || children === undefined) return null;
@@ -271,7 +367,21 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function DealCard({ deal, owner, onEdit, onCancel }: { deal: Deal; owner: boolean; onEdit: () => void; onCancel: () => void }) {
+function DealCard({
+  deal,
+  owner,
+  onEdit,
+  onCancel,
+  onWithdraw,
+  onPayment,
+}: {
+  deal: Deal;
+  owner: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onWithdraw: () => void;
+  onPayment: () => void;
+}) {
   const { t, lang } = usePreferences();
   const toasts = useToasts();
   const approve = useApprove();
@@ -350,6 +460,19 @@ function DealCard({ deal, owner, onEdit, onCancel }: { deal: Deal; owner: boolea
             )}
           </Fact>
           {deal.value_by_hand && <Fact label={t("القيمة", "Value")}>{t("المالك عدّلها", "Corrected by the owner")}</Fact>}
+          {deal.client_paid.state && (
+            <Fact label={t("دفع العميل", "Client payment")}>
+              <span data-client-paid={deal.client_paid.state}>
+                {t(...CLIENT_PAID[deal.client_paid.state])}
+                {deal.client_paid.amount ? ` · ${deal.client_paid.amount} ${deal.currency}` : ""}
+              </span>
+              <span className="muted">
+                {" "}
+                {[deal.client_paid.by?.name, deal.client_paid.at, deal.client_paid.note].filter(Boolean).join(" · ")}
+              </span>
+            </Fact>
+          )}
+          {deal.status === "cancelled" && <Fact label={t("سبب الإلغاء", "Cancel reason")}>{deal.cancel_reason}</Fact>}
         </div>
       </div>
 
@@ -417,6 +540,21 @@ function DealCard({ deal, owner, onEdit, onCancel }: { deal: Deal; owner: boolea
         </table>
       </div>
 
+      {!owner && open && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn btn--sm btn--primary" type="button" onClick={onPayment}>
+            <Icon name="chart" size="sm" />
+            {t("سجّل دفع العميل", "Record the client's payment")}
+          </button>
+          <div className="grow" />
+          {!decided && (
+            <button className="btn btn--sm btn--danger" type="button" onClick={onWithdraw}>
+              <Icon name="x" size="sm" />
+              {t("الشركة لغت التعاقد", "The company withdrew")}
+            </button>
+          )}
+        </div>
+      )}
       {owner && open && !decided && (
         <div className="row" style={{ marginTop: 10 }}>
           <button className="btn btn--sm btn--primary" type="button" onClick={onEdit}>
@@ -446,6 +584,8 @@ export function CommissionsPage() {
   const cancel = useCancelDeal();
   const [editing, setEditing] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState<Deal | null>(null);
+  const [withdrawing, setWithdrawing] = useState<number | null>(null);
+  const [reporting, setReporting] = useState<number | null>(null);
   const [problem, setProblem] = useState("");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
@@ -462,6 +602,10 @@ export function CommissionsPage() {
   const failed = (failure: unknown) => toasts.push({ level: "danger", title: refusalText(failure, lang, t("مقدرتش. جرّب تاني.", "Could not do it. Try again.")) });
   const owner = data.can_manage;
   const editingDeal = data.deals.find((deal) => deal.id === editing);
+  const withdrawingDeal = data.deals.find((deal) => deal.id === withdrawing);
+  const reportingDeal = data.deals.find((deal) => deal.id === reporting);
+  // A company that pulled out leaves the Sales person's list (the owner keeps it; «اتلغت» in the filter shows it).
+  const shown = owner || stage ? data.deals : data.deals.filter((deal) => deal.status !== "cancelled");
   const tiles: { key: keyof CommissionsResponse["totals"]; ar: string; en: string; tone?: string }[] = [
     { key: "waiting", ar: "مستنية العميل يدفع", en: "Waiting for the client to pay" },
     { key: "due", ar: "مستحقة (العميل دفع)", en: "Due (the client paid)", tone: "kpi--warn" },
@@ -551,10 +695,18 @@ export function CommissionsPage() {
         </select>
       </div>
 
-      {data.deals.map((deal) => (
-        <DealCard key={deal.id} deal={deal} owner={owner} onEdit={() => setEditing(deal.id)} onCancel={() => setCancelling(deal)} />
+      {shown.map((deal) => (
+        <DealCard
+          key={deal.id}
+          deal={deal}
+          owner={owner}
+          onEdit={() => setEditing(deal.id)}
+          onCancel={() => setCancelling(deal)}
+          onWithdraw={() => setWithdrawing(deal.id)}
+          onPayment={() => setReporting(deal.id)}
+        />
       ))}
-      {data.deals.length === 0 && (
+      {shown.length === 0 && (
         <div className="card empty">
           <Icon name="star" size="xl" />
           <span>{t("مفيش صفقات لسه. أول ما حد من الـSales يقفل صفقة «تم التعاقد» هتظهر هنا.", "No deals yet. The moment a Sales person closes one («Contracted») it shows here.")}</span>
@@ -562,6 +714,8 @@ export function CommissionsPage() {
       )}
 
       {editingDeal && <DealForm deal={editingDeal} data={data} onClose={() => setEditing(null)} />}
+      {withdrawingDeal && <WithdrawForm deal={withdrawingDeal} onClose={() => setWithdrawing(null)} />}
+      {reportingDeal && <PaymentForm deal={reportingDeal} onClose={() => setReporting(null)} />}
       {cancelling && (
         <Confirm
           title={t("الغي الصفقة", "Cancel the deal")}

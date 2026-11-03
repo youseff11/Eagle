@@ -1413,11 +1413,15 @@ GUIDES = (
             "من قسم «الشغل» افتح «عمولاتي».",
             "كل شركة بتخليها «تم التعاقد» بتبقى صفقة هنا بتفاصيلها، وتحتها سطرك: نسبتك والمبلغ وحالته.",
             "المالك بيحدد نسبتك من قيمة الصفقة، والعمولة بتستحق لما العميل يدفع الفاتورة كلها، والمالك بيعتمدها ويصرفها، وبيوصلك تنبيه لما تتصرف.",
+            "لو العميل دفع كله أو جزء أو لسه، اضغط «سجّل دفع العميل» واختار الحالة واكتب المبلغ، والمالك بيوصله تنبيه. ده بلاغ بس، والعمولة بتستحق لما الحسابات تسجّل دفع الفاتورة كلها.",
+            "لو الشركة لغت التعاقد اضغط «الشركة لغت التعاقد» واكتب السبب لو حابب: الصفقة بتتلغى وتختفي من قايمتك والمالك بيوصله تنبيه. ماينفعش بعد ما العمولة تتعتمد، ساعتها كلّم المالك.",
         ],
         [
             "In the «Work» section open «My commissions».",
             "Each company you mark «Contracted» becomes a deal here with its details, and your line under it: your percent, the amount and where it stands.",
             "The owner sets your percent of the deal's value; a commission is due once the client pays the whole invoice; the owner approves and pays it, and you are notified when it is paid.",
+            "If the client paid all, part or nothing yet, press «Record the client's payment», choose which and write the amount; the owner is notified. It is only a report: the commission is due once Accounting records the whole invoice as paid.",
+            "If the company withdrew from the contract press «The company withdrew» and write the reason if you like: the deal is cancelled and leaves your list, and the owner is notified. Not possible once the commission is approved: ask the owner then.",
         ],
     ),
     _guide(

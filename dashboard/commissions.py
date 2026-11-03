@@ -67,7 +67,7 @@ def lines_for(user):
 def deals_for(user):
     """The deals the reader reads, each with ``shown`` = the lines of it they read, the newest first."""
     lines = lines_for(user).order_by("created_at", "id")
-    rows = Deal.objects.select_related("lead", "lead__sheet", "owner", "won_by", "quotation", "invoice", "client")
+    rows = Deal.objects.select_related("lead", "lead__sheet", "owner", "won_by", "quotation", "invoice", "client", "client_paid_by")
     if not user.is_admin_role:
         rows = rows.filter(pk__in=lines.values("deal_id"))
     return rows.prefetch_related(Prefetch("lines", queryset=lines, to_attr="shown"))
@@ -388,22 +388,103 @@ def set_deal(actor, deal, *, value=KEEP, currency=KEEP, invoice=KEEP, people=KEE
     return locked
 
 
+def _cancel(deal, reason, decided):
+    """Cancel a deal and its lines, kept. ``decided`` is the refusal when a line of it is approved or paid."""
+    with transaction.atomic():
+        locked = Deal.objects.select_for_update().get(pk=deal.pk)
+        if locked.status != Deal.Status.OPEN:
+            raise Refused("cancelled", "الصفقة دي اتلغت قبل كده.", "This deal was cancelled already.")
+        if _decided(locked):
+            raise decided
+        locked.status = Deal.Status.CANCELLED
+        locked.cancel_reason = (reason or "")[:250]
+        locked.save(update_fields=["status", "cancel_reason"])
+        locked.lines.update(status=Commission.Status.CANCELLED)
+    return locked
+
+
 def cancel_deal(actor, deal):
     """A deal made by mistake (a company moved to «تم التعاقد» by error): it and its lines are cancelled, kept, while none
     of them is approved."""
     from . import services
 
     _owner(actor)
+    locked = _cancel(deal, "", Refused("decided", "فيه عمولة على الصفقة دي اتعتمدت. رجّعها الأول.", "A commission on this deal is approved. Take it back first."))
+    services.log(actor, "commission.deal_cancel", locked.code, "")
+    return locked
+
+
+def _sales_of(actor, deal):
+    """A Sales person works on a deal they read (their own line's, or - a manager - their team's); anyone else is refused."""
+    if not (actor.is_sales and deals_for(actor).filter(pk=deal.pk).exists()):
+        raise Refused("forbidden", "الصفقة دي مش بتاعتك.", "This deal is not yours.")
+
+
+def _names(actor, deal):
+    return actor.get_full_name() or actor.username, deal.company or deal.code
+
+
+def _tell_owners(*, title_ar, title_en, body_ar, body_en, level):
+    from . import services
+
+    for person in User.objects.filter(role=Role.ADMIN, is_active=True):
+        services.notify(person, title_ar=title_ar, title_en=title_en, body_ar=body_ar, body_en=body_en, level=level, url="/app/commissions")
+
+
+def withdraw_deal(actor, deal, reason=""):
+    """The company pulled out of the contract (the Sales person says so from «عمولاتي»): the deal and its lines are
+    cancelled, kept, and the owner hears of it. Refused once a commission on it is approved: that is the owner's to undo."""
+    from . import services
+
+    _sales_of(actor, deal)
+    locked = _cancel(
+        deal, reason, Refused("decided", "فيه عمولة على الصفقة دي اتعتمدت. كلّم المالك.", "A commission on this deal is approved. Ask the owner."),
+    )
+    services.log(actor, "commission.deal_withdrawn", locked.code, locked.cancel_reason)
+    why_ar = f" السبب: {locked.cancel_reason}" if locked.cancel_reason else ""
+    why_en = f" Reason: {locked.cancel_reason}" if locked.cancel_reason else ""
+    who, company = _names(actor, locked)
+    _tell_owners(
+        title_ar="شركة لغت التعاقد", title_en="A company withdrew from the contract",
+        body_ar=f"{who} بلّغ إن {company} لغت التعاقد ({locked.code}) والصفقة اتلغت.{why_ar}",
+        body_en=f"{who} reported that {company} withdrew from the contract ({locked.code}); the deal was cancelled.{why_en}",
+        level="warning",
+    )
+    return locked
+
+
+def report_payment(actor, deal, state, amount=None, note=""):
+    """The Sales person writes down what the client paid: not paid, paid in part (how much) or paid in full. It informs the
+    owner (who is told); the commission is still due only when the invoice is paid in full in Accounting's books."""
+    from . import services
+
+    _sales_of(actor, deal)
+    if state not in Deal.ClientPaid.values:
+        raise Refused("bad_state", "اختار العميل دفع ولا لا.", "Choose whether the client paid.")
+    amount = _value(amount)
+    if state == Deal.ClientPaid.PARTIAL and amount is None:
+        raise Refused("no_amount", "اكتب المبلغ اللي العميل دفعه.", "Write the amount the client paid.")
+    if state == Deal.ClientPaid.NONE:
+        amount = None
     with transaction.atomic():
         locked = Deal.objects.select_for_update().get(pk=deal.pk)
         if locked.status != Deal.Status.OPEN:
-            raise Refused("cancelled", "الصفقة دي اتلغت قبل كده.", "This deal was cancelled already.")
-        if _decided(locked):
-            raise Refused("decided", "فيه عمولة على الصفقة دي اتعتمدت. رجّعها الأول.", "A commission on this deal is approved. Take it back first.")
-        locked.status = Deal.Status.CANCELLED
-        locked.save(update_fields=["status"])
-        locked.lines.update(status=Commission.Status.CANCELLED)
-    services.log(actor, "commission.deal_cancel", locked.code, "")
+            raise Refused("cancelled", "الصفقة دي اتلغت.", "This deal was cancelled.")
+        locked.client_paid, locked.client_paid_amount = state, amount
+        locked.client_paid_note, locked.client_paid_by, locked.client_paid_at = (note or "")[:250], actor, timezone.now()
+        locked.save(update_fields=["client_paid", "client_paid_amount", "client_paid_note", "client_paid_by", "client_paid_at"])
+    services.log(actor, "commission.client_paid", locked.code, f"{state} {amount if amount is not None else '-'} {locked.currency}".strip())
+    sum_text = f" {amount:.2f} {locked.currency}".rstrip() if amount is not None else ""
+    ar = {"none": "لسه مادفعش", "partial": "دفع جزء" + sum_text, "full": "دفع كله" + sum_text}[state]
+    en = {"none": "has not paid yet", "partial": "paid in part" + sum_text, "full": "paid in full" + sum_text}[state]
+    who, company = _names(actor, locked)
+    tail = f" {locked.client_paid_note}" if locked.client_paid_note else ""
+    _tell_owners(
+        title_ar="دفع عميل صفقة", title_en="A client payment was reported",
+        body_ar=f"{who} بلّغ إن {company} {ar} ({locked.code}).{tail}",
+        body_en=f"{who} reported that {company} {en} ({locked.code}).{tail}",
+        level="info",
+    )
     return locked
 
 

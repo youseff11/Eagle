@@ -23,7 +23,7 @@ from django.utils import timezone
 from . import b2b, commissions, finance
 from .models import (
     AppSettings, AuditLog, Client, Commission, Deal, Invoice, InvoicePayment, Lead, LeadSheet, LeadStatus, Market, Quotation,
-    Role, SalesTrack, User,
+    Notification, Role, SalesTrack, User,
 )
 
 
@@ -452,3 +452,88 @@ class RuleTests(_Commissions):
         commissions.approve(self.admin, self.line)
         Invoice.objects.filter(pk=self.invoice.pk).update(egp_rate=Decimal("60"))
         self.assertEqual(self.line_answer()["amount_egp"], "25000.00")
+
+
+class SalesReportTests(_Commissions):
+    """A Sales person says the company withdrew, or what the client paid; the owner is told of each."""
+
+    def told(self, title):
+        return Notification.objects.filter(user=self.admin, title_en=title)
+
+    def test_the_company_withdrew_cancels_the_deal_and_tells_the_owner(self):
+        answer = self.post(self.b2b, "v1_commissions_deal_withdraw", {"reason": "Went to a rival"}, self.deal.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        self.deal.refresh_from_db()
+        self.assertEqual((self.deal.status, self.deal.cancel_reason), (Deal.Status.CANCELLED, "Went to a rival"))
+        self.line.refresh_from_db()
+        self.assertEqual(self.line.status, Commission.Status.CANCELLED)
+        note = self.told("A company withdrew from the contract").get()
+        self.assertIn("Went to a rival", note.body_en)
+        self.assertEqual(note.url, "/app/commissions")
+        self.assertTrue(AuditLog.objects.filter(action="commission.deal_withdrawn", target=self.deal.code).exists())
+        # It leaves the commission totals too.
+        self.assertEqual(_json(self.get(self.b2b))["totals"]["waiting"], "0.00")
+
+    def test_a_deal_with_an_approved_commission_is_not_withdrawn(self):
+        self.pay(self.invoice)
+        commissions.approve(self.admin, self.line)
+        answer = self.post(self.b2b, "v1_commissions_deal_withdraw", {}, self.deal.pk)
+        self.assertEqual((answer.status_code, _json(answer)["error"]), (400, "decided"))
+        self.deal.refresh_from_db()
+        self.assertEqual(self.deal.status, Deal.Status.OPEN)
+        self.assertFalse(self.told("A company withdrew from the contract").exists())
+
+    def test_the_payment_report_is_kept_and_tells_the_owner(self):
+        body = {"state": "partial", "amount": "2500.50", "note": "First half by transfer"}
+        answer = self.post(self.b2b, "v1_commissions_deal_payment", body, self.deal.pk)
+        self.assertEqual(answer.status_code, 200, answer.content)
+        paid = self.deal_answer(user=self.b2b)["client_paid"]
+        self.assertEqual((paid["state"], paid["amount"], paid["note"], paid["by"]["id"]), ("partial", "2500.50", "First half by transfer", self.b2b.pk))
+        note = self.told("A client payment was reported").get()
+        self.assertIn("paid in part 2500.50 USD", note.body_en)
+        # A report only: the commission is not due and the invoice is untouched.
+        self.assertFalse(self.deal_answer()["paid"])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.SENT)
+        self.assertEqual(self.deal_answer()["stage"], "waiting")
+
+    def test_a_part_needs_its_amount_and_not_paid_drops_it(self):
+        for body in ({"state": "partial"}, {"state": "partial", "amount": "0"}, {"state": "partial", "amount": "abc"}, {"state": "maybe"}):
+            answer = self.post(self.b2b, "v1_commissions_deal_payment", body, self.deal.pk)
+            self.assertEqual(answer.status_code, 400, body)
+        self.assertFalse(self.told("A client payment was reported").exists())
+        self.post(self.b2b, "v1_commissions_deal_payment", {"state": "none", "amount": "99"}, self.deal.pk)
+        self.deal.refresh_from_db()
+        self.assertEqual((self.deal.client_paid, self.deal.client_paid_amount), ("none", None))
+
+    def test_a_braces_note_does_not_break_the_notice(self):
+        body = {"state": "full", "amount": "10000", "note": "ref {who} {0}"}
+        self.assertEqual(self.post(self.b2b, "v1_commissions_deal_payment", body, self.deal.pk).status_code, 200)
+        self.assertIn("ref {who} {0}", self.told("A client payment was reported").get().body_en)
+
+    def test_only_a_sales_person_on_the_deal_writes(self):
+        for user in (self.b2c, self.b2c_manager, self.admin, self.ops, self.accounting):
+            for name, body in (("v1_commissions_deal_withdraw", {}), ("v1_commissions_deal_payment", {"state": "full"})):
+                self.assertIn(self.post(user, name, body, self.deal.pk).status_code, (403, 404), (user, name))
+        self.deal.refresh_from_db()
+        self.assertEqual((self.deal.status, self.deal.client_paid), (Deal.Status.OPEN, ""))
+        # The team's manager may, as they read the deal.
+        self.assertEqual(self.post(self.b2b_manager, "v1_commissions_deal_payment", {"state": "full"}, self.deal.pk).status_code, 200)
+
+    def test_the_rule_refuses_a_stranger_whoever_calls(self):
+        for user in (self.b2c, self.admin, self.ops):
+            with self.assertRaises(commissions.Refused):
+                commissions.withdraw_deal(user, self.deal, "x")
+            with self.assertRaises(commissions.Refused):
+                commissions.report_payment(user, self.deal, "full")
+        self.deal.refresh_from_db()
+        self.assertEqual((self.deal.status, self.deal.client_paid), (Deal.Status.OPEN, ""))
+
+    def test_a_cancelled_deal_takes_no_report(self):
+        self.post(self.b2b, "v1_commissions_deal_withdraw", {}, self.deal.pk)
+        for name, body in (("v1_commissions_deal_withdraw", {}), ("v1_commissions_deal_payment", {"state": "full"})):
+            self.assertEqual(self.post(self.b2b, name, body, self.deal.pk).status_code, 400, name)
+
+    def test_the_doors_are_under_api_v1(self):
+        self.assertEqual(reverse("dashboard:v1_commissions_deal_withdraw", args=[3]), "/api/v1/commissions/deals/3/withdraw/")
+        self.assertEqual(reverse("dashboard:v1_commissions_deal_payment", args=[3]), "/api/v1/commissions/deals/3/payment/")
