@@ -5635,6 +5635,18 @@ class DealMark(models.Model):
         constraints = [models.UniqueConstraint(fields=("user", "deal"), name="one_mark_a_person_a_deal")]
 
 
+class LeadMark(models.Model):
+    """A company on a sheet that one person highlighted for themselves (a star and a filter only they see). Personal: never
+    read by anyone else, never changes the row."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="lead_marks")
+    lead = models.ForeignKey("Lead", on_delete=models.CASCADE, related_name="marks")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("user", "lead"), name="one_mark_a_person_a_lead")]
+
+
 class InvoicePayment(models.Model):
     """Money received against an invoice, as Accounting writes it down."""
 

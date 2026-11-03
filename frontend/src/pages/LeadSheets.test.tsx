@@ -66,6 +66,7 @@ function lead(over: Partial<B2bLead> = {}): B2bLead {
     overdue: false,
     quote: null,
     quote_asked: false,
+    highlighted: false,
     landline: false,
     governorate: "",
     address: "",
@@ -506,6 +507,36 @@ describe("LeadSheetPage", () => {
     expect(screen.queryByDisplayValue("Silent Ltd")).toBeNull();
   });
 
+  it("highlights a company for oneself and filters to the highlighted ones, and an edit keeps the star", async () => {
+    const user = userEvent.setup();
+    const mocked = serve("sales", {
+      "/api/v1/b2b/sheets/3/": () =>
+        jsonResponse(sheetAnswer({}, [lead({ highlighted: true }), lead({ id: 6, company_name: "Busy Ltd" })])),
+      "/api/v1/b2b/leads/6/highlight/": () => jsonResponse({ ok: true, highlighted: true }),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    expect(screen.getByRole("button", { name: "شيل الهايلايت · Lingua GmbH" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "هايلايت · Busy Ltd" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/b2b/leads/6/highlight/")).toEqual([{ on: true }]));
+    expect(await screen.findByRole("button", { name: "شيل الهايلايت · Busy Ltd" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("اعرض"), "marked");
+    expect(screen.getByDisplayValue("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Busy Ltd")).toBeInTheDocument();
+  });
+
+  it("filters out the companies not highlighted", async () => {
+    const user = userEvent.setup();
+    serve("sales", {
+      "/api/v1/b2b/sheets/3/": () => jsonResponse(sheetAnswer({}, [lead({ highlighted: true }), lead({ id: 6, company_name: "Busy Ltd" })])),
+    });
+    open("/leads/3");
+    await screen.findByDisplayValue("Lingua GmbH");
+    await user.selectOptions(screen.getByLabelText("اعرض"), "marked");
+    expect(screen.getByDisplayValue("Lingua GmbH")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Busy Ltd")).toBeNull();
+  });
+
   // 20/10/2026: «زود فلتر تم التعاقد».
   it("shows only the companies at «تم التعاقد» when asked", async () => {
     const user = userEvent.setup();
@@ -784,7 +815,7 @@ describe("LeadSheetPage", () => {
     jsonResponse({
       ok: true,
       rows: [{ ...lead({ company_name: "A2Z Traducciones", phone: "34637563743", email: "info@a2z.es", country: "", industry: "", contact_person: "", position: "", whatsapp: "", languages: "" }), notes: "22-9" }].map(
-        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, call_outcome: _co, reached: _rc, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, quote_asked: _qa, landline: _ll, ...row }) => row,
+        ({ id: _i, status: _s, priority: _p, deal_value: _d, phones: _ph, next_follow_up: _n, client_code: _c, whatsapp_at: _w, email_at: _e, call_at: _k, call_outcome: _co, reached: _rc, last_contact_at: _l, replied_at: _r, last_outreach_at: _o, follow_up: _f, overdue: _v, quote: _q, quote_asked: _qa, highlighted: _hl, landline: _ll, ...row }) => row,
       ),
       mapped: {},
       more: false,

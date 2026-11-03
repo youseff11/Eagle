@@ -89,6 +89,8 @@ export interface B2bLead extends B2bRow {
   quote: { code: string; status: QuotationStatus; total: string; currency: string } | null;
   /** Asked us for a price: a call that ended «طلب عرض سعر», or a quotation made for the row. */
   quote_asked: boolean;
+  /** The reader highlighted the company for themselves (a personal star; only the sheet's own answer says it). */
+  highlighted: boolean;
   /** One of the row's numbers is an Egyptian fixed line (`b2b.is_landline`). */
   landline: boolean;
   /** B2C: the company's place on Google Maps ("" when it has none), company or individual, and why it was lost. */
@@ -376,7 +378,8 @@ function useLeadWrite<V, R extends { lead?: B2bLead; last_sent?: number; won_now
         const lastSent = answer?.last_sent;
         client.setQueriesData<B2bSheetResponse>({ queryKey: ["b2b", "sheet"] }, (sheet) => {
           if (!sheet?.leads.some((one) => one.id === lead.id)) return sheet;
-          const leads = sheet.leads.map((one) => (one.id === lead.id ? lead : one));
+          // The star is the reader's own and these answers do not carry it: the row keeps what the sheet knew.
+          const leads = sheet.leads.map((one) => (one.id === lead.id ? { ...lead, highlighted: one.highlighted } : one));
           const marked = typeof lastSent === "number" ? lastSent : sheet.sheet.last_sent;
           return { ...sheet, leads, sheet: { ...sheet.sheet, contacted: leads.filter(isContacted).length, last_sent: marked } };
         });
@@ -475,6 +478,19 @@ export function useAddNote() {
   return useLeadWrite(({ id, text }: { id: number; text: string }) =>
     api<{ ok: boolean; lead: B2bLead }>(`/api/v1/b2b/leads/${id}/notes/`, { json: { text } }),
   );
+}
+
+/** Highlight a company for oneself (a personal star), and the sheet in the cache follows at once. */
+export function useHighlightLead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, on }: { id: number; on: boolean }) => api<{ ok: boolean; highlighted: boolean }>(`/api/v1/b2b/leads/${id}/highlight/`, { json: { on } }),
+    onSuccess: (answer, { id }) => {
+      client.setQueriesData<B2bSheetResponse>({ queryKey: ["b2b", "sheet"] }, (sheet) =>
+        sheet?.leads.some((one) => one.id === id) ? { ...sheet, leads: sheet.leads.map((one) => (one.id === id ? { ...one, highlighted: answer.highlighted } : one)) } : sheet,
+      );
+    },
+  });
 }
 
 export function useDeleteNote() {

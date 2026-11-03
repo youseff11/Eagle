@@ -11,6 +11,7 @@ import {
   useDeleteSheet,
   useLeadCall,
   useLeadWhatsapp,
+  useHighlightLead,
   useMoveLead,
   useReadRows,
   useSaveCell,
@@ -942,11 +943,13 @@ function PlanVisit({ lead, onClose }: { lead: B2bLead; onClose: () => void }) {
 }
 
 /** Which rows the sheet shows: all of them, or the ones that need something. */
-type Only = "all" | "due" | "replied" | "silent" | "untouched" | "interested" | "quote" | "won" | "landline";
+type Only = "all" | "marked" | "due" | "replied" | "silent" | "untouched" | "interested" | "quote" | "won" | "landline";
 /** The stages that say the company answered us: a row at one of them is not «لسه مردوش». */
 const ANSWERED_STAGES = new Set(["won", "lost", "follow_up", "requirement", "quoted", "negotiation"]);
 const ONLY: Record<Only, (lead: B2bLead) => boolean> = {
   all: () => true,
+  // The ones this person highlighted for themselves (a personal star).
+  marked: (lead) => lead.highlighted,
   due: (lead) => lead.follow_up === "today" || lead.follow_up === "overdue",
   replied: (lead) => lead.replied_at !== "",
   // We reached the company and nothing came back (22/10/2026): no message from them, no call that ended in an answer
@@ -1007,6 +1010,7 @@ export function LeadSheetPage() {
   };
   const saveCell = useSaveCell();
   const addNote = useAddNote();
+  const highlight = useHighlightLead();
 
   const data = sheet.data;
   const leads = useMemo(() => {
@@ -1171,6 +1175,7 @@ export function LeadSheetPage() {
               if (!search.trim()) keepPlace(sheetId, { page: 0, only: next });
             }}>
             <option value="all">{t("كل الشركات", "All companies")}</option>
+            <option value="marked">{t("اللي عملتلهم هايلايت", "Highlighted by me")}</option>
             <option value="due">{t("متابعة النهارده أو متأخرة", "Follow-up due or overdue")}</option>
             <option value="replied">{t("ردّوا علينا", "They answered")}</option>
             <option value="silent">{t("لسه مردّوش", "No answer yet")}</option>
@@ -1213,7 +1218,7 @@ export function LeadSheetPage() {
             </thead>
             <tbody onPaste={pasteRow}>
               {leads.slice(shown * PAGE_ROWS, (shown + 1) * PAGE_ROWS).map((lead) => (
-                <tr key={lead.id} data-lead={lead.id} className={lead.id === lastSent?.id ? "sheet__row--last" : undefined}>
+                <tr key={lead.id} data-lead={lead.id} data-highlighted={lead.highlighted} className={[lead.id === lastSent?.id ? "sheet__row--last" : "", lead.highlighted ? "sheet__row--marked" : ""].filter(Boolean).join(" ") || undefined}>
                   {columns.map((column) => {
                     const name = lang === "ar" ? column.ar : column.en;
                     return (
@@ -1249,6 +1254,17 @@ export function LeadSheetPage() {
                   })}
                   <td className="sheet__tools">
                     <div className="row row--tight" style={{ flexWrap: "nowrap" }}>
+                      <button
+                        className={`icon-btn${lead.highlighted ? " is-done" : ""}`}
+                        type="button"
+                        aria-pressed={lead.highlighted}
+                        title={lead.highlighted ? t("شيل الهايلايت", "Remove the highlight") : t("هايلايت", "Highlight")}
+                        aria-label={`${lead.highlighted ? t("شيل الهايلايت", "Remove the highlight") : t("هايلايت", "Highlight")} · ${lead.company_name}`}
+                        disabled={highlight.isPending}
+                        onClick={() => highlight.mutate({ id: lead.id, on: !lead.highlighted }, { onError: (failure) => toasts.push({ level: "danger", title: refusalText(failure, lang, t("مقدرتش. جرّب تاني.", "Could not do it. Try again.")) }) })}
+                      >
+                        <Icon name="star" filled={lead.highlighted} />
+                      </button>
                       {contact && (lead.phones.length > 0 || lead.email) && (
                         <button
                           className={`icon-btn${lead.whatsapp_at || lead.email_at ? " is-done" : ""}`}

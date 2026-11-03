@@ -243,6 +243,8 @@ button.nav-tools__btn { appearance: none; }
 .sheet tbody tr:hover td { background: var(--sheet-row-hover); }
 /* The last row a message left from (15/10/2026): yellow, as a row is highlighted on the team's Google Sheet, with a thick
    line on its start side, so the Sales person sees where they stopped and writes to the next one. */
+.sheet tbody tr.sheet__row--marked td { background: #e2efda; }
+.sheet tbody tr.sheet__row--marked:hover td { background: #c6e0b4; }
 .sheet tbody tr.sheet__row--last td { background: #fff2cc; }
 .sheet tbody tr.sheet__row--last:hover td { background: #ffe599; }
 .sheet tbody tr.sheet__row--last td:first-child { box-shadow: inset 4px 0 0 #bf9000; }

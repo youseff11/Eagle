@@ -309,6 +309,7 @@ urlpatterns = [
     path("api/v1/b2b/sheets/<int:sheet_id>/duplicates/remove/", api_b2b.duplicates_remove, name="v1_b2b_duplicates_remove"),
     path("api/v1/b2b/leads/<int:lead_id>/", api_b2b.lead, name="v1_b2b_lead"),
     path("api/v1/b2b/leads/<int:lead_id>/save/", api_b2b.lead_save, name="v1_b2b_lead_save"),
+    path("api/v1/b2b/leads/<int:lead_id>/highlight/", api_b2b.lead_highlight, name="v1_b2b_lead_highlight"),
     path("api/v1/b2b/leads/<int:lead_id>/delete/", api_b2b.lead_delete, name="v1_b2b_lead_delete"),
     path("api/v1/b2b/leads/<int:lead_id>/move/", api_b2b.lead_move, name="v1_b2b_lead_move"),
     path("api/v1/b2b/leads/<int:lead_id>/quotations/", api_b2b.quotations, name="v1_b2b_quotations"),

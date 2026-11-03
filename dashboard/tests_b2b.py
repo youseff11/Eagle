@@ -27,7 +27,7 @@ from . import b2b, identity, services, whatsapp
 from .forms import StaffEditForm
 from .tests_reset_staff import _Staff
 from .models import (
-    AuditLog, Channel, Client, InboundMessage, Lead, LeadActivity, LeadSheet, OutboundMessage, Quotation, Role, Task, User,
+    AuditLog, Channel, Client, InboundMessage, Lead, LeadActivity, LeadMark, LeadSheet, OutboundMessage, Quotation, Role, Task, User,
 )
 
 PHONE = "+44 7700 900123"
@@ -1481,3 +1481,35 @@ class DailyLimitTests(_B2b):
             answer = self.browser(person).post(save, json.dumps({"values": {"b2b_whatsapp_daily_limit": 500}}), content_type="application/json")
             self.assertEqual(answer.status_code, 403, person.username)
         self.assertEqual(self.settings.load().b2b_whatsapp_daily_limit, 30)
+
+
+class HighlightTests(_B2b):
+    """A personal star on a company of a sheet: only the one who set it sees it."""
+
+    def starred(self, user):
+        leads = _json(self.get(user, "v1_b2b_sheet", self.sheet.pk))["leads"]
+        return {row["id"]: row["highlighted"] for row in leads}
+
+    def test_a_highlight_is_personal_and_toggles(self):
+        answer = self.post(self.sales, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk)
+        self.assertEqual((answer.status_code, _json(answer)["highlighted"]), (200, True))
+        self.assertTrue(self.starred(self.sales)[self.lead.pk])
+        # The manager and the owner read the same sheet and see no star of the seller's.
+        self.assertFalse(self.starred(self.manager)[self.lead.pk])
+        self.assertFalse(self.starred(self.admin)[self.lead.pk])
+        self.post(self.sales, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk)
+        self.assertEqual(LeadMark.objects.filter(lead=self.lead).count(), 1)
+        self.post(self.sales, "v1_b2b_lead_highlight", {"on": False}, self.lead.pk)
+        self.assertFalse(self.starred(self.sales)[self.lead.pk])
+
+    def test_the_row_itself_is_not_changed(self):
+        before = Lead.objects.values().get(pk=self.lead.pk)
+        self.post(self.sales, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk)
+        self.assertEqual(Lead.objects.values().get(pk=self.lead.pk), before)
+
+    def test_only_a_reader_of_the_sheet_may(self):
+        self.assertEqual(self.post(self.other, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk).status_code, 404)
+        self.assertEqual(self.post(self.ops, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk).status_code, 403)
+        self.assertEqual(self.post(self.sales, "v1_b2b_lead_highlight", {"on": "yes"}, self.lead.pk).status_code, 400)
+        self.assertFalse(LeadMark.objects.exists())
+        self.assertEqual(self.post(self.manager, "v1_b2b_lead_highlight", {"on": True}, self.lead.pk).status_code, 200)

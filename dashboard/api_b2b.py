@@ -24,7 +24,7 @@ from django.utils import timezone
 from . import b2b, b2c, clock, identity, services
 from .api_v1 import BadBody, _error, _object, _text, endpoint
 from .models import (
-    CustomerType, Lead, LeadActivity, LeadNote, LeadPriority, LeadSheet, LeadStatus, LostReason, Market, Quotation, STATUSES_OF,
+    CustomerType, Lead, LeadActivity, LeadMark, LeadNote, LeadPriority, LeadSheet, LeadStatus, LostReason, Market, Quotation, STATUSES_OF,
 )
 from .permissions import api_gate
 
@@ -104,7 +104,7 @@ def _call_outcomes(where):
     return last, asked
 
 
-def _lead_json(lead, today=None, outcomes=None):
+def _lead_json(lead, today=None, outcomes=None, marked=False):
     state = b2b.follow_up_state(lead, today)
     if outcomes is None:
         outcomes = _call_outcomes(Q(lead_id=lead.pk))
@@ -112,6 +112,9 @@ def _lead_json(lead, today=None, outcomes=None):
     quote = _quote_brief(lead)
     return {
         "id": lead.pk,
+        # Highlighted by the reader themselves (a personal star): only the sheet's own list says it; the other answers say no
+        # and the page keeps what it knew.
+        "highlighted": marked,
         **{name: getattr(lead, name) for name, *_rest in b2b.ALL_COLUMNS},
         # B2C: the company's place on the map as it is typed ("30.0444, 31.2357"), its link, and why it was lost.
         "location": b2c.location_text(lead.latitude, lead.longitude),
@@ -330,6 +333,7 @@ def sheet(request, sheet_id):
     today = timezone.localdate()
     manager = b2b.manages(request.user, sheet)
     holders = b2b.sheet_holders(sheet.market)
+    marked = set(LeadMark.objects.filter(user=request.user, lead__sheet=sheet).values_list("lead_id", flat=True))
     return JsonResponse({
         "ok": True,
         "sheet": _sheet_json(sheet, request.user, len(leads), contacted),
@@ -339,7 +343,7 @@ def sheet(request, sheet_id):
             {"id": other.pk, "title": other.title, "assigned_to": _person(other.assigned_to)}
             for other in b2b.sheets_for(request.user, sheet.market).exclude(pk=sheet.pk).filter(assigned_to__in=holders)
         ] if manager else [],
-        "leads": [_lead_json(lead, today, outcomes) for lead in leads],
+        "leads": [_lead_json(lead, today, outcomes, lead.pk in marked) for lead in leads],
         **_choices(sheet.market),
     })
 
@@ -724,6 +728,21 @@ def duplicates_remove(request, sheet_id):
     except b2b.Refused as refusal:
         return _refused(refusal)
     return JsonResponse({"ok": True, "removed": removed})
+
+
+@endpoint("POST")
+@api_gate(b2b.has_door)
+def lead_highlight(request, lead_id):
+    """``{"on": true|false}`` - highlight the company for the reader alone (a personal star and filter)."""
+    lead = _lead_or_404(request, lead_id)
+    on = _object(request).get("on", True)
+    if not isinstance(on, bool):
+        return _error(400, "bad_request")
+    if on:
+        LeadMark.objects.get_or_create(user=request.user, lead=lead)
+    else:
+        LeadMark.objects.filter(user=request.user, lead=lead).delete()
+    return JsonResponse({"ok": True, "highlighted": on})
 
 
 @endpoint("POST")
