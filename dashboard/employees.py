@@ -679,4 +679,4 @@ def sweep(now=None):
     review coming due is not rung to HR any more. ``probation_sweep`` stays for the day it comes back.
     """
     # A new month starts everybody's stars again; the month that ended goes to the history (ratings.py).
-    return {"probation": 0, "rating_months": ratings.roll(now)}
+    return {"probation": 0, "rating_months": ratings.roll()}
