@@ -5623,6 +5623,18 @@ class Commission(models.Model):
         return self.code
 
 
+class DealMark(models.Model):
+    """A deal one person highlighted for themselves on the commissions page (a star only they see, with a filter for the
+    highlighted ones). Personal: never read by anyone else, never changes a figure."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="deal_marks")
+    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name="marks")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("user", "deal"), name="one_mark_a_person_a_deal")]
+
+
 class InvoicePayment(models.Model):
     """Money received against an invoice, as Accounting writes it down."""
 

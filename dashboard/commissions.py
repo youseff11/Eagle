@@ -28,7 +28,7 @@ from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from .b2b import track_q
-from .models import HOME_CURRENCY, AppSettings, Commission, Deal, Invoice, Quotation, Role, User
+from .models import HOME_CURRENCY, AppSettings, Commission, Deal, DealMark, Invoice, Quotation, Role, User
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +429,17 @@ def _tell_owners(*, title_ar, title_en, body_ar, body_en, level):
 
     for person in User.objects.filter(role=Role.ADMIN, is_active=True):
         services.notify(person, title_ar=title_ar, title_en=title_en, body_ar=body_ar, body_en=body_en, level=level, url="/app/commissions")
+
+
+def set_highlight(actor, deal, on):
+    """Highlight a deal (or take it off) for oneself: any reader of the deal, nobody else sees it."""
+    if not deals_for(actor).filter(pk=deal.pk).exists():
+        raise Refused("forbidden", "الصفقة دي مش بتاعتك.", "This deal is not yours.")
+    if on:
+        DealMark.objects.get_or_create(user=actor, deal=deal)
+    else:
+        DealMark.objects.filter(user=actor, deal=deal).delete()
+    return bool(on)
 
 
 def withdraw_deal(actor, deal, reason=""):

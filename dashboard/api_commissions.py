@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404
 
 from . import clock, commissions, identity
 from .api_v1 import BadBody, _error, _object, _text, endpoint
-from .models import AppSettings, Commission, Deal, Invoice, Role, User
+from .models import AppSettings, Commission, Deal, DealMark, Invoice, Role, User
 from .permissions import api_gate
 
 MAX_LIST = 500
@@ -110,7 +110,7 @@ def _stage(deal, lines):
     return "due" if commissions.is_paid(deal) else "waiting"
 
 
-def _deal_json(deal, conf):
+def _deal_json(deal, conf, marked=False):
     lines = deal.shown
     egp = commissions.egp_rate_of(deal)
     return {
@@ -133,6 +133,8 @@ def _deal_json(deal, conf):
         "paid": commissions.is_paid(deal),
         "note": deal.note,
         "cancel_reason": deal.cancel_reason,
+        # Highlighted by the reader themselves (a personal star).
+        "highlighted": marked,
         # What the Sales person reported of the client's payment (an empty state = nothing reported).
         "client_paid": {
             "state": deal.client_paid, "amount": _text_of(deal.client_paid_amount), "note": deal.client_paid_note,
@@ -169,7 +171,9 @@ def lines(request):
     the rates, the Sales people and the invoices on no deal."""
     user = request.user
     conf = AppSettings.load()
-    every = [_deal_json(deal, conf) for deal in commissions.deals_for(user)[:MAX_LIST]]
+    rows = list(commissions.deals_for(user)[:MAX_LIST])
+    marked = set(DealMark.objects.filter(user=user, deal_id__in=[row.pk for row in rows]).values_list("deal_id", flat=True))
+    every = [_deal_json(deal, conf, deal.pk in marked) for deal in rows]
     stage = request.GET.get("stage", "")
     shown = [deal for deal in every if deal["stage"] == stage] if stage in STAGES else every
     owner = user.is_admin_role
@@ -202,7 +206,8 @@ def _line_or_404(request, line_id):
 def _answer(request, deal_id):
     """The deal as it stands now, as the reader reads it."""
     fresh = commissions.deals_for(request.user).get(pk=deal_id)
-    return JsonResponse({"ok": True, "deal": _deal_json(fresh, AppSettings.load())})
+    marked = DealMark.objects.filter(user=request.user, deal_id=deal_id).exists()
+    return JsonResponse({"ok": True, "deal": _deal_json(fresh, AppSettings.load(), marked)})
 
 
 def _rate_of(request):
@@ -298,6 +303,18 @@ def deal_cancel(request, deal_id):
         commissions.cancel_deal(request.user, row)
     except commissions.Refused as refusal:
         return _refused(refusal)
+    return _answer(request, row.pk)
+
+
+@endpoint("POST")
+@api_gate(commissions.has_door)
+def deal_highlight(request, deal_id):
+    """``{"on": true|false}`` - highlight the deal for the reader alone (a personal star and filter)."""
+    row = _my_deal_or_404(request, deal_id)
+    on = _object(request).get("on", True)
+    if not isinstance(on, bool):
+        return _error(400, "bad_request")
+    commissions.set_highlight(request.user, row, on)
     return _answer(request, row.pk)
 
 

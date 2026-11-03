@@ -37,7 +37,7 @@ function deal(over: Partial<Deal> = {}): Deal {
       currency: "USD", source_lang: "German", target_lang: "Arabic", deadline: "30/10/2026", payment_terms: "",
     },
     invoice: { id: 9, code: "INV-0009", status: "paid", amount: "10000.00", currency: "USD", client_code: "CL-0003" },
-    paid: true, note: "", cancel_reason: "",
+    paid: true, note: "", cancel_reason: "", highlighted: false,
     client_paid: { state: "", amount: null, note: "", by: null, at: "" }, lines: [line()], ...over,
   };
 }
@@ -249,6 +249,19 @@ describe("CommissionsPage", () => {
     const one = await card("DEAL-0003");
     expect(one.queryByRole("button", { name: "سجّل دفع العميل" })).toBeNull();
     expect(one.queryByRole("button", { name: "الشركة لغت التعاقد" })).toBeNull();
+  });
+
+  it("highlights a deal for oneself and filters to the highlighted ones", async () => {
+    const user = userEvent.setup();
+    const mocked = serve(answer({ deals: [deal(), deal({ id: 5, code: "DEAL-0005", highlighted: true, lines: [line({ id: 5, code: "COM-0005" })] })] }));
+    open();
+    const one = await card("DEAL-0003");
+    await user.click(one.getByRole("button", { name: "هايلايت" }));
+    await waitFor(() => expect(posted(mocked.calls, "/api/v1/commissions/deals/3/highlight/")).toEqual([{ on: true }]));
+    expect((await card("DEAL-0005")).getByRole("button", { name: "شيل الهايلايت" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "اللي عملتلهم هايلايت" }));
+    expect(screen.queryByText("DEAL-0003")).toBeNull();
+    expect(screen.getByText("DEAL-0005")).toBeInTheDocument();
   });
 
   it("sends anybody else home", async () => {

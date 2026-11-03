@@ -94,6 +94,8 @@ export interface Deal {
   note: string;
   /** Why the Sales person cancelled it («الشركة لغت التعاقد»), empty when no reason was written. */
   cancel_reason: string;
+  /** The reader highlighted it for themselves (a personal star, nobody else sees it). */
+  highlighted: boolean;
   /** What the Sales person reported of the client's payment; an empty `state` = nothing reported. */
   client_paid: { state: "" | ClientPaidState; amount: string | null; note: string; by: { id: number; name: string } | null; at: string };
   lines: CommissionLine[];
@@ -148,6 +150,8 @@ export const useReportPayment = () =>
   useWrite(({ id, state, amount, note }: { id: number; state: ClientPaidState; amount: string; note: string }) =>
     api<{ ok: boolean; deal: Deal }>(`/api/v1/commissions/deals/${id}/payment/`, { json: { state, amount, note } }),
   );
+export const useHighlightDeal = () =>
+  useWrite(({ id, on }: { id: number; on: boolean }) => api<{ ok: boolean; deal: Deal }>(`/api/v1/commissions/deals/${id}/highlight/`, { json: { on } }));
 export const useDealOfInvoice = () => useWrite((id: number) => api<{ ok: boolean; deal: Deal }>(`/api/v1/commissions/invoices/${id}/deal/`, { json: {} }));
 export const useApprove = () => useWrite((id: number) => api<{ ok: boolean }>(`/api/v1/commissions/${id}/approve/`, { json: {} }));
 export const usePaid = () => useWrite((id: number) => api<{ ok: boolean }>(`/api/v1/commissions/${id}/paid/`, { json: {} }));

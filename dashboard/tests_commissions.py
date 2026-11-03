@@ -23,7 +23,7 @@ from django.utils import timezone
 from . import b2b, commissions, finance
 from .models import (
     AppSettings, AuditLog, Client, Commission, Deal, Invoice, InvoicePayment, Lead, LeadSheet, LeadStatus, Market, Quotation,
-    Notification, Role, SalesTrack, User,
+    DealMark, Notification, Role, SalesTrack, User,
 )
 
 
@@ -537,3 +537,33 @@ class SalesReportTests(_Commissions):
     def test_the_doors_are_under_api_v1(self):
         self.assertEqual(reverse("dashboard:v1_commissions_deal_withdraw", args=[3]), "/api/v1/commissions/deals/3/withdraw/")
         self.assertEqual(reverse("dashboard:v1_commissions_deal_payment", args=[3]), "/api/v1/commissions/deals/3/payment/")
+
+
+class HighlightTests(_Commissions):
+    """A personal star on a deal: only its owner sees it, any reader of the deal may set it."""
+
+    def stars(self, user):
+        return {deal["code"]: deal["highlighted"] for deal in _json(self.get(user))["deals"]}
+
+    def test_a_highlight_is_personal_and_toggles(self):
+        answer = self.post(self.b2b, "v1_commissions_deal_highlight", {"on": True}, self.deal.pk)
+        self.assertEqual((answer.status_code, _json(answer)["deal"]["highlighted"]), (200, True))
+        self.assertTrue(self.stars(self.b2b)[self.deal.code])
+        self.assertFalse(self.stars(self.admin)[self.deal.code])
+        self.assertFalse(self.stars(self.b2b_manager)[self.deal.code])
+        self.post(self.b2b, "v1_commissions_deal_highlight", {"on": True}, self.deal.pk)
+        self.assertEqual(DealMark.objects.filter(deal=self.deal).count(), 1)
+        self.post(self.b2b, "v1_commissions_deal_highlight", {"on": False}, self.deal.pk)
+        self.assertFalse(self.stars(self.b2b)[self.deal.code])
+
+    def test_the_owner_may_too_and_a_stranger_may_not(self):
+        self.assertEqual(self.post(self.admin, "v1_commissions_deal_highlight", {"on": True}, self.deal.pk).status_code, 200)
+        self.assertEqual(self.post(self.b2c, "v1_commissions_deal_highlight", {"on": True}, self.deal.pk).status_code, 404)
+        self.assertEqual(self.post(self.ops, "v1_commissions_deal_highlight", {"on": True}, self.deal.pk).status_code, 403)
+        self.assertEqual(self.post(self.b2b, "v1_commissions_deal_highlight", {"on": "yes"}, self.deal.pk).status_code, 400)
+        self.assertEqual(list(DealMark.objects.values_list("user_id", flat=True)), [self.admin.pk])
+
+    def test_the_rule_refuses_a_stranger(self):
+        with self.assertRaises(commissions.Refused):
+            commissions.set_highlight(self.b2c, self.deal, True)
+        self.assertFalse(DealMark.objects.exists())

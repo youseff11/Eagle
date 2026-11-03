@@ -7,6 +7,7 @@ import {
   useCommissions,
   useCompanyRate,
   useDealOfInvoice,
+  useHighlightDeal,
   usePaid,
   usePersonRate,
   useReportPayment,
@@ -387,6 +388,7 @@ function DealCard({
   const approve = useApprove();
   const paid = usePaid();
   const takeBack = useTakeBack();
+  const highlight = useHighlightDeal();
   const failed = (failure: unknown) => toasts.push({ level: "danger", title: refusalText(failure, lang, t("مقدرتش. جرّب تاني.", "Could not do it. Try again.")) });
   const company = deal.company;
   const quote = deal.quotation;
@@ -395,8 +397,18 @@ function DealCard({
   const place = [company.governorate, company.country].filter(Boolean).join(" · ");
 
   return (
-    <div className="card" style={{ marginBottom: 14 }} data-deal={deal.id}>
+    <div className="card" style={{ marginBottom: 14, ...(deal.highlighted ? { borderColor: "var(--warn, #d9a400)", boxShadow: "0 0 0 2px var(--warn, #d9a400)" } : {}) }} data-deal={deal.id} data-highlighted={deal.highlighted}>
       <div className="card__head">
+        <button
+          className="btn btn--sm btn--ghost"
+          type="button"
+          aria-pressed={deal.highlighted}
+          aria-label={deal.highlighted ? t("شيل الهايلايت", "Remove the highlight") : t("هايلايت", "Highlight")}
+          disabled={highlight.isPending}
+          onClick={() => highlight.mutate({ id: deal.id, on: !deal.highlighted }, { onError: failed })}
+        >
+          <Icon name="star" size="sm" filled={deal.highlighted} />
+        </button>
         <Icon name="building" />
         <h3>{company.name || t("صفقة من فاتورة", "A deal from an invoice")}</h3>
         <span className="mono muted">{deal.code}</span>
@@ -586,6 +598,7 @@ export function CommissionsPage() {
   const [cancelling, setCancelling] = useState<Deal | null>(null);
   const [withdrawing, setWithdrawing] = useState<number | null>(null);
   const [reporting, setReporting] = useState<number | null>(null);
+  const [marked, setMarked] = useState(false);
   const [problem, setProblem] = useState("");
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
@@ -605,7 +618,8 @@ export function CommissionsPage() {
   const withdrawingDeal = data.deals.find((deal) => deal.id === withdrawing);
   const reportingDeal = data.deals.find((deal) => deal.id === reporting);
   // A company that pulled out leaves the Sales person's list (the owner keeps it; «اتلغت» in the filter shows it).
-  const shown = owner || stage ? data.deals : data.deals.filter((deal) => deal.status !== "cancelled");
+  const visible = owner || stage ? data.deals : data.deals.filter((deal) => deal.status !== "cancelled");
+  const shown = marked ? visible.filter((deal) => deal.highlighted) : visible;
   const tiles: { key: keyof CommissionsResponse["totals"]; ar: string; en: string; tone?: string }[] = [
     { key: "waiting", ar: "مستنية العميل يدفع", en: "Waiting for the client to pay" },
     { key: "due", ar: "مستحقة (العميل دفع)", en: "Due (the client paid)", tone: "kpi--warn" },
@@ -685,6 +699,10 @@ export function CommissionsPage() {
       <div className="row" style={{ marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>{t("الصفقات", "Deals")}</h2>
         <div className="grow" />
+        <button className={marked ? "btn btn--sm btn--primary" : "btn btn--sm"} type="button" aria-pressed={marked} onClick={() => setMarked((on) => !on)}>
+          <Icon name="star" size="sm" filled={marked} />
+          {t("اللي عملتلهم هايلايت", "Highlighted by me")}
+        </button>
         <select className="input" style={{ width: "auto" }} aria-label={t("اعرض", "Show")} value={stage} onChange={(event) => setStage(event.target.value)}>
           <option value="">{t("كل الصفقات", "All deals")}</option>
           {Object.entries(STAGE).map(([value, words]) => (

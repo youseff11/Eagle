@@ -281,6 +281,7 @@ urlpatterns = [
     path("api/v1/commissions/deals/<int:deal_id>/", api_commissions.deal, name="v1_commissions_deal"),
     path("api/v1/commissions/deals/<int:deal_id>/cancel/", api_commissions.deal_cancel, name="v1_commissions_deal_cancel"),
     path("api/v1/commissions/deals/<int:deal_id>/withdraw/", api_commissions.deal_withdraw, name="v1_commissions_deal_withdraw"),
+    path("api/v1/commissions/deals/<int:deal_id>/highlight/", api_commissions.deal_highlight, name="v1_commissions_deal_highlight"),
     path("api/v1/commissions/deals/<int:deal_id>/payment/", api_commissions.deal_payment, name="v1_commissions_deal_payment"),
     path("api/v1/commissions/invoices/<int:invoice_id>/deal/",api_commissions.invoice_deal, name="v1_commissions_invoice_deal"),
     path("api/v1/commissions/<int:line_id>/approve/", api_commissions.approve, name="v1_commissions_approve"),
