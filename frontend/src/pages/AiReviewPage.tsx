@@ -16,6 +16,7 @@ const SUGGESTIONS: [string, string][] = [
   ["راجع الترجمة على الأصل وطلّعلي كل الأخطاء.", "Review the translation against the source and list every mistake."],
   ["دوّر على الأرقام والتواريخ والأسماء بس.", "Check only the numbers, dates and names."],
   ["قيّم جودة الترجمة وقولي أهم 3 حاجات تتصلح.", "Rate the translation and tell me the 3 most important things to fix."],
+  ["صلّح الأخطاء في ملف الـWord وطلّعلي الملف معدّل.", "Fix the mistakes in the Word file and give me the edited file."],
 ];
 
 function Attached({ file }: { file: AiReviewLine["files"][number] }) {
@@ -188,8 +189,9 @@ function Sessions({
 /**
  * «مراجعة بالـAI»: a chat. The team leader opens a session, sends the source, the translation or any file, and talks to the AI about them;
  * it answers from the files and from the talk so far, and he keeps asking. Each session is its own talk, and he opens, switches and
- * deletes them from the list. The open one is in the address (`?s=`), so a notification or a reload lands on it. Advisory only: it never
- * edits anything, and nobody's stars ride on it.
+ * deletes them from the list. The open one is in the address (`?s=`), so a notification or a reload lands on it. Asked for the corrected
+ * Word file, the AI's answer carries an edited copy as a file pill to download (the originals are never touched), and nobody's stars
+ * ride on it.
  */
 export function AiReviewPage() {
   const { t } = usePreferences();

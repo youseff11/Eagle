@@ -441,7 +441,7 @@ class PiecesTests(TestCase):
         for model in ("claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5", "", None):
             self.assertEqual(ai.effort_params(model), {}, model)
 
-    def test_a_review_asks_for_the_deepest_effort_and_room_to_think(self):
+    def test_a_review_asks_for_high_effort_and_room_to_think(self):
         response = mock.MagicMock()
         response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
         conf = AppSettings.load()
@@ -449,7 +449,7 @@ class PiecesTests(TestCase):
         with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
             ai._call_claude(conf, "prompt")
         sent = json.loads(opened.call_args.args[0].data.decode("utf-8"))
-        self.assertEqual(sent["output_config"], {"effort": "max"})
+        self.assertEqual(sent["output_config"], {"effort": "high"})
         self.assertEqual((sent["stream"], sent["max_tokens"]), (True, ai.REVIEW_MAX_TOKENS))
         # An older model has no such knob: nothing is sent it, and nothing breaks.
         conf.claude_model = "claude-sonnet-4-5"

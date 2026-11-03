@@ -46,8 +46,8 @@ IMAGE_TYPES = {
 MAX_DOCUMENT_BYTES = 22 * 1024 * 1024
 #: Not the real limit (the bytes are): the API takes hundreds of pictures and pages in one request. It stays equal to what one line may carry.
 MAX_DOCUMENTS = 50
-#: What a review asks the model for: the deepest pass there is. Correctness is the point of a review, and the files are long.
-REVIEW_EFFORT = "max"
+#: What a review asks the model for: a deep pass, but not the deepest. Correctness is the point of a review, and the files are long.
+REVIEW_EFFORT = "high"
 #: The room a review has: the model thinks inside it, then writes every note it found. The call is streamed, so a long answer is fine.
 REVIEW_MAX_TOKENS = 64000
 
@@ -277,7 +277,7 @@ def _fit(source_docs, translated_docs):
 def effort_params(model, level="high"):
     """``output_config`` asking for ``level`` of effort, for a model that has the knob; nothing for an older one (it answers 400).
 
-    Opus 5.5 defaults to ``medium``; the translation work is worth the deeper pass, and a review asks for ``max``
+    Opus 5.5 defaults to ``medium``; the translation work is worth the deeper pass, and a review asks for ``high``
     (:data:`REVIEW_EFFORT`). Every model in :data:`EFFORT_MODELS` takes ``low`` to ``max``. Thinking is spent out of ``max_tokens``,
     so the callers leave room for it.
     """
@@ -378,7 +378,7 @@ def _text_of(body):
 
 
 def _call_claude(conf, prompt, documents=None, feature="check"):
-    """The review's call: the whole of both texts, the files, and the deepest effort. Streamed (``stream_messages``)."""
+    """The review's call: the whole of both texts, the files, and the review effort. Streamed (``stream_messages``)."""
     content = list(documents or []) + [{"type": "text", "text": prompt}]
     text, _stop = stream_messages(
         conf, SYSTEM_PROMPT, [{"role": "user", "content": content}], REVIEW_MAX_TOKENS, feature, level=REVIEW_EFFORT,
