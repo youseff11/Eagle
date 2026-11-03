@@ -8718,8 +8718,9 @@ class AICheckReadsPdfTests(TestCase):
 
         def fake(request, timeout=None):
             sent["payload"] = json.loads(request.data.decode("utf-8"))
-            body = {"content": [{"type": "text", "text": '{"summary_en": "ok", "summary_ar": "تمام", "issues": []}'}]}
-            return Reply(json.dumps(body).encode("utf-8"))
+            # The review is streamed: the answer comes as the events of a stream, one ``data:`` line each.
+            event = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": '{"summary_en": "ok", "summary_ar": "تمام", "issues": []}'}}
+            return Reply(f"data: {json.dumps(event)}\n".encode("utf-8"))
 
         with mock.patch("dashboard.ai.net.urlopen", side_effect=fake):
             result = ai.finish_check(

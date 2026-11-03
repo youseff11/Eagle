@@ -8,7 +8,10 @@ that were redirects with a flash message (the word count, a requirement) and the
 so a front end can read what happened.
 """
 
+import logging
+
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -19,11 +22,13 @@ from .api_v1 import (
 )
 from .forms import QUICK_LANGUAGES, RequirementForm, TaskForm, language_choices
 from .models import (
-    ACTIVE_TASK_STATUSES, AppSettings, AssignmentStatus, ChatAttachment, Client, Priority, Role, RoomKind, Task,
-    TaskStatus, User, translator_holdings,
+    ACTIVE_TASK_STATUSES, AppSettings, AssignmentStatus, ChatAttachment, Client, ClientRequirement, Priority, Role, RoomKind,
+    Task, TaskStatus, User, translator_holdings,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import PRIORITY_MAP
+
+logger = logging.getLogger(__name__)
 
 #: The most rows a list answers with: the classic page's own limit.
 MAX_TASKS = 200
@@ -685,6 +690,34 @@ def task_requirement(request, code):
     if refusal is not None:
         return refusal
     return JsonResponse({"ok": True, "requirement": _requirement_json(row, task.client, request.user)})
+
+
+@endpoint("POST")
+@api_role_required(Role.OPERATION, Role.TEAM_LEAD)
+def requirement_delete(request, pk):
+    """Take a requirement off its client, with the file it carries.
+
+    Whoever may write requirements may take them off (the operation, the admin, and a team leader on a client whose jobs they run);
+    a team leader on a client that is not theirs gets the logged 404 the add door gives. The audit row names the client and what the
+    requirement said, so a deleted line is still known to have been there.
+    """
+    row = get_object_or_404(ClientRequirement.objects.select_related("client"), pk=pk)
+    user = request.user
+    if user.is_team_lead and not user.is_admin_role and not row.client.tasks.filter(team_lead=user).exists():
+        identity.hidden(request, "client")
+    said = (row.text or row.original_name)[:80]
+    client_code = row.client.code
+    stored = row.file.name if row.file else ""
+    with transaction.atomic():
+        row.delete()
+        services.log(user, "client.requirement_delete", client_code, said)
+    if stored:
+        # After the row is gone for good: a failed storage call leaves a file nobody points at, never a requirement with no file.
+        try:
+            row.file.storage.delete(stored)
+        except Exception:  # noqa: BLE001 - the requirement is already gone; the stray file is not worth a 500
+            logger.exception("Requirement file %s could not be removed", stored)
+    return JsonResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------

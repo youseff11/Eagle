@@ -1,43 +1,53 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
 import { qk } from "./keys";
+import type { AiReviewDetail, AiReviewLabel } from "./types";
 
-/** What the leader hands the AI: the files of each side and, in words, the languages and what to look at (all of these optional). */
+/** A line to the AI: words and/or files (each with what the leader says it is). `session` goes on in one; left out, a new one opens. */
 export interface AiReviewInput {
-  source: File[];
-  target: File[];
-  sourceLang: string;
-  targetLang: string;
-  instructions: string;
-  /** A Word or text file with the instructions: the server reads it and adds it under `instructions`. */
-  instructionsFile?: File | null;
+  session: number | null;
+  text: string;
+  files: { file: File; label: AiReviewLabel }[];
 }
 
-/** «ابعت للـAI»: the files go in one request and the notes come later (`api_docreview.send`). A refusal arrives as its own sentence. */
+const url = (id: number) => `/api/v1/ai-review/${id}/`;
+
+/** «ابعت»: the files go in one request and the answer comes later (`api_docreview.send`). The reply is the session, so a new one is found at once. */
 export function useAiReviewSend() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (input: AiReviewInput) => {
       const form = new FormData();
-      for (const file of input.source) form.append("source", file, file.name);
-      for (const file of input.target) form.append("target", file, file.name);
-      form.append("source_lang", input.sourceLang);
-      form.append("target_lang", input.targetLang);
-      form.append("instructions", input.instructions);
-      if (input.instructionsFile) form.append("instructions_file", input.instructionsFile, input.instructionsFile.name);
-      const answer = await api<{ ok: boolean; id: number }>("/api/v1/ai-review/send/", { multipart: form });
+      if (input.session !== null) form.append("session", String(input.session));
+      form.append("text", input.text);
+      for (const { file, label } of input.files) {
+        form.append("files", file, file.name);
+        form.append("labels", label);
+      }
+      const answer = await api<AiReviewDetail | { ok: false }>("/api/v1/ai-review/send/", { multipart: form });
       if (!answer.ok) throw new ApiError(200, "refused", answer);
       return answer;
     },
+    onSuccess: (answer) => client.setQueryData(qk.aiReviewSession(answer.session.id), answer),
     onSettled: () => void client.invalidateQueries({ queryKey: qk.aiReview }),
   });
 }
 
-/** Take a finished check off the page. */
+/** «جرّب تاني»: ask again for the answer that failed, with the files the server kept. */
+export function useAiReviewRetry() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<AiReviewDetail>(`${url(id)}retry/`, { form: {} }),
+    onSuccess: (answer) => client.setQueryData(qk.aiReviewSession(answer.session.id), answer),
+    onSettled: () => void client.invalidateQueries({ queryKey: qk.aiReview }),
+  });
+}
+
+/** Delete a session with its talk and files. The server refuses (409) while the AI is still answering in it. */
 export function useAiReviewDelete() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api<{ ok: boolean }>(`/api/v1/ai-review/${id}/delete/`, { form: {} }),
+    mutationFn: (id: number) => api<{ ok: boolean }>(`${url(id)}delete/`, { form: {} }),
     onSettled: () => void client.invalidateQueries({ queryKey: qk.aiReview }),
   });
 }

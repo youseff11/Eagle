@@ -249,7 +249,7 @@ def owner_of(name):
     that lets this person in.
     """
     from .models import (
-        AIChatMessage, AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment, ClientRequirement,
+        AIChatMessage, AIReviewFile, AITranslation, Candidate, CandidateAnswer, CandidateTest, ChatAttachment, ClientRequirement,
         MessageAttachment, OutboundAttachment, TaskUpload, User,
     )
 
@@ -257,6 +257,9 @@ def owner_of(name):
     # (this is the hottest file on every page of the chats) are not asked.
     if name.startswith("avatars/"):
         return [("avatar", r) for r in User.objects.filter(avatar=name)[:1]]
+    # The same for a file of a review chat: only a row of that table can own a name under ``aireview/``.
+    if name.startswith("aireview/"):
+        return [("ai_review", r) for r in _rows(AIReviewFile, name, "message", "message__session")]
 
     found = []
     found += [("inbound", r) for r in _rows(MessageAttachment, name, "message", "message__task")]
@@ -298,6 +301,9 @@ def may_open(user, name):
             return True, (kind, row)
         # The leader's talk with the AI is his and the admin's: the operation does not read it, nor does anyone merely offered the job.
         if kind == "ai_chat" and (user.is_admin_role or (user.is_team_lead and row.task.team_lead_id == user.pk)):
+            return True, (kind, row)
+        # A leader's chat with the AI about his own documents is his alone: not even the admin reads another person's.
+        if kind == "ai_review" and row.message.session.owner_id == user.pk:
             return True, (kind, row)
         if kind in ("cv", "answer") and user.can_recruit:
             return True, (kind, row)

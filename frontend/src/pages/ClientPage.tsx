@@ -1,7 +1,7 @@
 import { Loading } from "../components/Loading";
 import { Link, Navigate, useParams } from "react-router";
 import { ApiError } from "../api/client";
-import { useAddClientRequirement } from "../api/opsActions";
+import { useAddClientRequirement, useDeleteClientRequirement } from "../api/opsActions";
 import { useClient, useMe } from "../api/queries";
 import type { ClientResponse } from "../api/types";
 import { OriginBadge, StatusBadge } from "../components/Badges";
@@ -101,6 +101,7 @@ export function ClientPage() {
   const allowed = me.data !== undefined && (["operation", "sales", "team_lead"].includes(me.data.user.role) || me.data.user.is_admin);
   const query = useClient(code, allowed);
   const add = useAddClientRequirement(code);
+  const remove = useDeleteClientRequirement(code);
 
   if (me.data && !allowed) return <Navigate to="/" replace />;
 
@@ -143,7 +144,7 @@ export function ClientPage() {
               <Icon name="list-checks" />
               <h3>{t("المتطلبات والملاحظات", "Requirements & notes")}</h3>
             </div>
-            <Requirements requirements={data.requirements} add={data.may_edit ? add : null} />
+            <Requirements requirements={data.requirements} add={data.may_edit ? add : null} remove={data.may_edit ? remove : null} />
           </div>
 
           <div className="sticky-side">

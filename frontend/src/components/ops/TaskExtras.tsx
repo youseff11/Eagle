@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAddRequirement, useSaveLanguages, useSaveWords } from "../../api/opsActions";
+import { useAddRequirement, useDeleteRequirement, useSaveLanguages, useSaveWords } from "../../api/opsActions";
 import type { OpsTask } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { ROLE_LABELS } from "../../lib/roles";
@@ -176,6 +176,7 @@ export function LanguagesCard({ task }: { task: OpsTask }) {
 export function RequirementsCard({ task }: { task: OpsTask }) {
   const { t } = usePreferences();
   const add = useAddRequirement(task.code);
+  const remove = useDeleteRequirement(task.code);
   return (
     <div className="card">
       <div className="card__head">
@@ -184,7 +185,7 @@ export function RequirementsCard({ task }: { task: OpsTask }) {
         <div className="grow" />
         <span className="chip mono">{task.client_code}</span>
       </div>
-      <Requirements requirements={task.requirements} add={add} />
+      <Requirements requirements={task.requirements} add={add} remove={remove} />
     </div>
   );
 }

@@ -105,8 +105,16 @@ class CallSiteTests(TestCase):
     def answer(self, text="{}"):
         return _Answer({"model": "claude-sonnet-4-5-20250929", "content": [{"type": "text", "text": text}], "usage": USAGE})
 
+    def streamed(self, text="{}"):
+        """What the review's call gets back: the answer as the events of a stream, with the usage ``USAGE`` holds."""
+        return _stream(
+            {"type": "message_start", "message": {"model": "claude-sonnet-4-5-20250929", "usage": {**USAGE, "output_tokens": 1}}},
+            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": USAGE["output_tokens"]}},
+        )
+
     def test_the_ai_check_writes_a_row(self):
-        with mock.patch.object(ai.net, "urlopen", return_value=self.answer()):
+        with mock.patch.object(ai.net, "urlopen", return_value=self.streamed()):
             ai._call_claude(self.conf, "prompt")
         row = ClaudeUsage.objects.get()
         self.assertEqual((row.feature, row.model, row.input_tokens, row.output_tokens), ("check", "claude-sonnet-4-5-20250929", 1000, 500))
@@ -137,7 +145,7 @@ class CallSiteTests(TestCase):
             {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}},
             {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 800}},
         )
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response):
+        with mock.patch.object(ai.net, "urlopen", return_value=response):
             ai_translate.stream_text(self.conf, "s", "p", [])
         row = ClaudeUsage.objects.get()
         self.assertEqual((row.feature, row.input_tokens, row.output_tokens), ("ai_translate", 2000, 800))
@@ -148,7 +156,7 @@ class CallSiteTests(TestCase):
             {"type": "message_start", "message": {"usage": {"input_tokens": 2000, "output_tokens": 1}}},
             {"type": "error", "error": {"type": "overloaded_error"}},
         )
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response):
+        with mock.patch.object(ai.net, "urlopen", return_value=response):
             with self.assertRaises(RuntimeError):
                 ai_translate.stream_text(self.conf, "s", "p", [])
         row = ClaudeUsage.objects.get()
@@ -156,6 +164,6 @@ class CallSiteTests(TestCase):
 
     def test_a_failing_row_leaves_the_answer(self):
         with mock.patch.object(claude_usage, "cost_of", side_effect=RuntimeError("database down")):
-            with mock.patch.object(ai.net, "urlopen", return_value=self.answer('{"ok": 1}')), mock.patch.object(claude_usage, "log"):
+            with mock.patch.object(ai.net, "urlopen", return_value=self.streamed('{"ok": 1}')), mock.patch.object(claude_usage, "log"):
                 self.assertEqual(ai._call_claude(self.conf, "prompt"), '{"ok": 1}')
         self.assertFalse(ClaudeUsage.objects.exists())

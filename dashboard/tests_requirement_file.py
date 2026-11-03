@@ -257,3 +257,60 @@ class ReadingTests(_Requirements):
         row.refresh_from_db()
         self.assertNotIn("Zenith", row.original_name)
         self.assertIn(client.code, row.original_name)
+
+
+class DeleteTests(_Requirements):
+    """A requirement can be taken off again, with its file, by the people who may write one (30/10/2026)."""
+
+    def wipe(self, who, row):
+        return self.browser(who).post(reverse("dashboard:v1_requirement_delete", args=[row.pk]))
+
+    def test_the_operation_deletes_a_requirement_and_it_is_written_down(self):
+        row = ClientRequirement.objects.create(client=self.client_obj, kind="rule", text="Always A4", author=self.ops)
+        answer = self.wipe(self.ops, row)
+        self.assertEqual((answer.status_code, _json(answer)), (200, {"ok": True}))
+        self.assertFalse(ClientRequirement.objects.filter(pk=row.pk).exists())
+        logged = AuditLog.objects.get(action="client.requirement_delete")
+        self.assertEqual(logged.target, self.client_obj.code)
+        self.assertIn("Always A4", logged.detail)
+
+    def test_the_file_goes_with_it_and_no_longer_opens(self):
+        row = self.made(self.ops)
+        name = row.file.name
+        self.assertTrue(row.file.storage.exists(name))
+        self.assertEqual(self.wipe(self.ops, row).status_code, 200)
+        self.assertFalse(row.file.storage.exists(name))
+        self.assertEqual(self.browser(self.admin).get(reverse("dashboard:serve_file", args=[name])).status_code, 404)
+
+    def test_the_admin_and_the_leader_of_the_task_may(self):
+        for who in (self.admin, self.lead):
+            row = ClientRequirement.objects.create(client=self.client_obj, kind="like", text="Short", author=self.ops)
+            self.assertEqual(self.wipe(who, row).status_code, 200, who.username)
+            self.assertFalse(ClientRequirement.objects.filter(pk=row.pk).exists())
+
+    def test_a_leader_who_is_not_on_the_clients_work_does_not_find_it(self):
+        row = ClientRequirement.objects.create(client=self.client_obj, kind="rule", text="Keep", author=self.ops)
+        before = AuditLog.objects.count()
+        self.assertEqual(self.wipe(self.lead2, row).status_code, 404)
+        self.assertTrue(ClientRequirement.objects.filter(pk=row.pk).exists())
+        self.assertGreater(AuditLog.objects.count(), before)
+
+    def test_who_may_not_write_a_requirement_may_not_delete_one(self):
+        row = ClientRequirement.objects.create(client=self.client_obj, kind="rule", text="Keep", author=self.ops)
+        for who in (self.tr, self.hr, self.reviewer, self.accounting, self.sales):
+            self.assertEqual(self.wipe(who, row).status_code, 403, who.username)
+        self.assertEqual(self.wipe(None, row).status_code, 401)
+        self.assertTrue(ClientRequirement.objects.filter(pk=row.pk).exists())
+
+    def test_an_unknown_requirement_and_a_get_change_nothing(self):
+        row = ClientRequirement.objects.create(client=self.client_obj, kind="rule", text="Keep", author=self.ops)
+        self.assertEqual(self.browser(self.ops).post(reverse("dashboard:v1_requirement_delete", args=[row.pk + 99])).status_code, 404)
+        self.assertEqual(self.browser(self.ops).get(reverse("dashboard:v1_requirement_delete", args=[row.pk])).status_code, 405)
+        self.assertTrue(ClientRequirement.objects.filter(pk=row.pk).exists())
+
+    def test_the_client_page_stops_listing_it(self):
+        row = ClientRequirement.objects.create(client=self.client_obj, kind="rule", text="Always A4", author=self.ops)
+        page = reverse("dashboard:v1_client", args=[self.client_obj.code])
+        self.assertEqual([r["id"] for r in _json(self.browser(self.ops).get(page))["requirements"]], [row.pk])
+        self.wipe(self.ops, row)
+        self.assertEqual(_json(self.browser(self.ops).get(page))["requirements"], [])

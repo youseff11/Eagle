@@ -49,5 +49,5 @@ class Command(BaseCommand):
         # The AI translations a leader asked for (21/10/2026) die the same way, and are finished the same way.
         translated = ai_translate.finish_stuck(options["minutes"])
         self.stdout.write(self.style.SUCCESS(f"translations finished={translated}"))
-        # The leader's own documents (22/10/2026) live only in their thread: one that died cannot be finished, only closed.
-        self.stdout.write(self.style.SUCCESS(f"document checks closed={doc_review.close_stale()}"))
+        # The leader's review chats (03/11/2026): an answer whose thread died cannot be finished here, only closed (he asks again).
+        self.stdout.write(self.style.SUCCESS(f"review answers closed={doc_review.close_stale()}"))

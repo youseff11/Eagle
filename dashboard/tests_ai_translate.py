@@ -428,7 +428,7 @@ class PiecesTests(TestCase):
         response = mock.MagicMock()
         response.__enter__.return_value = iter(events)
         conf = AppSettings.load()
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response) as opened:
+        with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
             text, stop = ai_translate.stream_text(conf, "system", "prompt", [])
         self.assertEqual((text, stop), ("مرحبا world", "max_tokens"))
         sent = json.loads(opened.call_args.args[0].data.decode("utf-8"))
@@ -441,24 +441,67 @@ class PiecesTests(TestCase):
         for model in ("claude-sonnet-4-5", "claude-haiku-4-5", "claude-opus-4-5", "", None):
             self.assertEqual(ai.effort_params(model), {}, model)
 
+    def test_a_review_asks_for_the_deepest_effort_and_room_to_think(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
+        conf = AppSettings.load()
+        conf.claude_model = "claude-opus-5-5"
+        with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
+            ai._call_claude(conf, "prompt")
+        sent = json.loads(opened.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(sent["output_config"], {"effort": "max"})
+        self.assertEqual((sent["stream"], sent["max_tokens"]), (True, ai.REVIEW_MAX_TOKENS))
+        # An older model has no such knob: nothing is sent it, and nothing breaks.
+        conf.claude_model = "claude-sonnet-4-5"
+        response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
+        with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
+            ai._call_claude(conf, "prompt")
+        self.assertNotIn("output_config", json.loads(opened.call_args.args[0].data.decode("utf-8")))
+
+    def test_the_level_is_the_callers_to_choose(self):
+        self.assertEqual(ai.effort_params("claude-opus-5-5", "max"), {"output_config": {"effort": "max"}})
+        self.assertEqual(ai.effort_params("claude-sonnet-4-5", "max"), {})
+
+    def test_a_text_longer_than_one_review_holds_is_said_to_be_cut(self):
+        conf = AppSettings.load()
+        long = "x" * (ai.MAX_CHARS + 5)
+        with mock.patch.object(ai, "_call_claude", return_value='{"verdict": "accurate", "issues": []}') as call:
+            fields = ai.compare(conf, "H\n", "source", long)
+        self.assertIn("cut at", call.call_args.args[1])
+        self.assertNotIn("x" * (ai.MAX_CHARS + 1), call.call_args.args[1])
+        self.assertIn(ai.CUT_AR, fields["summary"])
+        with mock.patch.object(ai, "_call_claude", return_value='{"verdict": "accurate", "issues": []}'):
+            self.assertNotIn(ai.CUT_AR, ai.compare(conf, "H\n", "source", "short")["summary"])
+
+    def test_files_the_request_could_not_hold_are_named_in_the_summary(self):
+        conf = AppSettings.load()
+        big = {"name": "huge.pdf", "media_type": "application/pdf", "data": b"x" * (ai.MAX_DOCUMENT_BYTES + 1)}
+        small = {"name": "small.pdf", "media_type": "application/pdf", "data": b"x"}
+        with mock.patch.object(ai, "_call_claude", return_value='{"verdict": "accurate", "issues": []}'):
+            fields = ai.compare(conf, "H\n", "", "words", [big], [small])
+        self.assertIn("huge.pdf", fields["summary"])
+        self.assertIn("ماوصلتش للـAI", fields["summary"])
+        with mock.patch.object(ai, "_call_claude", return_value='{"verdict": "accurate", "issues": []}'):
+            self.assertNotIn("ماوصلتش للـAI", ai.compare(conf, "H\n", "", "words", [], [small])["summary"])
+
     def test_the_stream_asks_for_high_effort_from_opus(self):
         response = mock.MagicMock()
         response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
         conf = AppSettings.load()
         conf.claude_model = "claude-opus-5-5"
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response) as opened:
+        with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
             ai_translate.stream_text(conf, "system", "prompt", [])
         sent = json.loads(opened.call_args.args[0].data.decode("utf-8"))
         self.assertEqual(sent["output_config"], {"effort": "high"})
         conf.claude_model = "claude-sonnet-4-5"
         response.__enter__.return_value = iter([b'data: {"type": "message_stop"}\n'])
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response) as opened:
+        with mock.patch.object(ai.net, "urlopen", return_value=response) as opened:
             ai_translate.stream_text(conf, "system", "prompt", [])
         self.assertNotIn("output_config", json.loads(opened.call_args.args[0].data.decode("utf-8")))
 
     def test_an_error_event_is_a_failure(self):
         response = mock.MagicMock()
         response.__enter__.return_value = iter([b'data: {"type": "error", "error": {"type": "overloaded_error"}}\n'])
-        with mock.patch.object(ai_translate.net, "urlopen", return_value=response):
+        with mock.patch.object(ai.net, "urlopen", return_value=response):
             with self.assertRaises(RuntimeError):
                 ai_translate.stream_text(AppSettings.load(), "s", "p", [])

@@ -18,12 +18,10 @@ translating" meanwhile, and a row left ``running`` by a process that died is fin
 """
 
 import io
-import json
 import logging
 import re
 import threading
 import urllib.error
-import urllib.request
 import zipfile
 from datetime import timedelta
 from xml.sax.saxutils import escape
@@ -32,7 +30,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
-from . import ai, claude_usage, net
+from . import ai
 from .models import AITranslation, AppSettings, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -242,55 +240,7 @@ def stream_text(conf, system, prompt, documents, max_tokens=MAX_TOKENS):
     cut by a timeout, and ``max_tokens`` says when it stopped short.
     """
     content = list(documents or []) + [{"type": "text", "text": prompt}]
-    payload = {
-        "model": conf.claude_model or "claude-sonnet-4-5",
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [{"role": "user", "content": content}],
-        "stream": True,
-        **ai.effort_params(conf.claude_model),
-    }
-    request = urllib.request.Request(
-        ai.API_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "content-type": "application/json",
-            "x-api-key": conf.claude_api_key,
-            "anthropic-version": ai.API_VERSION,
-        },
-        method="POST",
-    )
-    pieces, stop = [], ""
-    # What the call used: the input side comes at the start, the output count grows with each ``message_delta``. It is written
-    # down however the stream ends, since a call cut short is still billed.
-    used, model = {}, payload["model"]
-    try:
-        with net.urlopen(request, timeout=180) as response:
-            for raw in response:
-                line = raw.decode("utf-8", errors="ignore").strip()
-                if not line.startswith("data:"):
-                    continue
-                try:
-                    event = json.loads(line[5:].strip())
-                except ValueError:
-                    continue
-                kind = event.get("type")
-                if kind == "message_start":
-                    message = event.get("message") or {}
-                    model = message.get("model") or model
-                    used.update(message.get("usage") or {})
-                elif kind == "content_block_delta":
-                    delta = event.get("delta") or {}
-                    if delta.get("type") == "text_delta":
-                        pieces.append(delta.get("text", ""))
-                elif kind == "message_delta":
-                    stop = (event.get("delta") or {}).get("stop_reason") or stop
-                    used.update({name: value for name, value in (event.get("usage") or {}).items() if value is not None})
-                elif kind == "error":
-                    raise RuntimeError(((event.get("error") or {}).get("type") or "stream_error")[:100])
-    finally:
-        claude_usage.record("ai_translate", model, used)
-    return "".join(pieces).strip(), stop
+    return ai.stream_messages(conf, system, [{"role": "user", "content": content}], max_tokens, "ai_translate", timeout=180)
 
 
 def is_rtl(language):

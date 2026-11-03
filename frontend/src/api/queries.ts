@@ -322,24 +322,27 @@ export function useTaskAiNotes(code: string, enabled = true) {
   });
 }
 
-/** The leader's own document checks (`api_docreview`): the list, and whether the check is there. Follows a running one until it ends. */
+/** How often a review chat is asked again while the AI is writing its answer. */
+export const AI_REVIEW_WRITING_MS = 2500;
+
+/** The leader's review chats (`api_docreview`): the sessions, and whether the check is there. Asked again, quickly, while the AI answers in one. */
 export function useAiReviewBoard(enabled = true) {
   const refetchInterval = useFallbackInterval();
   return useQuery({
     queryKey: qk.aiReview,
     queryFn: () => api<AiReviewBoard>("/api/v1/ai-review/"),
-    refetchInterval: (query) => (query.state.data?.running ? AI_RUNNING_POLL_MS : refetchInterval),
+    refetchInterval: (query) => (query.state.data?.sessions.some((one) => one.pending) ? AI_REVIEW_WRITING_MS : refetchInterval),
     retry: false,
     enabled,
   });
 }
 
-/** One of those checks with its notes; asked again while it is running. */
-export function useAiReviewCheck(id: number | null) {
+/** One session with its talk; asked again while the AI is writing. */
+export function useAiReviewSession(id: number | null) {
   return useQuery({
-    queryKey: qk.aiReviewCheck(id ?? 0),
+    queryKey: qk.aiReviewSession(id ?? 0),
     queryFn: () => api<AiReviewDetail>(`/api/v1/ai-review/${id}/`),
-    refetchInterval: (query) => (query.state.data?.check.status === "running" ? AI_RUNNING_POLL_MS : false),
+    refetchInterval: (query) => (query.state.data?.session.pending ? AI_REVIEW_WRITING_MS : false),
     retry: false,
     enabled: id !== null,
   });

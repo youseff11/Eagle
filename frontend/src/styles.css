@@ -712,36 +712,44 @@ button.emoji__item:hover, button.emoji__item:focus-visible { background: var(--b
   .table--cards.clients-table tbody td.clients-table__actions .row { justify-content: flex-start; }
 }
 
-/* «مراجعة بالـAI»: the two boxes for the source and the translation, the files in each, and the list of past reviews. */
-.aireview-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-block-end: 8px; }
-.aireview-side {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0;
-  padding: 14px; border: 1px dashed var(--border); border-radius: var(--r-lg); background: var(--surface-2);
-  transition: border-color .12s, background .12s;
+/* «مراجعة بالـAI»: a chat. The sessions on one side, the talk and its box on the other; one column on a narrow screen. */
+.revchat { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start; }
+.revchat__sessions { display: flex; flex-direction: column; gap: 10px; padding: 12px; max-height: calc(100dvh - 190px); min-height: 220px; }
+.revchat__sessions-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.revchat__sessions-list li { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.revchat__sessions-list li:hover, .revchat__sessions-list li.is-open { background: var(--surface-2); }
+.revchat__open {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px 8px; text-align: start;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
 }
-.aireview-side.is-over { border-color: var(--brand); background: var(--brand-soft); }
-.aireview-side__head { display: flex; flex-direction: column; gap: 2px; }
-.aireview-side__head .muted { font-size: .78rem; }
-.aireview-side__drop { font-size: .78rem; }
-.aireview-files { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: grid; gap: 6px; }
-.aireview-files li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; }
-.aireview-files__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.aireview-limits { font-size: .8rem; margin: 4px 0 14px; }
-.aireview-sent { display: grid; gap: 6px; margin: 0 0 12px; }
-.aireview-sent > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.aireview-sent dt { color: var(--muted); min-width: 6rem; }
-.aireview-sent dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.aireview-history { list-style: none; margin: 0; padding: 0; }
-.aireview-history li + li { border-block-start: 1px solid var(--border-soft); }
-.aireview-history__row {
-  display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 6px; text-align: start;
-  background: none; border: 0; color: inherit; font: inherit; cursor: pointer; border-radius: 8px;
-}
-.aireview-history__row:hover, .aireview-history__row.is-open { background: var(--surface-2); }
-.aireview-history__files { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
-@media (max-width: 480px) {
-  .aireview-history__row { flex-wrap: wrap; }
-  .aireview-history__files { flex-basis: 100%; }
+.revchat__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revchat__ask { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; font-size: .85rem; }
+.revchat__none { padding: 10px 4px; text-align: center; }
+.revchat__main { display: flex; flex-direction: column; gap: 10px; min-width: 0; height: calc(100dvh - 190px); min-height: 460px; }
+.revchat__log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px; }
+.revchat__empty { margin: auto; max-width: 460px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 14px; }
+.revchat__suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-block-start: 6px; }
+.revchat__line { max-width: min(92%, 760px); padding: 9px 13px; border-radius: 12px; font-size: .9rem; line-height: 1.7; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 5px; }
+.revchat__line--ai { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+.revchat__line--me { align-self: flex-end; background: var(--brand-soft); color: var(--heading); }
+.revchat__who { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; color: var(--muted); }
+.revchat__text { white-space: pre-wrap; }
+.revchat__files { display: flex; flex-wrap: wrap; gap: 6px; }
+.revchat__writing { display: inline-flex; align-items: center; gap: 6px; }
+.revchat__error { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--danger, #e5484d); }
+.revchat__form { display: flex; flex-direction: column; gap: 8px; padding-block-start: 10px; border-block-start: 1px solid var(--border-soft); border-radius: 8px; transition: background .12s; }
+.revchat__form.is-over { background: var(--brand-soft); outline: 1px dashed var(--brand); }
+.revchat__form textarea { resize: vertical; min-height: 64px; max-height: 220px; }
+.revchat__pending { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 160px; overflow-y: auto; }
+.revchat__pending li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 8px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 8px; }
+.revchat__pending-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revchat__label { width: auto; min-width: 8.5rem; padding-block: 4px; }
+@media (max-width: 860px) {
+  .revchat { grid-template-columns: minmax(0, 1fr); }
+  .revchat__sessions { max-height: 220px; min-height: 0; }
+  .revchat__main { height: auto; min-height: 0; }
+  .revchat__log { max-height: 60dvh; min-height: 240px; }
+  .revchat__line { max-width: 100%; }
 }
 
 /* The team leader's talk with the AI on a task. */

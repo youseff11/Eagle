@@ -29,7 +29,9 @@ EFFORT_MODELS = (
     "claude-fable", "claude-mythos", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
     "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-5",
 )
-MAX_CHARS = 24000
+#: The most words of one side (the source, the translation) that go into one review. The model reads far more than this (Opus 5.5 holds a
+#: million tokens), so it is a guard on the bill and not a cut anybody should meet: a review that is cut says so (``CUT_AR``).
+MAX_CHARS = 400000
 
 #: Files the model reads itself, as they are - a PDF (text or scanned) or a
 #: picture of a page. No PDF library on our side: Django stays the only
@@ -41,8 +43,13 @@ IMAGE_TYPES = {
 }
 #: What goes into one request. The API takes up to 32 MB and 100 PDF pages;
 #: base64 adds a third, so the raw files stop well short of that.
-MAX_DOCUMENT_BYTES = 18 * 1024 * 1024
-MAX_DOCUMENTS = 6
+MAX_DOCUMENT_BYTES = 22 * 1024 * 1024
+#: Not the real limit (the bytes are): the API takes hundreds of pictures and pages in one request. It stays equal to what one line may carry.
+MAX_DOCUMENTS = 50
+#: What a review asks the model for: the deepest pass there is. Correctness is the point of a review, and the files are long.
+REVIEW_EFFORT = "max"
+#: The room a review has: the model thinks inside it, then writes every note it found. The call is streamed, so a long answer is fine.
+REVIEW_MAX_TOKENS = 64000
 
 #: The review is a side-by-side comparison of meaning (28/09/2026): walk the
 #: source, find where each part landed in the translation, and say where the
@@ -62,6 +69,8 @@ SYSTEM_PROMPT = (
     "grammar or spelling errors in the translation, broken formatting, and any breach "
     "of the client requirements given.\n"
     "Do not report style preferences where the meaning is right.\n"
+    "Go through the WHOLE of both texts, to the last line of the last file. Do not stop after the first notes, "
+    "and do not sample: a document of fifty pages is reviewed on all fifty.\n"
     "You NEVER produce a corrected or rewritten translation. For each issue you quote "
     "the source and the translation exactly as they are, and explain in plain words "
     "what the source actually means.\n"
@@ -102,6 +111,8 @@ VERDICT_LABELS = {
     "major_issues": "فيه أخطاء في المعنى لازم تتصلح قبل التسليم.",
 }
 SOURCE_MISSING_AR = "تنبيه: الملف الأصلي ماوصلش للفحص، فالـAI راجع الترجمة لوحدها من غير مقارنة."
+DROPPED_AR = "تنبيه: الملفات دي ماوصلتش للـAI لأن الطلب مابيشيلش أكتر من كده (عدد الملفات أو حجمها): {names}. راجعها لوحدها."
+CUT_AR = "تنبيه: النص أطول من اللي الفحص بيقراه في مرة واحدة، فالـAI راجع أول جزء منه بس. قسّم الملف وراجعه على أجزاء."
 
 
 # ---------------------------------------------------------------------------
@@ -263,16 +274,73 @@ def _fit(source_docs, translated_docs):
     return kept_src, kept_tr, dropped
 
 
-def effort_params(model):
-    """``output_config`` asking for the high effort, for a model that has the knob; nothing for an older one (it answers 400).
+def effort_params(model, level="high"):
+    """``output_config`` asking for ``level`` of effort, for a model that has the knob; nothing for an older one (it answers 400).
 
-    Opus 5.5 defaults to ``medium``; the translation work is worth the deeper pass. Thinking is spent out of ``max_tokens``, so
-    the callers leave room for it.
+    Opus 5.5 defaults to ``medium``; the translation work is worth the deeper pass, and a review asks for ``max``
+    (:data:`REVIEW_EFFORT`). Every model in :data:`EFFORT_MODELS` takes ``low`` to ``max``. Thinking is spent out of ``max_tokens``,
+    so the callers leave room for it.
     """
     name = str(model or "").strip().lower()
     if name.startswith(EFFORT_MODELS):
-        return {"output_config": {"effort": "high"}}
+        return {"output_config": {"effort": level}}
     return {}
+
+
+def stream_messages(conf, system, messages, max_tokens, feature, timeout=300, level="high", cache=False):
+    """One streamed call to the messages API: ``(text, stop_reason)``. What it used is written down under ``feature`` however it ends.
+
+    Streamed because the answer is long and the files are big: the connection is never idle while the model reads and writes, so a
+    long review is not cut by a timeout, and ``stop_reason`` says when it stopped short (``max_tokens``). An ``error`` event is a
+    ``RuntimeError`` carrying its type only (the body can echo what was sent). ``cache`` asks for the request's prefix to be cached
+    (a talk that sends the same files again on each turn: the next turn reads them at a tenth of the price); a call made once should
+    not, since writing the cache costs a quarter more.
+    """
+    payload = {
+        "model": conf.claude_model or "claude-sonnet-4-5",
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": messages,
+        "stream": True,
+        **({"cache_control": {"type": "ephemeral"}} if cache else {}),
+        **effort_params(conf.claude_model, level),
+    }
+    request = urllib.request.Request(
+        API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json", "x-api-key": conf.claude_api_key, "anthropic-version": API_VERSION},
+        method="POST",
+    )
+    pieces, stop = [], ""
+    # The input side comes at the start and the output count grows with each ``message_delta``: a call cut short is still billed.
+    used, model = {}, payload["model"]
+    try:
+        with net.urlopen(request, timeout=timeout) as response:
+            for raw in response:
+                line = raw.decode("utf-8", errors="ignore").strip()
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    event = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                kind = event.get("type")
+                if kind == "message_start":
+                    message = event.get("message") or {}
+                    model = message.get("model") or model
+                    used.update(message.get("usage") or {})
+                elif kind == "content_block_delta":
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text_delta":
+                        pieces.append(delta.get("text", ""))
+                elif kind == "message_delta":
+                    stop = (event.get("delta") or {}).get("stop_reason") or stop
+                    used.update({name: value for name, value in (event.get("usage") or {}).items() if value is not None})
+                elif kind == "error":
+                    raise RuntimeError(((event.get("error") or {}).get("type") or "stream_error")[:100])
+    finally:
+        claude_usage.record(feature, model, used)
+    return "".join(pieces).strip(), stop
 
 
 def _post(conf, system, prompt, documents, max_tokens, feature="check"):
@@ -310,8 +378,12 @@ def _text_of(body):
 
 
 def _call_claude(conf, prompt, documents=None, feature="check"):
-    # Every issue now carries two quotes and an explanation.
-    return _text_of(_post(conf, SYSTEM_PROMPT, prompt, documents, 16000, feature))
+    """The review's call: the whole of both texts, the files, and the deepest effort. Streamed (``stream_messages``)."""
+    content = list(documents or []) + [{"type": "text", "text": prompt}]
+    text, _stop = stream_messages(
+        conf, SYSTEM_PROMPT, [{"role": "user", "content": content}], REVIEW_MAX_TOKENS, feature, level=REVIEW_EFFORT,
+    )
+    return text
 
 
 def _escape_inner_quotes(text):
@@ -473,6 +545,9 @@ def compare(conf, heading, source_text, translated_text, source_docs=(), transla
         )
     if dropped:
         attached += "Not attached (too large): " + ", ".join(dropped) + "\n"
+    cut = len(source_text) > MAX_CHARS or len(translated_text) > MAX_CHARS
+    if cut:
+        attached += f"The text below was cut at {MAX_CHARS} characters a side: say in the summary that the end was not reviewed.\n"
     prompt = (
         f"{heading}"
         f"{attached}"
@@ -506,7 +581,10 @@ def compare(conf, heading, source_text, translated_text, source_docs=(), transla
         labels = CATEGORY_LABELS.get(issue.get("category") or "")
         if labels:
             issue["category_ar"], issue["category_en"] = labels
-    lines = []
+    lines = [CUT_AR] if cut else []
+    if dropped:
+        # Said by us, not left to the model: it may not mention what it was never shown.
+        lines.append(DROPPED_AR.format(names=" · ".join(dropped)))
     source_seen = data.get("source_seen")
     if source_seen is False or (not source_text.strip() and not source_docs):
         lines.append(SOURCE_MISSING_AR)

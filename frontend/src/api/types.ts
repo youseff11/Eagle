@@ -1113,40 +1113,42 @@ export interface TaskAiNotes extends AiCheckView {
   checks?: (AiCheckView & { translator: { id: number; name: string } | null })[];
 }
 
-/** One of the leader's own document checks, as the list draws it (`api_docreview`). */
-export interface AiReviewRow {
+/** One of the leader's review chats, as the list draws it (`api_docreview`). */
+export interface AiReviewSession {
   id: number;
-  status: "running" | "clean" | "issues" | "error";
-  count: number;
+  title: string;
   at: Stamp | null;
-  source_names: string[];
-  target_names: string[];
+  /** The AI is answering in it now. */
+  pending: boolean;
 }
 
-/** GET /api/v1/ai-review/: the page's start - whether the check is there, the limits, the person's recent checks. */
+/** What the leader said a file is: the AI is told, and works the rest out when he did not say. */
+export type AiReviewLabel = "source" | "translation" | "other";
+
+/** One line of a review chat: the leader's words and files, or the AI's answer (plain text). */
+export interface AiReviewLine {
+  id: number;
+  role: "user" | "assistant";
+  body: string;
+  status: "pending" | "done" | "error";
+  at: Stamp | null;
+  files: (TaskFile & { label: AiReviewLabel })[];
+}
+
+/** GET /api/v1/ai-review/: the page's start - whether the check is there, the limits, the person's sessions (newest first). */
 export interface AiReviewBoard {
   ok: true;
   /** The switch is on and the Claude key is saved. */
   available: boolean;
-  /** One of their checks is in flight: another cannot start. */
-  running: boolean;
-  limits: { files: number; megabytes: number };
-  checks: AiReviewRow[];
+  limits: { files: number; megabytes: number; message_megabytes: number; text: number };
+  sessions: AiReviewSession[];
 }
 
-/** GET /api/v1/ai-review/<id>/: one check with its notes, most serious first. */
+/** GET /api/v1/ai-review/<id>/ (and what a send or a retry answers): one session with its talk, oldest first. */
 export interface AiReviewDetail {
   ok: true;
-  check: AiReviewRow & {
-    source_lang: string;
-    target_lang: string;
-    instructions: string;
-    /** Files the AI was not given (a kind it cannot read, or past what one request holds). */
-    skipped: string[];
-    summary: string;
-    error: string;
-  };
-  issues: AiNote[];
+  session: AiReviewSession;
+  messages: AiReviewLine[];
 }
 
 /** GET /api/v1/groups/<id>/ai-notes/ and /api/v1/staff/<id>/ai-notes/: the panel beside the leader's chat, or `null`. */

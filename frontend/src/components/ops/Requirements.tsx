@@ -6,6 +6,7 @@ import { downloadUrl } from "../../lib/fileUrl";
 import { safeInternalPath } from "../../lib/safeUrl";
 import { taskProblem } from "../../lib/taskProblem";
 import { FileViewer, ViewerBody, viewerKind } from "../chat/FileViewer";
+import { Confirm } from "../Confirm";
 import { Icon } from "../Icon";
 import { useToasts } from "../Toasts";
 
@@ -85,10 +86,29 @@ export interface AddsRequirement {
   isPending: boolean;
 }
 
-/** What the client likes, dislikes and insists on, read by everybody on the job - and the form that adds one. */
-export function Requirements({ requirements, add }: { requirements: Requirement[]; add: AddsRequirement | null }) {
+/** What «امسح» needs of the action it deletes with: the mutation of either page fits. */
+export interface DeletesRequirement {
+  mutate: (id: number, options: { onSuccess: () => void; onError: (error: unknown) => void }) => void;
+  isPending: boolean;
+}
+
+/**
+ * What the client likes, dislikes and insists on, read by everybody on the job - the form that adds one, and the button that takes one
+ * off again (`remove`, for whoever may write them; `null` hides it).
+ */
+export function Requirements({
+  requirements,
+  add,
+  remove = null,
+}: {
+  requirements: Requirement[];
+  add: AddsRequirement | null;
+  remove?: DeletesRequirement | null;
+}) {
   const { t, lang } = usePreferences();
   const { push } = useToasts();
+  const [asking, setAsking] = useState<Requirement | null>(null);
+  const [removeProblem, setRemoveProblem] = useState("");
   const [kind, setKind] = useState("rule");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -109,8 +129,50 @@ export function Requirements({ requirements, add }: { requirements: Requirement[
             {requirement.text && <div>{requirement.text}</div>}
             {requirement.file && <RequirementFile file={requirement.file} />}
           </div>
+          {remove && (
+            <button
+              className="btn btn--ghost btn--sm"
+              type="button"
+              data-delete-requirement={requirement.id}
+              aria-label={t("امسح المتطلب", "Delete the requirement")}
+              title={t("امسح المتطلب", "Delete the requirement")}
+              onClick={() => {
+                setRemoveProblem("");
+                setAsking(requirement);
+              }}
+            >
+              <Icon name="trash" size="sm" />
+            </button>
+          )}
         </div>
       ))}
+      {remove && asking && (
+        <Confirm
+          title={t("تمسح المتطلب ده؟", "Delete this requirement?")}
+          body={
+            <>
+              {asking.text && <div dir="auto">{asking.text}</div>}
+              {asking.file && <div dir="auto">{asking.file.name}</div>}
+              <div className="muted">{t("الملف اللي عليه هيتمسح معاه، ومش هيرجع.", "Its file goes with it, and it cannot come back.")}</div>
+            </>
+          }
+          yes={t("امسحه", "Delete")}
+          icon="trash"
+          danger
+          busy={remove.isPending}
+          problem={removeProblem}
+          onNo={() => setAsking(null)}
+          onYes={() =>
+            remove.mutate(asking.id, {
+              onSuccess: () => {
+                setAsking(null);
+                push({ level: "info", title: t("المتطلب اتمسح", "Requirement deleted") });
+              },
+              onError: (error) => setRemoveProblem(taskProblem(error, t)),
+            })
+          }
+        />
+      )}
       {requirements.length === 0 && <div className="muted">{t("مفيش متطلبات مسجلة لحد دلوقتي.", "No requirements recorded yet.")}</div>}
 
       {add && (

@@ -102,13 +102,17 @@ class WordDocTests(SimpleTestCase):
 
     def test_the_leader_review_takes_a_doc_as_the_translation(self):
         # The case from the field: a PDF source and a .doc translation was answered "the AI cannot read this translation file".
-        text, documents, names, skipped = doc_review._prepare([("Trip Plan (425).doc", make_doc(["Dear Visa Officer\r"]))])
-        self.assertIn("Dear Visa Officer", text)
-        self.assertEqual((documents, skipped, names), ([], [], ["Trip Plan (425).doc"]))
+        raw = make_doc(["Dear Visa Officer\r"])
+        blocks = doc_review.file_blocks("Trip Plan (425).doc", "translation", len(raw), lambda: raw, doc_review.Budget())
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("Dear Visa Officer", blocks[0]["text"])
+        self.assertIn("TRANSLATION FILE: Trip Plan (425).doc", blocks[0]["text"])
 
     def test_a_doc_that_cannot_be_read_is_still_said_so(self):
-        text, documents, _names, skipped = doc_review._prepare([("old.doc", b"not word")])
-        self.assertEqual((text, documents, skipped), ("", [], ["old.doc"]))
+        blocks = doc_review.file_blocks("old.doc", "other", 8, lambda: b"not word", doc_review.Budget())
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("could not read any words", blocks[0]["text"])
+        self.assertIn("old.doc", blocks[0]["text"])
 
 
 class ModelReplyParseTests(SimpleTestCase):

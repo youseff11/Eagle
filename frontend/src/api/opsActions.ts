@@ -252,6 +252,26 @@ export function useAddRequirement(code: string) {
   );
 }
 
+/** «امسح» on a requirement of the task page: the requirement and its file go (`api_ops.requirement_delete`). */
+export function useDeleteRequirement(code: string) {
+  return useOpsAction<number, { ok: boolean }>(code, (id) =>
+    api<{ ok: boolean }>(`/api/v1/requirements/${id}/delete/`, { form: {} }),
+  );
+}
+
+/** The same, from the client's own page. */
+export function useDeleteClientRequirement(code: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => refused(await api<{ ok: boolean }>(`/api/v1/requirements/${id}/delete/`, { form: {} })),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: qk.client(code) });
+      // The list counts them.
+      void client.invalidateQueries({ queryKey: ["boards", "clients", "list"] });
+    },
+  });
+}
+
 /** A requirement added to a client from the client's own page: the answer is the row. */
 export function useAddClientRequirement(code: string) {
   const client = useQueryClient();

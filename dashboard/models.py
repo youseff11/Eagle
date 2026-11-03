@@ -2511,6 +2511,81 @@ class DocumentCheck(models.Model):
         return len(self.issues or [])
 
 
+def upload_ai_review(instance, filename):
+    from .files import storage_name
+
+    return storage_name("aireview", instance, filename)
+
+
+class AIReviewSession(models.Model):
+    """One chat of a team leader with the AI about documents (``doc_review.py``, 30/10/2026).
+
+    The page keeps as many as he opens, each with its own talk and its own files. It is his alone: the admin reads only the ones he
+    started himself, and nothing in it belongs to a client, a task or a translator, so no stars ride on it.
+    """
+
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ai_review_sessions")
+    title = models.CharField(max_length=120, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-updated_at", "-id")
+
+    def __str__(self):
+        return f"AI review {self.pk} · {self.title}"
+
+
+class AIReviewMessage(models.Model):
+    """One line of a review chat: the leader's words (and files), or the AI's answer.
+
+    The answer row is written first, ``pending``, and filled by a thread: the page asks again until nothing is pending.
+    """
+
+    class Role(models.TextChoices):
+        USER = "user", "Leader"
+        ASSISTANT = "assistant", "AI"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DONE = "done", "Done"
+        ERROR = "error", "Error"
+
+    session = models.ForeignKey(AIReviewSession, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=10, choices=Role.choices)
+    body = models.TextField(blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DONE)
+    error_message = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+
+    def __str__(self):
+        return f"AI review {self.session_id} · {self.role}"
+
+
+class AIReviewFile(PlayableFile, models.Model):
+    """A file the leader sent with a line of a review chat. Kept, so the AI can be asked about it again later."""
+
+    class Label(models.TextChoices):
+        SOURCE = "source", "Source"
+        TRANSLATION = "translation", "Translation"
+        OTHER = "other", "Not said"
+
+    message = models.ForeignKey(AIReviewMessage, on_delete=models.CASCADE, related_name="files")
+    file = models.FileField(upload_to=upload_ai_review)
+    original_name = models.CharField(max_length=250, blank=True)
+    size = models.BigIntegerField(default=0)
+    label = models.CharField(max_length=12, choices=Label.choices, default=Label.OTHER)
+
+    class Meta:
+        ordering = ("id",)
+
+    def __str__(self):
+        return f"AI review file {self.pk} · {self.original_name}"
+
+
 def upload_revision(instance, filename):
     # Nothing stores a file under this any more (the corrected copy of a translation was dropped); migration 0051 names it.
     from .files import storage_name

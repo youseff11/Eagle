@@ -313,6 +313,37 @@ describe("ClientPage", () => {
     expect(box).toHaveValue("");
   });
 
+  it("deletes a requirement only after the question is answered yes, and asks the client again", async () => {
+    let gone = false;
+    const mocked = serveOne(
+      () => jsonResponse(client({ requirements: gone ? [] : [{ id: 7, kind: KIND.rule, author: "Nour", text: "Formal tone", at: null }] })),
+      "operation",
+      {
+        "/api/v1/requirements/7/delete/": () => {
+          gone = true;
+          return jsonResponse({ ok: true });
+        },
+      },
+    );
+    const user = userEvent.setup();
+    shell("/clients/CL-0001");
+    await user.click(await screen.findByRole("button", { name: "امسح المتطلب" }));
+    // Asked first: nothing has been sent, and «لا» leaves it alone.
+    expect(mocked.calls.some((call) => call.url === "/api/v1/requirements/7/delete/")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "امسحه" }));
+    await waitFor(() => expect(mocked.calls.some((call) => call.url === "/api/v1/requirements/7/delete/")).toBe(true));
+    expect(mocked.calls.find((one) => one.url === "/api/v1/requirements/7/delete/")?.init?.method).toBe("POST");
+    await waitFor(() => expect(screen.queryByText("Formal tone")).toBeNull());
+    expect(await screen.findByText("مفيش متطلبات مسجلة لحد دلوقتي.")).toBeInTheDocument();
+  });
+
+  it("draws no delete button for somebody who may not write requirements", async () => {
+    serveOne(() => jsonResponse(client({ may_edit: false })), "sales");
+    shell("/clients/CL-0001");
+    await screen.findByText("No abbreviations");
+    expect(screen.queryByRole("button", { name: "امسح المتطلب" })).toBeNull();
+  });
+
   it("says why a requirement was refused and keeps what was written", async () => {
     serveOne(() => jsonResponse(client()), "operation", {
       "/api/v1/clients/CL-0001/requirements/": () => jsonResponse({ ok: false, error: "bad_requirement", fields: ["text"] }, 400),
