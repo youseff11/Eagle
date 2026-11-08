@@ -990,7 +990,11 @@ def duplicate_groups(sheet):
     """The rows of the sheet that are one company, in groups: two rows are one when they share a number (of seven digits or
     more), the address or the name (``name_key``), and a row that shares something with any row of a group is in that group.
     ``[{"ids": [...], "keep": id, "why": [...]}]``, the oldest row first in each; ``keep`` is the row with the most on it."""
-    leads = list(sheet.leads.only("id", "company_name", "phone_keys", "email_key", "whatsapp_at", "email_at", "call_at", "client_id"))
+    # ``sheet_id`` must be loaded: ``sheet.leads`` sets each row's sheet from it, and a deferred one is fetched row by row
+    # (5000 queries on a big sheet, and a row merged away meanwhile raised DoesNotExist: 500 in production, 07/11/2026).
+    leads = list(sheet.leads.only(
+        "id", "sheet_id", "company_name", "phone_keys", "email_key", "whatsapp_at", "email_at", "call_at", "client_id",
+    ))
     parent = {lead.pk: lead.pk for lead in leads}
 
     def root(pk):

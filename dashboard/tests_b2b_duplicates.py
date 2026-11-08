@@ -4,6 +4,8 @@ and deleting the copies moves what they held to the row that stays."""
 from datetime import timedelta
 from decimal import Decimal
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -28,6 +30,19 @@ class DuplicateTests(_B2b):
         # A test of a door that is not there passes blind: these are the addresses the page calls.
         self.assertEqual(reverse("dashboard:v1_b2b_duplicates", args=[4]), "/api/v1/b2b/sheets/4/duplicates/")
         self.assertEqual(reverse("dashboard:v1_b2b_duplicates_remove", args=[4]), "/api/v1/b2b/sheets/4/duplicates/remove/")
+
+    def test_the_queries_do_not_grow_with_the_rows(self):
+        # 07/11/2026: the rows were read without ``sheet_id``, so each one asked the database again for it.
+        def queries():
+            with CaptureQueriesContext(connection) as seen:
+                b2b.duplicate_groups(LeadSheet.objects.get(pk=self.sheet.pk))
+            return len(seen)
+
+        self.add("Lingua GmbH")
+        few = queries()
+        for n in range(30):
+            self.add(f"Company {n}", phone=f"+20 100 555 {n:04d}")
+        self.assertEqual(queries(), few)
 
     def test_same_number_address_or_name_are_one_company(self):
         # self.lead: "Lingua GmbH", anna@lingua.test, +44 7700 900123.
