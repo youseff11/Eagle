@@ -107,6 +107,9 @@ def translators(request):
                 "tasks": [task.code for task in row["tasks"][:3]],
                 "next_due": _stamp(row["next_deadline"], "%m-%d"),
                 "next_due_state": row["tasks"][0].deadline_state(user, warning) if row["tasks"] else "none",
+                # When the translator last had Eagle open (09/11/2026): "5 min ago" and the moment itself.
+                "seen": _seen_json(row["person"]),
+                "seen_at": _stamp(row["person"].last_seen, "%m-%d"),
             }
             for row in rows
         ],

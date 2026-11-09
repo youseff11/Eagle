@@ -216,6 +216,19 @@ class TranslatorsDoorTests(_Lead):
         self.here(self.tr)
         self.assertEqual([row["state"] for row in _json(self.get(self.lead, BOARD))["team"]], ["free", "busy"])
 
+    def test_a_row_says_when_the_translator_was_last_seen(self):
+        seen = timezone.now() - timedelta(minutes=5)
+        User.objects.filter(pk=self.tr.pk).update(last_seen=seen)
+        row = _json(self.get(self.lead, BOARD))["team"][0]
+        self.assertEqual(row["seen"], {"ar": "من 5 دقيقة", "en": "5 min ago"})
+        # The moment itself, Cairo time on a twelve-hour clock.
+        self.assertRegex(row["seen_at"]["en"], r"^\d\d-\d\d \d{1,2}:\d\d [AP]M$")
+
+    def test_somebody_who_never_signed_in_says_so_and_has_no_moment(self):
+        User.objects.filter(pk=self.tr.pk).update(last_seen=None)
+        row = _json(self.get(self.lead, BOARD))["team"][0]
+        self.assertEqual((row["seen"]["ar"], row["seen_at"]), ("عمره ما دخل", None))
+
     def test_the_tasks_waiting_for_a_translator_are_listed_with_their_dates(self):
         waiting = Task.objects.create(
             client=self.client_obj, title="Waiting", created_by=self.ops, team_lead=self.lead, status=TaskStatus.LEAD_ACCEPTED,

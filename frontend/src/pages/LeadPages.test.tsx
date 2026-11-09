@@ -248,6 +248,8 @@ function boardRow(id: number, name: string, over: Partial<LeadBoard["team"][numb
     tasks: [],
     next_due: null,
     next_due_state: "none",
+    seen: { ar: "دلوقتي", en: "just now" },
+    seen_at: stamp("11-09 6:40"),
     ...over,
   };
 }
@@ -260,7 +262,8 @@ function board(over: Partial<LeadBoard> = {}): LeadBoard {
     team: [
       boardRow(11, "Nada"),
       boardRow(12, "Sam", { state: "busy", load: 5, load_percent: 100, words: 1200, tasks: ["TSK-00001", "TSK-00002", "TSK-00003"], next_due: stamp("10-29 1:00"), next_due_state: "late", awaiting_answer: true }),
-      boardRow(13, "Ola", { state: "shift", rating: 3.2 }),
+      boardRow(13, "Ola", { state: "shift", rating: 3.2, seen: { ar: "من 2 ساعة", en: "2h ago" }, seen_at: stamp("11-09 4:10") }),
+      boardRow(14, "Hoda", { state: "off", seen: { ar: "عمره ما دخل", en: "Never signed in" }, seen_at: null }),
     ],
     ...over,
   };
@@ -332,17 +335,30 @@ describe("LeadBoardPage", () => {
     const nada = container.querySelector('[data-member="11"]') as HTMLElement;
     expect(nada).toHaveClass("tstate--free");
     expect(within(nada).getByText("فاضي")).toBeInTheDocument();
-    expect(Array.from(nada.querySelectorAll("td")).slice(3, 5).map((cell) => cell.textContent)).toEqual(["—", "—"]);
+    expect(Array.from(nada.querySelectorAll("td")).slice(4, 6).map((cell) => cell.textContent)).toEqual(["—", "—"]);
     expect(within(nada).queryByText(/كلمة/)).toBeNull();
   });
 
-  it("says who is on a shift without Eagle open, and does not say when they were last here (the board is not about that)", async () => {
+  it("says who is on a shift without Eagle open, and when they were last here in its own column", async () => {
     serveBoard(() => board());
     const { container } = open("/lead/translators");
     await screen.findByText("Ola");
+    expect(screen.getByRole("columnheader", { name: "آخر ظهور" })).toBeInTheDocument();
     const ola = container.querySelector('[data-member="13"]') as HTMLElement;
     expect(within(ola).getByText("في الشيفت — مش فاتح", { selector: ".presence__state" })).toBeInTheDocument();
+    // The state column stays the state; the last time is the next column, how long ago and the moment itself.
     expect(ola.querySelector(".presence__seen")).toBeNull();
+    const seen = ola.querySelectorAll("td")[2];
+    expect(seen).toHaveTextContent("من 2 ساعة");
+    expect(within(seen as HTMLElement).getByText("11-09 4:10 PM")).toHaveClass("mono");
+  });
+
+  it("says somebody never signed in, with no moment under it", async () => {
+    serveBoard(() => board());
+    const { container } = open("/lead/translators");
+    await screen.findByText("Hoda");
+    const seen = (container.querySelector('[data-member="14"]') as HTMLElement).querySelectorAll("td")[2];
+    expect(seen.textContent).toBe("عمره ما دخل");
   });
 
   it("says nobody is assigned to the leader when nobody is", async () => {
@@ -370,6 +386,8 @@ describe("LeadBoardPage", () => {
     open("/lead/translators", "en");
     expect(await screen.findByText("Who is free, who is busy")).toBeInTheDocument();
     expect(await screen.findByText("Free now")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Last seen" })).toBeInTheDocument();
+    expect(screen.getByText("2h ago")).toBeInTheDocument();
     expect(screen.getByText("Tasks waiting for a translator")).toBeInTheDocument();
   });
 });

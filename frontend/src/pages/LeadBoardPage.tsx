@@ -36,6 +36,7 @@ function Counters({ counters }: { counters: LeadBoard["counters"] }) {
 function Person({ row }: { row: Row }) {
   const { t, lang } = usePreferences();
   const due = row.next_due ? (lang === "ar" ? row.next_due.ar : row.next_due.en) : null;
+  const seenAt = row.seen_at ? (lang === "ar" ? row.seen_at.ar : row.seen_at.en) : null;
   return (
     <tr className={`tstate tstate--${row.state}`} data-member={row.id}>
       <td>
@@ -54,6 +55,10 @@ function Person({ row }: { row: Row }) {
             <small className="muted">{t("مستني يرد على عرض تاسك", "An offer is awaiting their answer")}</small>
           </div>
         )}
+      </td>
+      <td className="seen">
+        <div>{lang === "ar" ? row.seen.ar : row.seen.en}</div>
+        {seenAt && <small className="muted mono">{seenAt}</small>}
       </td>
       <td>
         <div className="row row--tight">
@@ -145,6 +150,7 @@ export function LeadBoardPage() {
                 <tr>
                   <th>{t("المترجم", "Translator")}</th>
                   <th>{t("الحالة", "State")}</th>
+                  <th>{t("آخر ظهور", "Last seen")}</th>
                   <th>{t("الحِمل", "Load")}</th>
                   <th>{t("شغّال على", "Working on")}</th>
                   <th>{t("أقرب ديدلاين", "Next deadline")}</th>
@@ -157,7 +163,7 @@ export function LeadBoardPage() {
                 ))}
                 {data.team.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="empty">
+                    <td colSpan={7} className="empty">
                       <Icon name="users" size="xl" />
                       <span>{t("مفيش مترجمين تحتك.", "No translators assigned to you.")}</span>
                     </td>

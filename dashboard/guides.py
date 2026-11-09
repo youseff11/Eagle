@@ -1855,16 +1855,20 @@ GUIDES = (
         "lead-translators-board", (Role.TEAM_LEAD, Role.ADMIN), "/lead/translators",
         ("إزاي أعرف مين من المترجمين اللي عندي فاضي", "How do I see which of my translators is free"),
         (
-            "حالة المترجمين، مين فاضي، مين مشغول، المترجمين اللي عندي، فريقي، الحِمل، مين أوفلاين",
-            "translator status, who is free, who is busy, my translators, my team, workload, who is offline",
+            "حالة المترجمين، مين فاضي، مين مشغول، المترجمين اللي عندي، فريقي، الحِمل، مين أوفلاين، آخر ظهور، آخر مرة دخل، حضور المترجمين، مين غاب",
+            "translator status, who is free, who is busy, my translators, my team, workload, who is offline, last seen, translators attendance, who was absent",
         ),
         [
             "من قسم «الشغل» افتح «حالة المترجمين».",
             "هتلاقي «فاضيين دلوقتي» و«مشغولين» وقدّام كل مترجم تقييمه وحمله وأقرب ديدلاين.",
+            "عمود «آخر ظهور» بيقولك آخر مرة المترجم فتح إيجل: من قد إيه والساعة بالظبط.",
+            "حضور وانصراف المترجمين بيجيلك في التنبيهات أول بأول، ولو حد مسجلش حضور أو غاب أو مسجلش انصراف بيجيلك تنبيه بصوت.",
         ],
         [
             "In the «Work» section open «Translator status».",
             "You will find «Free now» and «Busy», with each translator's rating, load and next deadline.",
+            "The «Last seen» column says when each translator last had Eagle open: how long ago and the exact time.",
+            "Your translators' check-ins and check-outs reach your notifications as they happen; no check-in, an absence or no check-out rings an alert.",
         ],
     ),
     # ------------------------------------------------------------------------------------------------------------------

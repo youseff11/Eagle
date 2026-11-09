@@ -1225,6 +1225,10 @@ export interface LeadBoard {
     tasks: string[];
     next_due: Stamp | null;
     next_due_state: OpsTaskRow["due_state"];
+    /** When Eagle was last open: "5 min ago", or "never signed in". */
+    seen: Stamp;
+    /** The moment itself, or null for somebody who never signed in. */
+    seen_at: Stamp | null;
   })[];
 }
 
