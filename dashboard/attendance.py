@@ -562,6 +562,8 @@ def _punch(user, kind, *, at=None, latitude=None, longitude=None, accuracy_m=Non
     # person - told in so many words that it went to HR.
     if kind == PunchKind.CHECK_IN and row.late_minutes:
         _late_alert(user, row)
+    if kind in (PunchKind.CHECK_IN, PunchKind.CHECK_OUT):
+        _lead_punch_alert(user, row, kind)
     if kind == PunchKind.EXTRA_START:
         _extra_started_alert(user, row)
     if kind == PunchKind.CHECK_OUT and row.overtime_minutes:
@@ -899,7 +901,30 @@ def sweep_alerts(now=None):
                         body_en=f"Shift {plan.label} started and no check-in was recorded.",
                         level="warning",
                     )
+                    start_ar, start_en = clock.both(plan.start)
+                    raised += _lead_alert_once(
+                        user, day, "attendance.lead.no_checkin",
+                        title_ar="لسه مسجلش حضور", title_en="No check-in yet",
+                        body_ar=f"{user.short_name} شيفته بدأ {start_ar} ولسه مسجلش حضور.",
+                        body_en=f"{user.short_name}'s shift started at {start_en} and there is no check-in yet.",
+                        level="warning",
+                    )
                 continue
+
+            # 1b. The whole shift went by with no check-in and no leave on the
+            #     day: the team leader is told the translator was absent. A
+            #     leave or holiday row carries its own status and is skipped.
+            if (row is None or (not row.check_in and row.status in (DayStatus.PRESENT, DayStatus.UNEXCUSED))) \
+                    and now >= plan.end and day >= timezone.localtime(user.date_joined).date():
+                start_ar, start_en = clock.both(plan.start)
+                end_ar, end_en = clock.both(plan.end)
+                raised += _lead_alert_once(
+                    user, day, "attendance.lead.absent",
+                    title_ar="غياب", title_en="Absent",
+                    body_ar=f"{user.short_name} غاب يوم {day}: شيفت {start_ar} لـ{end_ar} خلص من غير تسجيل حضور.",
+                    body_en=f"{user.short_name} was absent on {day}: the {start_en}-{end_en} shift ended with no check-in.",
+                    level="danger",
+                )
 
             if row is None:
                 continue
@@ -916,6 +941,14 @@ def sweep_alerts(now=None):
             if row.is_open and row.scheduled_end and not row.extra_started_at \
                     and now >= row.scheduled_end:
                 raised += _checkout_reminder(user, row, conf)
+                end_ar, end_en = clock.both(row.scheduled_end)
+                raised += _lead_alert_once(
+                    user, day, "attendance.lead.no_checkout",
+                    title_ar="لسه مسجلش انصراف", title_en="No check-out yet",
+                    body_ar=f"{user.short_name} شيفته خلص {end_ar} ولسه مسجلش انصراف ولا بدأ اكسترا تايم.",
+                    body_en=f"{user.short_name}'s shift ended at {end_en} with no check-out and no extra time.",
+                    level="warning",
+                )
             elif row.extra_running and now >= row.extra_started_at + timedelta(
                 minutes=EXTRA_REMINDER_MINUTES
             ):
@@ -1068,6 +1101,13 @@ def expire_if_forgotten(row, now=None, conf=None):
         body_en=f"{row.date} had no check-out by {end_en}, so it does not count and went to HR.",
         level="danger", hr_too=True,
     )
+    _lead_alert_once(
+        row.user, row.date, "attendance.lead.checkout_missed",
+        title_ar="مسجلش انصراف — اليوم مش محسوب", title_en="No check-out - day not counted",
+        body_ar=f"{row.user.short_name} مسجلش انصراف يوم {row.date} لحد {end_ar}، فاليوم مش محسوب واتحوّل للـHR.",
+        body_en=f"{row.user.short_name} did not check out on {row.date} by {end_en}, so the day does not count and went to HR.",
+        level="danger",
+    )
     return True
 
 
@@ -1170,6 +1210,78 @@ def _extra_finished_alert(row):
             f"{row.overtime_minutes} minutes of extra time."
         ),
         level="info", url=_watch_url(lead, row),
+    )
+
+
+def team_lead_watching(user):
+    """The team leader told about this translator's day, or ``None``.
+
+    Translators only, since ``User.team_lead`` means nothing for anyone else;
+    a leader who left or who is the person themselves hears nothing.
+    """
+    if user.role != Role.TRANSLATOR:
+        return None
+    lead = user.team_lead
+    if lead is None or not lead.is_active or lead.pk == user.pk:
+        return None
+    return lead
+
+
+def _lead_alert_once(user, day, key, *, title_ar, title_en, body_ar, body_en, level="info"):
+    """Tell the translator's team leader, at most once per key per day.
+
+    Like :func:`_alert_once`, the notification is its own record; its url
+    lands on the leader's team page, which a leader is allowed to open.
+    """
+    lead = team_lead_watching(user)
+    if lead is None:
+        return 0
+    marker = f"{key}:{user.pk}:{day.isoformat()}"
+    url = f"/lead/translators/#{marker}"
+    if Notification.objects.filter(user=lead, url=url).exists():
+        return 0
+    services.notify(
+        lead, title_ar=f"{title_ar} — {user.short_name}", title_en=f"{title_en} — {user.short_name}",
+        body_ar=body_ar, body_en=body_en, level=level, url=url, sound=level != "info",
+    )
+    return 1
+
+
+def _lead_punch_alert(user, row, kind):
+    """A translator checked in or out: their team leader hears it at once."""
+    name = user.short_name
+    if kind == PunchKind.CHECK_IN:
+        in_ar, in_en = clock.both(row.check_in)
+        body_ar, body_en = f"{name} سجّل حضور {in_ar}", f"{name} checked in at {in_en}"
+        if row.scheduled_start:
+            start_ar, start_en = clock.both(row.scheduled_start)
+            body_ar += f" والشيفت بيبدأ {start_ar}"
+            body_en += f"; the shift starts at {start_en}"
+        if row.late_minutes:
+            body_ar += f" — متأخر {row.late_minutes} دقيقة"
+            body_en += f" - {row.late_minutes} minutes late"
+        return _lead_alert_once(
+            user, row.date, "attendance.lead.check_in",
+            title_ar="تأخير في الحضور" if row.late_minutes else "سجّل حضور",
+            title_en="Late check-in" if row.late_minutes else "Checked in",
+            body_ar=body_ar + ".", body_en=body_en + ".",
+            level="warning" if row.late_minutes else "info",
+        )
+    out_ar, out_en = clock.both(row.check_out)
+    body_ar, body_en = f"{name} سجّل انصراف {out_ar}", f"{name} checked out at {out_en}"
+    if row.scheduled_end:
+        end_ar, end_en = clock.both(row.scheduled_end)
+        body_ar += f" والشيفت بيخلص {end_ar}"
+        body_en += f"; the shift ends at {end_en}"
+    if row.short_minutes:
+        body_ar += f" — ناقص {row.short_minutes} دقيقة"
+        body_en += f" - {row.short_minutes} minutes short"
+    return _lead_alert_once(
+        user, row.date, "attendance.lead.check_out",
+        title_ar="انصراف بدري" if row.short_minutes else "سجّل انصراف",
+        title_en="Left early" if row.short_minutes else "Checked out",
+        body_ar=body_ar + ".", body_en=body_en + ".",
+        level="warning" if row.short_minutes else "info",
     )
 
 
