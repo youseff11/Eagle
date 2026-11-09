@@ -177,7 +177,7 @@ def _inbound_open_to(user, attachment):
         return True
     # The operation on the company line, a Sales person on their own -
     # visible_to holds both rules (lines.py).
-    if user.is_operation or user.is_sales:
+    if user.is_operation or user.works_own_line:
         if message.visible_to(user):
             return True
         if user.is_operation:
@@ -211,7 +211,7 @@ def _outbound_open_to(user, attachment):
     from . import lines
 
     sent = attachment.message
-    if user.is_sales and sent.owner_id == user.pk:
+    if user.works_own_line and sent.owner_id == user.pk:
         return True
     if user.is_operation and lines.sees(user, sent.owner_id, sent.channel):
         return True

@@ -120,7 +120,8 @@ def offer(client, user):
     WhatsApp number)."""
     from . import api
 
-    if client.is_blocked or not client.reply_target(Channel.WHATSAPP) or not api.may_answer(client, user):
+    # The follow-up template speaks for the translation company: the real-estate team (CRM) is never offered it.
+    if user.is_crm or client.is_blocked or not client.reply_target(Channel.WHATSAPP) or not api.may_answer(client, user):
         return None
     owner = _line(client, user)
     if _window_open(client, owner):
@@ -145,6 +146,8 @@ def send(client, user, language):
 
     if language not in FOLLOWUP_TEMPLATES:
         raise Refused("bad_language")
+    if user.is_crm:
+        raise Refused("not_yours", "رسالة المتابعة دي بتاعة شركة الترجمة، مش لـCRM.")
     if client.is_blocked:
         raise Refused("blocked", services.BLOCKED_AR)
     target = client.reply_target(Channel.WHATSAPP)

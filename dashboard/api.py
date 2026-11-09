@@ -1018,6 +1018,12 @@ def _client_or_404(request, client_code):
     client = get_object_or_404(Client, code=client_code)
     if not request.user.handles_clients:
         raise Http404
+    # The CRM team reaches its own leads only (09/11/2026): a translation client's code typed by hand is a 404 written down.
+    if request.user.is_crm:
+        from . import crm
+
+        if not crm.may_open_client(request.user, client):
+            identity.hidden(request, "client")
     return client
 
 
@@ -1445,7 +1451,7 @@ def group_add_members(request, room_id):
             translators.append(person.short_name)
             continue
         # Only the people who talk to clients - the operation, Sales and the admin - are ever in a room with one.
-        if room.kind == RoomKind.CLIENT and not person.handles_clients:
+        if room.kind == RoomKind.CLIENT and not person.joins_client_rooms:
             outsiders.append(person.short_name)
             continue
         if room.members.filter(pk=person.pk).exists():
@@ -1508,7 +1514,7 @@ def group_chat_fetch(request, room_id):
     })
 
 
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.CRM)
 @require_GET
 def client_chat_fetch(request, client_code):
     client = _client_or_404(request, client_code)

@@ -45,7 +45,7 @@ export function useFormEdits(fields: FormField[] | undefined) {
 
 /** Roles that do not clock in, have no roster and no pay: the owner and technical support (`User.follows_company_rules`). */
 const OUTSIDE_RULES = ["admin", "support"];
-const ALL_ROLES = ["admin", "operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales", "support"];
+const ALL_ROLES = ["admin", "operation", "team_lead", "translator", "hr", "reviewer", "accounting", "sales", "support", "crm"];
 const INSIDE_RULES = ALL_ROLES.filter((role) => !OUTSIDE_RULES.includes(role));
 
 /**
@@ -60,8 +60,9 @@ const FIELD_ROLES: Record<string, string[]> = {
   client_identity_access: ["sales", "accounting"],
   is_sales_manager: ["sales"],
   sales_track: ["sales"],
+  crm_manager: ["crm"],
   mail_alias: ["operation", "sales"],
-  wa_phone_number_id: ["operation", "sales"],
+  wa_phone_number_id: ["operation", "sales", "crm"],
   // HR and the owner run the attendance board by their role; the flag is how anybody else is given it.
   attendance_manager: INSIDE_RULES.filter((role) => role !== "hr"),
   attendance_enabled: INSIDE_RULES,
@@ -71,7 +72,7 @@ const FIELD_ROLES: Record<string, string[]> = {
 };
 
 /** The ones the server refuses on a role that has none (`StaffEditForm.clean`): the only ones emptied when the role changes away. */
-const REFUSED_ELSEWHERE = ["translator_level", "cost_per_250", "client_identity_access", "is_sales_manager", "sales_track", "mail_alias", "wa_phone_number_id"];
+const REFUSED_ELSEWHERE = ["translator_level", "cost_per_250", "client_identity_access", "is_sales_manager", "sales_track", "crm_manager", "mail_alias", "wa_phone_number_id"];
 
 /** What a field says "none" with once its role no longer has it: the first choice of a list (the blank, or the default one). */
 function emptied(field: FormField): FormValue {

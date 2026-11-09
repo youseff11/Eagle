@@ -525,6 +525,7 @@ class StaffEditForm(forms.ModelForm):
             "wa_phone_number_id",
             "is_sales_manager",
             "sales_track",
+            "crm_manager",
             "cost_per_250",
         )
         labels = {
@@ -532,6 +533,7 @@ class StaffEditForm(forms.ModelForm):
             "translator_level": "مستوى المترجم",
             "is_sales_manager": "مانجر Sales",
             "sales_track": "شغل الـSales بتاعه",
+            "crm_manager": "مدير CRM",
             "cost_per_250": "سعر الـ250 كلمة (جنيه)",
             "client_identity_access": "يشوف هوية العميل الحقيقية (Accounting — الـSales بيشوفها دايمًا)",
             "mail_alias": "بيستقبل ميلات العنوان ده",
@@ -557,6 +559,9 @@ class StaffEditForm(forms.ModelForm):
             "sales_track": (
                 "للـSales بس. B2B: الشركات برا مصر. B2C أونلاين: الشركات جوه مصر بالتليفون والرسايل. "
                 "B2C ميداني: بينزل الشركات جوه مصر، وكل زيارة بيأكدها من مكانه وهو هناك (لوكيشن مرة واحدة لما يضغط)، والمانجر بيعتمدها."
+            ),
+            "crm_manager": (
+                "للـCRM بس (فرع العقارات). بيعمل شيتات الـCRM ويديها لحد من الفريق (أو لنفسه)، وبيشوف شيتات الفريق كله."
             ),
             "client_identity_access": (
                 "استثناء صريح: الاسم والشركة والأرقام والإيميلات. "
@@ -603,7 +608,7 @@ class StaffEditForm(forms.ModelForm):
         self.fields["wa_phone_number_id"] = forms.ChoiceField(
             choices=walines.staff_choices(self.instance), required=False, label="رقم الواتساب بتاعه",
             help_text=(
-                "الأوبريشن والـSales بس. العميل اللي يكلّم الرقم ده يظهر عنده هو والأدمن بس، وردّه يطلع من نفس الرقم. "
+                "الأوبريشن والـSales والـCRM بس. العميل اللي يكلّم الرقم ده يظهر عنده هو والأدمن بس، وردّه يطلع من نفس الرقم. "
                 "رقم واحد لكل موظف. القايمة دي من «أرقام الواتساب» في الإعدادات، والرقم لازم يبقى متربط هناك."
             ),
             widget=forms.Select(attrs={"class": "input mono", "dir": "ltr"}),
@@ -673,6 +678,8 @@ class StaffEditForm(forms.ModelForm):
         # Same for the Sales manager's mark: on any other role it would mean nothing and mislead whoever reads the form.
         if data.get("is_sales_manager") and data.get("role") != Role.SALES:
             self.add_error("is_sales_manager", "العلامة دي للـSales بس.")
+        if data.get("crm_manager") and data.get("role") != Role.CRM:
+            self.add_error("crm_manager", "العلامة دي للـCRM بس.")
         if data.get("sales_track") not in (None, "", SalesTrack.B2B) and data.get("role") != Role.SALES:
             self.add_error("sales_track", "نوع الشغل ده للـSales بس.")
         if data.get("cost_per_250") is not None:
@@ -702,7 +709,7 @@ class StaffEditForm(forms.ModelForm):
         number = data.get("wa_phone_number_id") or ""
         if number:
             if data.get("role") not in WA_LINE_ROLES:
-                self.add_error("wa_phone_number_id", "الرقم للأوبريشن والـSales بس — الأدمن بيشوف كل الأرقام.")
+                self.add_error("wa_phone_number_id", "الرقم للأوبريشن والـSales والـCRM بس — الأدمن بيشوف كل الأرقام.")
             else:
                 from . import lines
 

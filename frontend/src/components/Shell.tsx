@@ -36,6 +36,7 @@ const ROLE_LABELS: Record<Role, [string, string]> = {
   accounting: ["حسابات", "Accounting"],
   sales: ["مبيعات", "Sales"],
   support: ["دعم فني", "Technical support"],
+  crm: ["CRM (عقارات)", "CRM (real estate)"],
 };
 
 /**
@@ -126,6 +127,8 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/b2c", icon: "building", label: ["شيتات B2C", "B2C sheets"], order: 107 },
       { path: "/b2c/visits", icon: "map-pin", label: ["الزيارات", "Visits"], order: 108 },
       { path: "/b2c/performance", icon: "chart", label: ["أداء B2C", "B2C performance"], order: 109 },
+      // The real-estate branch's CRM sheets (09/11/2026): its own, apart from the translation side's.
+      { path: "/crm", icon: "users", label: ["شيتات CRM", "CRM sheets"], order: 111 },
       // The Sales commissions: the owner sets, splits, approves and pays them (part 3, 15/10/2026).
       { path: "/commissions", icon: "star", label: ["العمولات", "Commissions"], section: "accounts", order: 60 },
       // What each subscription (Render, Neon, Meta, Claude, Bunny) should have cost, month by month: the usage panel's history.
@@ -243,6 +246,14 @@ export const SCREENS: Record<ScreenKey, ScreenEntry> = {
       { path: "/line", icon: "phone", label: ["رقمي وإيميلي", "My number & mail"], order: 30 },
       { path: "/clients", icon: "tag", label: ["أكواد العملاء", "Client codes"], notAdmin: true, order: 90 },
     ],
+  },
+  // The real-estate branch's CRM team (09/11/2026): its sheets, and nothing of the translation side.
+  crm: {
+    path: "/crm",
+    icon: "users",
+    label: ["شيتات CRM", "CRM sheets"],
+    section: "work",
+    order: 10,
   },
   // Technical support: the tasks (read as the operation reads them, with every tool left out) and who is free. No attendance, no leave.
   support: {

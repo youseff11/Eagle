@@ -23,7 +23,7 @@ from .models import Role
 
 #: Every role but the owner, and every role.
 STAFF = (
-    Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SALES,
+    Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER, Role.ACCOUNTING, Role.SALES, Role.CRM,
 )
 EVERYONE = (Role.ADMIN, *STAFF, Role.SUPPORT)
 #: Who has the chats: everybody on the company's rules and technical support.
@@ -2545,6 +2545,67 @@ GUIDES = (
             "مفيش رجوع، والملف مابيتحفظش على السيرفر: احتفظ بيه. 5 محاولات باسورد غلط في 15 دقيقة بتقفل الباب.",
             "There is no undo and the file is not kept on the server: keep it. Five wrong passwords in 15 minutes shut the door.",
         ),
+    ),
+    # ------------------------------------------------------------------------------------------------------------------
+    # CRM: the real-estate branch's sheets (09/11/2026), nothing to do with the translation side.
+    # ------------------------------------------------------------------------------------------------------------------
+    _guide(
+        "crm-sheet-new", (Role.ADMIN,), "/crm",
+        ("إزاي أعمل شيت CRM وأديه لحد من الفريق", "How do I make a CRM sheet and give it to someone"),
+        (
+            "شيت crm، شيت جديد، عقارات، اعمل شيت، ادي الشيت، وزع الشيت، ضيف صفوف، الصق اسماء وارقام، مدير crm",
+            "crm sheet, new sheet, real estate, make a sheet, give the sheet, hand out, add rows, paste names and numbers, crm manager",
+        ),
+        [
+            "من قسم «الشغل» افتح «شيتات CRM» واضغط «شيت جديد».",
+            "اكتب اسم الشيت واختار مين من الفريق هياخده (ممكن نفسك) واضغط «اعمل الشيت».",
+            "افتح الشيت واضغط «ضيف صفوف»: اكتب أو الصق كل واحد في سطر، الاسم وبعده الرقم.",
+            "تقدر تصحح الاسم والرقم من الخانة نفسها، وتحوّل الشيت لحد تاني من «صاحب الشيت».",
+        ],
+        [
+            "In the «Work» section open «CRM sheets» and press «New sheet».",
+            "Write the sheet's name, pick who on the team gets it (you may pick yourself) and press «Make the sheet».",
+            "Open the sheet and press «Add rows»: type or paste one person per line, the name then the number.",
+            "You can correct a name or a number in its cell, and hand the sheet to someone else from «Sheet holder».",
+        ],
+        cap="runs_crm",
+        starter=(Role.CRM,),
+    ),
+    _guide(
+        "crm-status", (Role.CRM, Role.ADMIN), "/crm",
+        ("إزاي أغيّر حالة حد في شيت CRM", "How do I set where someone stands on a CRM sheet"),
+        (
+            "الحالة، مهتم، غير مهتم، طلب عرض سعر، تم التواصل، مردش، غير الحالة، شيتي",
+            "status, interested, not interested, asked for a price, contacted, no answer, change the status, my sheet",
+        ),
+        [
+            "من قسم «الشغل» افتح «شيتات CRM» واضغط «افتح» على الشيت بتاعك.",
+            "في عمود «الحالة» اختار: «مهتم» أو «غير مهتم» أو «طلب عرض سعر» أو «تم التواصل» أو «مردش». بتتحفظ أول ما تختار.",
+        ],
+        [
+            "In the «Work» section open «CRM sheets» and press «Open» on your sheet.",
+            "In the «Status» column pick: Interested, Not interested, Asked for a price, Contacted or No answer. It saves as soon as you pick.",
+        ],
+        starter=(Role.CRM,),
+    ),
+    _guide(
+        "crm-contact", (Role.CRM,), "/crm",
+        ("إزاي أكلّم حد من شيت CRM", "How do I contact someone from a CRM sheet"),
+        (
+            "اتصل، كلمه، واتساب، رقمي، التواصل، ابعتله، رقم الشركة، مش عارف ابعت واتساب",
+            "call, phone them, whatsapp, my number, contact, write to them, cannot send whatsapp",
+        ),
+        [
+            "افتح الشيت بتاعك من «شيتات CRM».",
+            "في عمود «التواصل»: «اتصل» بيفتح الاتصال من موبايلك على الرقم، و«واتساب» بيفتح الشات معاه على رقم الواتساب اللي الأدمن حدده ليك.",
+            "واتساب مابيسمحش نبدأ إحنا الكلام من غير قالب متوافق عليه: لو الشخص لسه مابعتلكش، «واتساب» بيقولك كده، وأول ما يبعت الشات بيفتح.",
+        ],
+        [
+            "Open your sheet from «CRM sheets».",
+            "In the «Contact» column: «Call» dials the number from your phone, and «WhatsApp» opens the chat with them on the WhatsApp number the owner set for you.",
+            "WhatsApp does not let us write first without an approved template: if the person has not written to you yet, «WhatsApp» says so, and the chat opens once they do.",
+        ],
+        starter=(Role.CRM,),
     ),
 )
 

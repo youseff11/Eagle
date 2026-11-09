@@ -3,7 +3,7 @@
 from django.urls import path, re_path
 
 from . import (
-    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_commissions, api_pricing, api_finance, api_candidates, api_clients, api_docreview, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
+    api, api_accounts, api_admin, api_admin_clients, api_admin_settings, api_admin_tools, api_admin_users, api_ai, api_attendance, api_b2b, api_b2c, api_ceo, api_crm, api_commissions, api_pricing, api_finance, api_candidates, api_clients, api_docreview, api_help, api_hiring, api_hr, api_lead, api_leave, api_people, api_profile, api_recruit, api_mail, api_ops, api_sales, api_support, api_v1, legacy, spa, views,
     webhooks,
 )
 
@@ -262,6 +262,16 @@ urlpatterns = [
     path("api/v1/finance/costs/<int:cost_id>/save/", api_finance.cost_save, name="v1_finance_cost_save"),
     path("api/v1/finance/costs/<int:cost_id>/delete/", api_finance.cost_delete, name="v1_finance_cost_delete"),
     path("api/v1/finance/tasks/<str:code>/invoice/", api_finance.invoice_create, name="v1_finance_invoice_create"),
+    # CRM: the real-estate branch's sheets (crm.py), nothing to do with the B2B / B2C ones.
+    path("api/v1/crm/sheets/", api_crm.sheets, name="v1_crm_sheets"),
+    path("api/v1/crm/sheets/new/", api_crm.sheet_create, name="v1_crm_sheet_create"),
+    path("api/v1/crm/sheets/<int:sheet_id>/", api_crm.sheet, name="v1_crm_sheet"),
+    path("api/v1/crm/sheets/<int:sheet_id>/save/", api_crm.sheet_save, name="v1_crm_sheet_save"),
+    path("api/v1/crm/sheets/<int:sheet_id>/delete/", api_crm.sheet_delete, name="v1_crm_sheet_delete"),
+    path("api/v1/crm/sheets/<int:sheet_id>/rows/", api_crm.rows_add, name="v1_crm_rows_add"),
+    path("api/v1/crm/rows/<int:row_id>/save/", api_crm.row_save, name="v1_crm_row_save"),
+    path("api/v1/crm/rows/<int:row_id>/delete/", api_crm.row_delete, name="v1_crm_row_delete"),
+    path("api/v1/crm/rows/<int:row_id>/whatsapp/", api_crm.row_whatsapp, name="v1_crm_row_whatsapp"),
     # B2C: the field visits to the companies inside Egypt (b2c.py); the B2C sheets are the B2B doors above.
     path("api/v1/b2c/visits/", api_b2c.visits, name="v1_b2c_visits"),
     path("api/v1/b2c/visits/new/", api_b2c.visit_new, name="v1_b2c_visit_new"),

@@ -230,6 +230,8 @@ def me(request):
             # A Sales person's team (B2B or B2C) and kind of work: which sheets and which pages are theirs (15/10/2026).
             "sales_track": user.sales_track if user.is_sales else "",
             "sales_manager": bool(user.is_sales and user.is_sales_manager),
+            # The real-estate CRM manager (09/11/2026): makes and hands out the CRM sheets.
+            "crm_manager": bool(user.is_crm and user.crm_manager),
             "lang": user.ui_lang,
             "theme": user.ui_theme,
         },
@@ -431,7 +433,7 @@ def group_read(request, room_id):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.CRM)
 def client_read(request, client_code):
     """The same for a client's conversation.
 
@@ -618,7 +620,7 @@ def staff_send(request, user_id):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.CRM)
 def client_send(request, client_code):
     """Answer a client, on WhatsApp, from the line this person answers from."""
     client = api._client_or_404(request, client_code)
@@ -691,7 +693,7 @@ TRANSLATE_REFUSALS = {"empty": 400, "too_fast": 429, "unavailable": 503}
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.CRM)
 def client_translate(request, client_code, message_id):
     """A client's message in Arabic, for reading (``translate.to_arabic``): ``{"ok": true, "text": "..."}``.
 
@@ -829,7 +831,7 @@ def chat_unsend(request):
 
 
 @endpoint("POST")
-@api_role_required(Role.OPERATION, Role.SALES)
+@api_role_required(Role.OPERATION, Role.SALES, Role.CRM)
 def client_block(request, client_code):
     """Block a client or unblock them: ``{"blocked": true}`` (``services.set_client_blocked``).
 

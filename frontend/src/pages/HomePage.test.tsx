@@ -17,6 +17,7 @@ const PLACES: Record<string, string> = {
   accounting: "the money sheet",
   sales: "the client codes",
   support: "the support tasks",
+  crm: "the CRM sheets",
 };
 
 function renderHome(role: Role) {
@@ -34,6 +35,7 @@ function renderHome(role: Role) {
       <Route path="accounts" element={<div>{PLACES.accounting}</div>} />
       <Route path="clients" element={<div>{PLACES.sales}</div>} />
       <Route path="tasks" element={<div>{PLACES.support}</div>} />
+      <Route path="crm" element={<div>{PLACES.crm}</div>} />
       <Route path="notifications" element={<div>the notifications</div>} />
     </Routes>,
   );

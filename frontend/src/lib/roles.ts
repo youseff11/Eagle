@@ -11,6 +11,7 @@ export const ROLE_LABELS: Record<Role, [string, string]> = {
   accounting: ["حسابات", "Accounting"],
   sales: ["مبيعات", "Sales"],
   support: ["دعم فني", "Technical support"],
+  crm: ["CRM (عقارات)", "CRM (real estate)"],
 };
 
 /**

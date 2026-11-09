@@ -906,7 +906,7 @@ def ensure_room(task, kind):
     if kind == RoomKind.GROUP:
         members.extend(task.translator_users())
     elif kind == RoomKind.CLIENT:
-        members = [m for m in members if m is not None and m.handles_clients]
+        members = [m for m in members if m is not None and m.joins_client_rooms]
     members = [m for m in members if m is not None]
 
     if members:
@@ -917,7 +917,7 @@ def ensure_room(task, kind):
         # clients belongs in it at all - not the translator who accepted, not the
         # team leader, not HR or accounting (the owner's rule, 2026-10-02).
         # Whoever is left over from the days when they did is removed here.
-        stale = [m for m in room.members.all() if not m.handles_clients or m.is_translator]
+        stale = [m for m in room.members.all() if not m.joins_client_rooms or m.is_translator]
         if stale:
             room.members.remove(*stale)
     if created:
@@ -1527,7 +1527,7 @@ def may_add_members(user, room):
     if room.is_team_group:
         return user.can_create_team_group
     # A room with a client in it is for the people who talk to clients, and only they may add to it.
-    return user.handles_clients and AppSettings.load().can_create_group(user)
+    return user.joins_client_rooms and AppSettings.load().can_create_group(user)
 
 
 def staff_pair_key(one, two):
@@ -1627,7 +1627,7 @@ def groups_for(user, query=""):
     # seat: the list would carry its title and the last thing the client wrote, even though ``ChatRoom.can_access``
     # refuses to open it. A translator is refused first, as there.
     qs = ChatRoom.objects.filter(
-        mine if (user.is_translator or not user.handles_clients) else (mine | theirs)
+        mine if (user.is_translator or not user.joins_client_rooms) else (mine | theirs)
     )
     # A task's room is listed only to someone who may open the task: a seat
     # that outlived the assignment would otherwise show the title, the unread
@@ -1735,7 +1735,7 @@ def _mirror_into(room, inbound):
 def rooms_for(task, user):
     qs = task.rooms.all()
     # Translator first, as in ``ChatRoom.can_access``; then anybody who does not talk to clients.
-    if user.is_translator or not user.handles_clients:
+    if user.is_translator or not user.joins_client_rooms:
         qs = qs.exclude(kind=RoomKind.CLIENT)
     if user.is_admin_role:
         return qs
@@ -4574,7 +4574,7 @@ def _listed_rooms(user):
     # as in ``ChatRoom.can_access``: a superuser whose role is still the
     # default "translator" is refused client rooms there, so they are not
     # counted here either.
-    if user.is_translator or not user.handles_clients:
+    if user.is_translator or not user.joins_client_rooms:
         rooms = rooms.exclude(kind=RoomKind.CLIENT)
     rooms = rooms.filter(Q(task__isnull=True) | Q(task__in=visible_tasks(user)))
     return rooms.distinct()

@@ -53,6 +53,7 @@ ROLE_MAP = {
     "accounting": ("حسابات", "Accounting"),
     "sales": ("مبيعات", "Sales"),
     "support": ("دعم فني", "Technical support"),
+    "crm": ("CRM (عقارات)", "CRM (real estate)"),
 }
 
 PRIORITY_MAP = {

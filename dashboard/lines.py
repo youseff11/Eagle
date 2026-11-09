@@ -55,7 +55,7 @@ def line_q(user, field="owner"):
     """
     if user.is_admin_role:
         return Q()
-    if user.is_sales:
+    if user.works_own_line:
         return Q(**{field: user})
     from .models import Channel
 
@@ -74,7 +74,7 @@ def sees(user, owner_id, channel):
 
     if user.is_admin_role:
         return True
-    if user.is_sales:
+    if user.works_own_line:
         return owner_id == user.pk
     if owner_id is None:
         return channel != Channel.EMAIL or not _unassigned_mail_is_admins()
@@ -240,7 +240,7 @@ def reply_line(client, user, channel):
     """
     from .models import Channel
 
-    if user.is_sales:
+    if user.works_own_line:
         return user
     if client is None:
         return None

@@ -85,7 +85,7 @@ SCREENS = {
             path="/attendance",
             roles=(
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
-                Role.ACCOUNTING, Role.SALES,
+                Role.ACCOUNTING, Role.SALES, Role.CRM,
             ),
             # The owner does not clock in.
             admin_menu=False,
@@ -97,7 +97,7 @@ SCREENS = {
             path="/leave",
             roles=(
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
-                Role.ACCOUNTING, Role.SALES,
+                Role.ACCOUNTING, Role.SALES, Role.CRM,
             ),
             admin_menu=False,
         ),
@@ -108,7 +108,7 @@ SCREENS = {
             path="/hr/performance",
             roles=(
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
-                Role.ACCOUNTING, Role.SALES,
+                Role.ACCOUNTING, Role.SALES, Role.CRM,
             ),
             admin_menu=False,
         ),
@@ -117,8 +117,14 @@ SCREENS = {
             path="/chats",
             roles=(
                 Role.OPERATION, Role.TEAM_LEAD, Role.TRANSLATOR, Role.HR, Role.REVIEWER,
-                Role.ACCOUNTING, Role.SALES, Role.SUPPORT,
+                Role.ACCOUNTING, Role.SALES, Role.CRM, Role.SUPPORT,
             ),
+        ),
+        # The real-estate branch's CRM team (09/11/2026): its sheets and nothing of the translation side. The owner reaches them
+        # from their own panel's «شيتات CRM» line.
+        Screen(
+            "crm", "الـCRM (شيتات العقارات)", "CRM (the real-estate sheets)",
+            path="/crm", roles=(Role.CRM,), admin_menu=False,
         ),
         # Technical support: the task list and the pages of a task read as the operation reads them, with every tool left out, and who
         # is free (the team board). No attendance, no leave, no pay: its person is not on the company's rules.

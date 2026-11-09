@@ -14,6 +14,8 @@ export const LANDING: Record<Role, string> = {
   accounting: "/accounts",
   sales: "/clients",
   support: "/tasks",
+  // The real-estate branch's CRM team (09/11/2026): its sheets.
+  crm: "/crm",
 };
 
 /**

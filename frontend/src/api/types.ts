@@ -87,7 +87,7 @@ export interface AttendanceCard {
   devices: { label: string; status: "approved" | "pending" | "rejected" }[];
 }
 
-export type ScreenKey = "admin" | "accounts" | "hr" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "support" | "attendance" | "chats" | "performance";
+export type ScreenKey = "admin" | "accounts" | "hr" | "leave" | "translator_home" | "operation" | "lead" | "sales" | "support" | "crm" | "attendance" | "chats" | "performance";
 export type Theme = "dark" | "light";
 
 export type Role =
@@ -99,7 +99,8 @@ export type Role =
   | "reviewer"
   | "accounting"
   | "sales"
-  | "support";
+  | "support"
+  | "crm";
 
 /** GET /api/search/tasks/?q=: the tasks the menu's search found, each as this person may read it (the client by code unless they may know the name). */
 export interface TaskSearchResponse {
@@ -135,6 +136,8 @@ export interface MeResponse {
     /** A Sales person's kind of work (`""` for anybody else): which team's sheets and pages are theirs (15/10/2026). */
     sales_track?: "" | "b2b" | "b2c_online" | "b2c_field";
     sales_manager?: boolean;
+    /** The real-estate CRM manager: makes and hands out the CRM sheets. */
+    crm_manager?: boolean;
   };
   /** The lists this role has; and whether this person may open an internal work group. */
   chats: { types: string[]; can_create_group?: boolean };

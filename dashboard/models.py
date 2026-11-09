@@ -33,6 +33,10 @@ class Role(models.TextChoices):
     #: The owner's own technical-support account: it can watch the tasks (and nothing of them but who and where) to check that all
     #: is well, and talk to everybody, but it has no work schedule, no leave, no pay and no client's identity.
     SUPPORT = "support", "Technical support"
+    #: The real-estate branch's sales team (09/11/2026): nothing to do with the translation side, the B2B or the B2C sheets.
+    #: Its people work the CRM sheets (``crm.py``) and talk to their leads from the WhatsApp number the owner gives them; the
+    #: CRM manager (``User.crm_manager``) makes the sheets and hands each to one of them.
+    CRM = "crm", "CRM"
 
 
 #: The only roles the admin may grant the real client identity to. Everyone
@@ -45,7 +49,8 @@ IDENTITY_GRANTABLE_ROLES = (Role.SALES, Role.ACCOUNTING)
 MAIL_ALIAS_ROLES = (Role.SALES, Role.OPERATION)
 #: Who may hold a WhatsApp number of their own (``User.wa_phone_number_id``): the same people, by the same rule (11/10/2026:
 #: the operation too, set by the admin on the staff page). A client who writes to it is theirs and the admin's.
-WA_LINE_ROLES = MAIL_ALIAS_ROLES
+#: CRM too (09/11/2026): the real-estate sales people answer their leads on the number the owner gives them, and have no mail.
+WA_LINE_ROLES = (*MAIL_ALIAS_ROLES, Role.CRM)
 #: Who has an agreed price of 250 words (``User.cost_per_250``): the people who translate.
 COST_RATE_ROLES = (Role.TRANSLATOR, Role.TEAM_LEAD)
 
@@ -543,6 +548,13 @@ class User(AbstractUser):
         default=False,
         help_text="Sales only: makes the company sheets of their own team (B2B or B2C), gives each to a Sales person and reads all of them.",
     )
+    #: The CRM manager (09/11/2026): a CRM person who also makes the CRM sheets, hands each to a CRM person and reads all of
+    #: them (``crm.py``). Its own mark, not ``is_sales_manager``: the real-estate team runs nothing of the translation side's
+    #: sheets, prices or commissions. Ignored for every other role.
+    crm_manager = models.BooleanField(
+        default=False,
+        help_text="CRM only: makes the CRM sheets, gives each to a CRM person and reads all of them.",
+    )
     #: B2B, B2C online or B2C field (15/10/2026): which team's sheets the person holds, and - for a manager - which team
     #: they run. Ignored for every other role.
     sales_track = models.CharField(
@@ -613,6 +625,8 @@ class User(AbstractUser):
         if self.role != Role.SALES:
             self.is_sales_manager = False
             self.sales_track = SalesTrack.B2B
+        if self.role != Role.CRM:
+            self.crm_manager = False
         if not self.is_admin_role:
             self.line_view = ""
         # The price of 250 words is a translator's (a team leader translates too): nobody else is priced by the word.
@@ -682,10 +696,31 @@ class User(AbstractUser):
         return self.role == Role.SALES
 
     @property
+    def is_crm(self):
+        """The real-estate branch's sales team (``Role.CRM``), its manager included."""
+        return self.role == Role.CRM
+
+    @property
+    def runs_crm(self):
+        """Makes the CRM sheets, hands them over and reads all of them: the owner, and the CRM person marked as the manager."""
+        return self.is_admin_role or (self.is_crm and bool(self.crm_manager))
+
+    @property
+    def works_own_line(self):
+        """Talks to clients on their own WhatsApp number (and address) only, never the company's: Sales and CRM (``lines.py``)."""
+        return self.is_sales or self.is_crm
+
+    @property
+    def joins_client_rooms(self):
+        """May sit in a room with a client in it: whoever talks to clients, but the CRM team only ever talks to its own leads,
+        one to one on its own number - never in a group of the translation side's clients."""
+        return self.handles_clients and not self.is_crm
+
+    @property
     def sees_rate_talk(self):
         """Reads a client message that names a rate (``InboundMessage.is_rate_blocked``). The rate words keep prices from the
-        operation; the admin and Sales quote prices, so nothing is hidden from them, in the chats or the mail."""
-        return self.is_admin_role or self.is_sales
+        operation; the admin, Sales and CRM quote prices, so nothing is hidden from them, in the chats or the mail."""
+        return self.is_admin_role or self.is_sales or self.is_crm
 
     @property
     def sales_market(self):
@@ -716,10 +751,10 @@ class User(AbstractUser):
     def handles_clients(self):
         """Talks to clients from the chats and mail pages.
 
-        Operation on the company's line, Sales on their own, the admin on
+        Operation on the company's line, Sales and CRM on their own, the admin on
         all of them. Which conversations each one sees is ``lines.line_q``.
         """
-        return self.is_admin_role or self.is_operation or self.is_sales
+        return self.is_admin_role or self.is_operation or self.is_sales or self.is_crm
 
     @property
     def can_recruit(self):
@@ -750,6 +785,9 @@ class User(AbstractUser):
         # Sales sees it always (owner's decision, 27/09/2026): they are the
         # ones who talk to the companies, on their own number and address.
         if self.is_admin_role or self.is_sales:
+            return True
+        # CRM (09/11/2026): the leads are the ones they typed in themselves, and they reach only their own (``crm.may_open_client``).
+        if self.is_crm:
             return True
         return self.role in IDENTITY_GRANTABLE_ROLES and bool(self.client_identity_access)
 
@@ -2167,7 +2205,7 @@ class ChatRoom(models.Model):
         # every page, endpoint, file and live push asks, so closing it here
         # closes all of them.
         # (A superuser whose role is still "translator" is a translator here too: the role is checked on its own.)
-        if self.kind == RoomKind.CLIENT and (user.is_translator or not user.handles_clients):
+        if self.kind == RoomKind.CLIENT and (user.is_translator or not user.joins_client_rooms):
             return False
         if user.is_admin_role:
             return True
@@ -5804,3 +5842,48 @@ class FieldVisit(models.Model):
             return max(0, int((self.check_out_at - self.check_in_at).total_seconds() // 60))
         return None
 
+
+
+class CrmStatus(models.TextChoices):
+    """Where a lead stands on a CRM sheet: the owner's five words (09/11/2026). Blank = nothing yet."""
+
+    INTERESTED = "interested", "Interested"
+    NOT_INTERESTED = "not_interested", "Not interested"
+    QUOTE_REQUESTED = "quote_requested", "Asked for a price"
+    CONTACTED = "contacted", "Contacted"
+    NO_ANSWER = "no_answer", "No answer"
+
+
+class CrmSheet(models.Model):
+    """One CRM sheet of the real-estate branch: made by the CRM manager for one CRM person (``crm.py``)."""
+
+    title = models.CharField(max_length=160)
+    #: The CRM person who works it and contacts the people on it, from their own WhatsApp number.
+    assigned_to = models.ForeignKey(User, on_delete=models.CASCADE, related_name="crm_sheets")
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+    def __str__(self):
+        return self.title
+
+
+class CrmContact(models.Model):
+    """One person on a CRM sheet: a name, a phone and where they stand. Contacting them is the row's buttons."""
+
+    sheet = models.ForeignKey(CrmSheet, on_delete=models.CASCADE, related_name="contacts")
+    name = models.CharField(max_length=160, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    status = models.CharField(max_length=16, choices=CrmStatus.choices, blank=True, default="")
+    #: The chat this person is, once the WhatsApp button opened one (``crm.start_whatsapp``).
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="crm_contacts")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("id",)
+
+    def __str__(self):
+        return self.name or self.phone

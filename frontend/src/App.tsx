@@ -50,6 +50,8 @@ import { PayrollPage } from "./pages/PayrollPage";
 import { SalesLinePage } from "./pages/SalesLinePage";
 import { LeadSheetPage } from "./pages/LeadSheetPage";
 import { LeadSheetsPage } from "./pages/LeadSheetsPage";
+import { CrmSheetsPage } from "./pages/CrmSheetsPage";
+import { CrmSheetPage } from "./pages/CrmSheetPage";
 import { SalesPerformancePage } from "./pages/SalesPerformancePage";
 import { VisitsPage } from "./pages/VisitsPage";
 import { B2cPerformancePage } from "./pages/B2cPerformancePage";
@@ -144,6 +146,8 @@ export function App({ pollMs }: { pollMs: number }) {
         <Route path="leads/:id" element={<LeadSheetPage />} />
         {/* B2C (15/10/2026): the companies inside Egypt are sheets too (one page for both teams), and the field visits. */}
         <Route path="b2c" element={<LeadSheetsPage market="b2c" />} />
+        <Route path="crm" element={<CrmSheetsPage />} />
+        <Route path="crm/:id" element={<CrmSheetPage />} />
         <Route path="b2c/visits" element={<VisitsPage />} />
         <Route path="b2c/performance" element={<B2cPerformancePage />} />
         <Route path="commissions" element={<CommissionsPage />} />
