@@ -167,7 +167,7 @@ describe("HrEmployeePage", () => {
     const { container } = open("/hr/employees/11");
     await screen.findByText("البيانات");
     const roster = container.querySelector('[data-card="roster"]') as HTMLElement;
-    expect(roster).toHaveTextContent("9:00 AM–5:00 PM");
+    expect(roster).toHaveTextContent("من 9:00 صباحًا إلى 5:00 مساءً");
     expect(within(roster).getByRole("link", { name: /عدّل الجدول/ })).toHaveAttribute("href", "/hr/schedules?user=11");
     expect(container.querySelector('[data-card="probation"]')).toHaveTextContent("مراجعة 30 يوم");
     expect(container.querySelector('[data-card="leave"]')).toHaveTextContent("إجازة اعتيادية");

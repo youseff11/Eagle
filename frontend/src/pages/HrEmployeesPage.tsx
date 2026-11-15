@@ -14,6 +14,7 @@ import { LevelBadge } from "../components/hr/LevelBadge";
 import { Presence } from "../components/Presence";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
+import { shiftHours, shiftName, shiftTitle } from "../lib/shiftHours";
 
 const FILTERS = ["department", "status", "deleted"] as const;
 
@@ -39,16 +40,17 @@ function ShiftCell({
   const pick = usePickStaffShift();
   const shift = row.shift;
   if (!shift) return <span className="muted">—</span>;
-  const time = (value: { ar: string; en: string } | null) => (value ? (lang === "ar" ? value.ar : value.en) : "");
-  const hours = (one: { start: { ar: string; en: string } | null; end: { ar: string; en: string } | null }) => `${time(one.start)} – ${time(one.end)}`;
+  const hours = (one: { start: { ar: string; en: string } | null; end: { ar: string; en: string } | null }) => shiftHours(one.start, one.end, lang);
   const current = shift.id !== null ? String(shift.id) : shift.custom ? CUSTOM : NONE;
   if (!canShift || row.deleted_at) {
     return shift.id !== null ? (
       <div>
-        <b>{shift.label}</b>
-        <div>
-          <small className="muted mono">{hours(shift)}</small>
-        </div>
+        <b>{shiftName(shift.label) || hours(shift)}</b>
+        {shiftName(shift.label) && (
+          <div>
+            <small className="muted">{hours(shift)}</small>
+          </div>
+        )}
       </div>
     ) : (
       <span className="muted">{shift.custom ? t("جدول مخصص", "Custom schedule") : "—"}</span>
@@ -77,7 +79,7 @@ function ShiftCell({
       <option value={NONE}>{t("من غير شيفت", "No shift")}</option>
       {shifts.map((one) => (
         <option key={one.id} value={String(one.id)}>
-          {one.label} ({hours(one)})
+          {shiftTitle(one.label, one.start, one.end, lang)}
         </option>
       ))}
       {shift.custom && shift.id === null && (

@@ -6,18 +6,18 @@ import { useHrShifts } from "../api/queries";
 import type { FormErrors } from "../api/types";
 import { Waiting, refusal } from "../components/accounts/shared";
 import { DjangoForm, useFormEdits } from "../components/admin/DjangoForm";
-import { useHrAllowed, useStamp } from "../components/hr/shared";
+import { useHrAllowed } from "../components/hr/shared";
 import { Icon } from "../components/Icon";
 import { useToasts } from "../components/Toasts";
 import { usePreferences } from "../i18n/Preferences";
+import { shiftHours, shiftName } from "../lib/shiftHours";
 
 /**
  * The company's shifts: add one, change its hours, close it, delete it. Changing a shift's hours moves everybody on it from
  * today; days already recorded keep the hours they were worked under. A shift people are on is closed, never deleted.
  */
 export function HrShiftsPage() {
-  const { t } = usePreferences();
-  const stamp = useStamp();
+  const { t, lang } = usePreferences();
   const { push } = useToasts();
   const { me, allowed } = useHrAllowed();
   const [params, setParams] = useSearchParams();
@@ -104,11 +104,11 @@ export function HrShiftsPage() {
                 {data.rows.map((row) => (
                   <tr key={row.id} data-shift={row.id}>
                     <td>
-                      <b>{row.label}</b>
+                      <b>{shiftName(row.label) || shiftHours(row.start, row.end, lang)}</b>
                       {!row.is_active && <span className="badge">{t("مقفول", "Closed")}</span>}
                     </td>
-                    <td className="mono">
-                      {stamp(row.start)} – {stamp(row.end)}
+                    <td>
+                      {shiftHours(row.start, row.end, lang)}
                       {row.crosses_midnight && <span className="badge badge--info">{t("بيعدّي نص الليل", "Crosses midnight")}</span>}
                     </td>
                     <td className="mono">

@@ -4,6 +4,7 @@ import type { ShiftPickerData } from "../api/types";
 import { Icon } from "./Icon";
 import { useToasts } from "./Toasts";
 import { usePreferences } from "../i18n/Preferences";
+import { shiftHours, shiftName, shiftTitle } from "../lib/shiftHours";
 
 /** Why a shift choice was refused, in words (`shiftpick`'s codes). */
 const SHIFT_PROBLEMS: Record<string, [string, string]> = {
@@ -59,7 +60,6 @@ export function ShiftPicker({
     setSecondLead(String(picker.second.lead ?? ""));
   }, [picker]);
 
-  const time = (value: { ar: string; en: string } | null) => (value ? (lang === "ar" ? value.ar : value.en) : "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setProblem("");
@@ -96,11 +96,9 @@ export function ShiftPicker({
           <label className="kv" style={{ cursor: "pointer" }} key={template.id}>
             <span>
               <input type="radio" name="template" value={template.id} checked={choice === String(template.id)} onChange={() => setChoice(String(template.id))} />{" "}
-              <b>{template.label}</b>
+              <b>{shiftName(template.label) || shiftHours(template.start, template.end, lang)}</b>
             </span>
-            <span className="mono">
-              {time(template.start)} – {time(template.end)}
-            </span>
+            {shiftName(template.label) && <span>{shiftHours(template.start, template.end, lang)}</span>}
           </label>
         ))}
         <label className="kv" style={{ cursor: "pointer" }}>
@@ -167,7 +165,7 @@ export function ShiftPicker({
             <option value="">{t("مفيش شيفت تاني", "No second shift")}</option>
             {picker.templates.map((template) => (
               <option key={template.id} value={template.id}>
-                {template.label} ({time(template.start)} – {time(template.end)})
+                {shiftTitle(template.label, template.start, template.end, lang)}
               </option>
             ))}
           </select>

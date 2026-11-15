@@ -5,7 +5,7 @@ import type { HrRosterRow, ShiftPickerData } from "../../api/types";
 import { usePreferences } from "../../i18n/Preferences";
 import { Icon } from "../Icon";
 import { useLeaveWords } from "../leave/shared";
-import { useStamp } from "./shared";
+import { shiftHours } from "../../lib/shiftHours";
 
 /** The weekdays a typed row may name, in the order the picker gives them. */
 type Days = ShiftPickerData["days"];
@@ -74,9 +74,8 @@ function TypedShift({ id, days }: { id: number; days: Days }) {
  * adds one here (`editable`), which is the one place that does both, so the file has one roster and not two.
  */
 export function RosterCard({ id, rows, days, editable }: { id: number; rows: HrRosterRow[]; days: Days | null; editable: boolean }) {
-  const { t } = usePreferences();
+  const { t, lang } = usePreferences();
   const words = useLeaveWords();
-  const stamp = useStamp();
   const remove = useDeleteShift(id);
 
   return (
@@ -102,9 +101,7 @@ export function RosterCard({ id, rows, days, editable }: { id: number; rows: HrR
               </span>
             )}
           </span>
-          <b className="mono">
-            {stamp(row.start)}–{stamp(row.end)}
-          </b>
+          <b>{shiftHours(row.start, row.end, lang)}</b>
           {editable && (
             <button
               className="icon-btn"

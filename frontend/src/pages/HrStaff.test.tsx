@@ -554,7 +554,7 @@ describe("a person's file: the roster rows", () => {
     await screen.findByText("البيانات");
     const row = container.querySelector('[data-shift="31"]') as HTMLElement;
     expect(within(row).getByText("الاتنين")).toBeInTheDocument();
-    expect(within(row).getByText("9:00 AM–5:00 PM")).toHaveClass("mono");
+    expect(within(row).getByText("من 9:00 صباحًا إلى 5:00 مساءً")).toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "امسح الشيفت" }));
     await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/admin/users/5/shifts/31/delete/")).toBe(true));
     // The roster is HR's answer, so it is asked again.
@@ -590,7 +590,7 @@ describe("a person's file: the roster rows", () => {
     const { container } = open("/hr/employees/5");
     await screen.findByText("البيانات");
     const roster = container.querySelector('[data-card="roster"]') as HTMLElement;
-    expect(roster).toHaveTextContent("9:00 AM–5:00 PM");
+    expect(roster).toHaveTextContent("من 9:00 صباحًا إلى 5:00 مساءً");
     expect(within(roster).queryByRole("button", { name: "امسح الشيفت" })).toBeNull();
     expect(within(roster).queryByRole("button", { name: /ضيف شيفت/ })).toBeNull();
     expect(within(roster).getByRole("link", { name: /عدّل الجدول/ })).toHaveAttribute("href", "/hr/schedules?user=5");
@@ -780,7 +780,8 @@ describe("the shift in the list", () => {
     expect(container.querySelector("[data-shift-of]")).toBeNull();
     const sam = container.querySelector('[data-person="5"]') as HTMLElement;
     expect(within(sam).getByText("الشيفت 1")).toBeInTheDocument();
-    expect(within(sam).getByText("9:00 AM – 5:00 PM")).toBeInTheDocument();
+    // From and to, with morning and evening in words: "9:00 AM – 5:00 PM" in an Arabic line read backwards.
+    expect(within(sam).getByText("من 9:00 صباحًا إلى 5:00 مساءً")).toBeInTheDocument();
   });
 });
 
