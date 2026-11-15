@@ -10,6 +10,10 @@ interface ShiftChoiceBody {
   new_name: string;
   new_start: string;
   new_end: string;
+  /** The first shift's leader (an id, or empty for none); left out, it stays as it is. */
+  team_lead?: string;
+  /** A second shift the same day with its own leader; `null` takes it off; left out, it stays as it is. */
+  second?: { template: string; weekdays: number[]; team_lead: string } | null;
 }
 
 /**

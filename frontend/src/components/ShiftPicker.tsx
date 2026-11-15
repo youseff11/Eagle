@@ -10,6 +10,10 @@ const SHIFT_PROBLEMS: Record<string, [string, string]> = {
   bad_new_shift: ["اكتب وقت بداية ونهاية الشيفت الجديد.", "Write a start and an end time for the new shift."],
   no_such_shift: ["الشيفت ده مش موجود.", "That shift does not exist."],
   no_days: ["اختار أيام الشغل.", "Pick the working days."],
+  no_such_lead: ["التيم ليدر ده مش موجود.", "That team leader does not exist."],
+  lead_not_translator: ["التيم ليدر للمترجمين بس.", "A team leader is for translators only."],
+  no_first_shift: ["اختار الشيفت الأولاني الأول قبل الشيفت التاني.", "Pick the first shift before the second one."],
+  shifts_overlap: ["الشيفت التاني داخل في مواعيد الشيفت الأولاني — اختار شيفت مواعيده بعده.", "The second shift overlaps the first - pick one with later hours."],
 };
 
 export interface ShiftChoice {
@@ -18,6 +22,8 @@ export interface ShiftChoice {
   new_name: string;
   new_start: string;
   new_end: string;
+  team_lead?: string;
+  second?: { template: string; weekdays: number[]; team_lead: string } | null;
 }
 
 /**
@@ -39,10 +45,18 @@ export function ShiftPicker({
   const [days, setDays] = useState<number[]>(picker.days.filter((day) => day.checked).map((day) => day.num));
   const [fresh, setFresh] = useState({ name: "", start: "", end: "" });
   const [problem, setProblem] = useState("");
+  const [lead, setLead] = useState(String(picker.lead ?? ""));
+  const [second, setSecond] = useState(String(picker.second.current ?? ""));
+  const [secondDays, setSecondDays] = useState<number[]>(picker.second.days);
+  const [secondLead, setSecondLead] = useState(String(picker.second.lead ?? ""));
 
   useEffect(() => {
     setChoice(String(picker.current ?? ""));
     setDays(picker.days.filter((day) => day.checked).map((day) => day.num));
+    setLead(String(picker.lead ?? ""));
+    setSecond(String(picker.second.current ?? ""));
+    setSecondDays(picker.second.days);
+    setSecondLead(String(picker.second.lead ?? ""));
   }, [picker]);
 
   const time = (value: { ar: string; en: string } | null) => (value ? (lang === "ar" ? value.ar : value.en) : "");
@@ -50,7 +64,16 @@ export function ShiftPicker({
     event.preventDefault();
     setProblem("");
     save(
-      { template: choice, weekdays: days, new_name: fresh.name, new_start: fresh.start, new_end: fresh.end },
+      {
+        template: choice,
+        weekdays: days,
+        new_name: fresh.name,
+        new_start: fresh.start,
+        new_end: fresh.end,
+        // The leaders are a translator's only: for anybody else they are not sent, so they stay as they are.
+        ...(picker.leads ? { team_lead: lead } : {}),
+        second: second ? { template: second, weekdays: secondDays.length ? secondDays : days, team_lead: secondLead } : null,
+      },
       {
         onSuccess: (answer) => push({ level: "success", title: answer.label || t("اتشال الشيفت", "The shift was taken off") }),
         onError: (error) => {
@@ -125,6 +148,71 @@ export function ShiftPicker({
             ))}
           </div>
         </div>
+        {picker.leads && (
+          <div className="field">
+            <label htmlFor="shift-lead">{t("تيم ليدر الشيفت ده", "This shift's team leader")}</label>
+            <select id="shift-lead" className="input" value={lead} onChange={(event) => setLead(event.target.value)}>
+              <option value="">{t("من غير تيم ليدر", "No team leader")}</option>
+              {picker.leads.map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="field" data-part="second-shift">
+          <label htmlFor="second-shift">{t("شيفت تاني في نفس اليوم", "A second shift the same day")}</label>
+          <select id="second-shift" className="input" value={second} onChange={(event) => setSecond(event.target.value)}>
+            <option value="">{t("مفيش شيفت تاني", "No second shift")}</option>
+            {picker.templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.label} ({time(template.start)} – {time(template.end)})
+              </option>
+            ))}
+          </select>
+        </div>
+        {second && (
+          <>
+            <div className="field">
+              <label>{t("أيام الشيفت التاني", "Second shift days")}</label>
+              <div className="row row--tight" style={{ flexWrap: "wrap" }}>
+                {picker.days.map((day) => (
+                  <label className="chip" style={{ cursor: "pointer" }} key={day.num}>
+                    <input
+                      type="checkbox"
+                      checked={(secondDays.length ? secondDays : days).includes(day.num)}
+                      onChange={(event) => {
+                        const now = secondDays.length ? secondDays : days;
+                        setSecondDays(event.target.checked ? [...now, day.num] : now.filter((item) => item !== day.num));
+                      }}
+                    />
+                    <span>{lang === "ar" ? day.ar : day.en}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {picker.leads && (
+              <div className="field">
+                <label htmlFor="second-lead">{t("تيم ليدر الشيفت التاني", "Second shift team leader")}</label>
+                <select id="second-lead" className="input" value={secondLead} onChange={(event) => setSecondLead(event.target.value)}>
+                  <option value="">{t("نفس تيم ليدر الشيفت الأولاني", "Same as the first shift's")}</option>
+                  {picker.leads.map((one) => (
+                    <option key={one.id} value={one.id}>
+                      {one.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <p className="muted" style={{ fontSize: ".8rem" }}>
+              {t(
+                "المترجم بيظهر في فريق الليدرين، وتاسك بتتبعتله مباشرة بتروح لليدر الشيفت اللي هو فيه ساعتها. الحضور والانصراف لسه على الشيفت الأولاني بس.",
+                "The translator shows in both leaders' teams, and a task sent to them directly goes to the leader of the shift they are on. Attendance is still kept on the first shift only.",
+              )}
+            </p>
+          </>
+        )}
         {picker.has_custom && (
           <p className="muted" style={{ fontSize: ".8rem" }}>
             {t("عنده جدول مخصص دلوقتي — الحفظ هيستبدله بالشيفت اللي اخترته.", "There is a custom schedule now - saving replaces it with the chosen shift.")}

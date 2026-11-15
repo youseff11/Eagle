@@ -870,6 +870,23 @@ class User(AbstractUser):
         """Rostered now — which is a different question from being present."""
         return bool(self.active_shifts()) and self.shift_now() is not None
 
+    # -- the team leaders over a translator (15/11/2026) -------------------
+    # A translator working two shifts the same day has a leader for each: ``team_lead`` is the first shift's, and a roster row
+    # of the second shift names its own (``Shift.team_lead``). Ask these, never ``team_lead_id == lead.id`` alone, wherever the
+    # question is "is this translator in that leader's team" (``team_q`` for a queryset).
+    def lead_ids(self):
+        """Every leader this person is under: the first shift's and the one each active roster row names."""
+        ids = {self.team_lead_id} | {row.team_lead_id for row in self.active_shifts()}
+        ids.discard(None)
+        return ids
+
+    def lead_now(self):
+        """The leader of the shift this person is on right now; outside every shift (or under a leader who left) the first shift's."""
+        shift = self.shift_now()
+        if shift is not None and shift.team_lead_id and shift.team_lead.is_active:
+            return shift.team_lead
+        return self.team_lead
+
     @property
     def presence(self):
         return "online" if self.is_online else "offline"
@@ -987,10 +1004,22 @@ class Shift(models.Model):
     custom schedule uses.
     """
 
+    FIRST, SECOND = 1, 2
+    SLOTS = ((FIRST, "First shift"), (SECOND, "Second shift"))
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shifts")
     weekday = models.IntegerField(choices=WEEKDAYS)
     template = models.ForeignKey(
         ShiftTemplate, null=True, blank=True, on_delete=models.PROTECT, related_name="shifts"
+    )
+    #: Which of the person's shifts this row is: the first, or a second one worked the same day (15/11/2026). Choosing one
+    #: shift on the file replaces that shift's rows and leaves the other's alone.
+    slot = models.PositiveSmallIntegerField(choices=SLOTS, default=FIRST)
+    #: The team leader over this shift. Blank is the person's own (``User.team_lead``, the first shift's leader).
+    team_lead = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="led_shifts",
+        limit_choices_to={"role": Role.TEAM_LEAD},
+        help_text="Blank: the person's own team leader.",
     )
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
@@ -1059,6 +1088,16 @@ class Shift(models.Model):
         if self.weekday == yesterday and now_time < end:
             return True
         return False
+
+
+def team_q(lead):
+    """The people (translators) in ``lead``'s team: their own leader is ``lead``, or an active roster row names ``lead``.
+
+    The queryset side of ``User.lead_ids``. A subquery, not a join, so a translator with many rows comes once.
+    """
+    return models.Q(team_lead=lead) | models.Q(
+        pk__in=Shift.objects.filter(team_lead=lead, is_active=True).values("user_id")
+    )
 
 
 # ---------------------------------------------------------------------------

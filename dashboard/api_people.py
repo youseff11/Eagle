@@ -33,7 +33,7 @@ from .forms import ClientComplaintForm, ProbationDecisionForm, SalaryChangeReque
 from .models import (
     ACTIVE_TASK_STATUSES, TRANSLATOR_HOLDING_STATUSES, ApprovalStatus, Assignment, AssignmentStatus, ClientComplaint, ComplaintSeverity, Department,
     EmploymentStatus, OffSitePolicy, OfficeLocation, PayrollSettings, ProbationOutcome, ProbationReview, ProbationStage, RatingEvent, Role,
-    SalaryChangeRequest, SalaryPlan, SalaryRecord, Task, User, WorkMode, rule_followers, translator_holdings,
+    SalaryChangeRequest, SalaryPlan, SalaryRecord, Shift, Task, User, WorkMode, rule_followers, translator_holdings,
 )
 from .permissions import api_gate, api_role_required
 from .templatetags.eagle_tags import (
@@ -130,7 +130,7 @@ def register(request):
     """
     admin = request.user.is_admin_role
     rows = (
-        User.objects.select_related("department", "team_lead").prefetch_related("shifts__template")
+        User.objects.select_related("department", "team_lead").prefetch_related("shifts__template", "shifts__team_lead")
         .annotate(penalties_waiting=Count("rating_events", filter=Q(rating_events__decision=RatingEvent.Decision.PENDING)))
     )
     if not admin:
@@ -156,7 +156,7 @@ def register(request):
                 "avatar": avatars.url_of(one),
                 "role": _two(ROLE_MAP, one.role),
                 "department": _label(one.department),
-                "team_lead": one.team_lead.short_name if one.team_lead_id else None,
+                "team_lead": _leads_text(one),
                 "team_lead_gone": bool(one.team_lead_id and one.team_lead.is_deleted),
                 "deleted_at": _stamp(one.deleted_at, "%Y-%m-%d"),
                 "employment": _two(EMPLOYMENT_MAP, one.employment_type),
@@ -185,6 +185,15 @@ def register(request):
     })
 
 
+def _leads_text(person):
+    """The leader column of the register: the first shift's leader, then any other a second shift names ("A · B")."""
+    names = [person.team_lead.short_name] if person.team_lead_id else []
+    for row in person.shifts.all():
+        if row.is_active and row.team_lead_id and row.team_lead_id != person.team_lead_id and row.team_lead.short_name not in names:
+            names.append(row.team_lead.short_name)
+    return " · ".join(names) or None
+
+
 def _roster_shift(person):
     """Which company shift a person is on and the weekdays they work it, read from the rows the register already loaded.
 
@@ -192,7 +201,7 @@ def _roster_shift(person):
     of the active rows, or the default week when there are none) without a query for each person. ``custom`` says some active row
     is typed times, not a company shift: choosing a shift from the list replaces them, as the card on the file does.
     """
-    rows = [one for one in person.shifts.all() if one.is_active]
+    rows = [one for one in person.shifts.all() if one.is_active and one.slot == Shift.FIRST]
     counts = {}
     for one in rows:
         if one.template_id:
@@ -274,7 +283,7 @@ def employee(request, pk):
             "deleted_at": _stamp(person.deleted_at, "%Y-%m-%d"),
         },
         "summary": summary,
-        "shifts": [_roster_json(one) for one in person.shifts.select_related("template").all()] if bound else [],
+        "shifts": [_roster_json(one) for one in person.shifts.select_related("template", "team_lead").all()] if bound else [],
         "picker": shiftpick.picker_json(person) if bound and viewer.can_manage_attendance else None,
         "work_mode_card": _work_mode_card(person) if bound and viewer.can_manage_attendance else None,
         "probation": [
@@ -340,20 +349,23 @@ def employee_restore(request, pk):
 @endpoint("POST")
 @can_manage
 def employee_shift(request, pk):
-    """Put a person on one of the company's shifts for some weekdays, on none, or on a new one (``shiftpick``)."""
+    """Put a person on one of the company's shifts for some weekdays, on none, or on a new one (``shiftpick``).
+
+    The file's card may also send ``team_lead`` (the first shift's leader) and ``second`` (a second shift the same day with its
+    own leader); left out, they stay as they are, which is what the register's quick shift box relies on.
+    """
     person = get_object_or_404(User, pk=pk)
     if not person.follows_company_rules:
         return _error(400, "owner")
     try:
-        choice = shiftpick.read_choice(_object(request))
+        body = _object(request)
     except BadBody:
         return _error(400, "bad_body")
-    if choice is None:
+    choice, more = shiftpick.read_choice(body), shiftpick.read_more(body)
+    if choice is None or more is None:
         return _error(400, "bad_body")
-    template, days, new_name, new_start, new_end = choice
-    problem, chosen = shiftpick.choose(
-        person, template, days, new_name=new_name, new_start=new_start, new_end=new_end, actor=request.user,
-    )
+    lead, second = more
+    problem, chosen = shiftpick.choose_all(person, choice, lead=lead, second=second, actor=request.user)
     if problem:
         return _error(400, problem)
     return JsonResponse({"ok": True, "label": chosen.label if chosen else ""})

@@ -295,7 +295,8 @@ def assign_translator_direct(request, code):
         return JsonResponse({"ok": False, "error": "bad_status"}, status=400)
     if services.leads_online():
         return JsonResponse({"ok": False, "error": "lead_online"}, status=400)
-    if not translator.team_lead_id or not translator.team_lead.is_active:
+    lead = translator.lead_now()
+    if lead is None or not lead.is_active:
         return JsonResponse({"ok": False, "error": "no_leader"}, status=400)
     assignment = services.assign_direct_to_translator(
         task, translator, request.user, note=request.POST.get("note", "")[:250]

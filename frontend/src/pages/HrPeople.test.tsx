@@ -117,6 +117,9 @@ function employee(over: Partial<HrEmployee> = {}): HrEmployee {
         { num: 0, ar: "الاتنين", en: "Monday", checked: true },
         { num: 4, ar: "الجمعة", en: "Friday", checked: false },
       ],
+      second: { current: null, days: [], lead: null },
+      lead: null,
+      leads: null,
     },
     work_mode_card: { work_mode: { value: "office", ar: "من المكتب", en: "Office" }, is_hybrid: false, offices: [{ label: "المقر", radius_meters: 200 }], pinned_days: 0, policy_reject: false },
     probation: [{ stage: { value: "day_30", ar: "مراجعة 30 يوم", en: "30-day review" }, due_date: "2026-10-01", outcome: pendingReview }],
@@ -220,7 +223,50 @@ describe("HrEmployeePage", () => {
     await user.click(screen.getByRole("checkbox", { name: "الجمعة" }));
     await user.click(screen.getByRole("button", { name: "احفظ الشيفت" }));
     await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/hr/employees/11/shift/")).toBe(true));
-    expect(served.sent[0]!.body).toEqual({ template: "3", weekdays: [5, 0, 4], new_name: "", new_start: "", new_end: "" });
+    // Not a translator here: no leader is sent, so it stays as it is; no second shift picked takes it off.
+    expect(served.sent[0]!.body).toEqual({ template: "3", weekdays: [5, 0, 4], new_name: "", new_start: "", new_end: "", second: null });
+  });
+
+  it("gives a translator a second shift the same day with its own team leader", async () => {
+    const base = employee();
+    const translator = employee({
+      picker: {
+        ...base.picker!,
+        templates: [...base.picker!.templates, { id: 4, label: "بالليل", start: stampOf("5:00 PM", "5:00 PM"), end: stampOf("1:00 AM", "1:00 AM") }],
+        lead: 21,
+        leads: [
+          { id: 21, name: "ليدر الصبح" },
+          { id: 22, name: "ليدر الليل" },
+        ],
+      },
+    });
+    const served = serve("hr", {
+      ...page(translator),
+      "/api/v1/hr/employees/11/shift/": (url, init) => served.record(url, init, { ok: true, label: "الصبح" }),
+    });
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await screen.findByText("الشيفت");
+    expect(screen.getByLabelText("تيم ليدر الشيفت ده")).toHaveValue("21");
+    expect(screen.queryByLabelText("تيم ليدر الشيفت التاني")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("شيفت تاني في نفس اليوم"), "4");
+    await user.selectOptions(screen.getByLabelText("تيم ليدر الشيفت التاني"), "22");
+    await user.click(screen.getByRole("button", { name: "احفظ الشيفت" }));
+    await waitFor(() => expect(served.sent.some((post) => post.url === "/api/v1/hr/employees/11/shift/")).toBe(true));
+    // The second shift's days start as the first shift's.
+    expect(served.sent[0]!.body).toMatchObject({ template: "3", team_lead: "21", second: { template: "4", weekdays: [5, 0], team_lead: "22" } });
+  });
+
+  it("says in words that the second shift lands on the first one's hours", async () => {
+    serve("hr", {
+      ...page(),
+      "/api/v1/hr/employees/11/shift/": () => jsonResponse({ ok: false, error: "shifts_overlap" }, 400),
+    });
+    const user = userEvent.setup();
+    open("/hr/employees/11");
+    await screen.findByText("الشيفت");
+    await user.click(screen.getByRole("button", { name: "احفظ الشيفت" }));
+    expect(await screen.findByText(/الشيفت التاني داخل في مواعيد الشيفت الأولاني/)).toBeInTheDocument();
   });
 
   it("says in words why a shift choice was refused", async () => {

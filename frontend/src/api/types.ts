@@ -1317,6 +1317,12 @@ export interface ShiftPickerData {
   has_custom: boolean;
   templates: { id: number; label: string; start: AdminTime | null; end: AdminTime | null }[];
   days: { num: number; ar: string; en: string; checked: boolean }[];
+  /** A second shift the same day: the company shift (or none), its days, and the leader over it (a translator's only). */
+  second: { current: number | null; days: number[]; lead: number | null };
+  /** The first shift's leader (`User.team_lead`); `null` for somebody who is not a translator, or has none. */
+  lead: number | null;
+  /** The team leaders to pick from: only for a translator (`null` for anyone else, whose card shows no leader). */
+  leads: { id: number; name: string }[] | null;
 }
 
 /** GET /api/v1/admin/clients/: every client with the real details (`api_admin_clients.clients`). */
@@ -1867,6 +1873,10 @@ export interface HrRosterRow {
   minutes: number;
   work_mode: Labelled | null;
   is_active: boolean;
+  /** 1 the first shift, 2 a second one the same day. */
+  slot?: number;
+  /** The leader a second shift names (the first shift's is the person's own). */
+  team_lead?: string | null;
 }
 
 /** GET /api/v1/hr/schedules/?user=. */

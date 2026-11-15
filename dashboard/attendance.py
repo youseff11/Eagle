@@ -179,9 +179,10 @@ def plan_for(user, day):
             mode=override.mode_for(user), label=override.label, source="override",
         )
 
+    # The first shift is the day attendance is kept on; a second shift the same day (``Shift.slot``) is not punched yet.
     row = (
         Shift.objects.filter(user=user, weekday=day.weekday(), is_active=True)
-        .select_related("template").order_by("start_time", "id").first()
+        .select_related("template").order_by("slot", "start_time", "id").first()
     )
     if row is None or not (row.start and row.end):
         return PlannedDay(day, working=False, source="roster")
@@ -203,10 +204,10 @@ WEEKDAY_NAMES = {
 }
 
 
-def current_template(user):
-    """The shift most of this person's roster rows point at, or ``None``."""
+def current_template(user, slot=Shift.FIRST):
+    """The shift most of this person's roster rows of ``slot`` point at, or ``None``."""
     counts = {}
-    for row in Shift.objects.filter(user=user, is_active=True, template__isnull=False):
+    for row in Shift.objects.filter(user=user, is_active=True, template__isnull=False, slot=slot):
         counts[row.template_id] = counts.get(row.template_id, 0) + 1
     if not counts:
         return None
@@ -236,24 +237,33 @@ def shift_for_hours(start, end, name_ar="", actor=None):
 
 
 @transaction.atomic
-def assign_shift(user, template, weekdays, actor=None):
+def assign_shift(user, template, weekdays, actor=None, slot=Shift.FIRST, team_lead=None):
     """Put somebody on one company shift for the chosen weekdays.
 
-    Replaces their standing roster in one go - which is what "this person is
-    on shift 2" means. Days already recorded keep the shift they were worked
+    Replaces that shift's standing roster in one go - which is what "this
+    person is on shift 2" means. ``slot`` says which of their shifts it is:
+    the first, or a second one the same day, whose rows name their own
+    ``team_lead``. Days already recorded keep the shift they were worked
     under (the schedule is frozen onto each day), so nothing in the past moves.
-    ``template=None`` clears the roster.
+    ``template=None`` clears that shift; clearing the first clears the second
+    too, since a second shift with no first is nobody's roster.
     """
     days = sorted({int(d) for d in weekdays if str(d).isdecimal() and 0 <= int(d) <= 6})
-    Shift.objects.filter(user=user).delete()
+    gone = Shift.objects.filter(user=user)
+    if not (slot == Shift.FIRST and template is None):
+        gone = gone.filter(slot=slot)
+    gone.delete()
     rows = []
     if template is not None:
         rows = Shift.objects.bulk_create([
-            Shift(user=user, weekday=day, template=template) for day in days
+            Shift(user=user, weekday=day, template=template, slot=slot,
+                  team_lead=team_lead if slot != Shift.FIRST else None)
+            for day in days
         ])
     services.log(
-        actor, "schedule.assign", user.username,
-        f"{template.name if template else '-'} {','.join(str(d) for d in days)}",
+        actor, "schedule.assign" if slot == Shift.FIRST else "schedule.assign_second", user.username,
+        f"{template.name if template else '-'} {','.join(str(d) for d in days)}"
+        + (f" lead {team_lead.username}" if team_lead is not None and slot != Shift.FIRST else ""),
     )
     return rows
 

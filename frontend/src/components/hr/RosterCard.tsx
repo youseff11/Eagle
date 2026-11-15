@@ -92,7 +92,16 @@ export function RosterCard({ id, rows, days, editable }: { id: number; rows: HrR
       )}
       {rows.map((row) => (
         <div className="kv" key={row.id} data-shift={row.id}>
-          <span>{words(row.weekday)}</span>
+          <span>
+            {words(row.weekday)}
+            {row.slot === 2 && (
+              <span className="muted" data-part="second-shift">
+                {" "}
+                · {t("شيفت تاني", "Second shift")}
+                {row.team_lead ? ` · ${t("ليدر", "Leader")}: ${row.team_lead}` : ""}
+              </span>
+            )}
+          </span>
           <b className="mono">
             {stamp(row.start)}–{stamp(row.end)}
           </b>

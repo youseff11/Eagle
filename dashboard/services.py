@@ -41,6 +41,7 @@ from .models import (
     TaskUpload,
     User,
     WordCountState,
+    team_q,
     translator_holdings,
     translator_q,
 )
@@ -2257,22 +2258,25 @@ def direct_translators():
     Only those who have an active leader: the leader keeps the review, the translator's date and the way back when
     the translator declines, so a translator under nobody would leave the task with no one to look at the work.
     """
-    return list(
-        User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead__isnull=False, team_lead__is_active=True)
-        .select_related("team_lead").prefetch_related("shifts").order_by("first_name", "username")
+    people = (
+        User.objects.filter(role=Role.TRANSLATOR, is_active=True)
+        .select_related("team_lead").prefetch_related("shifts__team_lead", "shifts__template").order_by("first_name", "username")
     )
+    # The leader of the shift they are on now (a translator on two shifts has one for each), or their own outside every shift.
+    return [person for person in people if (lead := person.lead_now()) is not None and lead.is_active]
 
 
 @transaction.atomic
 def assign_direct_to_translator(task, translator, by_user, note=""):
     """The operation gives a new task straight to a translator, because no team leader is here to hand it out.
 
-    The task becomes the translator's own leader's (so the review, the translator's date and a refusal all go where they
-    always go), the translator has the usual window to say yes, and the leader - who is away - is told what was done in
-    their team, in the notification they will find when they open the site. Nothing is skipped after this: the
-    leader still reviews before the operation takes the task over.
+    The task becomes the translator's own leader's - the leader of the shift they are on now, for one who works two
+    (``User.lead_now``) - so the review, the translator's date and a refusal all go where they always go. The translator
+    has the usual window to say yes, and the leader - who is away - is told what was done in their team, in the
+    notification they will find when they open the site. Nothing is skipped after this: the leader still reviews before
+    the operation takes the task over.
     """
-    lead = translator.team_lead
+    lead = translator.lead_now()
     task.team_lead = lead
     task.lead_accepted_at = None
     task.save(update_fields=["team_lead", "lead_accepted_at", "updated_at"])
@@ -2605,7 +2609,7 @@ def check_translators(raw_parts, by_user):
         translator = User.objects.filter(pk=pk, role=Role.TRANSLATOR, is_active=True).first() if pk else None
         if translator is None:
             raise PartError(f"{who}اختار مترجم.", "no_such_translator")
-        if not by_user.is_admin_role and translator.team_lead_id != by_user.pk:
+        if not by_user.is_admin_role and by_user.pk not in translator.lead_ids():
             raise PartError(f"{who}المترجم ده مش في فريقك.", NOT_IN_YOUR_TEAM)
         people.append(translator)
     return people
@@ -6836,7 +6840,8 @@ def translator_board(lead=None):
     """
     people = User.objects.filter(role=Role.TRANSLATOR, is_active=True)
     if lead is not None:
-        people = people.filter(team_lead=lead)
+        # Their own leader, or the leader of a second shift they work (``team_q``).
+        people = people.filter(team_q(lead))
     people = people.select_related("team_lead").prefetch_related("shifts")
 
     # What each of them holds: a task they were given, whole or a share of. One whose share they have handed in is not theirs to
@@ -6885,14 +6890,16 @@ def translator_board(lead=None):
 def team_overview():
     """Team leaders with their live availability and team load."""
     rows = []
-    leads = User.objects.filter(role=Role.TEAM_LEAD, is_active=True).prefetch_related(
-        "team_members", "shifts"
-    )
-    leads = list(leads)
+    leads = list(User.objects.filter(role=Role.TEAM_LEAD, is_active=True).prefetch_related("shifts"))
+    # A translator on two shifts is in both leaders' teams (``User.lead_ids``): the teams are built from the translators' side.
+    teams = {}
+    for person in User.objects.filter(role=Role.TRANSLATOR, is_active=True).prefetch_related("shifts"):
+        for lead_id in person.lead_ids():
+            teams.setdefault(lead_id, []).append(person)
     # Who holds a task, for everybody on every team in two questions (``is_busy`` asks them one by one).
-    held = translator_holdings([m.pk for lead in leads for m in lead.team_members.all() if m.is_active])
+    held = translator_holdings({m.pk for members in teams.values() for m in members})
     for lead in leads:
-        members = [m for m in lead.team_members.all() if m.is_active]
+        members = teams.get(lead.pk, [])
         busy, free, offline = [], [], []
         for member in members:
             if not member.is_online:

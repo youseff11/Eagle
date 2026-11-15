@@ -23,7 +23,7 @@ from .api_v1 import (
 from .forms import QUICK_LANGUAGES, RequirementForm, TaskForm, language_choices
 from .models import (
     ACTIVE_TASK_STATUSES, AppSettings, AssignmentStatus, ChatAttachment, Client, ClientRequirement, Priority, Role, RoomKind,
-    Task, TaskStatus, User, translator_holdings,
+    Task, TaskStatus, User, team_q, translator_holdings,
 )
 from .permissions import api_role_required
 from .templatetags.eagle_tags import PRIORITY_MAP
@@ -200,7 +200,7 @@ def _direct_json():
             {
                 "id": person.pk,
                 "name": person.short_name,
-                "lead": person.team_lead.short_name,
+                "lead": person.lead_now().short_name,
                 "state": "off" if not person.is_online else "busy" if person.pk in held else "free",
                 "rating": float(person.rating),
             }
@@ -347,7 +347,8 @@ def _lead_json(task, user):
     translators = []
     lead_id = user.pk if user.is_team_lead and not user.is_admin_role else task.team_lead_id
     if can_assign and lead_id:
-        team = list(User.objects.filter(role=Role.TRANSLATOR, is_active=True, team_lead_id=lead_id).prefetch_related("shifts"))
+        # The leader's team: their own translators and those whose second shift they lead (``team_q``).
+        team = list(User.objects.filter(team_q(lead_id), role=Role.TRANSLATOR, is_active=True).prefetch_related("shifts"))
         held = translator_holdings([person.pk for person in team])
         for person in team:
             translators.append({

@@ -418,6 +418,9 @@ def _roster_json(shift):
         "minutes": shift.minutes,
         "work_mode": _mode_json(shift.work_mode),
         "is_active": shift.is_active,
+        # Which of the person's shifts the row is (1 the first, 2 a second the same day) and the leader a second one names.
+        "slot": shift.slot,
+        "team_lead": shift.team_lead.short_name if shift.team_lead_id else None,
     }
 
 
@@ -504,7 +507,7 @@ def schedules(request):
             "work_mode": _mode_json(person.work_mode),
             "schedule_kind": person.get_schedule_kind_display(),
         }
-        body["shifts"] = [_roster_json(one) for one in person.shifts.select_related("template").all()]
+        body["shifts"] = [_roster_json(one) for one in person.shifts.select_related("template", "team_lead").all()]
         body["overrides"] = [
             _override_json(one)
             for one in person.schedule_overrides.select_related("template").filter(date__gte=today - timedelta(days=30))
